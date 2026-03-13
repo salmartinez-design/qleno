@@ -24,13 +24,13 @@ export function useTenantBrand() {
   });
 
   useEffect(() => {
-    const color = (company as any)?.brand_color || '#00C9A7';
+    const color = (company as any)?.brand_color || '#C53030';
     applyTenantColor(color);
   }, [(company as any)?.brand_color]);
 
   return {
     company,
-    brandColor: (company as any)?.brand_color || '#00C9A7',
+    brandColor: (company as any)?.brand_color || '#C53030',
     logoUrl: (company as any)?.logo_url || null,
     companyName: company?.name || 'CleanOps Pro',
   };

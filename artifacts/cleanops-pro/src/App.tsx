@@ -11,6 +11,8 @@ import CustomersPage from "@/pages/customers";
 import InvoicesPage from "@/pages/invoices";
 import CompanyPage from "@/pages/company";
 import LoyaltyPage from "@/pages/loyalty";
+import PayrollPage from "@/pages/payroll";
+import CleancyclopediaPage from "@/pages/cleancyclopedia";
 import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient({
@@ -29,6 +31,8 @@ function Router() {
       <Route path="/employees" component={EmployeesPage} />
       <Route path="/customers" component={CustomersPage} />
       <Route path="/invoices" component={InvoicesPage} />
+      <Route path="/payroll" component={PayrollPage} />
+      <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
       <Route path="/company" component={CompanyPage} />
       <Route path="/loyalty" component={LoyaltyPage} />
       <Route component={NotFound} />

@@ -74,13 +74,21 @@ export function AppSidebar() {
       className="flex flex-col h-screen overflow-y-auto"
     >
       {/* Logo / Company Header */}
-      <div style={{ borderBottom: '1px solid #252525', padding: '16px' }} className="shrink-0">
+      <div style={{ borderBottom: '1px solid #252525', padding: '14px 16px' }} className="shrink-0">
         {logoUrl ? (
-          <img src={logoUrl} alt={companyName} style={{ maxHeight: '36px', objectFit: 'contain' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '8px', padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <img src={logoUrl} alt={companyName} style={{ height: '28px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+            </div>
+            <div>
+              <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 400, fontSize: '12px', color: '#E8E0D0', lineHeight: 1.2, margin: 0 }}>{companyName}</p>
+              <p style={{ fontSize: '10px', color: '#888780', fontFamily: "'DM Mono', monospace", fontWeight: 300, lineHeight: 1.2, margin: 0 }}>CleanOps Pro</p>
+            </div>
+          </div>
         ) : (
           <div className="flex items-center gap-2.5">
             <div style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: brandColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ color: '#0D0D0D', fontSize: '13px', fontFamily: "'Playfair Display', serif", fontWeight: 700 }}>C</span>
+              <span style={{ color: '#FFFFFF', fontSize: '13px', fontFamily: "'Playfair Display', serif", fontWeight: 700 }}>C</span>
             </div>
             <div>
               <p style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '15px', color: '#E8E0D0', lineHeight: 1.2 }}>CleanOps Pro</p>

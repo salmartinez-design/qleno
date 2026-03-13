@@ -62,8 +62,8 @@ export default function Login() {
 
       <Card className="w-full max-w-md p-8 bg-card border-border shadow-2xl relative z-10">
         <div className="text-center mb-8 flex flex-col items-center">
-          <div className="w-16 h-16 rounded-xl bg-primary flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
-            <img src={`${import.meta.env.BASE_URL}images/logo-mark.png`} alt="Logo" className="w-10 h-10 invert brightness-0" />
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '10px 16px', marginBottom: '20px', display: 'inline-block' }}>
+            <img src="/phes-logo.jpeg" alt="PHES Cleaning LLC" style={{ height: '52px', width: 'auto', objectFit: 'contain', display: 'block' }} />
           </div>
           <h1 className="text-3xl font-display font-bold text-white tracking-tight">CleanOps Pro</h1>
           <p className="text-muted-foreground mt-2 font-medium">Sign in to your workspace</p>
@@ -75,7 +75,7 @@ export default function Login() {
             <Input 
               id="email" 
               type="email" 
-              placeholder="admin@phes.com"
+              placeholder="owner@phescleaning.com"
               className="bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary h-12"
               {...register("email")} 
             />
