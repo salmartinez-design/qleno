@@ -5,10 +5,6 @@ import { useLogin } from "@workspace/api-client-react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
 const loginSchema = z.object({
@@ -52,60 +48,56 @@ export default function Login() {
     );
   };
 
+  const F: React.CSSProperties = {
+    width: '100%', height: '44px',
+    backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A',
+    borderRadius: '8px', color: '#F0EDE8',
+    fontSize: '13px', padding: '0 14px', outline: 'none',
+  };
+
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background dark p-4">
-      {/* Abstract dark shapes in background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none opacity-20">
-        <div className="absolute -top-[20%] -right-[10%] w-[50%] h-[50%] rounded-full bg-primary blur-[120px]" />
-        <div className="absolute -bottom-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-secondary blur-[120px]" />
+    <div style={{ minHeight: '100vh', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0A0A0A', padding: '16px' }}>
+      {/* Glow blobs */}
+      <div style={{ position: 'absolute', inset: 0, overflow: 'hidden', pointerEvents: 'none' }}>
+        <div style={{ position: 'absolute', top: '-20%', right: '-10%', width: '50%', height: '50%', borderRadius: '50%', background: 'rgba(197,48,48,0.12)', filter: 'blur(120px)' }} />
+        <div style={{ position: 'absolute', bottom: '-20%', left: '-10%', width: '40%', height: '40%', borderRadius: '50%', background: 'rgba(197,48,48,0.06)', filter: 'blur(80px)' }} />
       </div>
 
-      <Card className="w-full max-w-md p-8 bg-card border-border shadow-2xl relative z-10">
-        <div className="text-center mb-8 flex flex-col items-center">
-          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '12px', padding: '10px 16px', marginBottom: '20px', display: 'inline-block' }}>
-            <img src="/phes-logo.jpeg" alt="PHES Cleaning LLC" style={{ height: '52px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+      <div style={{ position: 'relative', width: '100%', maxWidth: '420px', backgroundColor: '#161616', border: '1px solid #222222', borderRadius: '16px', padding: '36px 32px' }}>
+        {/* Brand */}
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <div style={{ backgroundColor: '#FFFFFF', borderRadius: '10px', padding: '8px 14px', marginBottom: '18px', display: 'inline-block' }}>
+            <img src="/phes-logo.jpeg" alt="PHES Cleaning LLC" style={{ height: '48px', width: 'auto', objectFit: 'contain', display: 'block' }} />
           </div>
-          <h1 className="text-3xl font-display font-bold text-white tracking-tight">CleanOps Pro</h1>
-          <p className="text-muted-foreground mt-2 font-medium">Sign in to your workspace</p>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#F0EDE8', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>CleanOps Pro</h1>
+          <p style={{ fontSize: '13px', color: '#7A7873', margin: 0 }}>Sign in to your workspace</p>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div className="space-y-2">
-            <Label htmlFor="email" className="text-muted-foreground uppercase text-xs tracking-wider">Email Address</Label>
-            <Input 
-              id="email" 
-              type="email" 
-              placeholder="owner@phescleaning.com"
-              className="bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary h-12"
-              {...register("email")} 
-            />
-            {errors.email && <p className="text-sm text-destructive mt-1">{errors.email.message}</p>}
+        <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '6px' }}>Email Address</label>
+            <input type="email" placeholder="owner@phescleaning.com" style={F} {...register("email")} />
+            {errors.email && <p style={{ fontSize: '11px', color: '#F87171', marginTop: '4px' }}>{errors.email.message}</p>}
           </div>
 
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password" className="text-muted-foreground uppercase text-xs tracking-wider">Password</Label>
-              <a href="#" className="text-xs text-primary hover:underline">Forgot password?</a>
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <label style={{ fontSize: '11px', fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
+              <a href="#" style={{ fontSize: '12px', color: 'var(--brand)', textDecoration: 'none' }}>Forgot password?</a>
             </div>
-            <Input 
-              id="password" 
-              type="password" 
-              placeholder="••••••••"
-              className="bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary h-12"
-              {...register("password")} 
-            />
-            {errors.password && <p className="text-sm text-destructive mt-1">{errors.password.message}</p>}
+            <input type="password" placeholder="••••••••" style={F} {...register("password")} />
+            {errors.password && <p style={{ fontSize: '11px', color: '#F87171', marginTop: '4px' }}>{errors.password.message}</p>}
           </div>
 
-          <Button 
-            type="submit" 
-            className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground font-bold text-lg shadow-lg shadow-primary/20"
+          <button
+            type="submit"
             disabled={loginMutation.isPending}
+            style={{ width: '100%', height: '44px', backgroundColor: 'var(--brand)', color: '#0A0A0A', borderRadius: '8px', fontSize: '15px', fontWeight: 600, border: 'none', cursor: loginMutation.isPending ? 'wait' : 'pointer', opacity: loginMutation.isPending ? 0.7 : 1, marginTop: '4px' }}
           >
             {loginMutation.isPending ? "Signing in..." : "Sign In"}
-          </Button>
+          </button>
         </form>
-      </Card>
+      </div>
     </div>
   );
 }

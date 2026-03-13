@@ -5,6 +5,31 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { DollarSign, CheckCircle2, Users, AlertTriangle } from "lucide-react";
 
+const S = {
+  card: {
+    backgroundColor: '#161616',
+    border: '1px solid #222222',
+    borderRadius: '10px',
+  } as React.CSSProperties,
+  label: {
+    fontSize: '11px', fontWeight: 500, color: '#4A4845',
+    textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0,
+  } as React.CSSProperties,
+  value: {
+    fontSize: '22px', fontWeight: 700, color: '#F0EDE8',
+    marginTop: '12px', marginBottom: '4px',
+  } as React.CSSProperties,
+  sub: {
+    fontSize: '12px', fontWeight: 400, color: '#7A7873', margin: 0,
+  } as React.CSSProperties,
+  th: {
+    padding: '12px 20px', textAlign: 'left' as const,
+    fontSize: '11px', fontWeight: 500, color: '#4A4845',
+    textTransform: 'uppercase' as const, letterSpacing: '0.06em',
+    borderBottom: '1px solid #1A1A1A',
+  } as React.CSSProperties,
+};
+
 const mockChartData = [
   { name: 'Mon', revenue: 3200 },
   { name: 'Tue', revenue: 2800 },
@@ -16,167 +41,131 @@ const mockChartData = [
 ];
 
 export default function Dashboard() {
-  const { data, isLoading } = useGetDashboardMetrics(
+  const { data } = useGetDashboardMetrics(
     { period: "week" },
     { request: { headers: getAuthHeaders() } }
   );
 
   return (
     <DashboardLayout>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-        {/* Page Title */}
-        <div>
-          <h1 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '42px', color: '#E8E0D0', margin: 0, lineHeight: 1.1 }}>Dashboard</h1>
-          <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 300, fontSize: '13px', color: '#888780', marginTop: '6px' }}>Overview of operations for the current week.</p>
-        </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
 
         {/* Metric Cards */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-          <MetricCard
-            label="Total Revenue"
-            value={`$${(data?.total_revenue || 0).toLocaleString()}`}
-            sub="+12% from last week"
-            subPositive
-            icon={<DollarSign size={16} strokeWidth={1.5} />}
-          />
-          <MetricCard
-            label="Jobs Completed"
-            value={data?.jobs_completed || 0}
-            sub={`${data?.jobs_in_progress || 0} in progress`}
-            icon={<CheckCircle2 size={16} strokeWidth={1.5} />}
-          />
-          <MetricCard
-            label="Active Employees"
-            value={data?.active_employees || 0}
-            sub={`Avg score: ${(data?.avg_job_score || 0).toFixed(1)}/4.0`}
-            subPositive
-            icon={<Users size={16} strokeWidth={1.5} />}
-          />
-          <MetricCard
-            label="Flagged Clock-Ins"
-            value={data?.flagged_clock_ins || 0}
-            sub="Requires review"
-            subNegative={!!data?.flagged_clock_ins}
-            icon={<AlertTriangle size={16} strokeWidth={1.5} />}
-          />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+          {[
+            { label: 'Total Revenue', value: `$${(data?.total_revenue || 0).toLocaleString()}`, sub: '+12% from last week', icon: DollarSign },
+            { label: 'Jobs Completed', value: data?.jobs_completed || 0, sub: `${data?.jobs_in_progress || 0} in progress`, icon: CheckCircle2 },
+            { label: 'Active Employees', value: data?.active_employees || 0, sub: `Avg score: ${(data?.avg_job_score || 0).toFixed(1)}/4.0`, icon: Users },
+            { label: 'Flagged Clock-Ins', value: data?.flagged_clock_ins || 0, sub: 'Requires review', icon: AlertTriangle },
+          ].map(({ label, value, sub, icon: Icon }) => (
+            <div
+              key={label}
+              style={{ ...S.card, padding: '20px', position: 'relative', transition: 'border-color 0.2s', cursor: 'default' }}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(var(--brand-rgb), 0.4)')}
+              onMouseLeave={e => (e.currentTarget.style.borderColor = '#222222')}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <p style={S.label}>{label}</p>
+                <Icon size={18} style={{ color: 'var(--brand)', opacity: 0.5, position: 'absolute', top: '20px', right: '20px' }} strokeWidth={1.5} />
+              </div>
+              <p style={S.value}>{value}</p>
+              <p style={S.sub}>{sub}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Chart + Top Employees */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '16px' }}>
-          {/* Revenue Chart */}
-          <div style={{ backgroundColor: '#1A1A1A', borderRadius: '8px', padding: '24px' }}>
-            <h3 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '18px', color: '#E8E0D0', margin: '0 0 4px 0' }}>Revenue Trend</h3>
-            <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 300, fontSize: '11px', color: '#888780', margin: '0 0 20px 0' }}>7 day rolling volume</p>
-            <div style={{ height: '240px' }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={mockChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="var(--tenant-color)" stopOpacity={0.15}/>
-                      <stop offset="95%" stopColor="var(--tenant-color)" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#252525" vertical={false} />
-                  <XAxis dataKey="name" stroke="#555550" fontSize={11} tickLine={false} axisLine={false} fontFamily="'DM Mono', monospace" />
-                  <YAxis stroke="#555550" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${v}`} fontFamily="'DM Mono', monospace" />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '6px', fontFamily: "'DM Mono', monospace", fontSize: '12px' }}
-                    itemStyle={{ color: '#E8E0D0' }}
-                    labelStyle={{ color: '#888780' }}
-                  />
-                  <Area type="monotone" dataKey="revenue" stroke="var(--tenant-color)" strokeWidth={2} fillOpacity={1} fill="url(#colorRevenue)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Top Employees */}
-          <div style={{ backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '8px', padding: '24px' }}>
-            <h3 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '18px', color: '#E8E0D0', margin: '0 0 20px 0' }}>Top Employees</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {data?.top_employees?.length ? data.top_employees.slice(0, 5).map((emp, i) => (
-                <div key={emp.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', backgroundColor: '#0D0D0D', borderRadius: '6px', border: '1px solid #252525' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <span style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: 'var(--tenant-color)', fontWeight: 400, minWidth: '14px' }}>{i + 1}</span>
-                    <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: 'rgba(var(--tenant-color-rgb), 0.20)', color: 'var(--tenant-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontFamily: "'DM Mono', monospace" }}>
-                      {emp.name.split(' ').map(n => n[0]).join('').slice(0,2)}
-                    </div>
-                    <div>
-                      <p style={{ fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#E8E0D0', margin: 0 }}>{emp.name}</p>
-                      <p style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', margin: 0 }}>{emp.jobs_completed} jobs</p>
-                    </div>
-                  </div>
-                  {emp.avg_score != null && (
-                    <span style={{ backgroundColor: '#EAF3DE', color: '#27500A', padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontFamily: "'DM Mono', monospace" }}>
-                      ★ {emp.avg_score.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-              )) : (
-                <p style={{ fontSize: '13px', color: '#888780', textAlign: 'center', padding: '24px 0', fontFamily: "'DM Mono', monospace" }}>No data available</p>
-              )}
-            </div>
+        {/* Revenue Chart */}
+        <div style={{ ...S.card, padding: '24px' }}>
+          <p style={{ fontSize: '15px', fontWeight: 600, color: '#F0EDE8', margin: 0 }}>Revenue Trend</p>
+          <p style={{ fontSize: '12px', color: '#7A7873', margin: '2px 0 20px 0' }}>7 day rolling volume</p>
+          <div style={{ height: '220px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={mockChartData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.2} />
+                    <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1A1A1A" vertical={false} />
+                <XAxis dataKey="name" stroke="transparent" tick={{ fill: '#4A4845', fontSize: 11 }} tickLine={false} axisLine={false} />
+                <YAxis stroke="transparent" tick={{ fill: '#4A4845', fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1C1C1C', border: '1px solid #333', borderRadius: '6px', fontSize: '12px', color: '#F0EDE8' }}
+                  itemStyle={{ color: 'var(--brand)' }}
+                  labelStyle={{ color: '#7A7873' }}
+                  cursor={{ stroke: '#333', strokeWidth: 1 }}
+                />
+                <Area type="monotone" dataKey="revenue" stroke="var(--brand)" strokeWidth={2} fill="url(#revGrad)" dot={false} activeDot={{ r: 5, fill: 'var(--brand)', stroke: '#fff', strokeWidth: 2 }} />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Recent Jobs Table */}
-        <div style={{ backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '8px', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 24px', borderBottom: '1px solid #252525', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h3 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '18px', color: '#E8E0D0', margin: 0 }}>Recent & Upcoming Jobs</h3>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {/* Two-column: Jobs + Top Employees */}
+        <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px' }}>
+          {/* Recent Jobs */}
+          <div style={{ ...S.card, overflow: 'hidden' }}>
+            <div style={{ padding: '20px 20px 0' }}>
+              <p style={{ fontSize: '15px', fontWeight: 600, color: '#F0EDE8', margin: 0 }}>Recent & Upcoming Jobs</p>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '12px' }}>
               <thead>
-                <tr style={{ backgroundColor: '#0D0D0D', borderBottom: '1px solid #252525' }}>
+                <tr>
                   {['Client', 'Date & Time', 'Service', 'Assigned', 'Status'].map(h => (
-                    <th key={h} style={{ padding: '12px 24px', textAlign: 'left', fontSize: '11px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#555550', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</th>
+                    <th key={h} style={S.th}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {data?.recent_jobs?.slice(0, 6).map(job => (
-                  <tr key={job.id} style={{ borderBottom: '1px solid #252525' }} className="hover:bg-[#1A1A1A] transition-colors">
-                    <td style={{ padding: '14px 24px', fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#E8E0D0' }}>{job.client_name}</td>
-                    <td style={{ padding: '14px 24px' }}>
-                      <p style={{ fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#E8E0D0', margin: 0 }}>{new Date(job.scheduled_date).toLocaleDateString()}</p>
-                      <p style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', margin: 0 }}>{job.scheduled_time || 'Anytime'}</p>
+                  <tr
+                    key={job.id}
+                    style={{ borderBottom: '1px solid #0F0F0F', cursor: 'default' }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#1C1C1C')}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+                  >
+                    <td style={{ padding: '12px 20px', fontSize: '13px', fontWeight: 600, color: '#F0EDE8' }}>{job.client_name}</td>
+                    <td style={{ padding: '12px 20px' }}>
+                      <p style={{ fontSize: '12px', color: '#7A7873', margin: 0 }}>{new Date(job.scheduled_date).toLocaleDateString()}</p>
+                      <p style={{ fontSize: '12px', color: '#7A7873', margin: 0 }}>{job.scheduled_time || 'Anytime'}</p>
                     </td>
-                    <td style={{ padding: '14px 24px' }}>
-                      <span style={{ border: '1px solid #252525', borderRadius: '4px', padding: '2px 8px', fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                        {job.service_type.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td style={{ padding: '14px 24px', fontSize: '13px', fontFamily: "'DM Mono', monospace", color: '#888780' }}>{job.assigned_user_name || 'Unassigned'}</td>
-                    <td style={{ padding: '14px 24px' }}><StatusBadge status={job.status as any} /></td>
+                    <td style={{ padding: '12px 20px', fontSize: '12px', color: '#7A7873', textTransform: 'capitalize' }}>{job.service_type?.replace(/_/g, ' ')}</td>
+                    <td style={{ padding: '12px 20px', fontSize: '12px', color: '#7A7873' }}>{job.assigned_user_name || 'Unassigned'}</td>
+                    <td style={{ padding: '12px 20px' }}><StatusBadge status={job.status as any} /></td>
                   </tr>
                 )) || (
-                  <tr><td colSpan={5} style={{ padding: '32px 24px', textAlign: 'center', color: '#888780', fontSize: '13px', fontFamily: "'DM Mono', monospace" }}>No recent jobs</td></tr>
+                  <tr><td colSpan={5} style={{ padding: '32px 20px', textAlign: 'center', fontSize: '13px', color: '#7A7873' }}>No recent jobs</td></tr>
                 )}
               </tbody>
             </table>
           </div>
+
+          {/* Top Employees */}
+          <div style={S.card}>
+            <p style={{ fontSize: '15px', fontWeight: 600, color: '#F0EDE8', padding: '20px', margin: 0 }}>Top Employees</p>
+            {data?.top_employees?.length ? data.top_employees.slice(0, 6).map((emp, i) => (
+              <div
+                key={emp.user_id}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 20px', borderBottom: '1px solid #0F0F0F', cursor: 'default' }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#1C1C1C')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--brand)', width: '20px', flexShrink: 0 }}>{i + 1}</span>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>
+                  {emp.name.split(' ').map((n: string) => n[0]).join('').slice(0, 2)}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: '13px', fontWeight: 600, color: '#F0EDE8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{emp.name}</p>
+                  <p style={{ fontSize: '12px', color: '#7A7873', margin: 0 }}>{emp.jobs_completed} jobs</p>
+                </div>
+              </div>
+            )) : (
+              <p style={{ padding: '32px 20px', textAlign: 'center', fontSize: '13px', color: '#7A7873' }}>No data available</p>
+            )}
+          </div>
         </div>
       </div>
     </DashboardLayout>
-  );
-}
-
-function MetricCard({ label, value, sub, subPositive, subNegative, icon }: {
-  label: string; value: any; sub?: string; subPositive?: boolean; subNegative?: boolean; icon?: React.ReactNode;
-}) {
-  const subColor = subNegative ? '#FCEBEB' : subPositive ? '#EAF3DE' : '#888780';
-  return (
-    <div style={{ backgroundColor: '#1A1A1A', borderRadius: '8px', padding: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-        <p style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>{label}</p>
-        {icon && (
-          <div style={{ padding: '6px', backgroundColor: '#161616', borderRadius: '6px', border: '1px solid #252525', color: 'rgba(var(--tenant-color-rgb), 0.6)', display: 'flex' }}>
-            {icon}
-          </div>
-        )}
-      </div>
-      <p style={{ fontFamily: "'Playfair Display', serif", fontWeight: 900, fontSize: '28px', color: '#E8E0D0', margin: '0 0 6px 0', lineHeight: 1 }}>{value}</p>
-      {sub && <p style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", fontWeight: 300, color: subColor, margin: 0 }}>{sub}</p>}
-    </div>
   );
 }

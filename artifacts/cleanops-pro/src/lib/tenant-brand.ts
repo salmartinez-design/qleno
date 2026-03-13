@@ -11,8 +11,15 @@ function hexToRgb(hex: string): string {
 }
 
 export function applyTenantColor(hex: string) {
-  document.documentElement.style.setProperty('--tenant-color', hex);
-  document.documentElement.style.setProperty('--tenant-color-rgb', hexToRgb(hex));
+  const rgb = hexToRgb(hex);
+  const el = document.documentElement;
+  el.style.setProperty('--brand', hex);
+  el.style.setProperty('--brand-rgb', rgb);
+  el.style.setProperty('--brand-dim', `rgba(${rgb}, 0.15)`);
+  el.style.setProperty('--brand-soft', `rgba(${rgb}, 0.08)`);
+  // Legacy aliases for any remaining references
+  el.style.setProperty('--tenant-color', hex);
+  el.style.setProperty('--tenant-color-rgb', rgb);
 }
 
 export function useTenantBrand() {

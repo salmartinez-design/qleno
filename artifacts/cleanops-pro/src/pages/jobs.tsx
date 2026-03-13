@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { useListJobs, ListJobsStatus, useCreateJob, useListClients } from "@workspace/api-client-react";
+import { useListJobs, ListJobsStatus, useCreateJob } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Plus, Search, Clock, MapPin, Camera } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
@@ -17,33 +16,39 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useQueryClient } from "@tanstack/react-query";
 
 const FREQ_COLORS: Record<string, string> = {
-  weekly: 'var(--tenant-color)',
-  biweekly: '#378ADD',
-  triweekly: '#EF9F27',
-  monthly: '#AB47BC',
-  on_demand: '#888780',
-};
-
-const STATUS_BOTTOM: Record<string, string> = {
-  in_progress: '#EF9F27',
-  complete: '#3B6D11',
-  scheduled: '#252525',
-  cancelled: '#888780',
+  weekly:    'var(--brand)',
+  biweekly:  '#60A5FA',
+  triweekly: '#FBBF24',
+  monthly:   '#A78BFA',
+  on_demand: '#4A4845',
 };
 
 const createJobSchema = z.object({
-  client_id: z.coerce.number().min(1, "Client is required"),
-  service_type: z.enum(["standard_clean", "deep_clean", "move_out", "recurring_maintenance", "post_construction"]),
+  client_id:      z.coerce.number().min(1, "Client is required"),
+  service_type:   z.enum(["standard_clean", "deep_clean", "move_out", "recurring_maintenance", "post_construction"]),
   scheduled_date: z.string().min(1, "Date is required"),
-  frequency: z.enum(["weekly", "biweekly", "monthly", "on_demand"]),
-  base_fee: z.coerce.number().min(0),
+  frequency:      z.enum(["weekly", "biweekly", "monthly", "on_demand"]),
+  base_fee:       z.coerce.number().min(0),
 });
 
 type TabId = ListJobsStatus | 'all';
 
+const BTN_PRIMARY: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: '8px',
+  padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#0A0A0A',
+  borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer',
+};
+
+const FORM_LABEL: React.CSSProperties = {
+  fontSize: '11px', fontWeight: 500, color: '#4A4845',
+  textTransform: 'uppercase', letterSpacing: '0.06em',
+  display: 'block', marginBottom: '6px',
+};
+
 export default function JobsPage() {
   const [activeTab, setActiveTab] = useState<TabId>('all');
   const [search, setSearch] = useState('');
+
   const { data, isLoading } = useListJobs(
     activeTab !== 'all' ? { status: activeTab } : {},
     { request: { headers: getAuthHeaders() } }
@@ -62,48 +67,45 @@ export default function JobsPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <h1 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '42px', color: '#E8E0D0', margin: 0, lineHeight: 1.1 }}>Jobs</h1>
-            <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 300, fontSize: '13px', color: '#888780', marginTop: '6px' }}>Manage scheduled and active cleanings.</p>
-          </div>
-          <CreateJobDialog />
-        </div>
-
-        {/* Tabs + Search */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Controls row */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-            {tabs.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: '6px 16px',
-                  fontSize: '12px',
-                  fontFamily: "'DM Mono', monospace",
-                  fontWeight: 300,
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  border: activeTab === tab.id ? 'none' : '1px solid #252525',
-                  backgroundColor: activeTab === tab.id ? 'var(--tenant-color)' : 'transparent',
-                  color: activeTab === tab.id ? '#0D0D0D' : '#888780',
-                  transition: 'all 0.15s',
-                }}
-              >
-                {tab.label}
-              </button>
-            ))}
+          {/* Tab switcher */}
+          <div style={{ display: 'flex', gap: '4px', backgroundColor: '#111111', border: '1px solid #222222', borderRadius: '8px', padding: '4px' }}>
+            {tabs.map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  style={{
+                    padding: '6px 16px', borderRadius: '6px', cursor: 'pointer',
+                    fontSize: '13px', fontWeight: isActive ? 600 : 400, border: 'none',
+                    backgroundColor: isActive ? 'var(--brand)' : 'transparent',
+                    color: isActive ? '#0A0A0A' : '#7A7873',
+                    transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { if (!isActive) e.currentTarget.style.color = '#F0EDE8'; }}
+                  onMouseLeave={e => { if (!isActive) e.currentTarget.style.color = '#7A7873'; }}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
           </div>
-          <div style={{ position: 'relative' }}>
-            <Search size={14} strokeWidth={1.5} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#888780' }} />
-            <input
-              placeholder="Search jobs..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              style={{ paddingLeft: '36px', paddingRight: '12px', height: '36px', backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '6px', color: '#E8E0D0', fontSize: '12px', fontFamily: "'DM Mono', monospace", width: '220px', outline: 'none' }}
-            />
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            {/* Search */}
+            <div style={{ position: 'relative' }}>
+              <Search size={14} strokeWidth={1.5} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#4A4845', pointerEvents: 'none' }} />
+              <input
+                placeholder="Search jobs..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ paddingLeft: '36px', paddingRight: '12px', height: '36px', width: '220px', backgroundColor: '#1A1A1A', border: '1px solid #2A2A2A', borderRadius: '8px', color: '#F0EDE8', fontSize: '13px', outline: 'none' }}
+              />
+            </div>
+            <CreateJobDialog />
           </div>
         </div>
 
@@ -111,13 +113,13 @@ export default function JobsPage() {
         {isLoading ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
             {[1,2,3,4,5,6].map(i => (
-              <div key={i} style={{ height: '200px', borderRadius: '10px', backgroundColor: '#161616', border: '1px solid #252525', animation: 'pulse 1.5s ease infinite' }} />
+              <div key={i} style={{ height: '200px', borderRadius: '10px', backgroundColor: '#161616', border: '1px solid #222222' }} />
             ))}
           </div>
         ) : jobs.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '64px 0', border: '1px dashed #252525', borderRadius: '10px' }}>
-            <p style={{ fontSize: '16px', fontFamily: "'Playfair Display', serif", color: '#E8E0D0', marginBottom: '8px' }}>No jobs found</p>
-            <p style={{ fontSize: '13px', fontFamily: "'DM Mono', monospace", color: '#888780' }}>Try adjusting your filters.</p>
+          <div style={{ textAlign: 'center', padding: '64px 0', border: '1px dashed #222222', borderRadius: '10px' }}>
+            <p style={{ fontSize: '15px', fontWeight: 500, color: '#F0EDE8', margin: '0 0 6px 0' }}>No jobs found</p>
+            <p style={{ fontSize: '13px', color: '#7A7873', margin: 0 }}>Try adjusting your filters.</p>
           </div>
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px' }}>
@@ -130,67 +132,70 @@ export default function JobsPage() {
 }
 
 function JobCard({ job }: { job: any }) {
-  const freqColor = FREQ_COLORS[job.frequency] || '#888780';
-  const statusColor = STATUS_BOTTOM[job.status] || '#252525';
-
+  const freqColor = FREQ_COLORS[job.frequency] || '#4A4845';
   return (
-    <div style={{
-      backgroundColor: '#161616',
-      border: '1px solid #252525',
-      borderLeft: `3px solid ${freqColor}`,
-      borderBottom: `3px solid ${statusColor}`,
-      borderRadius: '10px',
-      padding: '16px',
-      cursor: 'pointer',
-      transition: 'border-color 0.15s',
-    }}
-      className="hover:[border-color:var(--tenant-color)]"
-      onMouseEnter={e => (e.currentTarget.style.borderTopColor = 'rgba(var(--tenant-color-rgb), 0.3)')}
-      onMouseLeave={e => (e.currentTarget.style.borderTopColor = '#252525')}
+    <div
+      style={{
+        backgroundColor: '#161616',
+        border: '1px solid #222222',
+        borderLeft: `3px solid ${freqColor}`,
+        borderRadius: '10px',
+        padding: '18px',
+        cursor: 'pointer',
+        transition: 'all 0.18s',
+      }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderTopColor = 'rgba(var(--brand-rgb), 0.5)';
+        e.currentTarget.style.borderRightColor = 'rgba(var(--brand-rgb), 0.5)';
+        e.currentTarget.style.borderBottomColor = 'rgba(var(--brand-rgb), 0.5)';
+        e.currentTarget.style.transform = 'translateY(-1px)';
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderTopColor = '#222222';
+        e.currentTarget.style.borderRightColor = '#222222';
+        e.currentTarget.style.borderBottomColor = '#222222';
+        e.currentTarget.style.transform = 'translateY(0)';
+      }}
     >
-      {/* Top row */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+      {/* Top row: status + price */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <StatusBadge status={job.status} />
-        <span style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '20px', color: '#E8E0D0' }}>
-          ${job.base_fee}
-        </span>
+        <span style={{ fontSize: '20px', fontWeight: 700, color: '#F0EDE8' }}>${job.base_fee}</span>
       </div>
 
-      {/* Client + Service */}
-      <h3 style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '18px', color: '#E8E0D0', margin: '0 0 4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.client_name}</h3>
-      <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 400, fontSize: '11px', color: 'var(--tenant-color)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px 0' }}>
-        {job.service_type.replace(/_/g, ' ')}
+      {/* Client + service */}
+      <p style={{ fontSize: '17px', fontWeight: 700, color: '#F0EDE8', margin: '10px 0 2px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {job.client_name}
+      </p>
+      <p style={{ fontSize: '11px', fontWeight: 600, color: 'var(--brand)', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 12px 0' }}>
+        {job.service_type?.replace(/_/g, ' ')}
       </p>
 
-      {/* Time + Address */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#888780' }}>
+      {/* Details */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7A7873' }}>
           <Clock size={12} strokeWidth={1.5} />
-          <span style={{ fontSize: '12px', fontFamily: "'DM Mono', monospace", fontWeight: 300 }}>
-            {new Date(job.scheduled_date).toLocaleDateString()} {job.scheduled_time ? `· ${job.scheduled_time}` : ''}
-          </span>
+          <span style={{ fontSize: '12px' }}>{new Date(job.scheduled_date).toLocaleDateString()}{job.scheduled_time ? ` · ${job.scheduled_time}` : ''}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#888780' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#7A7873' }}>
           <MapPin size={12} strokeWidth={1.5} />
-          <span style={{ fontSize: '12px', fontFamily: "'DM Mono', monospace", fontWeight: 300 }}>
-            {job.frequency?.replace('_', ' ')} cleaning
-          </span>
+          <span style={{ fontSize: '12px', textTransform: 'capitalize' }}>{job.frequency?.replace('_', ' ')} cleaning</span>
         </div>
       </div>
 
       {/* Footer */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #252525' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', borderTop: '1px solid #1A1A1A' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(var(--tenant-color-rgb), 0.20)', color: 'var(--tenant-color)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontFamily: "'DM Mono', monospace", fontWeight: 400, flexShrink: 0 }}>
+          <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: 600, flexShrink: 0 }}>
             {job.assigned_user_name ? job.assigned_user_name[0] : '?'}
           </div>
-          <span style={{ fontSize: '12px', fontFamily: "'DM Mono', monospace", color: '#888780', maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: '12px', color: '#7A7873', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '110px' }}>
             {job.assigned_user_name || 'Unassigned'}
           </span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#555550' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#4A4845' }}>
           <Camera size={11} strokeWidth={1.5} />
-          <span style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace" }}>{job.before_photo_count}B / {job.after_photo_count}A</span>
+          <span style={{ fontSize: '11px' }}>{job.before_photo_count}B / {job.after_photo_count}A</span>
         </div>
       </div>
     </div>
@@ -222,36 +227,38 @@ function CreateJobDialog() {
     });
   };
 
+  const LABEL: React.CSSProperties = { fontSize: '11px', fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: '6px' };
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 18px', backgroundColor: 'var(--tenant-color)', color: '#0D0D0D', borderRadius: '6px', fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: 400, border: 'none', cursor: 'pointer' }}>
-          <Plus size={15} strokeWidth={2} /> New Job
+        <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#0A0A0A', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+          <Plus size={14} strokeWidth={2} /> New Job
         </button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px] bg-[#161616] border-[#252525]">
+      <DialogContent style={{ backgroundColor: '#161616', border: '1px solid #222222', maxWidth: '500px' }}>
         <DialogHeader>
-          <DialogTitle style={{ fontFamily: "'Playfair Display', serif", fontSize: '24px', color: '#E8E0D0' }}>Schedule New Job</DialogTitle>
+          <DialogTitle style={{ fontSize: '15px', fontWeight: 600, color: '#F0EDE8' }}>Schedule New Job</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '8px' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Client ID</label>
-              <Input type="number" style={{ backgroundColor: '#0D0D0D', borderColor: '#252525', fontFamily: "'DM Mono', monospace", fontSize: '13px' }} {...register("client_id")} />
-              {errors.client_id && <p style={{ fontSize: '11px', color: '#FCEBEB', marginTop: '4px', fontFamily: "'DM Mono', monospace" }}>{errors.client_id.message}</p>}
+              <label style={LABEL}>Client ID</label>
+              <Input type="number" style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', fontSize: '13px', color: '#F0EDE8' }} {...register("client_id")} />
+              {errors.client_id && <p style={{ fontSize: '11px', color: '#F87171', marginTop: '4px' }}>{errors.client_id.message}</p>}
             </div>
             <div>
-              <label style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Base Fee ($)</label>
-              <Input type="number" style={{ backgroundColor: '#0D0D0D', borderColor: '#252525', fontFamily: "'DM Mono', monospace", fontSize: '13px' }} {...register("base_fee")} />
+              <label style={LABEL}>Base Fee ($)</label>
+              <Input type="number" style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', fontSize: '13px', color: '#F0EDE8' }} {...register("base_fee")} />
             </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div>
-              <label style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Service Type</label>
+              <label style={LABEL}>Service Type</label>
               <Controller name="service_type" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <SelectTrigger className="bg-[#0D0D0D] border-[#252525]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', color: '#F0EDE8', fontSize: '13px' }}><SelectValue /></SelectTrigger>
+                  <SelectContent style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A' }}>
                     <SelectItem value="standard_clean">Standard Clean</SelectItem>
                     <SelectItem value="deep_clean">Deep Clean</SelectItem>
                     <SelectItem value="move_out">Move Out</SelectItem>
@@ -262,11 +269,11 @@ function CreateJobDialog() {
               )} />
             </div>
             <div>
-              <label style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Frequency</label>
+              <label style={LABEL}>Frequency</label>
               <Controller name="frequency" control={control} render={({ field }) => (
                 <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <SelectTrigger className="bg-[#0D0D0D] border-[#252525]"><SelectValue /></SelectTrigger>
-                  <SelectContent>
+                  <SelectTrigger style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', color: '#F0EDE8', fontSize: '13px' }}><SelectValue /></SelectTrigger>
+                  <SelectContent style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A' }}>
                     <SelectItem value="weekly">Weekly</SelectItem>
                     <SelectItem value="biweekly">Bi-weekly</SelectItem>
                     <SelectItem value="monthly">Monthly</SelectItem>
@@ -277,12 +284,12 @@ function CreateJobDialog() {
             </div>
           </div>
           <div>
-            <label style={{ fontSize: '11px', fontFamily: "'DM Mono', monospace", color: '#888780', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Date</label>
-            <Input type="date" style={{ backgroundColor: '#0D0D0D', borderColor: '#252525', fontFamily: "'DM Mono', monospace", fontSize: '13px' }} {...register("scheduled_date")} />
+            <label style={LABEL}>Date</label>
+            <Input type="date" style={{ backgroundColor: '#1A1A1A', borderColor: '#2A2A2A', fontSize: '13px', color: '#F0EDE8' }} {...register("scheduled_date")} />
           </div>
           <DialogFooter style={{ paddingTop: '8px' }}>
-            <button type="button" onClick={() => setOpen(false)} style={{ padding: '8px 16px', border: '1px solid #252525', borderRadius: '6px', backgroundColor: 'transparent', color: '#888780', fontSize: '13px', fontFamily: "'DM Mono', monospace", cursor: 'pointer' }}>Cancel</button>
-            <button type="submit" disabled={createJob.isPending} style={{ padding: '8px 18px', backgroundColor: 'var(--tenant-color)', color: '#0D0D0D', borderRadius: '6px', fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: 400, border: 'none', cursor: 'pointer', opacity: createJob.isPending ? 0.7 : 1 }}>
+            <button type="button" onClick={() => setOpen(false)} style={{ padding: '8px 16px', border: '1px solid #222222', borderRadius: '8px', backgroundColor: 'transparent', color: '#7A7873', fontSize: '13px', cursor: 'pointer' }}>Cancel</button>
+            <button type="submit" disabled={createJob.isPending} style={{ padding: '8px 20px', backgroundColor: 'var(--brand)', color: '#0A0A0A', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: createJob.isPending ? 0.7 : 1 }}>
               {createJob.isPending ? "Creating..." : "Schedule Job"}
             </button>
           </DialogFooter>

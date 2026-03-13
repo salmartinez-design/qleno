@@ -1,139 +1,176 @@
-import { Home, Users, UsersRound, Briefcase, FileText, BarChart3, Settings, LogOut, Medal, BookOpen, LayoutDashboard } from "lucide-react";
+import { Home, Briefcase, Users, UsersRound, FileText, DollarSign, BookOpen, Star, Settings, LogOut, LayoutDashboard } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
 
-const opsItems = [
-  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
-  { title: "Jobs", url: "/jobs", icon: Briefcase },
-  { title: "Employees", url: "/employees", icon: Users },
-  { title: "Customers", url: "/customers", icon: UsersRound },
-  { title: "Invoices", url: "/invoices", icon: FileText },
-  { title: "Payroll", url: "/payroll", icon: BarChart3 },
+const NAV_SECTIONS = [
+  {
+    label: "Operations",
+    items: [
+      { title: "Dashboard",    url: "/dashboard",    icon: LayoutDashboard },
+      { title: "Jobs",         url: "/jobs",          icon: Briefcase },
+      { title: "Employees",    url: "/employees",     icon: Users },
+      { title: "Customers",    url: "/customers",     icon: UsersRound },
+      { title: "Invoices",     url: "/invoices",      icon: FileText },
+      { title: "Payroll",      url: "/payroll",       icon: DollarSign },
+    ],
+  },
+  {
+    label: "Tools",
+    items: [
+      { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
+    ],
+  },
+  {
+    label: "Configuration",
+    items: [
+      { title: "Loyalty",  url: "/loyalty",  icon: Star },
+      { title: "Company",  url: "/company",  icon: Settings },
+    ],
+  },
 ];
-
-const toolItems = [
-  { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
-];
-
-const configItems = [
-  { title: "Loyalty", url: "/loyalty", icon: Medal },
-  { title: "Company", url: "/company", icon: Settings },
-];
-
-function NavSection({ label, items, currentPath }: { label: string; items: typeof opsItems; currentPath: string }) {
-  return (
-    <div className="mb-2">
-      <p style={{ fontSize: '10px', letterSpacing: '0.1em', color: '#555550', fontFamily: "'DM Mono', monospace", fontWeight: 400 }} className="uppercase px-4 py-2">
-        {label}
-      </p>
-      {items.map(item => {
-        const isActive = currentPath.startsWith(item.url);
-        return (
-          <Link key={item.title} href={item.url}>
-            <div
-              style={isActive ? {
-                backgroundColor: 'rgba(var(--tenant-color-rgb), 0.12)',
-                borderLeft: '3px solid var(--tenant-color)',
-                color: 'var(--tenant-color)',
-              } : {
-                borderLeft: '3px solid transparent',
-                color: '#888780',
-              }}
-              className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors hover:bg-[#1A1A1A] hover:text-[#E8E0D0]"
-            >
-              <item.icon size={15} strokeWidth={1.5} style={isActive ? { color: 'var(--tenant-color)' } : {}} />
-              <span style={{ fontSize: '13px', fontFamily: "'DM Mono', monospace", fontWeight: isActive ? 400 : 300 }}>
-                {item.title}
-              </span>
-            </div>
-          </Link>
-        );
-      })}
-    </div>
-  );
-}
 
 export function AppSidebar() {
   const [location] = useLocation();
   const logout = useAuthStore(state => state.logout);
-  const { logoUrl, companyName, brandColor } = useTenantBrand();
+  const { logoUrl, companyName } = useTenantBrand();
 
   const token = useAuthStore(state => state.token);
-  let userEmail: { email: string; role: string } | null = null;
+  let userInfo: { email: string; role: string; firstName: string; lastName: string } | null = null;
   if (token) {
     try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      userEmail = { email: payload.email, role: payload.role };
+      const p = JSON.parse(atob(token.split('.')[1]));
+      userInfo = {
+        email: p.email,
+        role: p.role,
+        firstName: p.first_name || p.email?.split('@')[0] || '',
+        lastName: p.last_name || '',
+      };
     } catch { /* empty */ }
   }
 
+  const initials = userInfo
+    ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
+    : '??';
+
   return (
-    <div
-      style={{ width: '220px', minWidth: '220px', backgroundColor: '#111111', borderRight: '1px solid #252525' }}
-      className="flex flex-col h-screen overflow-y-auto"
-    >
-      {/* Logo / Company Header */}
-      <div style={{ borderBottom: '1px solid #252525', padding: '14px 16px' }} className="shrink-0">
+    <div style={{
+      width: '216px',
+      minWidth: '216px',
+      backgroundColor: '#111111',
+      borderRight: '1px solid #1A1A1A',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100vh',
+      overflow: 'hidden',
+    }}>
+      {/* Top — Logo */}
+      <div style={{ padding: '20px 16px 12px', flexShrink: 0 }}>
         {logoUrl ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '8px', padding: '4px 8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <img src={logoUrl} alt={companyName} style={{ height: '28px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+          <div>
+            <div style={{ backgroundColor: '#FFFFFF', borderRadius: '6px', padding: '4px 8px', display: 'inline-block', marginBottom: '6px' }}>
+              <img src={logoUrl} alt={companyName} style={{ height: '28px', width: 'auto', objectFit: 'contain', objectPosition: 'left', display: 'block' }} />
             </div>
-            <div>
-              <p style={{ fontFamily: "'DM Mono', monospace", fontWeight: 400, fontSize: '12px', color: '#E8E0D0', lineHeight: 1.2, margin: 0 }}>{companyName}</p>
-              <p style={{ fontSize: '10px', color: '#888780', fontFamily: "'DM Mono', monospace", fontWeight: 300, lineHeight: 1.2, margin: 0 }}>CleanOps Pro</p>
-            </div>
+            <p style={{ fontSize: '11px', fontWeight: 500, color: '#4A4845', letterSpacing: '0.06em', margin: 0 }}>CleanOps Pro</p>
           </div>
         ) : (
-          <div className="flex items-center gap-2.5">
-            <div style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: brandColor, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ color: '#FFFFFF', fontSize: '13px', fontFamily: "'Playfair Display', serif", fontWeight: 700 }}>C</span>
-            </div>
-            <div>
-              <p style={{ fontFamily: "'Playfair Display', serif", fontWeight: 700, fontSize: '15px', color: '#E8E0D0', lineHeight: 1.2 }}>CleanOps Pro</p>
-              <p style={{ fontSize: '11px', color: '#888780', fontFamily: "'DM Mono', monospace", fontWeight: 300, lineHeight: 1.2 }}>{companyName}</p>
-            </div>
+          <div>
+            <p style={{ fontSize: '15px', fontWeight: 600, color: '#F0EDE8', margin: '0 0 4px 0' }}>{companyName}</p>
+            <p style={{ fontSize: '11px', fontWeight: 500, color: '#4A4845', letterSpacing: '0.06em', margin: 0 }}>CleanOps Pro</p>
           </div>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 py-3 overflow-y-auto">
-        <NavSection label="Operations" items={opsItems} currentPath={location} />
-        <NavSection label="Tools" items={toolItems} currentPath={location} />
-        <NavSection label="Configuration" items={configItems} currentPath={location} />
+      <div style={{ borderTop: '1px solid #1A1A1A', margin: '0 0 4px 0' }} />
+
+      {/* Nav */}
+      <nav style={{ flex: 1, overflowY: 'auto', paddingBottom: '8px' }}>
+        {NAV_SECTIONS.map(section => (
+          <div key={section.label}>
+            <p style={{
+              fontSize: '10px', fontWeight: 600, color: '#4A4845',
+              letterSpacing: '0.1em', textTransform: 'uppercase',
+              padding: '16px 16px 6px', margin: 0,
+            }}>
+              {section.label}
+            </p>
+            {section.items.map(item => {
+              const isActive = location === item.url || (item.url !== '/dashboard' && location.startsWith(item.url));
+              const Icon = item.icon;
+              return (
+                <Link key={item.url} href={item.url}>
+                  <div style={{
+                    height: '36px',
+                    padding: '0 12px',
+                    margin: '1px 8px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s',
+                    backgroundColor: isActive ? 'var(--brand-soft)' : 'transparent',
+                    color: isActive ? 'var(--brand)' : '#7A7873',
+                    fontWeight: isActive ? 500 : 400,
+                    fontSize: '13px',
+                  }}
+                    onMouseEnter={e => {
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = '#1C1C1C';
+                        e.currentTarget.style.color = '#F0EDE8';
+                      }
+                    }}
+                    onMouseLeave={e => {
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = 'transparent';
+                        e.currentTarget.style.color = '#7A7873';
+                      }
+                    }}
+                  >
+                    <Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
+                    <span>{item.title}</span>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
-      {/* Footer — User + Sign Out */}
-      <div style={{ borderTop: '1px solid #252525', padding: '12px 16px' }} className="shrink-0">
-        {userEmail && (
-          <div className="mb-3">
-            <p style={{ fontSize: '12px', fontFamily: "'DM Mono', monospace", fontWeight: 400, color: '#E8E0D0' }} className="truncate">{userEmail.email}</p>
+      {/* Footer — User */}
+      <div style={{ borderTop: '1px solid #1A1A1A', flexShrink: 0 }}>
+        <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{
+            width: '28px', height: '28px', borderRadius: '50%',
+            backgroundColor: 'var(--brand-dim)',
+            color: 'var(--brand)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '11px', fontWeight: 600, flexShrink: 0,
+          }}>
+            {initials}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: '12px', fontWeight: 500, color: '#F0EDE8', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {userInfo?.firstName} {userInfo?.lastName}
+            </p>
             <span style={{
-              display: 'inline-block',
-              fontSize: '10px',
-              fontFamily: "'DM Mono', monospace",
-              backgroundColor: `rgba(var(--tenant-color-rgb), 0.15)`,
-              color: 'var(--tenant-color)',
-              padding: '1px 6px',
-              borderRadius: '3px',
-              marginTop: '3px',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
+              fontSize: '10px', fontWeight: 600, textTransform: 'uppercase',
+              color: 'var(--brand)', backgroundColor: 'var(--brand-dim)',
+              padding: '1px 6px', borderRadius: '4px', letterSpacing: '0.05em',
             }}>
-              {userEmail.role}
+              {userInfo?.role}
             </span>
           </div>
-        )}
-        <button
-          onClick={() => logout()}
-          style={{ fontSize: '12px', fontFamily: "'DM Mono', monospace", color: '#888780' }}
-          className="flex items-center gap-2 hover:text-[#E8E0D0] transition-colors w-full py-1"
-        >
-          <LogOut size={13} strokeWidth={1.5} />
-          Sign Out
-        </button>
+          <button
+            onClick={logout}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#4A4845', padding: '4px', borderRadius: '4px', display: 'flex', flexShrink: 0 }}
+            onMouseEnter={e => (e.currentTarget.style.color = '#F0EDE8')}
+            onMouseLeave={e => (e.currentTarget.style.color = '#4A4845')}
+            title="Sign Out"
+          >
+            <LogOut size={14} strokeWidth={1.5} />
+          </button>
+        </div>
       </div>
     </div>
   );
