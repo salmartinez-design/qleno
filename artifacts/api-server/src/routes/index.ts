@@ -11,6 +11,7 @@ import scorecardsRouter from "./scorecards.js";
 import payrollRouter from "./payroll.js";
 import loyaltyRouter from "./loyalty.js";
 import dashboardRouter from "./dashboard.js";
+import adminRouter from "./admin.js";
 
 const router: IRouter = Router();
 
@@ -26,5 +27,6 @@ router.use("/scorecards", scorecardsRouter);
 router.use("/payroll", payrollRouter);
 router.use("/loyalty", loyaltyRouter);
 router.use("/dashboard", dashboardRouter);
+router.use("/admin", adminRouter);
 
 export default router;

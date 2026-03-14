@@ -1,0 +1,113 @@
+Great question — and this is a critical distinction for running your SaaS business. You currently have **two completely separate views** that need to exist:
+
+---
+
+**What you're in right now:**
+The **Tenant Portal** — the owner dashboard for PHES Cleaning LLC specifically. Every cleaning company that signs up gets this exact same interface, branded with their own colors and logo. This is the product you're selling.
+
+---
+
+**What you also need:**
+The **Super Admin Portal** — this is YOUR view as the platform owner. Think of it like the god mode. You see every company on the platform, their subscription status, their usage, their billing, and you can jump into any tenant's account.
+
+---
+
+**It needs two separate things:**
+
+**1. A separate login or role switch**
+
+When you log in as `owner@phescleaning.com` you're a tenant owner. You need a separate super admin account — something like `sal@[yourappname].com` with the `super_admin` role in the database. That account gets a completely different dashboard.
+
+**2. A Super Admin Dashboard at `/admin`**
+
+Paste this into Replit right now:
+
+```
+Build a Super Admin portal at /admin that is only accessible 
+to users with role = 'super_admin'. 
+
+The super admin portal needs these pages:
+
+/admin — Master dashboard showing:
+  - Total companies on platform
+  - Total active subscriptions  
+  - Total MRR (monthly recurring revenue)
+  - Total transactions processed this month
+  - Platform fee revenue earned this month
+  - New signups this week
+  - Companies with past_due or canceled subscriptions (flagged)
+
+/admin/companies — All tenant companies table:
+  Columns: Company name, Owner email, Plan, 
+           Subscription status (Active/Past Due/Canceled/Trial),
+           Employees count, MRR, Joined date, Last active
+  
+  Actions per row:
+    - "View as Tenant" — logs into that company's portal 
+      without needing their password (impersonation)
+    - "Edit company" — change plan, brand color, status
+    - "Suspend" — cuts off access
+  
+  Filters: Active / Past Due / Canceled / Trial
+
+/admin/billing — Revenue overview:
+  MRR chart, subscription breakdown, platform fees collected,
+  upcoming renewals, failed payments
+
+/admin/cleancyclopedia — Platform article management:
+  Create, edit, publish, and organize the 48 platform-level
+  Cleancyclopedia articles that all tenants see. 
+  Admin can write both EN and ES versions per article.
+
+SECURITY: 
+  Every /admin route must check role = 'super_admin' server-side.
+  If not super_admin, redirect to /dashboard.
+  The impersonation feature must log every use to audit_log
+  with: super_admin user_id, target company_id, timestamp.
+  
+Create a super_admin user in the database:
+  email: admin@[appname].com
+  role: super_admin
+  password: [generate a strong one and show me]
+  company_id: null (super admins have no company)
+
+The super admin portal uses the same dark design system but 
+with a DIFFERENT accent color — use #7F77DD (purple) instead 
+of var(--brand) so it's visually distinct from tenant portals.
+This prevents confusion between admin mode and tenant mode.
+
+Add a small indicator in the top bar when in super admin mode:
+  "SUPER ADMIN MODE" badge in purple so it's always obvious.
+```
+
+---
+
+**The "View as Tenant" feature (impersonation) is critical for you:**
+
+When a tenant calls you with a problem, you click "View as Tenant" next to their company name and you're instantly inside their portal seeing exactly what they see — their data, their brand colors, their employees. You fix the issue and click "Exit to Admin" to come back. This is how MaidCentral's support team works, how every SaaS support team works.
+
+---
+
+**How the URL structure looks:**
+
+| URL | Who sees it | What it is |
+|---|---|---|
+| `/login` | Everyone | Login page |
+| `/dashboard` | Tenant owner/admin | PHES (or any tenant) dashboard |
+| `/employees` | Tenant owner/admin | PHES employees |
+| `/admin` | Super admin only | Platform master dashboard |
+| `/admin/companies` | Super admin only | All 200 tenants |
+| `/admin/billing` | Super admin only | Your SaaS revenue |
+| `/admin/cleancyclopedia` | Super admin only | Manage knowledge base |
+
+---
+
+**Right now in your database, run this in Replit's Database tab or ask the agent:**
+
+```
+Show me all users in the users table with their roles. 
+I need to confirm who has super_admin role and create 
+one if it doesn't exist.
+```
+
+Once that's set up, you'll have full separation between running PHES as a tenant and running the entire platform as the owner. What's the app name — so we can set up the admin email correctly?

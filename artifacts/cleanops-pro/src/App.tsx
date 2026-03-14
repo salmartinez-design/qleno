@@ -15,6 +15,11 @@ import PayrollPage from "@/pages/payroll";
 import CleancyclopediaPage from "@/pages/cleancyclopedia";
 import NotFound from "@/pages/not-found";
 
+import AdminDashboard from "@/pages/admin/index";
+import AdminCompanies from "@/pages/admin/companies";
+import AdminBilling from "@/pages/admin/billing";
+import AdminCleancyclopedia from "@/pages/admin/cleancyclopedia";
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, retry: false },
@@ -35,6 +40,12 @@ function Router() {
       <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
       <Route path="/company" component={CompanyPage} />
       <Route path="/loyalty" component={LoyaltyPage} />
+
+      <Route path="/admin" component={AdminDashboard} />
+      <Route path="/admin/companies" component={AdminCompanies} />
+      <Route path="/admin/billing" component={AdminBilling} />
+      <Route path="/admin/cleancyclopedia" component={AdminCleancyclopedia} />
+
       <Route component={NotFound} />
     </Switch>
   );

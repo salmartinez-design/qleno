@@ -6,9 +6,10 @@ Multi-tenant SaaS platform for residential and commercial cleaning businesses. B
 
 ## Demo Credentials
 
-- **Owner:** owner@phescleaning.com / demo1234
-- **Admin:** admin@phescleaning.com / demo1234
-- **Technician:** jessica@phescleaning.com / demo1234
+- **Owner (PHES Cleaning):** owner@phescleaning.com / demo1234
+- **Admin (PHES Cleaning):** admin@phescleaning.com / demo1234
+- **Technician (PHES Cleaning):** jessica@phescleaning.com / demo1234
+- **Super Admin (Platform):** admin@cleanopspro.com / Admin#CleanOps2026!
 
 ## Design System
 

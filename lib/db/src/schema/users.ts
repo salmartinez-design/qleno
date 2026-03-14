@@ -13,7 +13,7 @@ export const payTypeEnum = pgEnum("pay_type", [
 
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
-  company_id: integer("company_id").references(() => companiesTable.id).notNull(),
+  company_id: integer("company_id").references(() => companiesTable.id),
   email: text("email").notNull().unique(),
   password_hash: text("password_hash").notNull(),
   role: userRoleEnum("role").notNull().default("technician"),

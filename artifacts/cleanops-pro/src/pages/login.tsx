@@ -20,9 +20,20 @@ export default function Login() {
   const setToken = useAuthStore(state => state.setToken);
   const { toast } = useToast();
 
-  // If already logged in, go straight to dashboard
+  // If already logged in, go to correct portal
   useEffect(() => {
-    if (token) setLocation("/dashboard");
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        if (payload.role === 'super_admin') {
+          setLocation("/admin");
+        } else {
+          setLocation("/dashboard");
+        }
+      } catch {
+        setLocation("/dashboard");
+      }
+    }
   }, [token, setLocation]);
   
   const { register, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
@@ -39,7 +50,11 @@ export default function Login() {
         onSuccess: (res) => {
           setToken(res.token);
           toast({ title: "Welcome back", description: `Logged in as ${res.user.first_name}` });
-          setLocation("/dashboard");
+          if (res.user.role === 'super_admin') {
+            setLocation("/admin");
+          } else {
+            setLocation("/dashboard");
+          }
         },
         onError: () => {
           toast({ variant: "destructive", title: "Login Failed", description: "Invalid email or password" });

@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 
 export interface AuthPayload {
   userId: number;
-  companyId: number;
+  companyId: number | null;
   role: string;
   email: string;
 }

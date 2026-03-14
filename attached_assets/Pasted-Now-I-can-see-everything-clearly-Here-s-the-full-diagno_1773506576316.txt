@@ -1,0 +1,171 @@
+Now I can see everything clearly. Here's the full diagnosis:
+
+**The red color issue is a database problem, not a code problem.** The `applyTenantColor()` function is working perfectly — it's reading `brand_color` from the PHES company row and injecting it correctly. The problem is the PHES row in the database has `brand_color = #C53030` (red) instead of `#0065A5` (PHES blue). The code is doing exactly what it's supposed to — it's just reading the wrong value.
+
+**Paste this into Replit agent right now:**
+
+```
+I need several database fixes and the super admin system built.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 1 — PHES brand color (run this SQL immediately)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+UPDATE companies 
+SET brand_color = '#0065A5' 
+WHERE slug = 'phes' OR name ILIKE '%phes%' OR name ILIKE '%cleaning%';
+
+Also update the CSS fallback in index.css:
+Change --brand: #C53030 to --brand: #00C9A7 (platform default teal)
+Change --brand-rgb: 197, 48, 48 to --brand-rgb: 0, 201, 167
+Change --brand-dim: rgba(197, 48, 48, 0.15) to rgba(0, 201, 167, 0.15)
+Change --brand-soft: rgba(197, 48, 48, 0.08) to rgba(0, 201, 167, 0.08)
+Change --tenant-color: #C53030 to --tenant-color: #00C9A7
+
+The fallback should be the platform's teal, not red.
+Red should never appear as a default.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 2 — Create super admin user
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add 'super_admin' to the role enum if not already there.
+
+Insert a super admin user:
+  email: sal@[appname].com (use whatever the app domain will be)
+  role: super_admin
+  first_name: Sal
+  last_name: Martinez
+  company_id: NULL
+  password: generate a strong password and show it to me
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 3 — Build the Super Admin Portal
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Create a completely separate layout for super admin users.
+When role = 'super_admin' logs in, redirect to /admin 
+instead of /dashboard.
+
+The admin layout uses the same design system but:
+  --brand override: #7F77DD (purple) so it's visually 
+  distinct — super admin can never be confused with 
+  a tenant portal.
+  
+  Top bar shows: "SUPER ADMIN" badge in purple
+  Sidebar shows platform name, not a tenant company name
+
+ADMIN ROUTES — all protected by super_admin role check 
+server-side (401 redirect if not super_admin):
+
+/admin
+  Master dashboard showing:
+  - Total companies (count from companies table)
+  - Active subscriptions count 
+  - MRR (sum of active subscriptions × plan price)
+  - Platform fee revenue this month
+  - New signups this week
+  - Flagged: companies with past_due or canceled status
+  
+  Companies needing attention table (past_due + canceled):
+  Company name | Status badge | Days since | Action button
+
+/admin/companies
+  Full companies table:
+  Columns: Logo | Company | Owner email | Plan badge | 
+           Status badge | Employees | Joined | Actions
+  
+  Actions dropdown per row:
+    "View as Tenant" — sets a session flag 
+      { impersonating: true, company_id: X } and 
+      redirects to /dashboard showing that company's data.
+      
+      While impersonating: show a purple banner at top:
+      "Viewing as [Company Name] — Exit to Admin"
+      Exit button clears the flag and returns to /admin
+      
+      Log every impersonation to audit_log:
+      { action: 'impersonate', admin_user_id: X, 
+        target_company_id: Y, timestamp: now() }
+    
+    "Edit Company" — modal to change:
+      name, brand_color, plan, subscription_status, 
+      geo_fence_threshold_ft, pay_cadence
+    
+    "Suspend" — sets subscription_status = 'canceled',
+      shows confirmation dialog first
+
+  Filters: All | Active | Trial | Past Due | Suspended
+  Search: by company name or owner email
+
+/admin/cleancyclopedia
+  Platform article manager.
+  Shows all articles WHERE company_id IS NULL 
+  (these are platform-wide articles all tenants see).
+  
+  Table: Title (EN) | Category | Status | Views | Actions
+  
+  "New Article" button opens a form:
+    title_en, title_es (text inputs)
+    category (dropdown: how-to/dos-donts/situations/
+              safety/products/professional)
+    content_en (textarea — JSON or markdown)
+    content_es (textarea)
+    is_published toggle
+    Save button
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 4 — Multi-tenant data isolation audit
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check every GET API route and confirm each one filters 
+by company_id from the authenticated user's JWT.
+
+Show me any routes that are missing the company_id 
+WHERE clause — those are security holes.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 5 — Add test tenant company
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Insert a second test company so I can verify multi-tenant 
+isolation is working:
+
+  name: "Demo Cleaning Co"
+  slug: "demo-cleaning"
+  brand_color: "#E53E3E" (a different red so it's 
+               visually distinct from PHES)
+  
+Create an owner user for this company:
+  email: owner@democlean.com
+  password: demo1234
+  role: owner
+
+When I log in as owner@democlean.com I should see 
+"Demo Cleaning Co" in the sidebar with a red brand color,
+completely isolated from PHES data.
+When I log in as owner@phescleaning.com I should see 
+PHES with blue (#0065A5) brand color.
+They must never see each other's data.
+
+After all fixes, confirm:
+1. PHES brand color is #0065A5 (blue)
+2. Super admin login works at sal@[appname].com
+3. /admin route exists and is protected
+4. Demo company is isolated from PHES data
+5. CSS fallback brand color is teal #00C9A7 not red
+```
+
+---
+
+**What this will give you once done:**
+
+Three completely separate login experiences:
+
+1. `owner@phescleaning.com` → enters PHES portal in blue (#0065A5)
+2. `owner@democlean.com` → enters Demo portal in red — different data, different brand
+3. `sal@[appname].com` → enters Super Admin in purple — sees ALL companies, can jump into any of them
+
+That third login is how you manage your entire SaaS business — support, billing, Cleancyclopedia content, company management, all of it.
+
+The brand color fix alone will transform how the app looks — once PHES goes blue and the fallback stops defaulting to red, every new tenant that signs up will default to teal until they set their own color. Much cleaner.
