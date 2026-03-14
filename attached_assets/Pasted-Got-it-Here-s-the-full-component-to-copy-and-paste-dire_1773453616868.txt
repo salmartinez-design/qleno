@@ -1,0 +1,520 @@
+Got it! Here’s the full component to copy and paste directly into Replit:
+
+import { useState } from "react";
+import {
+  LayoutDashboard, Briefcase, Users, UserCircle,
+  FileText, DollarSign, BookOpen, Star, Settings,
+  TrendingUp, AlertTriangle, ChevronRight, Bell, X, Menu
+} from "lucide-react";
+import {
+  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer
+} from "recharts";
+
+// ── TOKENS ────────────────────────────────────────────────────────────
+const T = {
+  bg:            "#0A0A0A",
+  sidebar:       "#111111",
+  card:          "#161616",
+  cardBorder:    "#222222",
+  hover:         "#1C1C1C",
+  textPrimary:   "#F0EDE8",
+  textSecondary: "#7A7873",
+  textTertiary:  "#4A4845",
+  brand:         "#E8352A",   // swap for var(--brand) once CSS var is wired
+};
+
+const BADGE = {
+  COMPLETE:    { bg:"#0F2A1A", text:"#4ADE80",  border:"#166534" },
+  SCHEDULED:   { bg:"#0F1E2A", text:"#60A5FA",  border:"#1D4ED8" },
+  IN_PROGRESS: { bg:"#2A1F0A", text:"#FBBF24",  border:"#92400E" },
+  OVERDUE:     { bg:"#2A0F0F", text:"#F87171",  border:"#991B1B" },
+  DRAFT:       { bg:"#1A1A1A", text:"#7A7873",  border:"#333333" },
+};
+
+// ── MOCK DATA ─────────────────────────────────────────────────────────
+const revenueData = [
+  { day:"Mon", amt:1800 },
+  { day:"Tue", amt:2400 },
+  { day:"Wed", amt:2100 },
+  { day:"Thu", amt:3800 },
+  { day:"Fri", amt:5200 },
+  { day:"Sat", amt:3100 },
+  { day:"Sun", amt:4600 },
+];
+
+const recentJobs = [
+  { id:1, client:"Sarah Mitchell",  type:"Deep Clean",   time:"9:00 AM",  status:"COMPLETE",    employee:"Maria G." },
+  { id:2, client:"Robert Chen",     type:"Standard",     time:"11:30 AM", status:"IN_PROGRESS", employee:"Luis R." },
+  { id:3, client:"Jennifer Torres", type:"Move-Out",     time:"2:00 PM",  status:"SCHEDULED",   employee:"Ana P." },
+  { id:4, client:"David Park",      type:"Recurring",    time:"4:00 PM",  status:"SCHEDULED",   employee:"Carlos M." },
+  { id:5, client:"Lisa Adams",      type:"Deep Clean",   time:"Yesterday",status:"OVERDUE",     employee:"Maria G." },
+];
+
+const topEmployees = [
+  { name:"Maria Garcia",  score:4.9, jobs:142, productivity:"97%" },
+  { name:"Luis Ramirez",  score:4.8, jobs:128, productivity:"94%" },
+  { name:"Ana Perez",     score:4.7, jobs:115, productivity:"91%" },
+];
+
+// ── NAV CONFIG ────────────────────────────────────────────────────────
+const NAV = [
+  { label:"OPERATIONS", items:[
+    { icon:LayoutDashboard, label:"Dashboard",       id:"dashboard" },
+    { icon:Briefcase,       label:"Jobs",            id:"jobs" },
+    { icon:Users,           label:"Employees",       id:"employees" },
+    { icon:UserCircle,      label:"Customers",       id:"customers" },
+    { icon:FileText,        label:"Invoices",        id:"invoices" },
+    { icon:DollarSign,      label:"Payroll",         id:"payroll" },
+  ]},
+  { label:"TOOLS", items:[
+    { icon:BookOpen,        label:"Cleancyclopedia", id:"cleancyclopedia" },
+  ]},
+  { label:"CONFIGURATION", items:[
+    { icon:Star,            label:"Loyalty",         id:"loyalty" },
+    { icon:Settings,        label:"Company",         id:"company" },
+  ]},
+];
+
+// ── SHARED COMPONENTS ─────────────────────────────────────────────────
+function Badge({ status }) {
+  const s = BADGE[status] || BADGE.DRAFT;
+  return (
+    <span style={{
+      background: s.bg,
+      color:      s.text,
+      border:     `1px solid ${s.border}`,
+      borderRadius: 4,
+      fontSize: 11,
+      fontWeight: 600,
+      letterSpacing: "0.04em",
+      textTransform: "uppercase",
+      padding: "2px 7px",
+      fontFamily: "'Plus Jakarta Sans', sans-serif",
+    }}>
+      {status.replace("_", " ")}
+    </span>
+  );
+}
+
+function Card({ children, style = {} }) {
+  return (
+    <div style={{
+      background:   T.card,
+      border:       `1px solid ${T.cardBorder}`,
+      borderRadius: 10,
+      padding:      16,
+      ...style,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function MetricCard({ label, value, sub, subColor, icon: Icon }) {
+  return (
+    <Card style={{ flex:1, minWidth:0 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+        <p style={{ fontSize:11, fontWeight:600, color:T.textTertiary, textTransform:"uppercase", letterSpacing:"0.06em", margin:0 }}>
+          {label}
+        </p>
+        {Icon && <Icon size={14} color={T.brand} />}
+      </div>
+      <p style={{ fontSize:28, fontWeight:700, color:T.textPrimary, margin:"0 0 4px" }}>
+        {value}
+      </p>
+      {sub && (
+        <p style={{ fontSize:11, color: subColor || T.textSecondary, margin:0 }}>
+          {sub}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+// ── SIDEBAR ───────────────────────────────────────────────────────────
+function Sidebar({ open, onClose, active, onNav }) {
+  return (
+    <>
+      {/* Overlay */}
+      {open && (
+        <div
+          onClick={onClose}
+          style={{
+            position:"fixed", inset:0, zIndex:40,
+            background:"rgba(0,0,0,0.72)",
+            backdropFilter:"blur(2px)",
+          }}
+        />
+      )}
+
+      {/* Drawer */}
+      <aside style={{
+        position:   "fixed",
+        top:        0,
+        left:       0,
+        bottom:     0,
+        width:      260,
+        zIndex:     50,
+        background: T.sidebar,
+        borderRight:`1px solid ${T.cardBorder}`,
+        transform:  open ? "translateX(0)" : "translateX(-100%)",
+        transition: "transform 0.28s cubic-bezier(0.4,0,0.2,1)",
+        display:    "flex",
+        flexDirection:"column",
+        overflowY:  "auto",
+        fontFamily: "'Plus Jakarta Sans', sans-serif",
+      }}>
+        {/* Header */}
+        <div style={{ padding:"20px 16px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", borderBottom:`1px solid ${T.cardBorder}` }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <div style={{ width:36, height:36, borderRadius:8, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden" }}>
+              <span style={{ fontSize:18 }}>🧹</span>
+            </div>
+            <div>
+              <p style={{ fontSize:13, fontWeight:600, color:T.textPrimary, margin:0 }}>CleanOps Pro</p>
+              <p style={{ fontSize:11, color:T.textSecondary, margin:0 }}>PHES Cleaning LLC</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background:"none", border:"none", cursor:"pointer", color:T.textSecondary, padding:4 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Nav Groups */}
+        <nav style={{ padding:"12px 8px", flex:1 }}>
+          {NAV.map(group => (
+            <div key={group.label} style={{ marginBottom:20 }}>
+              <p style={{ fontSize:11, fontWeight:600, color:T.textTertiary, letterSpacing:"0.08em", padding:"0 8px", marginBottom:4 }}>
+                {group.label}
+              </p>
+              {group.items.map(item => {
+                const isActive = active === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => { onNav(item.id); onClose(); }}
+                    style={{
+                      width:"100%",
+                      display:"flex",
+                      alignItems:"center",
+                      gap:10,
+                      padding:"9px 10px",
+                      borderRadius:8,
+                      border:"none",
+                      cursor:"pointer",
+                      background: isActive ? `${T.brand}14` : "transparent",
+                      color:      isActive ? T.brand : T.textSecondary,
+                      fontSize:   13,
+                      fontWeight: isActive ? 600 : 400,
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      textAlign:  "left",
+                      transition: "background 0.15s",
+                    }}
+                  >
+                    <item.icon size={16} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div style={{ padding:"12px 16px", borderTop:`1px solid ${T.cardBorder}` }}>
+          <p style={{ fontSize:11, color:T.textTertiary, margin:0 }}>Sal Martinez · Owner</p>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+// ── CUSTOM TOOLTIP ────────────────────────────────────────────────────
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background:T.card, border:`1px solid ${T.cardBorder}`, borderRadius:8, padding:"8px 12px", fontFamily:"'Plus Jakarta Sans', sans-serif" }}>
+      <p style={{ fontSize:11, color:T.textTertiary, margin:"0 0 2px" }}>{label}</p>
+      <p style={{ fontSize:15, fontWeight:600, color:T.textPrimary, margin:0 }}>
+        ${payload[0].value.toLocaleString()}
+      </p>
+    </div>
+  );
+}
+
+// ── DASHBOARD SCREEN ──────────────────────────────────────────────────
+function DashboardScreen() {
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
+
+      {/* Metric row */}
+      <div style={{ display:"flex", gap:10 }}>
+        <MetricCard
+          label="Total Revenue"
+          value="$23,480"
+          sub="↑ 12% from last week"
+          subColor="#4ADE80"
+          icon={TrendingUp}
+        />
+        <MetricCard
+          label="Jobs Today"
+          value="14"
+          sub="2 in progress"
+          icon={Briefcase}
+        />
+      </div>
+
+      <div style={{ display:"flex", gap:10 }}>
+        <MetricCard
+          label="Active Employees"
+          value="9"
+          sub="1 on PTO"
+          icon={Users}
+        />
+        <MetricCard
+          label="Flagged Clock-Ins"
+          value="2"
+          sub="Needs review"
+          subColor="#F87171"
+          icon={AlertTriangle}
+        />
+      </div>
+
+      {/* Revenue Chart */}
+      <Card>
+        <div style={{ marginBottom:14 }}>
+          <p style={{ fontSize:15, fontWeight:600, color:T.textPrimary, margin:"0 0 2px" }}>Revenue Trend</p>
+          <p style={{ fontSize:12, color:T.textSecondary, margin:0 }}>7-day rolling volume</p>
+        </div>
+        <ResponsiveContainer width="100%" height={160}>
+          <AreaChart data={revenueData} margin={{ top:4, right:4, bottom:0, left:-20 }}>
+            <defs>
+              <linearGradient id="brandGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%"  stopColor={T.brand} stopOpacity={0.25} />
+                <stop offset="95%" stopColor={T.brand} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid stroke={T.cardBorder} vertical={false} />
+            <XAxis dataKey="day" tick={{ fontSize:11, fill:T.textTertiary, fontFamily:"'Plus Jakarta Sans'" }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize:11, fill:T.textTertiary, fontFamily:"'Plus Jakarta Sans'" }} axisLine={false} tickLine={false} tickFormatter={v=>`$${v/1000}k`} />
+            <Tooltip content={<ChartTooltip />} />
+            <Area type="monotone" dataKey="amt" stroke={T.brand} strokeWidth={2} fill="url(#brandGrad)" dot={false} activeDot={{ r:4, fill:T.brand, strokeWidth:0 }} />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Card>
+
+      {/* Recent Jobs */}
+      <Card>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+          <p style={{ fontSize:15, fontWeight:600, color:T.textPrimary, margin:0 }}>Today's Jobs</p>
+          <button style={{ background:"none", border:"none", cursor:"pointer", color:T.brand, fontSize:12, fontWeight:600, fontFamily:"'Plus Jakarta Sans', sans-serif", display:"flex", alignItems:"center", gap:3, padding:0 }}>
+            View all <ChevronRight size={13} />
+          </button>
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:0 }}>
+          {recentJobs.map((job, i) => (
+            <div key={job.id} style={{
+              display:"flex",
+              alignItems:"center",
+              justifyContent:"space-between",
+              padding:"11px 0",
+              borderBottom: i < recentJobs.length - 1 ? `1px solid ${T.cardBorder}` : "none",
+            }}>
+              <div style={{ flex:1, minWidth:0, marginRight:10 }}>
+                <p style={{ fontSize:13, fontWeight:500, color:T.textPrimary, margin:"0 0 2px", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                  {job.client}
+                </p>
+                <p style={{ fontSize:11, color:T.textSecondary, margin:0 }}>
+                  {job.type} · {job.time}
+                </p>
+              </div>
+              <Badge status={job.status} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Top Employees */}
+      <Card style={{ marginBottom:8 }}>
+        <p style={{ fontSize:15, fontWeight:600, color:T.textPrimary, margin:"0 0 12px" }}>Top Employees</p>
+        {topEmployees.map((emp, i) => (
+          <div key={emp.name} style={{
+            display:"flex",
+            alignItems:"center",
+            gap:12,
+            padding:"10px 0",
+            borderBottom: i < topEmployees.length - 1 ? `1px solid ${T.cardBorder}` : "none",
+          }}>
+            <div style={{
+              width:36, height:36, borderRadius:"50%",
+              background: `${T.brand}20`,
+              border: `1px solid ${T.brand}40`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0,
+              fontSize:13, fontWeight:700, color:T.brand,
+            }}>
+              {emp.name.split(" ").map(n=>n[0]).join("")}
+            </div>
+            <div style={{ flex:1 }}>
+              <p style={{ fontSize:13, fontWeight:500, color:T.textPrimary, margin:"0 0 2px" }}>{emp.name}</p>
+              <p style={{ fontSize:11, color:T.textSecondary, margin:0 }}>{emp.jobs} jobs · {emp.productivity} productive</p>
+            </div>
+            <div style={{ textAlign:"right" }}>
+              <p style={{ fontSize:15, fontWeight:700, color:T.textPrimary, margin:"0 0 1px" }}>{emp.score}</p>
+              <p style={{ fontSize:11, color:T.textTertiary, margin:0 }}>score</p>
+            </div>
+          </div>
+        ))}
+      </Card>
+
+    </div>
+  );
+}
+
+// ── BOTTOM TAB BAR ────────────────────────────────────────────────────
+const TABS = [
+  { id:"dashboard", icon:LayoutDashboard, label:"Home" },
+  { id:"jobs",      icon:Briefcase,       label:"Jobs" },
+  { id:"customers", icon:UserCircle,      label:"Clients" },
+  { id:"invoices",  icon:FileText,        label:"Invoices" },
+  { id:"payroll",   icon:DollarSign,      label:"Payroll" },
+];
+
+// ── APP ROOT ──────────────────────────────────────────────────────────
+export default function MobileDashboard() {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeTab,  setActiveTab]  = useState("dashboard");
+
+  return (
+    <div style={{
+      fontFamily: "'Plus Jakarta Sans', sans-serif",
+      background: T.bg,
+      minHeight:  "100dvh",
+      color:      T.textPrimary,
+      maxWidth:   430,
+      margin:     "0 auto",
+      position:   "relative",
+    }}>
+      {/* Google Font */}
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        * { box-sizing: border-box; -webkit-font-smoothing: antialiased; }
+        ::-webkit-scrollbar { display: none; }
+      `}</style>
+
+      <Sidebar
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        active={activeTab}
+        onNav={setActiveTab}
+      />
+
+      {/* Top bar */}
+      <header style={{
+        position:   "sticky",
+        top:        0,
+        zIndex:     30,
+        background: T.sidebar,
+        borderBottom:`1px solid ${T.cardBorder}`,
+        padding:    "14px 16px",
+        display:    "flex",
+        alignItems: "center",
+        justifyContent:"space-between",
+      }}>
+        <button
+          onClick={() => setDrawerOpen(true)}
+          style={{ background:"none", border:"none", cursor:"pointer", color:T.textSecondary, padding:4, display:"flex" }}
+        >
+          <Menu size={20} />
+        </button>
+
+        <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:T.brand }} />
+          <span style={{ fontSize:13, fontWeight:600, color:T.textPrimary }}>CleanOps Pro</span>
+        </div>
+
+        <button style={{ background:"none", border:"none", cursor:"pointer", color:T.textSecondary, padding:4, display:"flex", position:"relative" }}>
+          <Bell size={20} />
+          <span style={{
+            position:"absolute", top:2, right:2,
+            width:8, height:8, borderRadius:"50%",
+            background:T.brand, border:`2px solid ${T.sidebar}`,
+          }} />
+        </button>
+      </header>
+
+      {/* Page content */}
+      <main style={{ padding:"16px 14px 90px" }}>
+        {activeTab === "dashboard" && <DashboardScreen />}
+        {activeTab !== "dashboard" && (
+          <div style={{ paddingTop:60, textAlign:"center" }}>
+            <p style={{ fontSize:22, fontWeight:700, color:T.textPrimary, marginBottom:8 }}>
+              {TABS.find(t=>t.id===activeTab)?.label}
+            </p>
+            <p style={{ fontSize:13, color:T.textSecondary }}>Wire to your Supabase data here.</p>
+          </div>
+        )}
+      </main>
+
+      {/* Bottom tab bar */}
+      <nav style={{
+        position:   "fixed",
+        bottom:     0,
+        left:       "50%",
+        transform:  "translateX(-50%)",
+        width:      "100%",
+        maxWidth:   430,
+        background: T.sidebar,
+        borderTop:  `1px solid ${T.cardBorder}`,
+        display:    "flex",
+        justifyContent:"space-around",
+        padding:    "10px 0 max(10px, env(safe-area-inset-bottom))",
+        zIndex:     30,
+      }}>
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                background:"none", border:"none", cursor:"pointer",
+                display:"flex", flexDirection:"column", alignItems:"center", gap:4,
+                padding:"4px 12px",
+                color: isActive ? T.brand : T.textTertiary,
+                transition:"color 0.15s",
+                fontFamily:"'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              <tab.icon size={20} strokeWidth={isActive ? 2.5 : 1.8} />
+              <span style={{ fontSize:11, fontWeight: isActive ? 600 : 400 }}>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  );
+}
+
+
+To use in Replit:
+	1.	Create a new file MobileDashboard.jsx and paste this in
+	2.	Make sure recharts and lucide-react are installed — run in Replit shell:
+
+npm install recharts lucide-react
+
+
+	3.	In your App.jsx or main route, import and render it:
+
+import MobileDashboard from "./MobileDashboard";
+// then: <MobileDashboard />
+
+
+What’s fixed vs your screenshot:
+	∙	✅ Plus Jakarta Sans — loaded from Google Fonts
+	∙	✅ Bottom tab bar instead of overlapping sidebar drawer
+	∙	✅ Sidebar slides over with dark overlay, closes properly
+	∙	✅ All exact colors from spec (#0A0A0A, #161616, #F0EDE8, etc.)
+	∙	✅ Brand red used for active states, chart line, badges
+	∙	✅ Chart gradient fill (only acceptable gradient per spec)
+	∙	✅ Correct badge system — squared corners, uppercase, dark bg + colored border
+	∙	✅ Safe area inset for iPhone home bar​​​​​​​​​​​​​​​​
