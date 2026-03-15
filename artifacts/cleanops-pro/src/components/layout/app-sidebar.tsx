@@ -2,7 +2,7 @@ import {
   LogOut, X, LayoutDashboard, CalendarDays, ClipboardList, Clock,
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, ArrowUpCircle, Tag,
-  BookOpen, Star, Settings, Building2, CreditCard, PenLine,
+  BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -50,7 +50,8 @@ const NAV_SECTIONS = [
       { title: "Settings",          url: "/company",                    icon: Settings,   roles: ["owner", "admin"] },
       { title: "Billing",           url: "/company/billing",            icon: CreditCard, roles: ["owner"] },
       { title: "Property Groups",   url: "/company/property-groups",    icon: Building2,  roles: ["owner", "admin"] },
-      { title: "Agreements",        url: "/company/agreements",         icon: PenLine,    roles: ["owner", "admin"] },
+      { title: "Agreements",        url: "/company/agreements",         icon: PenLine,        roles: ["owner", "admin"] },
+      { title: "Forms",             url: "/company/forms",              icon: LayoutTemplate, roles: ["owner", "admin"] },
     ],
   },
 ];

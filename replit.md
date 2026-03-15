@@ -33,7 +33,9 @@ Multi-tenant SaaS platform for residential and commercial cleaning businesses (P
 - `/company` — General + Branding + **Notifications** tab (6 trigger templates, toggle on/off, edit body+subject, variable tokens, test button, activity log) + Integrations + Payroll Options
 - `/company/billing` — Plan status, next billing date, trial countdown, upgrade/cancel; Stripe subscription flow
 - `/company/property-groups` — Property Management Group CRUD; assign clients to groups; filter clients by group
-- `/company/agreements` — Agreement Template editor (WYSIWYG body, custom fields); send eSign request to client; portal signing with typed name + SHA-256 hash; eSign badge on client Overview
+- `/company/agreements` — Native Agreement Builder: 4 pre-seeded PHES templates (Residential, Commercial, Intake, Inspection); 20 toggleable PHES policy blocks; live preview; send eSign link to client with expiry; Sent Agreements tab with SIGNED/PENDING/EXPIRED badges; SHA-256 content hash; PDF generation
+- `/company/forms` — Drag-drop Form Builder: add/reorder/configure 10 field types (text, textarea, select, radio, checkbox, date, phone, email, number, section); preview tab; embed code + QR code sharing; submissions table
+- `/sign/:token` — Public client eSign flow (no auth): 3-step — Review Agreement → Your Information (pre-filled from schema) → Type Name + Agree + Submit; SHA-256 hash; PDF auto-generated on submit; E-SIGN / UETA compliant
 - `/reports/insights` — Performance Insights: top performers with star ratings, employee concern alerts, client churn risk, revenue by service type bar chart
 - `/loyalty` — Program style selector, earn rules with toggles/slider, rewards toggle list
 - `/discounts` — Discount code management (percentage/fixed, scope, expiry, active toggle)

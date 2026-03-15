@@ -28,3 +28,5 @@ export * from "./payments";
 export * from "./client_attachments";
 export * from "./property_groups";
 export * from "./agreement_templates";
+export * from "./form_templates";
+export * from "./form_submissions";

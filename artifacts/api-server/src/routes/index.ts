@@ -27,6 +27,8 @@ import attachmentsRouter from "./attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
 import billingRouter from "./billing.js";
+import formTemplatesRouter from "./form-templates.js";
+import signRouter from "./sign.js";
 
 const router: IRouter = Router();
 
@@ -58,5 +60,7 @@ router.use("/attachments", attachmentsRouter);
 router.use("/property-groups", propertyGroupsRouter);
 router.use("/agreement-templates", agreementTemplatesRouter);
 router.use("/billing", billingRouter);
+router.use("/form-templates", formTemplatesRouter);
+router.use("/sign", signRouter);
 
 export default router;
