@@ -3,7 +3,8 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Calendar } from "lucide-react";
+import { CloseDayModal } from "@/components/close-day-modal";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -75,16 +76,20 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set());
+  const [showCloseDay, setShowCloseDay] = useState(false);
 
   const today = useToday();
   const kpis = useKpis();
 
   const token = useAuthStore(state => state.token) || '';
   let firstName = 'there';
+  let userRole = 'office';
   try {
     const p = JSON.parse(atob(token.split('.')[1]));
     firstName = p.first_name || 'there';
+    userRole = p.role || 'office';
   } catch {}
+  const canAdmin = userRole === 'owner' || userRole === 'admin';
 
   const greeting = useGreeting(firstName);
   const todayDate = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -150,7 +155,12 @@ export default function Dashboard() {
             <p style={{ fontSize: isMobile ? 15 : 16, fontWeight: 600, color: '#1A1917', margin: '0 0 4px', fontFamily: FF }}>{greeting}</p>
             <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{todayDate}</p>
           </div>
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            {canAdmin && (
+              <button onClick={() => setShowCloseDay(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', backgroundColor: 'rgba(255,255,255,0.7)', color: '#1A1917', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
+                <Calendar size={14} /> Close Day
+              </button>
+            )}
             <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: 12, color: '#6B6860', margin: '0 0 2px', fontFamily: FF }}>Revenue this week</p>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -322,6 +332,7 @@ export default function Dashboard() {
         )}
 
       </div>
+      {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} />}
     </DashboardLayout>
   );
 }

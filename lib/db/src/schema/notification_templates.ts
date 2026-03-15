@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, boolean, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, boolean, timestamp, pgEnum, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -23,6 +23,7 @@ export const notificationLogTable = pgTable("notification_log", {
   channel: text("channel"),
   trigger: text("trigger"),
   status: text("status").notNull().default("sent"),
+  metadata: jsonb("metadata"),
   sent_at: timestamp("sent_at").notNull().defaultNow(),
 });
 

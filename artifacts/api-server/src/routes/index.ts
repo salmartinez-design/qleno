@@ -30,6 +30,7 @@ import billingRouter from "./billing.js";
 import formTemplatesRouter from "./form-templates.js";
 import signRouter from "./sign.js";
 import quoteScopesRouter from "./quote-scopes.js";
+import closeDayRouter from "./close-day.js";
 
 const router: IRouter = Router();
 
@@ -64,5 +65,6 @@ router.use("/billing", billingRouter);
 router.use("/form-templates", formTemplatesRouter);
 router.use("/sign", signRouter);
 router.use("/quote-scopes", quoteScopesRouter);
+router.use("/close-day", closeDayRouter);
 
 export default router;

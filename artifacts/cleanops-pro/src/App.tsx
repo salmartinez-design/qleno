@@ -52,6 +52,7 @@ import QuotesPage from "@/pages/quotes";
 import QuoteBuilderPage from "@/pages/quote-builder";
 import QuoteDetailPage from "@/pages/quote-detail";
 import QuotingPage from "@/pages/quoting";
+import InvoiceDetailPage from "@/pages/invoice-detail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,6 +73,7 @@ function Router() {
       <Route path="/employees" component={EmployeesPage} />
       <Route path="/customers/:id" component={CustomerProfilePage} />
       <Route path="/customers" component={CustomersPage} />
+      <Route path="/invoices/:id" component={InvoiceDetailPage} />
       <Route path="/invoices" component={InvoicesPage} />
       <Route path="/payroll" component={PayrollPage} />
       <Route path="/cleancyclopedia" component={CleancyclopediaPage} />

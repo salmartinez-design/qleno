@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, count, desc, sql } from "drizzle-orm";
+import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 
@@ -9,7 +9,7 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, assigned_user_id, client_id, date_from, date_to, page = "1", limit = "50" } = req.query;
+    const { status, assigned_user_id, client_id, date_from, date_to, page = "1", limit = "50", uninvoiced } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const conditions: any[] = [eq(jobsTable.company_id, req.auth!.companyId)];
@@ -18,6 +18,18 @@ router.get("/", requireAuth, async (req, res) => {
     if (client_id) conditions.push(eq(jobsTable.client_id, parseInt(client_id as string)));
     if (date_from) conditions.push(gte(jobsTable.scheduled_date, date_from as string));
     if (date_to) conditions.push(lte(jobsTable.scheduled_date, date_to as string));
+    if (uninvoiced === "true") {
+      conditions.push(
+        notExists(
+          db.select({ id: invoicesTable.id })
+            .from(invoicesTable)
+            .where(and(
+              eq(invoicesTable.job_id, jobsTable.id),
+              inArray(invoicesTable.status, ["sent", "paid"])
+            ))
+        )
+      );
+    }
 
     const jobs = await db
       .select({

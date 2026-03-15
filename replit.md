@@ -48,6 +48,33 @@ CleanOps Pro is built as a pnpm monorepo, separating the API server and the fron
 - **Client Portal:** A branded portal for clients to view upcoming jobs, history, rate services, and tip technicians.
 - **Reporting:** Performance insights, employee alerts, client churn risk, and revenue analytics.
 
+## Sprint 2: Bulk Invoicing, Close Day, Invoice Improvements — Complete
+
+All features E2E tested (March 2026):
+
+### DB Schema Changes
+- `invoicesTable` gains: `invoice_number`, `due_date`, `sent_at`, `last_reminder_sent_at`, `payment_failed`, `created_by`
+- `notificationLogTable` gains: `metadata` jsonb
+- New `daily_summaries` table added
+
+### API Changes
+- `POST /api/invoices` — handles `{job_id, auto_send, auto_charge}`; auto-builds line items, sets due_date (today+7), generates `INV-{YEAR}-{NNNN}` invoice number
+- `GET /api/invoices` — returns `days_overdue`, `invoice_number`, `due_date`, `sent_at`; stats: outstanding, overdue, paid 30d, YTD
+- `POST /api/invoices/:id/remind` — sets `last_reminder_sent_at`, logs notification
+- `POST /api/invoices/:id/mark-paid` — creates payment record, updates status
+- `POST /api/invoices/:id/send` — marks `sent_at`
+- `GET /api/jobs?uninvoiced=true` — filters to jobs with no sent/paid invoice (uses `notExists` subquery)
+- `GET /api/close-day` — returns jobs/invoicing/payments/timeclock data for today
+- `POST /api/close-day` — saves daily summary, clocks out active timeclock entries
+
+### Frontend Changes
+- **Batch Invoice Drawer** (`/invoices`): right-side 520px drawer, 3-step (select→processing→summary), Select All, client filter, Auto-Send/Auto-Charge toggles, running total
+- **Close Day Modal**: centered 640px modal, 4 sections (Jobs Today, Invoicing, Payments Today, Timeclock), status icons (green/amber/red), disabled if uninvoiced jobs remain
+- **Invoices Page**: Due Date column, Days Overdue badge, clickable rows → `/invoices/:id`, stats cards (Outstanding, Overdue, Paid 30d, YTD), filter tabs
+- **Invoice Detail Page** (`/invoices/:id`): full detail view with Mark as Paid modal, Send Reminder, Send Invoice, Charge Now actions
+- **Dashboard**: Close Day button in greeting banner header (owner/admin only)
+- **Route**: `/invoices/:id` added to App.tsx
+
 ## Quote Tool Sprint 1 — Complete
 
 All four pages are live and E2E tested (as of March 2026):

@@ -1,0 +1,378 @@
+Here it is — paste this entire block into Replit:
+
+---
+
+```
+Context: I am Sal Martinez, owner of PHES Cleaning LLC in Oak Lawn IL. 
+I am building a multi-tenant SaaS platform for cleaning businesses called 
+CleanOps Pro.
+
+Live app: https://clean-ops-pro.replit.app/login
+GitHub: https://github.com/salmartinez-design/clean-ops-pro
+Login: owner@phescleaning.com / demo1234
+Super admin: sal@cleanopspro.com / SalCleanOps2026!
+Tech: React + Express + Supabase + Tailwind + Plus Jakarta Sans
+Payments: Stripe (tenants) + Square OAuth (PHES only)
+Email: Resend (notifications@phes.io verified)
+
+Design system — non-negotiable:
+- Font: Plus Jakarta Sans only
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand) for buttons, active states, highlights
+- Badge system: COMPLETE/PAID = green (#DCFCE7/#166534), 
+  SCHEDULED/SENT = blue (#DBEAFE/#1E40AF), 
+  IN PROGRESS = amber (#FEF3C7/#92400E), 
+  OVERDUE/FLAGGED = red (#FEE2E2/#991B1B), 
+  DRAFT/INACTIVE = gray (#F3F4F6/#6B7280)
+- NO emojis anywhere in the platform
+- NO dark mode, light theme only
+- Slide-in panels use right-side drawer (same as job detail panel)
+- All forms validate before save with inline field errors
+- All tables have helpful empty states
+- Mobile responsive — all pages work at 375px
+
+Push to GitHub after all items complete:
+bash push-to-github.sh 'Sprint 2: Bulk Invoicing, Close Day, Invoice improvements'
+
+---
+
+SPRINT 2 — BULK INVOICING + CLOSE DAY
+
+---
+
+PART A — BATCH INVOICE PANEL
+
+Location: /invoices page
+Add a "Batch Invoice" button in the top-right header area, 
+next to the existing "+ New Invoice" button.
+Style: secondary button (white background, brand color border and text).
+Visible to: owner, admin, office roles only.
+
+When clicked, open a RIGHT SIDE DRAWER panel (not a modal).
+The drawer must be full-height, 520px wide on desktop, 
+full-width on mobile. It slides in from the right, 
+overlaying the page with a dark backdrop.
+
+DRAWER — STEP 1: JOB SELECTION
+
+Drawer header:
+- Title: "Batch Invoice"
+- Subtitle: "Select completed jobs to invoice"
+- X close button top right
+
+Pull all jobs where:
+- company_id = current tenant
+- status = 'complete'
+- No invoice exists yet (no row in invoices table with this job_id, 
+  or invoice status = 'draft' only — do not include jobs already 
+  invoiced with sent/paid status)
+
+Display as a scrollable list. Each row contains:
+- Checkbox (left)
+- Client full name (bold)
+- Job date (formatted: Mon Mar 15)
+- Scope of work / service type
+- Assigned technician first name
+- Job amount ($XXX.XX) right-aligned
+- If amount is $0 or null: show "No amount set" in red secondary text
+
+Above the list:
+- "Select All" checkbox that toggles all rows
+- Count label: "X jobs ready to invoice" in secondary text
+- Search input to filter by client name
+
+Below the list (sticky footer):
+- Two toggle rows:
+  1. Auto-Send: "Email invoice to client automatically" 
+     Toggle off by default. When on, show info text: 
+     "Invoice will be sent via email using your Resend account"
+  2. Auto-Charge: "Charge card on file automatically"
+     Toggle off by default. When on, show warning text in amber:
+     "Client must have a saved payment method. Failed charges 
+     will be skipped and flagged."
+- Running total: "X jobs selected — Total: $X,XXX.XX"
+  Updated in real time as checkboxes change
+- Primary button: "Generate Invoices" (brand color, full width)
+  Disabled if 0 jobs selected
+- Secondary link: "Cancel"
+
+Validation before processing:
+- If Auto-Charge is ON and any selected job's client has no 
+  payment method on file: show a warning step before processing.
+  List the clients with no payment method and ask: 
+  "Skip these clients or cancel?"
+  Two buttons: "Skip and Continue" | "Cancel"
+
+DRAWER — STEP 2: PROCESSING
+
+Replace the job list with a processing view:
+- Progress bar (animated, brand color fill)
+- Current item text: "Invoicing [Client Name]..." 
+  Updates as each invoice is processed
+- Count: "X of Y complete"
+- Do NOT close the drawer during processing
+- Process invoices sequentially, not in parallel, 
+  to avoid rate limit issues
+
+Processing logic per job:
+1. Create invoice record in invoices table:
+   - invoice_number: auto-generated (format: INV-[YEAR]-[4-digit seq])
+   - company_id, job_id, client_id from job record
+   - amount: from job.amount
+   - status: 'draft' initially
+   - due_date: today + 7 days (configurable later)
+   - line_items JSONB: [{description: scope name, amount: job.amount}]
+   - created_by: current user id
+
+2. If Auto-Send is ON:
+   - Generate invoice PDF (use existing PDF generation or pdfkit)
+   - Send via Resend to client email
+   - Update invoice status to 'sent'
+   - Update invoice.sent_at to now()
+   - Log to notification_log
+
+3. If Auto-Charge is ON and client has payment method:
+   - Attempt Stripe charge for invoice amount
+   - On success: update invoice status to 'paid', 
+     create payment record, update job.paid = true
+   - On failure: mark invoice status back to 'sent', 
+     add flag: payment_failed = true, log the error
+
+DRAWER — STEP 3: SUMMARY
+
+After all processing complete, show summary screen:
+- Large checkmark icon (use SVG, no emoji)
+- Heading: "Batch Complete"
+- Four stat cards in a 2x2 grid:
+  - Invoices Created: X (green)
+  - Emails Sent: X (blue) — only shown if Auto-Send was ON
+  - Payments Collected: $X,XXX.XX (green) — only shown if 
+    Auto-Charge was ON
+  - Failed / Skipped: X (red) — only shown if any failures
+- If any failures: show expandable list of failed clients 
+  with reason (no payment method / charge declined / email failed)
+- Button: "Close" — closes drawer, refreshes invoice list
+- Button: "View Invoices" — closes drawer, stays on /invoices 
+  with a filter applied showing today's invoices
+
+---
+
+PART B — CLOSE DAY WORKFLOW
+
+Location: Add a "Close Day" button to TWO places:
+1. Dashboard page — in the top-right header area
+2. /invoices page — in the top-right header area next to 
+   "Batch Invoice"
+
+Style: outlined button, secondary style.
+Visible to: owner and admin roles only.
+
+When clicked, open a CENTERED MODAL (not a drawer).
+Modal: 640px wide, auto height, with a soft shadow.
+
+MODAL — CLOSE DAY REVIEW
+
+Header:
+- Title: "Close Day — [Day, Month Date]" 
+  e.g. "Close Day — Sunday, March 15"
+- Subtitle: "Review today's activity before closing"
+- X close button
+
+The modal has 4 checklist sections. Each section has a 
+status icon: green checkmark if clear, amber warning if 
+attention needed, red alert if action required.
+
+SECTION 1 — JOBS TODAY
+Pull all jobs where job_date = today and company_id = current tenant.
+Show counts:
+- Complete: X jobs (green if > 0, gray if 0)
+- In Progress: X jobs (amber if > 0 — these should be done)
+- Scheduled but not started: X jobs (red if > 0 after 6pm, 
+  amber if before 6pm)
+- Flagged: X jobs (red if > 0, with link to Clock Monitor)
+
+If any jobs are still In Progress or Scheduled after 5pm, 
+show: "Some jobs may not be finished. Check before closing."
+
+SECTION 2 — INVOICING
+Pull all completed jobs today:
+- Invoiced: X of Y jobs (show as X/Y)
+- If X < Y: amber warning with count of uninvoiced jobs
+- Show button: "Batch Invoice Now" — opens the Batch Invoice 
+  drawer (closes this modal first)
+- If all jobs invoiced: green checkmark "All jobs invoiced"
+
+SECTION 3 — PAYMENTS TODAY
+Pull all payments where created_at = today:
+- Total collected: $X,XXX.XX (bold, brand color)
+- Invoices sent awaiting payment: X (blue)
+- Overdue invoices (due_date < today, status != paid): 
+  X invoices, $X,XXX.XX (red if > 0)
+- If any overdue: show "Send reminders" link that will 
+  bulk-send reminder emails to all overdue invoice clients
+
+SECTION 4 — CLOCK ENTRIES
+Pull time_clock_entries where date = today:
+- Clocked in and out: X entries (green)
+- Missing clock-out (clocked in, no clock-out): X (red if > 0)
+  Show each employee name with missing clock-out
+  Inline button per employee: "Set Clock Out" — opens a 
+  time picker to manually enter clock-out time
+- Flagged entries: X (red if > 0, link to Clock Monitor)
+
+MODAL FOOTER:
+- Left: "Today's Revenue" total — sum of all paid invoices today
+  Large number, brand color
+- Right two buttons:
+  1. "Close" — just closes the modal, no action taken
+  2. "Mark Day Complete" — saves a daily_summary record to DB 
+     (see DB below), closes modal, shows a toast: 
+     "Day marked complete. Good work today."
+
+"Mark Day Complete" does NOT lock anything in this sprint. 
+It just records a snapshot. Hard locking comes in Close Week 
+(Sprint 3). The button should be disabled (with tooltip 
+"Uninvoiced jobs remaining") if Section 2 shows uninvoiced jobs.
+
+Database — add this table:
+daily_summaries:
+  id, company_id, summary_date (date, unique per company),
+  jobs_complete (int), jobs_flagged (int),
+  invoices_created (int), invoices_sent (int),
+  revenue_collected (numeric), revenue_outstanding (numeric),
+  clock_entries_missing (int), marked_complete_by (uuid → users),
+  marked_complete_at (timestamptz), notes (text)
+  
+RLS: company_id must match current tenant.
+
+---
+
+PART C — INVOICE PAGE + DETAIL IMPROVEMENTS
+
+These improvements apply to the existing /invoices page 
+and invoice detail view.
+
+1. INVOICE LIST PAGE (/invoices) — add these columns to the table:
+   - "Due Date" column (after Amount)
+   - "Days Overdue" — if status = 'sent' and due_date < today, 
+     show a red badge: "X days overdue". If not overdue, empty.
+
+2. INVOICE DETAIL PAGE — add these action buttons:
+
+   "Charge Now" button:
+   - Visible when: invoice status = 'sent' or 'overdue', 
+     client has payment method on file
+   - On click: confirm modal "Charge $XXX.XX to [Client Name]'s 
+     card on file?"
+   - On confirm: attempt Stripe charge, update invoice to paid, 
+     create payment record, show success toast
+   - On failure: show error toast with Stripe error message
+
+   "Send Reminder" button:
+   - Visible when: invoice status = 'sent' and due_date < today
+   - On click: sends a reminder email via Resend
+   - Email subject: "Friendly reminder — Invoice #INV-XXXX is due"
+   - Body: brief, professional, includes invoice total and 
+     a "Pay Now" link (for now, link goes to a future 
+     /pay/:token page — just generate the URL, don't build 
+     the page yet)
+   - Updates invoice.last_reminder_sent_at to now()
+   - Shows toast: "Reminder sent to [client email]"
+
+   "Mark as Paid" button:
+   - Visible when: invoice status = 'sent' or 'overdue'
+   - Opens a small modal: Payment Method (select: Cash, Check, 
+     Venmo, Zelle, Other), Amount ($, pre-filled with invoice 
+     total), Date (date picker, default today), Notes (optional)
+   - On save: creates payment record, updates invoice to 'paid'
+
+3. INVOICE STATUS UPDATES — add 'overdue' as a status:
+   - Any invoice where status = 'sent' AND due_date < today 
+     should display as OVERDUE (red badge)
+   - Add a background job / DB function that runs on page load 
+     to auto-update these (a simple check on fetch is fine, 
+     no cron needed yet)
+   - Add 'overdue' to the status filter tabs on /invoices
+
+4. INVOICE SUMMARY CARDS — update the existing 4 cards on /invoices:
+   Current cards: Outstanding, Overdue, Paid 30d, YTD
+   Update the values to pull from live DB data:
+   - Outstanding: sum of all sent invoices not yet paid
+   - Overdue: sum of sent invoices where due_date < today
+   - Paid (30 days): sum of payments in last 30 days
+   - YTD: sum of all payments this calendar year
+   All amounts formatted as $X,XXX (no decimals on summary cards)
+
+---
+
+PART D — NOTIFICATION LOG UPDATES
+
+Ensure the notification_log table is being written to for 
+every automated action in this sprint:
+- Invoice created via batch: log type='invoice_created', 
+  channel='system'
+- Invoice emailed: log type='invoice_sent', channel='email'
+- Payment charged: log type='payment_collected', channel='stripe'
+- Reminder sent: log type='invoice_reminder', channel='email'
+- Day marked complete: log type='day_closed', channel='system'
+
+Each log entry: company_id, recipient (email or 'system'), 
+channel, trigger (the type above), status ('sent'/'failed'), 
+metadata JSONB (invoice_id, amount, etc.), sent_at.
+
+---
+
+TESTING CHECKLIST
+Before marking Sprint 2 complete, verify each of these:
+
+[ ] "Batch Invoice" button appears on /invoices for owner role
+[ ] Batch Invoice drawer opens, shows completed uninvoiced jobs
+[ ] Select All checkbox works, running total updates in real time
+[ ] "Generate Invoices" creates invoice records in DB
+[ ] Auto-Send OFF: invoices created as draft, no emails sent
+[ ] Auto-Send ON: invoices created as sent, Resend email fired
+[ ] Processing step shows progress bar updating per job
+[ ] Summary step shows correct counts
+[ ] "Close Day" button appears on Dashboard and /invoices
+[ ] Close Day modal shows all 4 sections with correct data
+[ ] "Batch Invoice Now" link in modal opens batch drawer
+[ ] "Mark Day Complete" saves daily_summary record to DB
+[ ] "Mark Day Complete" disabled when uninvoiced jobs exist
+[ ] Invoice list shows Due Date and Days Overdue columns
+[ ] Overdue badge shows correctly for past-due sent invoices
+[ ] "Overdue" tab filter works on /invoices
+[ ] Invoice summary cards show live DB totals
+[ ] "Charge Now" button visible on sent/overdue invoices
+[ ] "Send Reminder" sends email and updates last_reminder_sent_at
+[ ] "Mark as Paid" creates payment record and updates invoice status
+[ ] All pages responsive at 375px
+[ ] No emojis anywhere
+[ ] RLS enforced — test with demo tenant to confirm no data leak
+
+---
+
+After all tests pass, take screenshots of:
+1. Batch Invoice drawer — Step 1 (job selection with running total)
+2. Batch Invoice drawer — Step 3 (summary screen)
+3. Close Day modal — all 4 sections visible
+4. Invoice list — showing Due Date, Days Overdue, Overdue tab
+
+Then push to GitHub:
+bash push-to-github.sh 'Sprint 2: Bulk Invoicing, Close Day, Invoice improvements'
+```
+
+---
+
+A few things to watch for when Replit runs this:
+
+**Stripe charges** — if `STRIPE_SECRET_KEY` isn't set yet in your Replit secrets, the Auto-Charge toggle will error out. Tell Replit to gracefully disable that toggle with a tooltip "Stripe not configured" if the key is missing, rather than crashing.
+
+**Resend emails** — your `RESEND_API_KEY` is set and `notifications@phes.io` is verified, so Auto-Send should work. Watch the Resend dashboard to confirm deliveries.
+
+**The invoice PDF** — if pdfkit isn't generating cleanly yet, tell Replit to skip the PDF attachment on batch send for now and just send the HTML email. Don't let PDF generation block the whole sprint.
+
+When Sprint 2 is done, Sprint 3 is Stripe billing onboarding — that's the one that lets you charge your first outside tenant. Want me to pre-write that prompt now too?

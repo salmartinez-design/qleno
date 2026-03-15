@@ -1,18 +1,53 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, desc, count, sum, sql } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable } from "@workspace/db/schema";
+import { eq, and, desc, count, sum, sql, lt, isNull, or, ne, inArray } from "drizzle-orm";
+import { requireAuth, requireRole } from "../lib/auth.js";
 
 const router = Router();
 
+function generateInvoiceNumber(id: number): string {
+  const year = new Date().getFullYear();
+  return `INV-${year}-${String(id).padStart(4, "0")}`;
+}
+
+function daysOverdue(dueDateStr: string | null): number {
+  if (!dueDateStr) return 0;
+  const due = new Date(dueDateStr);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diff = Math.floor((today.getTime() - due.getTime()) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+function formatInvoice(inv: any) {
+  const overdue = inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date();
+  return {
+    ...inv,
+    subtotal: parseFloat(inv.subtotal || "0"),
+    tips: parseFloat(inv.tips || "0"),
+    total: parseFloat(inv.total || "0"),
+    status: overdue ? "overdue" : inv.status,
+    days_overdue: daysOverdue(inv.due_date),
+    invoice_number: inv.invoice_number || generateInvoiceNumber(inv.id),
+  };
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, client_id, date_from, date_to, page = "1", limit = "25" } = req.query;
+    const { status, client_id, date_from, date_to, page = "1", limit = "50" } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
+    const today = new Date().toISOString().split("T")[0];
+
     const conditions: any[] = [eq(invoicesTable.company_id, req.auth!.companyId)];
-    if (status) conditions.push(eq(invoicesTable.status, status as any));
+
+    if (status === "overdue") {
+      conditions.push(eq(invoicesTable.status, "sent"));
+      conditions.push(lt(invoicesTable.due_date as any, today));
+    } else if (status) {
+      conditions.push(eq(invoicesTable.status, status as any));
+    }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
 
     const invoices = await db
@@ -20,12 +55,18 @@ router.get("/", requireAuth, async (req, res) => {
         id: invoicesTable.id,
         client_id: invoicesTable.client_id,
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
+        client_email: clientsTable.email,
         job_id: invoicesTable.job_id,
+        invoice_number: invoicesTable.invoice_number,
         status: invoicesTable.status,
         line_items: invoicesTable.line_items,
         subtotal: invoicesTable.subtotal,
         tips: invoicesTable.tips,
         total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
+        sent_at: invoicesTable.sent_at,
+        last_reminder_sent_at: invoicesTable.last_reminder_sent_at,
+        payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
       })
@@ -41,52 +82,35 @@ router.get("/", requireAuth, async (req, res) => {
       .from(invoicesTable)
       .where(and(...conditions));
 
-    const statsResult = await db
-      .select({
-        total_revenue: sum(invoicesTable.total),
-      })
-      .from(invoicesTable)
-      .where(eq(invoicesTable.company_id, req.auth!.companyId));
+    const compCond = eq(invoicesTable.company_id, req.auth!.companyId);
 
-    const paidResult = await db
-      .select({ total_paid: sum(invoicesTable.total) })
-      .from(invoicesTable)
-      .where(and(
-        eq(invoicesTable.company_id, req.auth!.companyId),
-        eq(invoicesTable.status, "paid")
-      ));
-
-    const overdueResult = await db
-      .select({ total_overdue: sum(invoicesTable.total) })
-      .from(invoicesTable)
-      .where(and(
-        eq(invoicesTable.company_id, req.auth!.companyId),
-        eq(invoicesTable.status, "overdue")
-      ));
-
-    const sentResult = await db
-      .select({ total_outstanding: sum(invoicesTable.total) })
-      .from(invoicesTable)
-      .where(and(
-        eq(invoicesTable.company_id, req.auth!.companyId),
-        eq(invoicesTable.status, "sent")
-      ));
+    const [outstandingRes, overdueRes, paid30dRes, ytdRes] = await Promise.all([
+      db.select({ total: sum(invoicesTable.total) })
+        .from(invoicesTable)
+        .where(and(compCond, inArray(invoicesTable.status, ["sent", "overdue"]))),
+      db.select({ total: sum(invoicesTable.total) })
+        .from(invoicesTable)
+        .where(and(compCond, eq(invoicesTable.status, "sent"), lt(invoicesTable.due_date as any, today))),
+      db.select({ total: sum(invoicesTable.total) })
+        .from(invoicesTable)
+        .where(and(compCond, eq(invoicesTable.status, "paid"),
+          sql`${invoicesTable.paid_at} >= now() - interval '30 days'`)),
+      db.select({ total: sum(invoicesTable.total) })
+        .from(invoicesTable)
+        .where(and(compCond, eq(invoicesTable.status, "paid"),
+          sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`)),
+    ]);
 
     return res.json({
-      data: invoices.map(inv => ({
-        ...inv,
-        subtotal: parseFloat(inv.subtotal),
-        tips: parseFloat(inv.tips),
-        total: parseFloat(inv.total),
-      })),
+      data: invoices.map(formatInvoice),
       total: totalResult[0].count,
       page: parseInt(page as string),
       limit: parseInt(limit as string),
       stats: {
-        total_revenue: parseFloat(statsResult[0].total_revenue || "0"),
-        total_paid: parseFloat(paidResult[0].total_paid || "0"),
-        total_overdue: parseFloat(overdueResult[0].total_overdue || "0"),
-        total_outstanding: parseFloat(sentResult[0].total_outstanding || "0"),
+        total_outstanding: parseFloat(outstandingRes[0].total || "0"),
+        total_overdue: parseFloat(overdueRes[0].total || "0"),
+        total_paid: parseFloat(paid30dRes[0].total || "0"),
+        total_revenue: parseFloat(ytdRes[0].total || "0"),
       },
     });
   } catch (err) {
@@ -95,35 +119,96 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/", requireAuth, async (req, res) => {
+router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { client_id, job_id, line_items, tips = 0 } = req.body;
+    const { client_id, job_id, line_items: rawLineItems, tips = 0, auto_send = false, auto_charge = false } = req.body;
 
-    const subtotal = line_items.reduce((sum: number, item: any) => sum + item.total, 0);
+    let finalClientId = client_id;
+    let finalLineItems = rawLineItems;
+    let jobRecord: any = null;
+
+    if (job_id && (!client_id || !rawLineItems)) {
+      const [job] = await db
+        .select({
+          id: jobsTable.id,
+          client_id: jobsTable.client_id,
+          service_type: jobsTable.service_type,
+          base_fee: jobsTable.base_fee,
+        })
+        .from(jobsTable)
+        .where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, req.auth!.companyId)))
+        .limit(1);
+
+      if (!job) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+      jobRecord = job;
+      finalClientId = job.client_id;
+      finalLineItems = [{
+        description: (job.service_type || "").replace(/_/g, " "),
+        quantity: 1,
+        rate: parseFloat(job.base_fee || "0"),
+        total: parseFloat(job.base_fee || "0"),
+      }];
+    }
+
+    if (!finalClientId) return res.status(400).json({ error: "Bad Request", message: "client_id required" });
+
+    const subtotal = (finalLineItems || []).reduce((s: number, item: any) => s + (item.total || 0), 0);
     const total = subtotal + (tips || 0);
 
-    const newInvoice = await db
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + 7);
+    const dueDateStr = dueDate.toISOString().split("T")[0];
+
+    const [newInvoice] = await db
       .insert(invoicesTable)
       .values({
         company_id: req.auth!.companyId,
-        client_id,
-        job_id,
-        line_items,
+        client_id: finalClientId,
+        job_id: job_id || null,
+        line_items: finalLineItems || [],
         subtotal: subtotal.toString(),
         tips: (tips || 0).toString(),
         total: total.toString(),
+        due_date: dueDateStr,
+        status: auto_send ? "sent" : "draft",
+        sent_at: auto_send ? new Date() : null,
+        created_by: req.auth!.userId,
       })
       .returning();
 
-    const client = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
+    const invNumber = generateInvoiceNumber(newInvoice.id);
+    await db.update(invoicesTable).set({ invoice_number: invNumber }).where(eq(invoicesTable.id, newInvoice.id));
+
+    const [client] = await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
       .from(clientsTable)
-      .where(eq(clientsTable.id, client_id))
+      .where(eq(clientsTable.id, finalClientId))
       .limit(1);
 
+    await db.insert(notificationLogTable).values({
+      company_id: req.auth!.companyId,
+      recipient: client?.email || "system",
+      channel: "system",
+      trigger: "invoice_created",
+      status: "sent",
+      metadata: { invoice_id: newInvoice.id, amount: total, job_id } as any,
+    });
+
+    if (auto_send && client?.email) {
+      await db.insert(notificationLogTable).values({
+        company_id: req.auth!.companyId,
+        recipient: client.email,
+        channel: "email",
+        trigger: "invoice_sent",
+        status: "sent",
+        metadata: { invoice_id: newInvoice.id, amount: total } as any,
+      });
+    }
+
     return res.status(201).json({
-      ...newInvoice[0],
-      client_name: `${client[0]?.first_name || ""} ${client[0]?.last_name || ""}`.trim(),
+      ...newInvoice,
+      invoice_number: invNumber,
+      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
       subtotal,
       tips: tips || 0,
       total,
@@ -138,38 +223,34 @@ router.get("/:id", requireAuth, async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
 
-    const invoice = await db
+    const [invoice] = await db
       .select({
         id: invoicesTable.id,
         client_id: invoicesTable.client_id,
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
+        client_email: clientsTable.email,
         job_id: invoicesTable.job_id,
+        invoice_number: invoicesTable.invoice_number,
         status: invoicesTable.status,
         line_items: invoicesTable.line_items,
         subtotal: invoicesTable.subtotal,
         tips: invoicesTable.tips,
         total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
+        sent_at: invoicesTable.sent_at,
+        last_reminder_sent_at: invoicesTable.last_reminder_sent_at,
+        payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
-      .where(and(
-        eq(invoicesTable.id, invoiceId),
-        eq(invoicesTable.company_id, req.auth!.companyId)
-      ))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
 
-    if (!invoice[0]) {
-      return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-    }
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    return res.json({
-      ...invoice[0],
-      subtotal: parseFloat(invoice[0].subtotal),
-      tips: parseFloat(invoice[0].tips),
-      total: parseFloat(invoice[0].total),
-    });
+    return res.json(formatInvoice(invoice));
   } catch (err) {
     console.error("Get invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get invoice" });
@@ -185,11 +266,11 @@ router.put("/:id", requireAuth, async (req, res) => {
     let total: number | undefined;
 
     if (line_items) {
-      subtotal = line_items.reduce((s: number, item: any) => s + item.total, 0);
+      subtotal = line_items.reduce((s: number, item: any) => s + (item.total || 0), 0);
       total = subtotal + (tips || 0);
     }
 
-    const updated = await db
+    const [updated] = await db
       .update(invoicesTable)
       .set({
         ...(status && { status }),
@@ -197,70 +278,181 @@ router.put("/:id", requireAuth, async (req, res) => {
         ...(tips !== undefined && { tips: tips.toString() }),
         ...(subtotal !== undefined && { subtotal: subtotal.toString() }),
         ...(total !== undefined && { total: total.toString() }),
+        ...(status === "sent" && { sent_at: new Date() }),
         ...(status === "paid" && { paid_at: new Date() }),
       })
-      .where(and(
-        eq(invoicesTable.id, invoiceId),
-        eq(invoicesTable.company_id, req.auth!.companyId)
-      ))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
-    if (!updated[0]) {
-      return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-    }
+    if (!updated) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    const client = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
+    const [client] = await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
       .from(clientsTable)
-      .where(eq(clientsTable.id, updated[0].client_id))
+      .where(eq(clientsTable.id, updated.client_id))
       .limit(1);
 
-    return res.json({
-      ...updated[0],
-      client_name: `${client[0]?.first_name || ""} ${client[0]?.last_name || ""}`.trim(),
-      subtotal: parseFloat(updated[0].subtotal),
-      tips: parseFloat(updated[0].tips),
-      total: parseFloat(updated[0].total),
-    });
+    return res.json(formatInvoice({
+      ...updated,
+      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
+      client_email: client?.email,
+    }));
   } catch (err) {
     console.error("Update invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to update invoice" });
   }
 });
 
-router.post("/:id/send", requireAuth, async (req, res) => {
+router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
 
-    const updated = await db
-      .update(invoicesTable)
-      .set({ status: "sent" })
-      .where(and(
-        eq(invoicesTable.id, invoiceId),
-        eq(invoicesTable.company_id, req.auth!.companyId)
-      ))
-      .returning();
-
-    if (!updated[0]) {
-      return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
-    }
-
-    const client = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, updated[0].client_id))
+    const [invoice] = await db
+      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
 
-    return res.json({
-      ...updated[0],
-      client_name: `${client[0]?.first_name || ""} ${client[0]?.last_name || ""}`.trim(),
-      subtotal: parseFloat(updated[0].subtotal),
-      tips: parseFloat(updated[0].tips),
-      total: parseFloat(updated[0].total),
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ status: "sent", sent_at: new Date() })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    const [client] = await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, invoice.client_id))
+      .limit(1);
+
+    await db.insert(notificationLogTable).values({
+      company_id: req.auth!.companyId,
+      recipient: client?.email || "system",
+      channel: "email",
+      trigger: "invoice_sent",
+      status: "sent",
+      metadata: { invoice_id: invoiceId, amount: parseFloat(invoice.total || "0") } as any,
     });
+
+    return res.json(formatInvoice({
+      ...updated,
+      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
+      client_email: client?.email,
+    }));
   } catch (err) {
     console.error("Send invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to send invoice" });
+  }
+});
+
+router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+
+    const [invoice] = await db
+      .select({
+        id: invoicesTable.id,
+        client_id: invoicesTable.client_id,
+        invoice_number: invoicesTable.invoice_number,
+        total: invoicesTable.total,
+        status: invoicesTable.status,
+      })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    const [client] = await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, invoice.client_id))
+      .limit(1);
+
+    const clientEmail = client?.email;
+    const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
+
+    if (clientEmail && process.env.RESEND_API_KEY) {
+      const { Resend } = await import("resend");
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const payLink = `https://clean-ops-pro.replit.app/pay/${invoiceId}`;
+      await resend.emails.send({
+        from: "notifications@phes.io",
+        to: clientEmail,
+        subject: `Friendly reminder — Invoice ${invNum} is due`,
+        html: `<p>Hi ${client?.first_name || "there"},</p>
+               <p>This is a friendly reminder that invoice <strong>${invNum}</strong> for <strong>$${parseFloat(invoice.total || "0").toFixed(2)}</strong> is due.</p>
+               <p><a href="${payLink}">Pay Now</a></p>
+               <p>Thank you,<br>PHES Cleaning LLC</p>`,
+      });
+    }
+
+    await db.update(invoicesTable)
+      .set({ last_reminder_sent_at: new Date() })
+      .where(eq(invoicesTable.id, invoiceId));
+
+    await db.insert(notificationLogTable).values({
+      company_id: req.auth!.companyId,
+      recipient: clientEmail || "system",
+      channel: "email",
+      trigger: "invoice_reminder",
+      status: "sent",
+      metadata: { invoice_id: invoiceId, amount: parseFloat(invoice.total || "0") } as any,
+    });
+
+    return res.json({ ok: true, sent_to: clientEmail || null });
+  } catch (err) {
+    console.error("Remind invoice error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to send reminder" });
+  }
+});
+
+router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    const { method = "cash", amount, date: payDate, notes } = req.body;
+
+    const [invoice] = await db
+      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    const payAmount = amount ?? parseFloat(invoice.total || "0");
+
+    await db.insert(paymentsTable).values({
+      company_id: req.auth!.companyId,
+      client_id: invoice.client_id,
+      invoice_id: invoiceId,
+      amount: payAmount.toString(),
+      method,
+      status: "completed",
+      processed_by: req.auth!.userId,
+    });
+
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ status: "paid", paid_at: payDate ? new Date(payDate) : new Date() })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    await db.insert(notificationLogTable).values({
+      company_id: req.auth!.companyId,
+      recipient: "system",
+      channel: "system",
+      trigger: "payment_collected",
+      status: "sent",
+      metadata: { invoice_id: invoiceId, amount: payAmount, method } as any,
+    });
+
+    return res.json(formatInvoice({ ...updated, client_name: null }));
+  } catch (err) {
+    console.error("Mark paid error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to mark invoice as paid" });
   }
 });
 
