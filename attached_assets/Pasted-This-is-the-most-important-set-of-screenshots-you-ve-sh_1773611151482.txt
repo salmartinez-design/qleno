@@ -1,0 +1,682 @@
+This is the most important set of screenshots you've shared. This is your actual live PHES data in MaidCentral — a real client profile with real history. This is the benchmark. Let me give you the full picture of what I see and what it means.
+
+---
+
+## What MC's Client Profile Actually Does
+
+**The left panel stats sidebar** is genuinely useful — Customer Start date, Last Cleaning, Next Cleaning, Revenue all-time, Revenue last 12 months, Scorecard score, and a jobs calendar showing every cleaning. That is a complete client health snapshot in one glance.
+
+**Multiple homes per client** is critical and something you specifically asked about. Adam Scholz has one home — 434 W Roscoe St 2C. But a client could have multiple properties, and MC tracks each home separately with its own service sets, allowed hours, and history. This is essential for property managers and clients with vacation homes.
+
+**Technician Preferences tab** is one of MC's most underrated features. You can see Alejandra Cuervo and Diana Vasquez are both flagged "Do not schedule" for this client. That information lives on the client record and should theoretically prevent scheduling conflicts — though MC requires manual enforcement. This is a protection feature that prevents client complaints before they happen.
+
+**Contacts and Notifications tab** shows exactly which triggers fire to which contact method. This client gets email 3 days before, email 1 day before, text 3 days before, text 1 day before, and on-the-way text to 217-617-1102. That granular per-client notification setup is what makes clients feel taken care of without any manual work.
+
+**Notes tab** is the most important thing on this page. Look at image 8 — it logs an actual text message conversation, an email with a photo of a broken lamp shade, the full client complaint, and Maribel's response all in one chronological timeline. Every communication with this client lives here. That is how you manage a $5M business — nothing falls through the cracks because everything is logged.
+
+**The client portal** (images 9-17) is genuinely excellent. The client sees: rate your last service with cleaner photo, your next job date and time, upgrade add-ons for the next cleaning, job history calendar, profile/notifications management, billing with payment methods and full invoice history with PDF download, and each invoice has a review section. The footer has PHES branding, social links, phone numbers. This is a complete client self-service experience.
+
+---
+
+## The $5M Owner Mindset
+
+Here is how you think about this differently. A $5M cleaning business owner is not thinking about features — they are thinking about three things:
+
+**Client lifetime value.** The average recurring client is worth $2,400-$3,600 per year. Losing one client because a preferred technician was accidentally scheduled, or because a complaint was not followed up, or because they could not easily add on a fridge cleaning — that is real money lost. Every feature in the client profile exists to protect and grow lifetime value.
+
+**Time cost of information retrieval.** Every time Maribel has to ask "what is the history with this client?" instead of seeing it in 3 seconds, you are paying for that. A $5M business has Maribel, Francisco, possibly a third office person. If each of them wastes 30 minutes per day hunting for client information that should be at their fingertips, you are paying $15,000-$20,000 per year in wasted admin labor.
+
+**Accountability at scale.** When you have 8-12 technicians and 300+ recurring clients, you cannot personally know every client relationship. The software has to carry that institutional knowledge. Technician preferences, complaint history, notes, scorecard trends — that is the software doing the memory work that you cannot do at that scale.
+
+---
+
+## What CleanOps Pro's Client Profile Needs
+
+Paste this into Replit:
+
+```
+Rebuild the client profile page completely.
+This is the most important page in the platform
+for operators running a $500k-$5M business.
+
+Every feature here serves one purpose:
+protect and grow client lifetime value.
+
+════════════════════════════════════════════════
+DATABASE — ADD THESE COLUMNS AND TABLES
+════════════════════════════════════════════════
+
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS
+  portal_registered BOOLEAN DEFAULT false,
+  portal_last_login TIMESTAMP,
+  portal_invite_sent_at TIMESTAMP,
+  loyalty_points INTEGER DEFAULT 0,
+  loyalty_tier VARCHAR(20) DEFAULT 'standard',
+  client_since DATE,
+  revenue_all_time DECIMAL(10,2) DEFAULT 0,
+  revenue_last_12mo DECIMAL(10,2) DEFAULT 0,
+  scorecard_avg DECIMAL(3,2),
+  preferred_day VARCHAR(20),
+  preferred_time TIME,
+  home_access_notes TEXT,
+  alarm_code TEXT,
+  pets TEXT,
+  special_instructions TEXT,
+  rate_increase_last_date DATE,
+  rate_increase_last_pct DECIMAL(5,2);
+
+CREATE TABLE IF NOT EXISTS client_homes (
+  id            SERIAL PRIMARY KEY,
+  company_id    INTEGER NOT NULL REFERENCES companies(id),
+  client_id     INTEGER NOT NULL REFERENCES clients(id),
+  name          VARCHAR(100),
+  address       TEXT NOT NULL,
+  city          TEXT,
+  state         TEXT,
+  zip           TEXT,
+  lat           DECIMAL(10,8),
+  lng           DECIMAL(11,8),
+  sq_footage    INTEGER,
+  bedrooms      INTEGER,
+  bathrooms     INTEGER,
+  access_notes  TEXT,
+  alarm_code    TEXT,
+  has_pets      BOOLEAN DEFAULT false,
+  pet_notes     TEXT,
+  parking_notes TEXT,
+  is_primary    BOOLEAN DEFAULT true,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS technician_preferences (
+  id          SERIAL PRIMARY KEY,
+  company_id  INTEGER NOT NULL REFERENCES companies(id),
+  client_id   INTEGER NOT NULL REFERENCES clients(id),
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  preference  VARCHAR(20) NOT NULL
+              CHECK (preference IN (
+                'preferred','do_not_schedule','neutral'
+              )),
+  notes       TEXT,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS client_notifications (
+  id            SERIAL PRIMARY KEY,
+  company_id    INTEGER NOT NULL REFERENCES companies(id),
+  client_id     INTEGER NOT NULL REFERENCES clients(id),
+  contact_value TEXT NOT NULL,
+  contact_type  VARCHAR(10) NOT NULL
+                CHECK (contact_type IN ('email','sms')),
+  triggers      TEXT[] DEFAULT ARRAY[
+    '3_days_before','1_day_before',
+    'on_the_way','job_started',
+    'job_complete','scorecard'
+  ],
+  is_active     BOOLEAN DEFAULT true,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS client_communications (
+  id            SERIAL PRIMARY KEY,
+  company_id    INTEGER NOT NULL REFERENCES companies(id),
+  client_id     INTEGER NOT NULL REFERENCES clients(id),
+  type          VARCHAR(20) NOT NULL
+                CHECK (type IN (
+                  'sms','email','note','call_log',
+                  'system','portal_activity'
+                )),
+  direction     VARCHAR(10)
+                CHECK (direction IN ('inbound','outbound','internal')),
+  subject       TEXT,
+  body          TEXT NOT NULL,
+  from_name     TEXT,
+  to_contact    TEXT,
+  has_attachment BOOLEAN DEFAULT false,
+  attachment_url TEXT,
+  sent_by       INTEGER REFERENCES users(id),
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS client_agreements (
+  id            SERIAL PRIMARY KEY,
+  company_id    INTEGER NOT NULL REFERENCES companies(id),
+  client_id     INTEGER NOT NULL REFERENCES clients(id),
+  home_id       INTEGER REFERENCES client_homes(id),
+  template_name TEXT,
+  sent_at       TIMESTAMP,
+  accepted_at   TIMESTAMP,
+  ip_address    TEXT,
+  pdf_url       TEXT,
+  created_at    TIMESTAMP DEFAULT NOW()
+);
+
+════════════════════════════════════════════════
+CLIENT LIST PAGE — /customers
+════════════════════════════════════════════════
+
+Upgrade the existing customers list page.
+
+FILTER BAR (above table):
+  Search input (name, address, phone, email)
+  Status filter: All | Active | Inactive | At Risk
+  Frequency filter: All | Weekly | Bi-weekly | Monthly
+  Portal filter: All | Registered | Not Registered
+
+TABLE COLUMNS:
+  Client Name + ID
+  Address (primary home)
+  Phone + Email
+  Frequency badge
+  Last Cleaning date
+  Next Cleaning date
+  Loyalty points + tier badge
+  Portal status: 
+    "Registered" — green badge
+    "Invited" — amber badge
+    "Not Invited" — gray badge
+  Status badge: ACTIVE / INACTIVE / AT RISK
+
+AT RISK = no booking in 30+ days 
+  OR complaint unresolved in 14+ days
+  Row bg: rgba(245, 158, 11, 0.04)
+  border-left: 3px solid #F59E0B
+
+BULK ACTIONS (checkbox select):
+  Send SMS
+  Send Portal Invite
+  Export CSV
+  Add Tag
+
+════════════════════════════════════════════════
+CLIENT PROFILE PAGE — /customers/:id
+════════════════════════════════════════════════
+
+TWO-COLUMN LAYOUT:
+  Left column: 280px fixed
+  Right column: fills remaining width
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+LEFT SIDEBAR — CLIENT SNAPSHOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Sticky on desktop.
+
+CLIENT HEADER:
+  Name: 20px weight 700 #1A1917
+  Client ID: #CL-0001 — 11px #9E9B94
+  
+  Status badges row:
+    Frequency: WEEKLY / BI-WEEKLY / MONTHLY
+    Service type: RECURRING / ONE-TIME
+  
+  Portal status pill:
+    Registered: bg #DCFCE7 text #166534
+                "Portal Active"
+    Invited: bg #FEF3C7 text #92400E
+             "Invite Sent [date]"
+    Not registered: bg #F3F4F6 text #6B7280
+                    "No Portal Access"
+    Button: "Send Portal Invite" or 
+            "Resend Invite"
+
+LOYALTY SECTION:
+  bg var(--brand-dim), border-radius 10px
+  padding 14px, margin-top 12px
+  
+  "CleanRewards" label 11px var(--brand) uppercase
+  Points: "350 pts" 22px weight 700 var(--brand)
+  Tier badge: STANDARD / SILVER / GOLD / VIP
+  
+  Progress bar to next tier:
+  "150 pts until Silver"
+  
+  "Manage Points" link
+
+STATS SECTION:
+  Title: "Stats" 11px #9E9B94 uppercase
+  
+  Rows (label left, value right):
+  Client Since:      [date] var(--brand)
+  Last Cleaning:     [date] var(--brand)
+  Next Cleaning:     [date] var(--brand)
+  All-Time Revenue:  $X,XXX.XX var(--brand)
+  Last 12mo Revenue: $X,XXX.XX var(--brand)
+  Scorecard Avg:     X.XX/4.0 var(--brand)
+  Rate Last Changed: [date] or "Never"
+  
+  If rate_increase_last_date is over 12 months:
+    "Rate increase due" amber warning
+    "Run Rate Increase" link
+
+RATE INCREASE WARNING BOX:
+  Only shows if last increase > 12 months ago
+  bg #FEF3C7, border-left 3px #F59E0B
+  border-radius 8px, padding 12px
+  
+  "Last rate increase: [date]"
+  "Current rate: $[amount]"
+  "Suggested: +5% = $[new amount]"
+  "Send Rate Increase" button
+
+JOBS MINI CALENDAR:
+  Compact monthly calendar
+  Prev/Next month arrows
+  Days with jobs: colored dot
+    Complete: green
+    Scheduled: blue
+    Skipped: gray
+    Cancelled: red
+  Clicking a day shows job tooltip
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+RIGHT COLUMN — TABS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Horizontal tab bar (scrollable on mobile):
+
+Overview | Homes | Billing | Agreements |
+Contacts & Notifications | Scorecards |
+Tech Preferences | Notes | Portal Account
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 1 — OVERVIEW
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TWO CARDS side by side:
+
+LEFT — Client Info:
+  First name, Last name
+  Primary email (editable)
+  Primary phone (editable)
+  Company name (optional — for commercial)
+  "Edit" button — inline editing
+
+RIGHT — Service Summary:
+  Primary home address
+  Service type + frequency
+  Default team assigned
+  Allowed hours per visit
+  Current rate: $XXX.XX
+  QBO status: Connected / Not connected
+
+QUICK ACTIONS row below cards:
+  [Send SMS]
+  [Send Email] 
+  [Add Note]
+  [Create Job]
+  [View Portal]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 2 — HOMES
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is critical. Clients can have multiple 
+properties. Each home is a separate service 
+location with its own jobs, allowed hours, 
+and settings.
+
+HOMES LIST:
+  Each home as a card:
+  bg #FFFFFF, border 1px #E5E2DC
+  border-radius 10px, padding 16px
+  
+  Header row:
+    Home name (e.g. "Main Home", "Vacation Home")
+    DEFAULT badge if primary
+    Edit | Delete actions
+  
+  Address: 14px weight 600 #1A1917
+  City, State Zip: 13px #6B6860
+  
+  Property details row:
+    Sq footage | Bedrooms | Bathrooms
+    (12px #9E9B94 with icons)
+  
+  ACCESS NOTES section:
+    Alarm code (masked: show/hide toggle)
+    Key/lockbox notes
+    Parking instructions
+    Pet information
+  
+  Service settings per home:
+    Current rate: $XXX.XX
+    Allowed hours: X.X hrs
+    Frequency: Bi-weekly
+    Default team: [Team name]
+    Service type: Recurring Maintenance
+  
+  JOBS for this home:
+    Last 3 jobs shown as mini cards
+    "View all jobs" link
+
+"+ Add Another Home" button at bottom
+  Opens form to add new service address
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 3 — BILLING
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PAYMENT METHODS:
+  Card on file (last 4, expiry, type)
+  "Add Payment Method" button
+  Stripe-powered card entry
+
+BILLING HISTORY table:
+  Date | Invoice # | Amount | Balance | 
+  Status | PDF | View
+  
+  Status badges:
+    PAID: green
+    OVERDUE: red  
+    PENDING: amber
+  
+  PDF button: downloads invoice PDF
+  View button: opens invoice detail
+
+QBO STATUS:
+  Connected / Not connected indicator
+  QBO customer ID if connected
+  Outstanding balance from QBO
+  Overdue balance from QBO
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 4 — AGREEMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Table of all service agreements:
+  Sent | Accepted | IP Address | 
+  Description | Created | Link | Send
+
+If no agreements:
+  Empty state with "Send Agreement" button
+
+Clicking "Send Agreement":
+  Select agreement template
+  Select home
+  Send via email
+  Creates audit trail with timestamp
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 5 — CONTACTS & NOTIFICATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This controls exactly what gets sent 
+to this specific client and when.
+
+CONTACTS section:
+  Table: Contact Type | Info | Notes | 
+         Actions (Set Preferred | Delete)
+  
+  Shows: email addresses and phone numbers
+  "Set Preferred" marks the primary contact
+  
+  "+ Add Contact" button
+
+NOTIFICATIONS section:
+  Per-contact notification settings
+  
+  Each contact row shows which triggers 
+  are enabled for them:
+  
+  Contact: adamscholz7@gmail.com
+  Triggers: [3 days before] [1 day before] 
+            [Scorecard]
+  Edit | Delete
+  
+  Contact: 217-617-1102
+  Triggers: [3 days before] [1 day before]
+            [On the way] [Scorecard]
+  Edit | Delete
+
+"+ Create Notification" button
+  Select contact
+  Select triggers (checkboxes):
+    3 Days Before
+    1 Day Before
+    Day Of (morning reminder)
+    On the Way
+    Job Started
+    Job Complete
+    Scorecard Request
+    Invoice Sent
+  Save
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 6 — SCORECARDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+TABLE:
+  Home | Service Set | Job Date | 
+  Sent | Score | Technician | Comments
+
+Score badges (matching MC's style):
+  4: "Excellent" green
+  3: "Good - Keep it up" blue
+  2: "We've Got a Few Concerns" amber
+  1: "Needs Improvement" orange
+  0: "Unacceptable" red
+
+If comments contain photo URLs 
+(from Twilio MMS), render the photos 
+inline in the comments column.
+
+Actions per row:
+  Add to testimonials
+  Create contact ticket
+  Exclude from employee score
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 7 — TECHNICIAN PREFERENCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Controls which technicians should or 
+should not be scheduled for this client.
+
+TABLE:
+  Technician | Preference | Notes | Actions
+
+Preference badges:
+  PREFERRED: bg #DCFCE7 text #166534
+  DO NOT SCHEDULE: bg #FEE2E2 text #991B1B
+  NEUTRAL: bg #F3F4F6 text #6B7280
+
+"+ Create Preference" button
+  Select technician dropdown
+  Preference: Preferred / Do Not Schedule
+  Notes field
+  Save
+
+IMPORTANT: Wire this to the dispatch board.
+When a job is being assigned to a technician,
+check technician_preferences for this client.
+If preference = 'do_not_schedule':
+  Show warning on the dispatch board:
+  "[Technician name] is marked Do Not Schedule 
+   for [client name]. Are you sure?"
+  Require confirmation to proceed.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 8 — NOTES (Communications Log)
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This is the full communication history 
+for this client. Every interaction logged.
+
+COMPOSE BAR (top of tab):
+  Three buttons: [Send SMS] [Send Email] [Add Note]
+  
+  Send SMS:
+    Opens compose drawer
+    To: client's preferred phone
+    Message: text area
+    Send button → sends via Twilio, 
+    logs to client_communications
+  
+  Send Email:
+    Opens compose drawer
+    To: client's preferred email
+    Subject + body
+    Send via Resend
+    Logs to client_communications
+  
+  Add Note:
+    Internal note — not sent to client
+    Visible only to staff
+
+COMMUNICATIONS TIMELINE:
+  Chronological list, newest first
+  
+  Each entry is a card:
+  bg #FFFFFF, border 1px #E5E2DC
+  border-radius 8px, margin-bottom 8px
+  
+  LEFT: type icon + color
+    SMS outbound: blue phone icon
+    SMS inbound: gray phone icon
+    Email outbound: blue mail icon
+    Email inbound: gray mail icon
+    Internal note: pencil icon
+    System: gear icon
+  
+  HEADER row:
+    Type label | Direction | Date/time | Sent by
+  
+  BODY:
+    Full message text
+    If subject: show subject above body
+    If has_attachment: show image inline
+    (exactly like MC's notes tab)
+
+Filter bar:
+  All | SMS | Email | Notes | System
+
+VIEW toggle: Detail View | List View
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 9 — PORTAL ACCOUNT
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Shows the client's portal status and 
+lets you manage their access.
+
+PORTAL STATUS CARD:
+  If registered:
+    "Active Portal Account"
+    Last login: [date/time]
+    Email used: [email]
+    "Send Password Reset" button
+    "Deactivate Portal Access" button
+  
+  If invited but not registered:
+    "Invitation Pending"
+    Sent: [date]
+    "Resend Invitation" button
+    "Cancel Invitation" button
+  
+  If not invited:
+    "No Portal Access"
+    "Send Portal Invitation" button
+    Email field (pre-fills from client record)
+
+PORTAL PREVIEW:
+  "View as Client" button
+  Opens client's portal view in a new tab
+  Shows exactly what the client sees
+
+════════════════════════════════════════════════
+API ROUTES NEEDED
+════════════════════════════════════════════════
+
+GET /api/clients/:id/full-profile
+  Returns all client data, homes, 
+  stats, preferences, notification settings
+
+GET /api/clients/:id/homes
+POST /api/clients/:id/homes
+PATCH /api/clients/:id/homes/:homeId
+DELETE /api/clients/:id/homes/:homeId
+
+GET /api/clients/:id/communications
+POST /api/clients/:id/communications/sms
+  Body: { to, message }
+  Sends via Twilio + logs to DB
+
+POST /api/clients/:id/communications/email
+  Body: { to, subject, body }
+  Sends via Resend + logs to DB
+
+POST /api/clients/:id/communications/note
+  Body: { body, is_internal: true }
+
+GET /api/clients/:id/tech-preferences
+POST /api/clients/:id/tech-preferences
+DELETE /api/clients/:id/tech-preferences/:prefId
+
+GET /api/clients/:id/notifications
+POST /api/clients/:id/notifications
+PATCH /api/clients/:id/notifications/:notifId
+DELETE /api/clients/:id/notifications/:notifId
+
+POST /api/clients/:id/portal-invite
+  Generates token, sends email, 
+  updates portal_invite_sent_at
+
+GET /api/clients/:id/agreements
+POST /api/clients/:id/agreements/send
+
+════════════════════════════════════════════════
+DISPATCH BOARD INTEGRATION
+════════════════════════════════════════════════
+
+When assigning a technician to a job:
+1. Check technician_preferences for that client
+2. If 'do_not_schedule' found:
+   Show confirmation modal:
+   "[Name] is flagged as Do Not Schedule 
+    for [Client Name]."
+   [Cancel Assignment] [Assign Anyway]
+   If "Assign Anyway" — log override to 
+   client_communications as system note.
+
+3. If 'preferred' match found:
+   Show green indicator:
+   "[Name] is a preferred technician 
+    for this client."
+
+════════════════════════════════════════════════
+BUILD ORDER
+════════════════════════════════════════════════
+
+1. Run all database migrations
+2. Build left sidebar stats panel 
+   with loyalty, rate increase warning, calendar
+3. Build Homes tab (critical — build first 
+   among tabs)
+4. Build Contacts & Notifications tab
+5. Build Notes tab with SMS/email compose
+6. Build Tech Preferences tab + 
+   wire to dispatch board
+7. Build Overview, Billing, Scorecards tabs
+8. Build Agreements, Portal Account tabs
+9. Update client list page with 
+   portal status + at-risk indicators
+10. Wire SMS sending through Twilio
+11. Seed demo data: 
+    Add 2 homes to Jennifer Williams
+    Add tech preferences to 2 clients
+    Add 5 communication log entries
+    Add notification settings to all demo clients
+12. Push to GitHub:
+    bash push-to-github.sh "complete client profile rebuild"
+```
+
+---
+
+## Three Things Worth Calling Out Specifically
+
+**The Notes tab is your biggest competitive advantage over MC here.** Look at image 8 — that is an actual text message thread, an email with a photo of a broken lamp, and staff responses all in one place. MC has this and it is genuinely powerful. We need to match it exactly — every outbound SMS, every inbound reply, every email, every internal note in one chronological timeline per client. When Maribel picks up a call from an unhappy client she sees the full history in 3 seconds.
+
+**Multiple homes is not just for property managers.** You have clients in Chicago proper who own condos. You have clients who have moved but kept you for a new address. You have clients who add a second home. Every one of those situations breaks if you only support one address per client.
+
+**The technician preference system tied to the dispatch board is a churn prevention feature.** Adam Scholz has two cleaners flagged Do Not Schedule. If you accidentally send one of them to his house it is not a good day. The software should make that impossible by warning you before it happens.

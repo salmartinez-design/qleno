@@ -10,6 +10,7 @@ import EmployeesPage from "@/pages/employees";
 import EmployeeProfilePage from "@/pages/employee-profile";
 import AcceptInvitePage from "@/pages/accept-invite";
 import CustomersPage from "@/pages/customers";
+import CustomerProfilePage from "@/pages/customer-profile";
 import InvoicesPage from "@/pages/invoices";
 import CompanyPage from "@/pages/company";
 import LoyaltyPage from "@/pages/loyalty";
@@ -60,6 +61,7 @@ function Router() {
       <Route path="/employees/clocks" component={ClockMonitorPage} />
       <Route path="/employees/:id" component={EmployeeProfilePage} />
       <Route path="/employees" component={EmployeesPage} />
+      <Route path="/customers/:id" component={CustomerProfilePage} />
       <Route path="/customers" component={CustomersPage} />
       <Route path="/invoices" component={InvoicesPage} />
       <Route path="/payroll" component={PayrollPage} />

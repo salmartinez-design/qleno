@@ -18,3 +18,8 @@ export * from "./client_ratings";
 export * from "./messages";
 export * from "./notification_templates";
 export * from "./job_status_logs";
+export * from "./client_homes";
+export * from "./technician_preferences";
+export * from "./client_notifications";
+export * from "./client_communications";
+export * from "./client_agreements";

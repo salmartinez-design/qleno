@@ -1,0 +1,595 @@
+Looking at everything across those screenshots, here is what is still missing from the client profile and what needs to be built across the platform.
+
+---
+
+## What MC Has on the Client Profile That We Have Not Built Yet
+
+**Quotes tab** — this is the online quoting system. A lead comes in, you build a quote, send it, they approve it, it converts to a job automatically. The quote has scope of work, pricing, frequency, and an agreement attached. This is how new clients enter the system without a phone call.
+
+**Payments tab** — separate from billing history. This is where you see individual payment transactions, charge a card manually, issue refunds, and see payment method status. The billing tab shows invoices. The payments tab shows money movement.
+
+**QuickBooks tab per client** — shows QBO connection status for that specific client, their QBO customer ID, outstanding balance pulled live from QBO, and overdue balance. This is per-client not just a global sync.
+
+**Attachments tab** — file storage per client. Photos of the home, signed documents, inspection reports, anything the office needs to keep on file for that client.
+
+**Property Management Groups** — you saw this on the User Account tab. This lets you group clients under a property management company. If one property manager sends you 12 units you can manage them all under one parent account with one billing contact.
+
+**The "View as Customer" / portal preview** — you saw this in the client portal screenshots. The admin can click one button and see exactly what the client sees in their portal. No logging out and back in.
+
+---
+
+## What Is Still Missing Across the Whole Platform
+
+Beyond the client profile, here is everything that has been discussed but not built yet, grouped honestly by priority:
+
+**Must have before charging anyone:**
+
+The online quoting iFrame — your embed code that goes on phes.io, prospects fill it out, it creates a lead, you send a quote, they book. This is how new clients enter the system without a phone call from your website. Without this the platform cannot grow its own client base.
+
+The Stripe billing subscription flow — this is how CleanOps Pro charges its tenants. Right now nobody can pay you $100/month because the subscription system does not exist. This is the most urgent business item.
+
+QBO bidirectional sync — you are currently on MaidCentral which syncs to QBO. When you migrate PHES to CleanOps Pro, if QBO sync is not there your bookkeeper's workflow breaks completely.
+
+The close week / payroll lock system — payroll accuracy depends on this. Right now the payroll page shows estimated numbers. The close week gate makes them real and locked.
+
+**High priority after that:**
+
+Built-in eSign — so agreements can be sent and signed without DocuSign. You saw the Agreements tab in MC. That entire flow needs to exist.
+
+The client portal fully functional — right now it is partially built. Clients need to be able to log in, see their next cleaning, add special requests, tip cleaners, view and pay invoices, and update their notification preferences.
+
+The job completion PDF — when a job is marked complete with before/after photos, it should auto-generate a PDF and email it to the client. This is a quality and accountability feature.
+
+Batch invoicing — one click to generate and send all invoices for the day. MC has this and it saves hours every week. Right now you would have to create invoices one by one.
+
+Rate increase tool — already spec'd and prompted but not built yet.
+
+Core KPI dashboard — already spec'd and prompted but not built yet.
+
+**Important but can wait:**
+
+Zapier webhook layer — once you have 10+ tenants people will start asking for integrations.
+
+The SMS inbound webhook for client ratings — Twilio is set up for outbound but the inbound reply-to-rate flow is not wired yet.
+
+Team chat — internal messaging between office and field staff.
+
+PWA / add to home screen — so employees can install My Jobs on their phone like a native app.
+
+---
+
+Here is one consolidated prompt that covers everything remaining. Paste this into Replit:
+
+```
+Build all remaining client profile tabs and 
+the missing platform features. Work through 
+these in priority order. Show a screenshot 
+after each major section is complete.
+
+════════════════════════════════════════════════
+SECTION 1 — MISSING CLIENT PROFILE TABS
+════════════════════════════════════════════════
+
+Add these tabs to the client profile tab bar:
+Quotes | Payments | QuickBooks | Attachments
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB — QUOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DATABASE:
+CREATE TABLE IF NOT EXISTS quotes (
+  id              SERIAL PRIMARY KEY,
+  company_id      INTEGER NOT NULL REFERENCES companies(id),
+  client_id       INTEGER REFERENCES clients(id),
+  lead_name       TEXT,
+  lead_email      TEXT,
+  lead_phone      TEXT,
+  address         TEXT,
+  service_type    TEXT,
+  frequency       TEXT,
+  estimated_hours DECIMAL(4,2),
+  base_price      DECIMAL(10,2),
+  status          VARCHAR(20) DEFAULT 'draft'
+                  CHECK (status IN (
+                    'draft','sent','viewed',
+                    'accepted','declined','booked'
+                  )),
+  sent_at         TIMESTAMP,
+  viewed_at       TIMESTAMP,
+  accepted_at     TIMESTAMP,
+  booked_job_id   INTEGER REFERENCES jobs(id),
+  notes           TEXT,
+  created_by      INTEGER REFERENCES users(id),
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+PAGE LAYOUT:
+
+QUOTE LIST TABLE:
+  Quote # | Date | Service | Price | 
+  Status | Sent | Actions
+
+Status badges:
+  DRAFT: gray
+  SENT: blue
+  VIEWED: purple (client opened it)
+  ACCEPTED: green
+  DECLINED: red
+  BOOKED: teal (converted to job)
+
+Actions:
+  Send | View | Convert to Job | Delete
+
+"+ New Quote" button opens a form:
+  Service type selector
+  Frequency selector
+  Estimated hours
+  Base price (auto-calculates from company rates)
+  Notes for client
+  Select home (from client_homes)
+  
+  "Send Quote" button:
+    Generates quote PDF
+    Emails to client's preferred email
+    Sets status to 'sent'
+    Logs to client_communications
+
+When client clicks "Accept" in their portal:
+  status = 'accepted'
+  accepted_at = NOW()
+  "Convert to Job" button appears for office
+
+"Convert to Job" creates a job record
+  with all quote details pre-filled.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB — PAYMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DATABASE:
+CREATE TABLE IF NOT EXISTS payments (
+  id              SERIAL PRIMARY KEY,
+  company_id      INTEGER NOT NULL REFERENCES companies(id),
+  client_id       INTEGER NOT NULL REFERENCES clients(id),
+  invoice_id      INTEGER REFERENCES invoices(id),
+  amount          DECIMAL(10,2) NOT NULL,
+  method          VARCHAR(20)
+                  CHECK (method IN (
+                    'card','cash','check',
+                    'bank_transfer','other'
+                  )),
+  status          VARCHAR(20) DEFAULT 'completed'
+                  CHECK (status IN (
+                    'pending','completed',
+                    'failed','refunded'
+                  )),
+  stripe_payment_id TEXT,
+  last_4          VARCHAR(4),
+  card_brand      VARCHAR(20),
+  processed_by    INTEGER REFERENCES users(id),
+  refunded_at     TIMESTAMP,
+  refund_reason   TEXT,
+  created_at      TIMESTAMP DEFAULT NOW()
+);
+
+PAGE LAYOUT:
+
+SUMMARY CARDS:
+  Total Paid (all time) | Outstanding | 
+  Last Payment date
+
+PAYMENT TABLE:
+  Date | Invoice # | Amount | Method | 
+  Last 4 | Status | Actions
+
+Actions:
+  View Invoice | Refund (if completed)
+
+MANUAL CHARGE section (top of tab):
+  "Charge Card on File" button
+  Shows: card type + last 4
+  Amount input
+  Reason/memo field
+  "Charge Now" button
+  Requires confirmation modal
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB — QUICKBOOKS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CONNECTION STATUS:
+  If connected:
+    "QBO Connected" green badge
+    QBO Customer ID: [id]
+    
+    Two live-pulled values:
+    Outstanding Balance: $X.XX
+    Overdue Balance: $X.XX
+    
+    Last sync: [timestamp]
+    "Sync Now" button
+    "Disconnect" button
+  
+  If not connected:
+    "Not Connected to QuickBooks"
+    "This client is not linked to a 
+     QuickBooks customer record."
+    "Link to QBO Customer" button
+      Opens search: find by name in QBO
+    "Create in QBO" button
+      Creates new QBO customer from 
+      this client's data
+
+QBO INVOICE HISTORY:
+  Pulls from QBO directly:
+  Invoice # | Date | Amount | Status
+  "View in QBO" link per row
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB — ATTACHMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DATABASE:
+CREATE TABLE IF NOT EXISTS client_attachments (
+  id          SERIAL PRIMARY KEY,
+  company_id  INTEGER NOT NULL REFERENCES companies(id),
+  client_id   INTEGER NOT NULL REFERENCES clients(id),
+  name        TEXT NOT NULL,
+  file_url    TEXT NOT NULL,
+  file_type   VARCHAR(50),
+  file_size   INTEGER,
+  category    VARCHAR(30)
+              CHECK (category IN (
+                'home_photo','document',
+                'inspection','agreement',
+                'other'
+              )),
+  uploaded_by INTEGER REFERENCES users(id),
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+
+UPLOAD ZONE:
+  Drag and drop or click to upload
+  Accepts: PDF, JPG, PNG, DOCX
+  Max 10MB per file
+  
+  After upload: file appears in grid
+
+FILE GRID (2-3 columns):
+  Each file card:
+    Thumbnail (image) or file icon (PDF/doc)
+    File name
+    Category badge
+    Upload date + uploaded by
+    Download | Delete actions
+
+CATEGORIES:
+  Home Photos | Documents | 
+  Inspections | Agreements | Other
+
+Upload button → opens file picker
+  After selecting: ask for name and category
+  Upload to Cloudflare R2
+
+════════════════════════════════════════════════
+SECTION 2 — PROPERTY MANAGEMENT GROUPS
+════════════════════════════════════════════════
+
+Some clients manage multiple properties 
+or represent a property management company.
+This groups them under one parent account.
+
+DATABASE:
+CREATE TABLE IF NOT EXISTS property_groups (
+  id          SERIAL PRIMARY KEY,
+  company_id  INTEGER NOT NULL REFERENCES companies(id),
+  name        TEXT NOT NULL,
+  contact_name TEXT,
+  contact_email TEXT,
+  contact_phone TEXT,
+  billing_centralized BOOLEAN DEFAULT false,
+  notes       TEXT,
+  created_at  TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE clients ADD COLUMN IF NOT EXISTS
+  property_group_id INTEGER REFERENCES property_groups(id);
+
+Add "Property Groups" to Company settings menu.
+Route: /company/property-groups
+
+PAGE: List of groups with client count per group.
+Clicking a group shows all clients in it.
+
+On client profile User Account tab:
+  Show "Property Management Group" section
+  Dropdown to assign to a group
+  Or "Create New Group" option
+
+On customer list: 
+  Filter by property group
+  Group header rows showing group name
+  with all clients nested under it
+
+════════════════════════════════════════════════
+SECTION 3 — STRIPE BILLING SUBSCRIPTION
+════════════════════════════════════════════════
+
+This is how CleanOps Pro charges tenants.
+Without this you cannot get paid.
+
+DATABASE:
+ALTER TABLE companies ADD COLUMN IF NOT EXISTS
+  stripe_customer_id TEXT,
+  stripe_subscription_id TEXT,
+  subscription_plan VARCHAR(20) DEFAULT 'starter',
+  subscription_status VARCHAR(20) DEFAULT 'trial',
+  trial_ends_at TIMESTAMP,
+  billing_email TEXT,
+  employee_count INTEGER DEFAULT 0;
+
+PRICING:
+  $100/month flat — up to 50 employees
+  $2/employee/month over 50
+  14-day free trial on signup
+  Loyalty add-on: $20/month extra
+
+ONBOARDING FLOW for new tenants:
+
+When a new company is created by super admin
+or self-signup:
+
+Step 1 — Company basics:
+  Company name, owner name, email, phone
+  
+Step 2 — Choose plan:
+  Starter: $100/month (up to 50 employees)
+  Growth: $100 + $2/employee over 50
+  Loyalty Add-on: +$20/month
+  
+  "14-day free trial — no credit card required"
+  
+Step 3 — Billing setup (after trial):
+  Stripe payment form
+  Card on file for subscription
+  
+Step 4 — Brand setup:
+  Upload logo
+  Pick brand color (preset swatches)
+  
+Step 5 — First employee:
+  Invite first employee or skip
+
+API ROUTES:
+
+POST /api/billing/create-subscription
+  Creates Stripe customer + subscription
+  Stores stripe IDs to companies table
+  Returns { subscription_id, status, trial_end }
+
+POST /api/billing/cancel-subscription
+  Cancels at period end (not immediately)
+  Sets subscription_status = 'cancelling'
+
+GET /api/billing/status
+  Returns current subscription status
+  for the authenticated company
+
+POST /api/billing/update-payment
+  Updates card on file via Stripe
+
+BILLING PAGE for tenant at /company/billing:
+
+Shows:
+  Current plan + price
+  Next billing date
+  Card on file (last 4 + expiry)
+  Billing history (past invoices)
+  "Update Payment Method" button
+  "Cancel Subscription" button (with warning)
+
+SUPER ADMIN view at /admin/companies:
+  Each company shows:
+    Subscription status badge
+    MRR (monthly recurring revenue)
+    Trial end date if in trial
+    "Extend Trial" button
+    "Cancel" button
+
+════════════════════════════════════════════════
+SECTION 4 — BATCH INVOICING
+════════════════════════════════════════════════
+
+One of the biggest admin time savers in MC.
+Lets you invoice all completed jobs for 
+the day in one click.
+
+ADD to Invoices page:
+
+"Batch Invoice" button in top bar
+(visible to owners/admins only)
+
+When clicked:
+  Shows modal: "Create invoices for today"
+  
+  Lists all completed jobs today 
+  without an invoice:
+  
+  Table:
+    Client | Home | Service | Amount | Select
+  
+  "Select All" checkbox at top
+  
+  User selects which jobs to invoice
+  
+  Settings:
+    "Auto-send to clients" toggle
+    "Auto-charge card on file" toggle
+  
+  "Create [X] Invoices" button
+  
+  Processing:
+    For each selected job:
+      Create invoice record
+      If auto-send: email invoice via Resend
+      If auto-charge AND card on file:
+        Charge via Stripe
+        Mark invoice paid
+        Send receipt
+    
+    Show progress bar while processing
+    
+    Summary when done:
+      "12 invoices created"
+      "8 auto-charged successfully"  
+      "4 sent for manual payment"
+      "0 errors"
+
+Also add "Close Day" workflow:
+  Runs at end of each work day
+  Flags: jobs complete but not invoiced
+  Flags: invoices sent but not paid (>7 days)
+  Flags: tips to be distributed
+  One-click resolve each flag
+
+════════════════════════════════════════════════
+SECTION 5 — JOB COMPLETION PDF
+════════════════════════════════════════════════
+
+When a job is marked complete (clock-out 
+with after photos), auto-generate a PDF 
+and email it to the client.
+
+DATABASE:
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS
+  completion_pdf_url TEXT,
+  completion_pdf_sent_at TIMESTAMP;
+
+PDF CONTENT (auto-generated):
+  Header: company logo + name
+  
+  Job Summary:
+    Client name + address
+    Service type + date
+    Technician name(s)
+    Clock in/out times
+    Duration
+  
+  Before Photos (2-column grid)
+  After Photos (2-column grid)
+  
+  Quality checklist (if configured):
+    [x] All surfaces cleaned
+    [x] Floors vacuumed and mopped
+    etc.
+  
+  Invoice preview (if generated)
+  
+  Footer: 
+    "Thank you for choosing [company name]"
+    Rate your service: [portal link]
+
+TRIGGER:
+  When job status changes to 'complete':
+    1. Generate PDF using pdfkit
+    2. Save to R2 at 
+       company_id/jobs/job_id/completion.pdf
+    3. Update jobs.completion_pdf_url
+    4. Email to client's preferred email:
+       Subject: "Your cleaning is complete — 
+                 [address] on [date]"
+       Body: brief summary + PDF attached
+       "Rate your service" button
+
+This PDF can also be manually sent 
+or downloaded from the job detail page.
+
+════════════════════════════════════════════════
+SECTION 6 — BUILT-IN ESIGN
+════════════════════════════════════════════════
+
+Clients need to sign service agreements 
+before recurring service starts.
+No DocuSign needed — build it natively.
+
+DATABASE:
+Already created client_agreements above.
+
+ADD to Company settings:
+
+Agreement Templates page at /company/agreements
+
+"+ New Agreement Template" button
+  Name field
+  Rich text editor for agreement body
+  Variables: [client_name] [address] 
+             [service_type] [frequency] 
+             [start_date] [company_name]
+  Save template
+
+SENDING AN AGREEMENT from client profile:
+
+Agreements tab → "Send Agreement" button
+  Select template
+  Select home
+  Preview the agreement with client's data
+  "Send" → emails client a link
+
+CLIENT SIGNS at portal:
+  Clean single-page view
+  Full agreement text
+  Client types their name (typed signature)
+  Checks "I agree to these terms"
+  Clicks "Sign Agreement"
+  
+  On sign:
+    Records: timestamp, IP address, 
+             typed name, user agent
+    Generates immutable PDF with 
+    signature block at bottom
+    Stores PDF to R2
+    Updates client_agreements.accepted_at
+    Emails signed PDF to both client 
+    and company
+
+COMPLIANCE:
+  SHA-256 hash of agreement content 
+  stored at signing time.
+  If agreement template is later edited,
+  the hash proves the version that was signed.
+
+ESIGN BADGE on client profile:
+  Shows in Overview tab:
+  "Service Agreement Signed [date]" — green
+  "Agreement Pending" — amber
+  "No Agreement" — gray
+
+════════════════════════════════════════════════
+BUILD ORDER
+════════════════════════════════════════════════
+
+1. Quotes tab + quote sending
+2. Payments tab + manual charge
+3. QuickBooks tab per client
+4. Attachments tab + file upload
+5. Property Management Groups
+6. Stripe subscription billing flow
+7. Batch invoicing + close day workflow
+8. Job completion PDF auto-generation
+9. Agreement templates + eSign flow
+10. After each section: show screenshot
+11. After all sections complete:
+    Push to GitHub:
+    bash push-to-github.sh "quotes, payments, QBO, attachments, billing, batch invoice, esign"
+```
+
+---
+
+Three things worth flagging before you run this.
+
+The Stripe subscription flow is the most important one financially. Right now you are building a product you cannot charge for. That needs to exist before you show this to your first outside tenant.
+
+The batch invoicing combined with auto-charge is what saves your office staff an hour every single day. MC users say it is one of the top three things they love about the software. When Maribel finishes her day she clicks one button, all that day's jobs get invoiced, all cards on file get charged, all receipts go out. Zero manual work.
+
+The eSign feature eliminates a real cost. DocuSign charges per envelope. For a company sending 50+ new client agreements per year that is meaningful money. Built-in eSign is legally equivalent under the ESIGN Act and costs you nothing per signature.
