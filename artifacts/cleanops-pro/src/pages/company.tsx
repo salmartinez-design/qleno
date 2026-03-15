@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useGetMyCompany, useUpdateMyCompany } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
+import { Upload, X, ImageIcon } from "lucide-react";
 
 type Tab = 'general' | 'branding' | 'integrations' | 'payroll';
 
@@ -67,6 +68,10 @@ function BrandingTab() {
   const [brandColor, setBrandColor] = useState('#00C9A7');
   const [logoUrl, setLogoUrl] = useState('');
   const [previewColor, setPreviewColor] = useState('#00C9A7');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (company) {
@@ -85,11 +90,11 @@ function BrandingTab() {
 
   const handleSave = () => {
     updateCompany.mutate(
-      { data: { brand_color: brandColor, logo_url: logoUrl || undefined } as any },
+      { data: { brand_color: brandColor } as any },
       {
         onSuccess: () => {
           applyTenantColor(brandColor);
-          toast({ title: "Brand updated", description: "Changes are live." });
+          toast({ title: "Brand updated", description: "Color is live across the app." });
         },
         onError: () => {
           toast({ variant: "destructive", title: "Error", description: "Failed to save brand settings." });
@@ -98,28 +103,82 @@ function BrandingTab() {
     );
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!['image/png', 'image/jpeg', 'image/jpg', 'image/webp'].includes(file.type)) {
+      toast({ variant: "destructive", title: "Invalid file type", description: "Please choose a PNG, JPG, or WebP file." });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast({ variant: "destructive", title: "File too large", description: "Maximum file size is 2MB." });
+      return;
+    }
+
+    setSelectedFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setUploadPreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const handleUpload = async () => {
+    if (!selectedFile) return;
+    setUploading(true);
+
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch('/api/companies/logo', {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Upload failed');
+      }
+
+      const data = await res.json();
+      const freshUrl = `${data.logo_url}?t=${Date.now()}`;
+      setLogoUrl(freshUrl);
+      setSelectedFile(null);
+      setUploadPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      toast({ title: "Logo uploaded", description: "Refreshing to apply changes..." });
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err: any) {
+      toast({ variant: "destructive", title: "Upload failed", description: err.message });
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const hexToRgb = (hex: string) => {
     const c = hex.replace('#', '');
     return `${parseInt(c.slice(0,2),16)}, ${parseInt(c.slice(2,4),16)}, ${parseInt(c.slice(4,6),16)}`;
   };
 
   const previewRgb = hexToRgb(previewColor);
+  const displayLogoUrl = uploadPreview || logoUrl;
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' }}>
       {/* Left: Controls */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+
         {/* Brand Color */}
         <Section title="Brand Color" desc="Applied across all accents, buttons, and highlights.">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="color"
-                value={brandColor}
-                onChange={e => handleColorChange(e.target.value)}
-                style={{ width: '48px', height: '48px', padding: '2px', backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '8px', cursor: 'pointer' }}
-              />
-            </div>
+            <input
+              type="color"
+              value={brandColor}
+              onChange={e => handleColorChange(e.target.value)}
+              style={{ width: '48px', height: '48px', padding: '2px', backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '8px', cursor: 'pointer' }}
+            />
             <input
               type="text"
               value={brandColor}
@@ -132,63 +191,108 @@ function BrandingTab() {
               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '14px', color: '#F0EDE8', backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '6px', padding: '8px 14px', width: '120px', letterSpacing: '0.08em', outline: 'none' }}
             />
           </div>
-          <p style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#7A7873', marginTop: '8px' }}>
-            Affects sidebar nav, buttons, badges, progress bars, chart lines.
-          </p>
+          <p style={{ fontSize: '11px', color: '#7A7873', marginTop: '8px' }}>Affects sidebar, buttons, badges, charts.</p>
+          <button
+            onClick={handleSave}
+            disabled={updateCompany.isPending}
+            style={{ marginTop: '12px', padding: '8px 20px', backgroundColor: 'var(--brand)', color: '#0A0A0A', borderRadius: '6px', fontSize: '12px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: updateCompany.isPending ? 0.7 : 1 }}
+          >
+            {updateCompany.isPending ? 'Saving...' : 'Save Color'}
+          </button>
         </Section>
 
-        {/* Logo */}
-        <Section title="Company Logo" desc="Displayed in sidebar header, replacing the wordmark.">
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <label style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#7A7873', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: '6px' }}>Logo URL (dark backgrounds)</label>
-              <input
-                type="url"
-                value={logoUrl}
-                onChange={e => setLogoUrl(e.target.value)}
-                placeholder="https://..."
-                style={{ width: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '13px', color: '#F0EDE8', backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '6px', padding: '8px 12px', outline: 'none' }}
-              />
-            </div>
-            {logoUrl && (
-              <div style={{ backgroundColor: '#161616', border: '1px solid #252525', borderRadius: '8px', padding: '16px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <img src={logoUrl} alt="Preview" style={{ maxHeight: '36px', objectFit: 'contain' }} />
-                <span style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#7A7873' }}>Preview on dark</span>
+        {/* Logo Upload */}
+        <Section title="Company Logo" desc="PNG or JPG, transparent background recommended, max 2MB.">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+
+            {/* Current / preview on both backgrounds */}
+            {displayLogoUrl && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div style={{ backgroundColor: '#161616', border: '1px solid #2A2A2A', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <img src={displayLogoUrl} alt="Logo dark" style={{ maxHeight: '40px', maxWidth: '100%', objectFit: 'contain' }} />
+                  <span style={{ fontSize: '10px', color: '#4A4845' }}>Dark bg</span>
+                </div>
+                <div style={{ backgroundColor: '#F0EDE8', border: '1px solid #DDD', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                  <img src={displayLogoUrl} alt="Logo light" style={{ maxHeight: '40px', maxWidth: '100%', objectFit: 'contain' }} />
+                  <span style={{ fontSize: '10px', color: '#888' }}>Light bg</span>
+                </div>
               </div>
             )}
-            <p style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#4A4845' }}>
-              PNG with transparency, max 2MB. File upload via storage coming soon.
+
+            {/* No logo state */}
+            {!displayLogoUrl && (
+              <div style={{ backgroundColor: '#161616', border: '1px dashed #2A2A2A', borderRadius: '8px', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                <ImageIcon size={24} color="#4A4845" />
+                <span style={{ fontSize: '12px', color: '#4A4845' }}>No logo uploaded yet</span>
+              </div>
+            )}
+
+            {/* File picker */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/jpg,image/webp"
+              onChange={handleFileSelect}
+              style={{ display: 'none' }}
+            />
+
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  flex: 1, height: '38px', backgroundColor: '#1A1A1A',
+                  border: '1px solid #2A2A2A', borderRadius: '8px',
+                  color: '#F0EDE8', fontSize: '12px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                }}
+              >
+                <Upload size={13} />
+                {selectedFile ? selectedFile.name : 'Choose file...'}
+              </button>
+              {selectedFile && (
+                <button
+                  onClick={() => { setSelectedFile(null); setUploadPreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  style={{ width: '38px', height: '38px', backgroundColor: '#2A0F0F', border: '1px solid #991B1B', borderRadius: '8px', color: '#F87171', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+
+            {selectedFile && (
+              <button
+                onClick={handleUpload}
+                disabled={uploading}
+                style={{ height: '40px', backgroundColor: 'var(--brand)', color: '#0A0A0A', border: 'none', borderRadius: '8px', fontSize: '13px', fontWeight: 600, cursor: 'pointer', opacity: uploading ? 0.7 : 1 }}
+              >
+                {uploading ? 'Uploading...' : 'Upload Logo'}
+              </button>
+            )}
+
+            <p style={{ fontSize: '11px', color: '#4A4845', margin: 0 }}>
+              PNG with transparent background works best. The logo appears in the sidebar header on all dark backgrounds.
             </p>
           </div>
         </Section>
-
-        {/* Save */}
-        <button
-          onClick={handleSave}
-          disabled={updateCompany.isPending}
-          style={{ alignSelf: 'flex-start', padding: '10px 24px', backgroundColor: 'var(--brand)', color: '#0A0A0A', borderRadius: '6px', fontSize: '13px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400, border: 'none', cursor: 'pointer', opacity: updateCompany.isPending ? 0.7 : 1 }}
-        >
-          {updateCompany.isPending ? 'Saving...' : 'Save Brand Settings'}
-        </button>
       </div>
 
       {/* Right: Preview */}
       <div style={{ backgroundColor: '#111111', border: '1px solid #252525', borderRadius: '10px', overflow: 'hidden' }}>
         <div style={{ padding: '12px 16px', borderBottom: '1px solid #252525' }}>
-          <p style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#7A7873', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Sidebar Preview</p>
+          <p style={{ fontSize: '11px', color: '#7A7873', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Sidebar Preview</p>
         </div>
         <div style={{ padding: '16px' }}>
           {/* Company header */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', paddingBottom: '12px', borderBottom: '1px solid #252525', marginBottom: '12px' }}>
-            <div style={{ width: '28px', height: '28px', borderRadius: '6px', backgroundColor: previewColor, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <span style={{ color: '#0A0A0A', fontSize: '13px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700 }}>C</span>
-            </div>
-            <div>
-              <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '14px', color: '#F0EDE8', margin: 0 }}>CleanOps Pro</p>
-              <p style={{ fontSize: '11px', color: '#7A7873', fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>{(company as any)?.name || 'Your Company'}</p>
-            </div>
+          <div style={{ paddingBottom: '12px', borderBottom: '1px solid #252525', marginBottom: '12px' }}>
+            {displayLogoUrl ? (
+              <div style={{ backgroundColor: '#FFFFFF', borderRadius: '6px', padding: '4px 8px', display: 'inline-block', marginBottom: '4px' }}>
+                <img src={displayLogoUrl} alt="Logo" style={{ height: '26px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+              </div>
+            ) : (
+              <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '14px', color: '#F0EDE8', margin: '0 0 4px 0' }}>{(company as any)?.name || 'Your Company'}</p>
+            )}
+            <p style={{ fontSize: '11px', color: '#4A4845', margin: 0 }}>CleanOps Pro</p>
           </div>
-          {/* Nav items preview */}
           {[
             { label: 'Dashboard', active: false },
             { label: 'Jobs', active: true },
@@ -196,15 +300,11 @@ function BrandingTab() {
             { label: 'Customers', active: false },
           ].map(item => (
             <div key={item.label} style={{
-              padding: '8px 10px',
-              marginBottom: '2px',
-              borderRadius: '0',
-              borderLeft: item.active ? `3px solid ${previewColor}` : '3px solid transparent',
-              backgroundColor: item.active ? `rgba(${previewRgb}, 0.12)` : 'transparent',
+              height: '34px', padding: '0 10px', margin: '2px 0',
+              borderRadius: '6px', display: 'flex', alignItems: 'center',
+              backgroundColor: item.active ? `rgba(${previewRgb}, 0.1)` : 'transparent',
               color: item.active ? previewColor : '#7A7873',
-              fontSize: '13px',
-              fontFamily: "'Plus Jakarta Sans', sans-serif",
-              fontWeight: item.active ? 400 : 300,
+              fontSize: '13px', fontWeight: item.active ? 500 : 400,
             }}>
               {item.label}
             </div>

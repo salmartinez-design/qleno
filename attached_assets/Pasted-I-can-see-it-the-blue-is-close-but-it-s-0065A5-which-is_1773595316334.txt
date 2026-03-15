@@ -1,0 +1,62 @@
+I can see it — the blue is close but it's `#0065A5` which is too dark/navy. Your PHES logo uses a lighter, brighter blue. Looking at your logo image from earlier, the actual colors are:
+
+- **PHES Blue:** approximately `#5B9BD5` (the lighter sky blue from the winged P)
+- **PHES Red:** approximately `#C0392B` (the wing stripes)
+
+Also the sidebar still shows "CleanOps Pro" text — your actual PHES logo image needs to be uploaded and displayed there.
+
+Paste this into Replit:
+
+```
+Two fixes needed:
+
+FIX 1 — Correct PHES brand color
+The current #0065A5 is too dark/navy. Looking at the PHES 
+logo, their actual blue is lighter. Update the database:
+
+UPDATE companies 
+SET brand_color = '#5B9BD5'
+WHERE slug = 'phes' OR name ILIKE '%phes%';
+
+FIX 2 — Upload PHES logo to sidebar
+The sidebar currently shows "CleanOps Pro" text for PHES.
+I need to upload the PHES logo image.
+
+Build a logo upload endpoint:
+  POST /api/companies/logo
+  - Accepts multipart/form-data with a file field
+  - Validates: PNG or JPG only, max 2MB
+  - Stores to a /uploads/logos/ directory on the server
+    with filename: company_id_logo.png
+  - Updates companies SET logo_url = '/uploads/logos/[filename]'
+    WHERE id = req.auth.companyId
+  - Returns { logo_url: '/uploads/logos/[filename]' }
+
+Then in the sidebar (app-sidebar.tsx):
+  If company.logo_url exists:
+    Show <img src={logo_url} style="height: 32px; 
+    object-fit: contain; object-position: left;" />
+  Else:
+    Show company name text as fallback
+
+Also make the logo accessible as a static file so the 
+browser can load it from that path.
+
+FIX 3 — Add logo upload UI in Company > Branding tab
+In the /company page branding section, add:
+  Current logo preview (if exists)
+  File input: "Choose PNG file (transparent background)"
+  Upload button that calls POST /api/companies/logo
+  On success: refresh the sidebar logo immediately
+  Show the logo preview on both dark (#161616) and 
+  light (#F5F5F5) backgrounds side by side
+
+After these fixes, tell me the exact URL to access 
+the Company settings page so I can upload the PHES logo.
+```
+
+---
+
+**Then separately** — once the upload endpoint is built, you need to upload your actual PHES logo file. The JPEG you showed me earlier (the winged P) — save that as a PNG with transparent background first. If you don't have the PNG version, your graphic designer or whoever made the logo should have it. The MaidCentral screenshot showed you already had it uploaded there, so you likely have the file.
+
+Once the logo is in the sidebar and the blue matches your actual logo blue, the whole platform will look like yours. What's the exact shade of blue in your PHES logo — do you have the original brand guidelines or just the image file?
