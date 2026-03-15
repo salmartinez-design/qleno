@@ -2,7 +2,7 @@ import {
   LogOut, X, LayoutDashboard, CalendarDays, ClipboardList, Clock,
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, ArrowUpCircle, Tag,
-  BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate,
+  BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate, Calculator, FileText as FileTextIcon,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -14,7 +14,7 @@ const NAV_SECTIONS = [
     items: [
       { title: "Dashboard",      url: "/dashboard",       icon: LayoutDashboard },
       { title: "Dispatch Board", url: "/jobs",             icon: CalendarDays },
-      { title: "My Jobs",        url: "/my-jobs",          icon: ClipboardList },
+      { title: "My Jobs",        url: "/my-jobs",          icon: ClipboardList, roles: ["technician"] },
       { title: "Clock Monitor",  url: "/employees/clocks", icon: Clock, roles: ["owner", "admin"] },
     ],
   },
@@ -22,6 +22,7 @@ const NAV_SECTIONS = [
     label: "Manage",
     items: [
       { title: "Jobs",       url: "/jobs",       icon: Briefcase },
+      { title: "Quotes",     url: "/quotes",     icon: FileTextIcon, roles: ["owner", "admin", "office"] },
       { title: "Customers",  url: "/customers",  icon: Users },
       { title: "Employees",  url: "/employees",  icon: UserCheck },
       { title: "Invoices",   url: "/invoices",   icon: FileText },
@@ -52,6 +53,7 @@ const NAV_SECTIONS = [
       { title: "Property Groups",   url: "/company/property-groups",    icon: Building2,  roles: ["owner", "admin"] },
       { title: "Agreements",        url: "/company/agreements",         icon: PenLine,        roles: ["owner", "admin"] },
       { title: "Forms",             url: "/company/forms",              icon: LayoutTemplate, roles: ["owner", "admin"] },
+      { title: "Quoting",           url: "/company/quoting",            icon: Calculator,     roles: ["owner", "admin"] },
     ],
   },
 ];

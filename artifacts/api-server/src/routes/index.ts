@@ -29,6 +29,7 @@ import agreementTemplatesRouter from "./agreement-templates.js";
 import billingRouter from "./billing.js";
 import formTemplatesRouter from "./form-templates.js";
 import signRouter from "./sign.js";
+import quoteScopesRouter from "./quote-scopes.js";
 
 const router: IRouter = Router();
 
@@ -62,5 +63,6 @@ router.use("/agreement-templates", agreementTemplatesRouter);
 router.use("/billing", billingRouter);
 router.use("/form-templates", formTemplatesRouter);
 router.use("/sign", signRouter);
+router.use("/quote-scopes", quoteScopesRouter);
 
 export default router;

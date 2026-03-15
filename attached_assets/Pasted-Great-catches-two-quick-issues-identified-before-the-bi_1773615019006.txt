@@ -1,0 +1,278 @@
+Great catches — two quick issues identified before the big prompt:
+
+**My Jobs** should only be visible to `technician` role. You're logged in as `owner`, so it should be completely hidden from your sidebar. That's a role-based nav bug.
+
+**Dispatch Board cutoff** is a CSS width issue — the Gantt grid isn't accounting for the left panel width, so the time grid overflows and clips instead of scrolling within its container.
+
+---
+
+Here's your single mass Replit prompt. Copy and paste this entire block:
+
+---
+
+**PASTE THIS INTO REPLIT:**
+
+```
+Context: I am Sal Martinez, owner of PHES Cleaning LLC in Oak Lawn IL. 
+I am building a multi-tenant SaaS platform for cleaning businesses called 
+CleanOps Pro.
+
+Live app: https://clean-ops-pro.replit.app/login
+GitHub: https://github.com/salmartinez-design/clean-ops-pro
+Login: owner@phescleaning.com / demo1234
+Super admin: sal@cleanopspro.com / SalCleanOps2026!
+Tech: React + Express + Supabase + Tailwind + Plus Jakarta Sans
+Design: #F7F6F3 background, #FFFFFF cards, #1A1917 text, var(--brand) 
+accent, NO emojis, NO dark mode, light theme only.
+
+Please make ALL of the following fixes and builds in one session. 
+Checkpoint after each item. Push to GitHub after all items are complete 
+using: bash push-to-github.sh 'fix dispatch cutoff, hide my jobs from 
+owner, build quote tool sprint 1'
+
+---
+
+BUG FIX 1 — DISPATCH BOARD CUTOFF
+The Dispatch Board at /jobs is getting clipped/cut off on the right side.
+The Gantt time grid is not scrolling properly within its container.
+
+Fix:
+- The outer layout must be: sidebar (fixed width) + main content area 
+  (flex-1, overflow hidden)
+- The Gantt grid container must be: overflow-x: auto, width: 100%
+- The left panel (mini calendar + unassigned + legend) must be a fixed 
+  width (e.g. 220px), not growing
+- The time grid (employee rows + time columns) must fill the remaining 
+  width and scroll horizontally when needed
+- The employee name column on the left of the Gantt must be sticky 
+  (position: sticky, left: 0, z-index: 10, background white) so it 
+  stays visible while scrolling right
+- Test at 1280px, 1440px, and 1920px widths — no clipping at any size
+
+---
+
+BUG FIX 2 — HIDE "MY JOBS" FROM NON-TECHNICIAN ROLES
+"My Jobs" in the sidebar TODAY section must only be visible to users 
+with role = 'technician'.
+
+Fix:
+- In the sidebar nav component, wrap the My Jobs link with a role check
+- If role is 'owner', 'admin', or 'office' → do not render the My Jobs 
+  link at all
+- Only role = 'technician' sees My Jobs
+- Do not affect the /my-jobs route itself — it should still exist and 
+  work when a technician accesses it directly
+- Test: log in as owner@phescleaning.com — My Jobs should not appear. 
+  Log in as a technician account — My Jobs should appear.
+
+---
+
+NEW FEATURE — QUOTE TOOL SPRINT 1 (Office Quote Only, No iFrame Yet)
+
+Build the Quote Tool — internal office use only in this sprint.
+Route: /quotes
+Add "Quotes" to the sidebar under MANAGE section, between Customers 
+and Employees. Visible to: owner, admin, office roles only.
+
+PART A — SCOPES OF WORK SETTINGS PAGE
+Route: /company/quoting
+Add "Quoting" link to the Company section in the sidebar (owner only).
+
+Build a Scopes of Work management page with these sections:
+
+1. Scopes List (main view)
+   - Table columns: Name, Category (House Cleaning / Commercial), 
+     Pricing Method, Base Hourly Rate, Min Bill, Availability 
+     (Office / Online badges), Actions (Edit / Delete)
+   - "+ Create Scope" button top right
+   - Two category groups: House Cleaning, Commercial Cleaning
+
+2. Create / Edit Scope — slide-in right panel (not a modal) with tabs:
+
+   Tab 1 — Basic
+   - Name (text input)
+   - Category (select: House Cleaning, Commercial Cleaning)
+   - Pricing Method (radio: By Square Foot | Simplified/Hourly)
+   - Base Hourly Rate ($)
+   - Minimum Bill Rate ($)
+   - Available for Office (toggle)
+   - Available for Online (toggle, disabled for now — Sprint 2)
+
+   Tab 2 — Frequencies
+   - List of frequency rows: Every Week, Every Two Weeks, Every Three 
+     Weeks, Every Four Weeks, One Time, On Demand
+   - Each row: Frequency label | Factor/Multiplier (number input, 
+     default 1) | Min Cost per job ($) | Hourly Rate override 
+     (optional $) | Available Office (checkbox) | Available Online 
+     (checkbox)
+   - Save button
+
+   Tab 3 — Square Footage Table
+   - Only shown if Pricing Method = By Square Foot
+   - Table of sq ft ranges: 0-749, 750-999, 1000-1249... up to 
+     5501-6000+ (20 rows)
+   - Each row has one editable field: Estimated Hours (decimal)
+   - Pre-populate with PHES defaults from MaidCentral data I provided
+
+   Tab 4 — Add-ons
+   - List of add-ons assigned to this scope
+   - Each row: Name | Type (Cleaning Extra / Discount / Other) | Price 
+     ($ or %) | Add Time (minutes) | Tech Pay (toggle) | Office 
+     (checkbox) | Portal (checkbox)
+   - "+ Add" button opens inline form to create a new add-on
+   - Common PHES add-ons pre-seeded: Oven ($50, 45min), Refrigerator 
+     ($50, 45min), Windows (12% sq ft, 45min), Basement (12% sq ft, 
+     45min), Baseboards ($50, 45min), Kitchen Cabinets ($50, 45min), 
+     Parking Fee ($20, 0min)
+
+3. Database tables to create:
+   - quote_scopes: id, company_id, name, category, pricing_method, 
+     base_hourly_rate, min_bill_rate, available_office, 
+     available_online, sort_order
+   - quote_scope_frequencies: id, scope_id, frequency, factor, 
+     min_cost, hourly_rate_override, available_office, available_online
+   - quote_sqft_table: id, scope_id, sqft_min, sqft_max, 
+     estimated_hours
+   - quote_addons: id, company_id, scope_id, name, addon_type, 
+     price_type (flat|percent|percent_sqft), price_value, 
+     time_minutes, tech_pay, available_office, available_portal, 
+     sort_order
+   - All tables must have company_id and enforce RLS
+
+PART B — QUOTE CREATION (The actual quote flow)
+Route: /quotes/new and /quotes/:id
+
+Quotes List Page (/quotes):
+- Summary cards at top: Total Quotes, Pending (sent not accepted), 
+  Accepted this month, Converted to Jobs
+- Table: Client name | Scope | Frequency | Price | Status badge | 
+  Created date | Actions
+- Status badges: DRAFT (gray), SENT (blue), ACCEPTED (green), 
+  CONVERTED (brand color), EXPIRED (red)
+- "+ New Quote" button top right
+- Filter tabs: All | Drafts | Sent | Accepted | Converted
+
+New Quote Page (/quotes/new):
+Build a two-column layout:
+- LEFT COLUMN (form inputs, 60% width):
+  Step 1 — Client
+  - Search existing clients (typeahead search by name/email)
+  - OR "+ New Client" inline (first name, last name, email, phone)
+  - If existing client selected: show client card with address, 
+    last cleaning, total spend
+
+  Step 2 — Service Details
+  - Scope of Work (dropdown — only office-available scopes)
+  - Frequency (dropdown — filtered by scope's available frequencies)
+  - Service Date (date picker, optional)
+  - Number of bedrooms (number input)
+  - Number of bathrooms (number input)  
+  - Number of half bathrooms (number input)
+  - Square footage (number input — only shown if scope = By Sq Ft)
+  - Dirt level (select: 1 Standard, 2 Slightly Dirty, 3 Very Dirty — 
+    multiplies estimated hours by 1x, 1.15x, 1.3x)
+  - Number of pets (number input)
+  - Special instructions (textarea)
+  - Internal memo (textarea, not shown to client)
+
+  Step 3 — Add-ons
+  - Show add-on cards for this scope (office-available only)
+  - Each card: name, price, time — click to toggle selected (highlight 
+    with brand color border)
+  - Selected add-ons appear as line items below
+
+  Step 4 — Pricing
+  - Discount code input (validates against discounts table)
+  - Notes for client (shown on quote PDF)
+
+- RIGHT COLUMN (live price preview, 40% width, sticky):
+  Live Quote Summary card that updates in real time as inputs change:
+  - Service: [Scope name]
+  - Frequency: [Frequency]
+  - Estimated Hours: [calculated]
+  - Base Price: $[calculated]
+  - Add-ons: itemized list with prices
+  - Discount: -$[amount] (if applied)
+  - TOTAL: $[final] (large, bold, brand color)
+  - Estimated Tech Pay: $[amount] (shown to office, not on client quote)
+  
+  Pricing calculation logic:
+  - If By Sq Ft: look up sq ft range → get estimated hours → multiply 
+    by base hourly rate → apply frequency factor → apply dirt 
+    multiplier → add add-on prices → apply discount
+  - If Simplified/Hourly: manual hour input × base hourly rate → 
+    apply frequency factor → add add-ons → apply discount
+  - Always enforce minimum bill rate (if calculated < min, use min)
+
+  Action buttons below the summary:
+  - Save as Draft
+  - Save & Send Quote (sends email via Resend with quote PDF attached)
+  - Save & Convert to Job (skips sending, creates job directly)
+
+Quote Detail Page (/quotes/:id):
+- Show all quote details in read-only view
+- Status badge + timeline (Created → Sent → Accepted/Expired)
+- Actions: Edit | Send | Convert to Job | Mark Accepted | Delete
+- Show quote PDF preview inline (or download link)
+
+Quote Email (sent via Resend):
+- Subject: "Your cleaning quote from [Company Name]"
+- Body: clean, branded with tenant brand color
+- Shows: service, frequency, date, price breakdown, add-ons, total
+- CTA button: "Accept This Quote" → sets status to ACCEPTED
+- No DocuSign, no complexity — just a link that marks it accepted
+
+PART C — SEED DATA FOR PHES
+When the feature is first accessed by company phescleaning, 
+auto-seed these scopes if none exist:
+
+Scopes:
+1. Deep Clean or Move In/Out — By Square Foot — $70/hr — $210 min — 
+   Office + Online
+2. One-Time Flat-Rate Standard Cleaning — By Square Foot — $65/hr — 
+   $180 min — Office + Online  
+3. Recurring Cleaning — By Square Foot — $65/hr — $180 min — 
+   Office + Online
+4. Hourly Deep Clean — Simplified — $70/hr — $210 min — Office only
+5. Hourly Standard Cleaning — Simplified — $65/hr — $180 min — 
+   Office only
+
+Sq Ft table for Deep Clean (seed these hours):
+0-749: 3h | 750-999: 3.2h | 1000-1249: 5.2h | 1250-1499: 6h | 
+1500-1749: 6.2h | 1750-1999: 6.5h | 2000-2249: 7.6h | 
+2250-2499: 8h | 2500-2749: 8h | 2750-2999: 8.4h | 3000-3249: 9.5h | 
+3250-3499: 10h | 3500-3749: 10.5h | 3750-3999: 11h | 
+4000-4249: 13h | 4250-4499: 14h | 4500-4749: 16h | 
+4750-5000: 18h | 5001-5500: 20h | 5501+: 29h
+
+---
+
+DESIGN RULES (apply to everything above):
+- Font: Plus Jakarta Sans only
+- Background: #F7F6F3
+- Cards: #FFFFFF  
+- Text: #1A1917 primary, #6B6860 secondary
+- Borders: #E5E2DC
+- Accent: var(--brand) for buttons, active states, highlights
+- Badge colors: match existing platform badge system
+- NO emojis anywhere
+- NO dark mode
+- Slide-in panels use right-side drawer pattern (same as job detail panel)
+- All forms validate before save — show inline field errors, not alerts
+- All tables have empty states with helpful copy (not just "No data")
+- Mobile-responsive — all pages must work on 375px width
+
+After completing all items above, take a screenshot of:
+1. The Dispatch Board (showing it no longer cuts off)
+2. The Quotes list page
+3. A new quote being built with the live price preview
+
+Then push to GitHub: bash push-to-github.sh 'fix dispatch cutoff, 
+hide my jobs from owner, build quote tool sprint 1'
+```
+
+---
+
+That prompt covers all three items in one session. The dispatch fix is first so Replit validates the board before moving on. The My Jobs fix is a 5-minute change. The Quote Tool is the heavy lift but it's scoped tightly enough that one Replit session should get you to a working Sprint 1.
+
+After this runs, Sprint 2 will add the iFrame embed and online quoting flow. Want me to pre-write that prompt now so it's ready to go?

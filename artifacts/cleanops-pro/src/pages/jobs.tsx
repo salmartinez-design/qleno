@@ -827,7 +827,7 @@ export default function JobsPage() {
             {viewMode === "week" ? (
               <WeekView weekStart={weekStart} data={data} onDayClick={d => { setViewDate(d); setViewMode("day"); }} />
             ) : (
-              <div ref={boardRef} style={{ flex: 1, overflow: "auto", position: "relative", backgroundColor: "#F7F6F3" }}>
+              <div ref={boardRef} style={{ flex: 1, minWidth: 0, overflow: "auto", position: "relative", backgroundColor: "#F7F6F3" }}>
                 {loading ? <SkeletonBoard /> : filteredEmps.length === 0 ? (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 300 }}>
                     <div style={{ textAlign: "center" }}>
