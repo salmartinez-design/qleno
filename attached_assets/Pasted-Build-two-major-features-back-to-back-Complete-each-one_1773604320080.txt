@@ -1,0 +1,402 @@
+Build two major features back to back. Complete 
+each one fully before moving to the next.
+Show me a screenshot after each is done.
+
+════════════════════════════════════════════════
+FEATURE 1 — GEO-FENCING CLOCK-IN/OUT SYSTEM
+════════════════════════════════════════════════
+
+STEP 1 — DATABASE
+Run these SQL statements:
+
+CREATE TABLE IF NOT EXISTS time_clock_entries (
+  id                    SERIAL PRIMARY KEY,
+  company_id            INTEGER NOT NULL REFERENCES companies(id),
+  job_id                INTEGER NOT NULL REFERENCES jobs(id),
+  user_id               INTEGER NOT NULL REFERENCES users(id),
+  clock_in_at           TIMESTAMP,
+  clock_out_at          TIMESTAMP,
+  clock_in_lat          DECIMAL(10,8),
+  clock_in_lng          DECIMAL(11,8),
+  clock_out_lat         DECIMAL(10,8),
+  clock_out_lng         DECIMAL(11,8),
+  clock_in_distance_ft  INTEGER,
+  clock_out_distance_ft INTEGER,
+  is_flagged            BOOLEAN DEFAULT false,
+  flag_reason           TEXT,
+  created_at            TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS job_photos (
+  id          SERIAL PRIMARY KEY,
+  company_id  INTEGER NOT NULL REFERENCES companies(id),
+  job_id      INTEGER NOT NULL REFERENCES jobs(id),
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  photo_type  VARCHAR(10) NOT NULL 
+              CHECK (photo_type IN ('before','after')),
+  url         TEXT NOT NULL,
+  lat         DECIMAL(10,8),
+  lng         DECIMAL(11,8),
+  taken_at    TIMESTAMP DEFAULT NOW()
+);
+
+ALTER TABLE jobs 
+  ADD COLUMN IF NOT EXISTS lat DECIMAL(10,8),
+  ADD COLUMN IF NOT EXISTS lng DECIMAL(11,8);
+
+STEP 2 — API ROUTES
+
+Add haversine utility:
+function haversineDistanceFt(lat1, lng1, lat2, lng2) {
+  const R = 20902461;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLng = (lng2-lng1) * Math.PI/180;
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+    Math.sin(dLng/2)*Math.sin(dLng/2);
+  return Math.round(20902461 * 2*Math.atan2(
+    Math.sqrt(a),Math.sqrt(1-a)));
+}
+
+GET /api/jobs/my-jobs
+  Returns today's jobs assigned to req.auth.userId.
+  Include per job: id, client_name, address, lat, lng,
+  service_type, scheduled_time, status, amount,
+  client_notes, time_clock_entry, 
+  before_photo_count, after_photo_count
+
+POST /api/clock/in
+  Body: { job_id, lat, lng }
+  1. Fetch job lat/lng
+  2. Calculate distance with haversineDistanceFt
+  3. is_flagged = distance > company.geo_fence_threshold_ft
+     (default 500ft if not set)
+  4. Insert time_clock_entries record
+  5. Update job status = 'in_progress'
+  6. Return { entry_id, distance_ft, is_flagged, clock_in_at }
+
+POST /api/clock/out
+  Body: { entry_id, lat, lng }
+  1. Verify entry belongs to req.auth.userId + companyId
+  2. Count after photos — if 0 return 400:
+     { error: 'PHOTOS_REQUIRED' }
+  3. Calculate distance
+  4. Update entry with clock_out data
+  5. Update job status = 'complete'
+  6. Return { clock_out_at, duration_minutes }
+
+POST /api/jobs/:jobId/photos
+  Multipart upload. Fields: photo_type, lat, lng
+  Validate: jpeg/png/webp only, max 10MB
+  Save to uploads/photos/{companyId}/{jobId}/
+  Insert job_photos record
+  Return { photo_id, url, photo_type }
+
+GET /api/jobs/:jobId/photos
+  Returns { before: [...], after: [...] }
+
+STEP 3 — MY JOBS PAGE (mobile-first)
+
+Create src/pages/my-jobs.tsx
+Add route /my-jobs in App.tsx
+Add "My Jobs" to sidebar under OPERATIONS 
+  (ClipboardList icon, visible to ALL roles)
+
+LIGHT THEME — bg #F7F6F3, cards #FFFFFF, 
+text #1A1917. Max-width 420px centered on desktop.
+
+STICKY HEADER:
+  bg #FFFFFF, border-bottom 1px solid #E5E2DC
+  User initials avatar left (var(--brand-dim) bg)
+  "My Jobs" center 15px weight 600
+  Today's date right 12px #6B6860
+
+GEO STATUS PILL:
+  Not requested: bg #F3F4F6 "Tap clock-in to enable location"
+  In zone: bg #DCFCE7 text #166534 "In zone — Xft from job"
+  Out of zone: bg #FEF3C7 text #92400E "Out of zone — Xft"
+
+JOB CARDS:
+  bg #FFFFFF, border 1px solid #E5E2DC
+  border-left 3px solid var(--brand)
+  border-radius 12px, padding 18px, margin 12px
+
+  Status badge + amount (20px weight 700) top row
+  Client name 18px weight 700 #1A1917
+  Service type 11px var(--brand) uppercase
+  Time + address 12px #6B6860
+
+  CLIENT NOTES box if exists:
+    bg #F7F6F3, border-radius 8px, padding 10px
+
+  BEFORE PHOTOS SECTION:
+    "Before Photos" label + count
+    2-column grid, 72x72 thumbnails
+    Add button: dashed border, "+" icon
+    accept="image/*" capture="environment"
+
+  AFTER PHOTOS SECTION:
+    Same layout
+    If in_progress AND after_count = 0:
+      Warning: bg #FEF3C7 border-left 3px #F59E0B
+      "After photos required before clock-out"
+
+  CLOCK IN BUTTON (not clocked in):
+    Full width, bg var(--brand), color #FFFFFF
+    "Clock In" 15px weight 600, padding 16px
+    On tap: navigator.geolocation.getCurrentPosition
+    Show "Getting location..." loading state
+    POST /api/clock/in
+    If flagged: amber toast with distance
+  
+  CLOCKED IN STATE:
+    Elapsed timer: 36px weight 700 #1A1917
+    "Time on job" 11px #9E9B94
+    
+    Clock Out button:
+      after_count > 0: bg #166534 "Clock Out"
+      after_count = 0: bg #F3F4F6 disabled
+        "Clock Out — add after photo first"
+    
+    On success: checkmark + "Job Complete" + duration
+
+UPCOMING JOBS below active job:
+  "Up Next" label, same card style, opacity 0.55
+
+STEP 4 — CLOCK MONITOR
+
+Create src/pages/clock-monitor.tsx
+Route: /employees/clocks
+Add to sidebar under Employees (owners/admins only)
+
+Table: EMPLOYEE | JOB | CLOCK IN | CLOCK OUT | 
+       DURATION | DISTANCE | STATUS
+
+Badges: On Job (green), Complete (blue), Flagged (red)
+
+Flagged rows: bg rgba(239,68,68,0.04), 
+              border-left 3px #EF4444
+
+Click flagged row → modal:
+  Employee + job info, distance from job address
+  "Dismiss Flag" | "Keep Flag" buttons
+  Dismiss sets is_flagged = false
+
+STEP 5 — GEOCODING
+
+When job is created/updated with address,
+auto-geocode using Google Maps API:
+
+async function geocodeAddress(address) {
+  const key = process.env.GOOGLE_MAPS_API_KEY;
+  const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${key}`;
+  const res = await fetch(url);
+  const data = await res.json();
+  if (data.results?.[0]) {
+    return {
+      lat: data.results[0].geometry.location.lat,
+      lng: data.results[0].geometry.location.lng
+    };
+  }
+  return null;
+}
+
+Add GOOGLE_MAPS_API_KEY to .env
+
+Admin endpoint POST /api/admin/geocode-jobs
+  (super_admin only) — geocodes all existing 
+  jobs that have address but no lat/lng
+
+════════════════════════════════════════════════
+FEATURE 2 — GANTT DISPATCH BOARD
+════════════════════════════════════════════════
+
+Install first:
+pnpm add @dnd-kit/core @dnd-kit/sortable @dnd-kit/utilities
+
+Replace the entire Jobs page with a 
+professional Gantt-style dispatch board.
+
+3 ZONES:
+  Zone 1: Top bar (56px sticky)
+  Zone 2: Left panel (260px fixed)
+  Zone 3: Dispatch board (fills rest)
+
+ZONE 1 — TOP BAR:
+  bg #FFFFFF, border-bottom 1px solid #E5E2DC
+  
+  LEFT: ← → day navigation arrows
+        "Monday, March 15" 15px weight 600
+        "Today" pill button
+  
+  CENTER: [Day View] [Week View] toggle
+    Active: var(--brand) bg, white text
+    Inactive: #F7F6F3 bg, #6B6860 text
+  
+  RIGHT: "All Employees" filter dropdown
+         Search input
+         "+ New Job" button var(--brand)
+
+ZONE 2 — LEFT PANEL:
+  bg #FFFFFF, border-right 1px solid #E5E2DC
+
+  SECTION A — MINI CALENDAR:
+    Monthly calendar widget
+    Selected date: var(--brand) highlight
+    Dates with jobs: small dot underneath
+    Click date → navigates board
+
+  SECTION B — UNASSIGNED JOBS:
+    Label: "Unassigned" 11px #9E9B94 uppercase + count
+    
+    Each card (DRAGGABLE):
+      bg #FEF3C7, border-left 3px #F59E0B
+      border-radius 8px, padding 10px 12px
+      Client name 13px weight 600 #1A1917
+      Service type 11px var(--brand) uppercase
+      Duration 11px #6B6860
+      Drag handle ⣿ on left, cursor: grab
+
+  SECTION C — LEGEND:
+    Status colors + Frequency colors
+
+ZONE 3 — DISPATCH BOARD:
+  ROWS = employees, COLUMNS = time (7am–8pm)
+  30-minute increments, each cell 80px wide
+
+  STICKY TIME HEADER:
+    First col "TEAM" 220px fixed
+    Time labels 7:00, 7:30, 8:00...
+    
+    CURRENT TIME RED LINE:
+      2px solid #EF4444 at current position
+      "NOW" label at top
+      Updates every 60 seconds
+
+  EMPLOYEE ROWS (72px tall each):
+    LEFT CELL (fixed 220px):
+      Avatar 32px circle, initials
+      Name 13px weight 600, role badge
+      "X jobs · Xh total" 11px #6B6860
+    
+    RIGHT (scrollable time grid):
+      Alternating row bg #FFFFFF / #FAFAF9
+      Grid lines 1px #EEECE7 per 30min
+      Thicker line 1px #E5E2DC per hour
+
+  JOB CHIPS:
+    Position: left = (mins_from_7am / 30) * 80px
+    Width: (duration_minutes / 30) * 80px
+    Height: 54px, border-radius 8px
+
+    Colors by status:
+      Scheduled:   bg #DBEAFE, border-left 3px #3B82F6
+      In Progress: bg #FEF3C7, border-left 3px #F59E0B
+      Complete:    bg #DCFCE7, border-left 3px #22C55E
+      Flagged:     bg #FEE2E2, border-left 3px #EF4444
+
+    Inside chip:
+      Client name 12px weight 600 #1A1917
+      Service type 11px #6B6860
+      Time if wide enough 10px #9E9B94
+      Clock icon if clocked in
+      Camera icon if has photos
+
+DRAG AND DROP (use @dnd-kit/core):
+
+  Drag chip LEFT/RIGHT on same row:
+    → Changes scheduled_time
+    → Snaps to 30-minute increments
+    → PATCH /api/jobs/:id { scheduled_time }
+    → Toast: "Job rescheduled to 10:00 AM"
+
+  Drag chip to DIFFERENT row:
+    → Reassigns employee
+    → PATCH /api/jobs/:id { assigned_to, scheduled_time }
+    → Toast: "Job reassigned to [name]"
+
+  Drag from UNASSIGNED PANEL to row:
+    → Assigns job to employee at that time
+    → PATCH /api/jobs/:id { assigned_to, scheduled_time }
+    → Chip appears on board, card leaves panel
+    → Toast: "Job assigned to [name]"
+
+  CONSTRAINTS:
+    Cannot drag completed jobs
+    Show red tint on conflict slots
+
+CLICK CHIP → RIGHT SLIDE PANEL (360px):
+  bg #FFFFFF, border-left 1px solid #E5E2DC
+  shadow: -4px 0 20px rgba(0,0,0,0.08)
+
+  Client name 20px weight 700
+  Service type badge var(--brand)
+  Close X + "Edit Full Job" link
+
+  Job details: date/time, address, assigned to, amount
+  Client notes
+  Status timeline: Scheduled → In Progress → Complete
+  Clock data: in/out times, duration, flag if any
+  Photos: before/after thumbnails with counts
+
+  Quick actions:
+    [Mark Complete] [Reassign] [Reschedule]
+    [Add Note] [Cancel Job]
+
+WEEK VIEW (toggle):
+  ROWS = days Mon–Sun
+  COLUMNS = employees
+  Each cell: stacked compact job chips
+  Read-only, no drag-and-drop
+  Click cell → goes to day view for that employee/day
+
+API ENDPOINT:
+GET /api/dispatch?date=YYYY-MM-DD
+  Returns filtered by company_id:
+  {
+    employees: [{
+      id, name, role, avatar_url,
+      jobs: [{
+        id, client_name, address,
+        service_type, status, amount,
+        scheduled_time, duration_minutes,
+        frequency, assigned_to,
+        clock_entry: { clock_in_at, clock_out_at, is_flagged },
+        before_photo_count, after_photo_count
+      }]
+    }],
+    unassigned_jobs: [...]
+  }
+
+PATCH /api/jobs/:id
+  Allow: assigned_to, scheduled_time, 
+         status, duration_minutes
+  Always validate company_id
+
+IMPLEMENTATION NOTES:
+  - Time grid: CSS Grid for columns
+  - Chip left: (minutes_from_7am / 30) * 80px
+  - Chip width: (duration_minutes / 30) * 80px
+  - Employee column: position sticky, left 0
+  - Optimistic UI: update state first, 
+    patch API in background, revert on error
+
+════════════════════════════════════════════════
+BUILD ORDER
+════════════════════════════════════════════════
+
+1. Run all database migrations
+2. Build all API routes (clock + photos + dispatch)
+3. Build My Jobs mobile page
+4. Build Clock Monitor page
+5. Show screenshot — confirm Feature 1 works
+6. Install dnd-kit
+7. Build static dispatch board layout (no drag)
+8. Show screenshot — confirm layout looks right
+9. Add drag-drop for rescheduling
+10. Add drag-drop for reassigning + unassigned panel
+11. Add click panel (right slide-in)
+12. Add week view
+13. Show final screenshot
+14. Push everything to GitHub:
+    bash push-to-github.sh "geo-clock + dispatch board complete"
