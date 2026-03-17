@@ -3,6 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, ArrowUpCircle, Tag,
   BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate, Calculator, FileText as FileTextIcon, MapPin,
+  AlertTriangle, HeartPulse, Smile, Gift, Share2, Route, Package,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -12,10 +13,11 @@ const NAV_SECTIONS = [
   {
     label: "Today",
     items: [
-      { title: "Dashboard",      url: "/dashboard",       icon: LayoutDashboard },
-      { title: "Dispatch Board", url: "/jobs",             icon: CalendarDays },
-      { title: "My Jobs",        url: "/my-jobs",          icon: ClipboardList, roles: ["technician"] },
-      { title: "Clock Monitor",  url: "/employees/clocks", icon: Clock, roles: ["owner", "admin"] },
+      { title: "Dashboard",        url: "/dashboard",         icon: LayoutDashboard },
+      { title: "Dispatch Board",   url: "/jobs",              icon: CalendarDays },
+      { title: "My Jobs",          url: "/my-jobs",           icon: ClipboardList, roles: ["technician", "team_lead"] },
+      { title: "Route Sequences",  url: "/route-sequences",   icon: Route, roles: ["owner", "admin", "office", "team_lead"] },
+      { title: "Clock Monitor",    url: "/employees/clocks",  icon: Clock, roles: ["owner", "admin"] },
     ],
   },
   {
@@ -32,10 +34,20 @@ const NAV_SECTIONS = [
   {
     label: "Grow",
     items: [
-      { title: "Reports",      url: "/reports",           icon: BarChart2,      roles: ["owner", "admin", "office"] },
-      { title: "Core KPIs",    url: "/reports/insights",  icon: TrendingUp,     roles: ["owner", "admin", "office"] },
-      { title: "Rate Increase", url: "/discounts",        icon: ArrowUpCircle,  roles: ["owner", "admin"] },
-      { title: "Discounts",    url: "/discounts",          icon: Tag,            roles: ["owner", "admin"] },
+      { title: "Reports",       url: "/reports",                  icon: BarChart2,    roles: ["owner", "admin", "office"] },
+      { title: "Core KPIs",     url: "/reports/insights",         icon: TrendingUp,   roles: ["owner", "admin", "office"] },
+      { title: "NPS & Surveys", url: "/reports/satisfaction",     icon: Smile,        roles: ["owner", "admin", "office"] },
+      { title: "Incentives",    url: "/reports/incentives",       icon: Gift,         roles: ["owner", "admin"] },
+      { title: "Referrals",     url: "/reports/referrals",        icon: Share2,       roles: ["owner", "admin", "office"] },
+      { title: "Rate Increase", url: "/discounts",                icon: ArrowUpCircle, roles: ["owner", "admin"] },
+      { title: "Discounts",     url: "/discounts",                icon: Tag,          roles: ["owner", "admin"] },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { title: "Churn Board",    url: "/intelligence/churn",     icon: AlertTriangle, roles: ["owner", "admin"] },
+      { title: "Tech Retention", url: "/intelligence/retention", icon: HeartPulse,    roles: ["owner", "admin"] },
     ],
   },
   {
@@ -55,6 +67,7 @@ const NAV_SECTIONS = [
       { title: "Forms",             url: "/company/forms",              icon: LayoutTemplate, roles: ["owner", "admin"] },
       { title: "Quoting",           url: "/company/quoting",            icon: Calculator,     roles: ["owner", "admin"] },
       { title: "Service Zones",     url: "/company/zones",              icon: MapPin,         roles: ["owner"] },
+      { title: "Add-On Catalog",    url: "/company/addons",             icon: Package,        roles: ["owner", "admin"] },
     ],
   },
 ];

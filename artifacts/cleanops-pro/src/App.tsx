@@ -56,6 +56,14 @@ import QuotingPage from "@/pages/quoting";
 import InvoiceDetailPage from "@/pages/invoice-detail";
 import PayPage from "@/pages/pay";
 import ZonesPage from "@/pages/zones";
+import SurveyPage from "@/pages/survey";
+import RouteSequencesPage from "@/pages/route-sequences";
+import ChurnBoardPage from "@/pages/intelligence/churn";
+import RetentionBoardPage from "@/pages/intelligence/retention";
+import SatisfactionReportPage from "@/pages/reports/satisfaction";
+import AddOnCatalogPage from "@/pages/company/addons";
+import ReferralReportPage from "@/pages/reports/referrals";
+import IncentivesPage from "@/pages/reports/incentives";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -112,6 +120,14 @@ function Router() {
       <Route path="/company/forms" component={FormsPage} />
       <Route path="/company/quoting" component={QuotingPage} />
       <Route path="/company/zones" component={ZonesPage} />
+      <Route path="/company/addons" component={AddOnCatalogPage} />
+      <Route path="/survey/:token" component={SurveyPage} />
+      <Route path="/route-sequences" component={RouteSequencesPage} />
+      <Route path="/intelligence/churn" component={ChurnBoardPage} />
+      <Route path="/intelligence/retention" component={RetentionBoardPage} />
+      <Route path="/reports/satisfaction" component={SatisfactionReportPage} />
+      <Route path="/reports/referrals" component={ReferralReportPage} />
+      <Route path="/reports/incentives" component={IncentivesPage} />
       <Route path="/quotes/new" component={QuoteBuilderPage} />
       <Route path="/quotes/:id/edit" component={QuoteBuilderPage} />
       <Route path="/quotes/:id" component={QuoteDetailPage} />

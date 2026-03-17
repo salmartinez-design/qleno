@@ -1,0 +1,386 @@
+Here is the full rewritten Phase 2 prompt — all patches baked in, nothing split out:
+
+You are working on CleanOps Pro, a multi-tenant SaaS platform for 
+residential and commercial cleaning businesses.
+
+TECH STACK: React 18, Tailwind, Express/Node.js, Supabase (Postgres 
++ RLS), Plus Jakarta Sans (ONLY font).
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand) — dynamic per tenant
+- NO emojis, NO dark mode, light theme only
+- Plus Jakarta Sans only
+- Status badges: pill shape, muted background, colored text
+- Skeleton loaders (not spinners) for all async loads
+- Graceful empty states on all list and table views
+- All monetary values: USD, 2 decimal places, comma-formatted
+
+All endpoints must be protected by JWT middleware.
+All queries must include company_id scoping (RLS enforced).
+Never show data across tenant boundaries.
+
+═══════════════════════════════════════════════════════
+PHASE 2 — STAGE 2 FEATURES ($500k–$1M operators)
+═══════════════════════════════════════════════════════
+
+═══════════════════════════════════════════════════════
+FEATURE 1: INCENTIVE + BONUS TRACKING
+═══════════════════════════════════════════════════════
+
+── DATABASE ──
+
+Create incentive_programs table:
+{
+  id,
+  company_id,
+  name,
+  type              enum: performance / attendance / 
+                         retention / referral / custom,
+  trigger_metric    text (description of what triggers it),
+  threshold_value   decimal (nullable),
+  reward_amount     decimal,
+  reward_type       enum: cash / gift_card / pto / other,
+  monthly_budget_cap decimal (nullable),
+  is_active         boolean,
+  effective_date    date
+}
+
+Create incentive_earned table:
+{
+  id,
+  company_id,
+  employee_id,
+  program_id,
+  earned_date       date,
+  amount            decimal,
+  notes             text,
+  status            enum: pending_approval / approved / 
+                         rejected / paid,
+  approved_by       employee_id (nullable FK),
+  approved_at       timestamp (nullable),
+  rejection_note    text (nullable),
+  paid_date         date (nullable),
+  paid_via_payroll_run_id (nullable FK)
+}
+
+── BACKEND ──
+
+CRUD /api/incentives/programs
+  — company_id scoped
+  — include mtd_awarded computed field on GET 
+    (sum of approved + paid incentive_earned 
+     for current calendar month per program)
+  — if monthly_budget_cap is set, include 
+    budget_remaining in response
+
+POST /api/incentives/award
+  — manually award an incentive to an employee
+  — APPROVAL RULES:
+    If awarded by Owner role → status = approved (auto)
+    If awarded by Admin role → status = pending_approval
+    Notify owner via dashboard alert when 
+    pending_approval record is created
+  — BUDGET CAP CHECK:
+    Before inserting, check mtd_awarded vs 
+    monthly_budget_cap for the program
+    If cap reached → return 400 with message:
+    "Monthly budget cap of $X has been reached 
+     for this program"
+    If no cap set → proceed without check
+
+GET /api/incentives/earned?employee_id=
+  — earnings history for one employee
+  — include program name, status, paid_date
+
+GET /api/incentives/pending-approval
+  — Owner role only
+  — return all pending_approval records 
+    across company with employee name, 
+    program name, amount, awarded_by, earned_date
+
+POST /api/incentives/:id/approve
+  — Owner only
+  — sets status = approved, 
+    approved_by = current user, approved_at = now
+
+POST /api/incentives/:id/reject
+  — Owner only
+  — requires rejection_note
+  — sets status = rejected
+
+GET /api/incentives/unpaid
+  — returns all approved (not yet paid) 
+    incentive_earned records
+  — feeds into Close Week payroll lock flow
+
+── FRONTEND ──
+
+Add "Incentives" section under the Payroll area in 
+the left navigation.
+
+Incentives page has two tabs:
+
+TAB 1 — Programs
+  - List of active incentive programs
+  - Each row: program name, type, reward amount, 
+    reward type, monthly budget cap status
+  - Budget meter (if cap set):
+    "$340 awarded of $500 monthly budget"
+    Rendered as a thin progress bar 
+    in var(--brand) color
+  - "New Program" button opens a slide-over drawer:
+    Fields: name, type, trigger description, 
+    threshold (optional), reward amount, 
+    reward type, monthly budget cap (optional),
+    effective date
+  - Pre-loaded program templates selectable 
+    at the top of the drawer:
+    "Perfect Attendance — Month"
+    "Client Referral Bonus"
+    "6-Month Retention Bonus"
+    "Top Performer of the Week"
+    Selecting a template pre-fills the form fields
+
+TAB 2 — Awards
+  - List of all incentive_earned records 
+    for the company
+  - Columns: Employee, Program, Amount, 
+    Earned Date, Status badge, Awarded By
+  - Status badge colors:
+    pending_approval — yellow
+    approved — blue
+    rejected — gray
+    paid — green
+  - Filter bar: by status, by employee, 
+    by date range
+  - "Award Incentive" button:
+    Select employee → select program → 
+    add optional note → submit
+    Owner sees immediate confirmation
+    Admin sees: "Submitted for owner approval"
+  - Pending Approval queue (Owner only):
+    Surfaced as a highlighted section at the 
+    top of the Awards tab when 
+    pending_approval records exist
+    Each row has: Approve button / Reject button
+    Reject requires a rejection_note input 
+    before confirming
+
+Employee profile — Incentives tab:
+  - History of all earned incentives for 
+    that employee
+  - Total earned YTD, total paid YTD
+  - Pending unpaid amount
+
+Close Week integration:
+  - Unpaid approved incentives surface in 
+    the Close Week modal as a line item:
+    "Approved incentives pending payment: 
+     $X across Y employees"
+  - Owner must acknowledge before payroll lock
+  - Marking payroll as paid updates 
+    paid_date and paid_via_payroll_run_id 
+    on all relevant incentive_earned records
+
+Dashboard alert (Owner only):
+  - If pending_approval count > 0:
+    Show dismissible alert card:
+    "X incentive awards pending your approval"
+    Link to Awards tab
+
+═══════════════════════════════════════════════════════
+FEATURE 2: CLIENT SATISFACTION + NPS
+═══════════════════════════════════════════════════════
+
+── DATABASE ──
+
+Create satisfaction_survey table:
+{
+  id,
+  company_id,
+  job_id,
+  customer_id,
+  token             uuid unique (for /survey/:token),
+  sent_at           timestamp,
+  responded_at      timestamp (nullable),
+  nps_score         integer 0–10 (nullable),
+  rating            integer 1–5 (nullable),
+  comment           text (nullable),
+  follow_up_required boolean default false,
+  suppressed        boolean default false,
+  suppressed_reason text (nullable)
+}
+
+── BACKEND ──
+
+POST /api/satisfaction/send
+  — Trigger: manual or auto on job completion
+  — THROTTLE CHECK (run before any send):
+    Query satisfaction_survey for this customer_id
+    where sent_at > now() - interval '30 days'
+    and suppressed = false
+    If record found → insert new record with 
+    suppressed = true, 
+    suppressed_reason = 'throttled — sent within 30 days'
+    Return 200 with { sent: false, reason: 'throttled' }
+    Do not send email
+  — If no throttle hit:
+    Generate unique token (uuid)
+    Insert satisfaction_survey record
+    Send email via Resend with /survey/:token link
+    Return 200 with { sent: true }
+
+POST /api/satisfaction/respond (PUBLIC — no auth)
+  — Validate token exists and responded_at is null
+  — Accept: nps_score, rating, comment
+  — Set responded_at = now()
+  — Set follow_up_required = true if nps_score <= 6
+  — Return 200 confirmation
+
+GET /api/satisfaction/results
+  — JWT protected, company_id scoped
+  — Return:
+    {
+      nps_rolling_30d,         integer
+      avg_rating_30d,          decimal
+      surveys_sent_30d,        integer (suppressed excluded)
+      surveys_responded_30d,   integer
+      response_rate_pct,       decimal
+      follow_up_queue_count,   integer
+      nps_by_employee: [
+        { employee_id, name, avg_rating, 
+          response_count }
+      ],
+      benchmark: {
+        residential: { low: 38, high: 52 },
+        commercial:  { low: 28, high: 44 },
+        company_type: (from company settings),
+        position: 'below' | 'within' | 'above'
+      }
+    }
+
+GET /api/satisfaction?customer_id=
+  — per-client survey history
+
+── SURVEY PAGE (/survey/:token) ──
+
+Public page — no auth required.
+Branded with the tenant's var(--brand) color 
+(fetch company brand color from token lookup).
+Mobile-first layout — optimized for phone.
+
+Structure:
+  - Company name + logo at top
+  - "How was your cleaning on [job date]?" heading
+  - Question 1: 
+    "Rate your cleaning today"
+    1–5 scale rendered as 5 selectable 
+    circle buttons (filled on select)
+    in var(--brand) color
+    Labels: 1 = Poor, 3 = Good, 5 = Excellent
+    No star icons — circles only
+  - Question 2:
+    "How likely are you to recommend us 
+     to a friend or neighbor?"
+    0–10 scale, rendered as a row of 
+    selectable numbered buttons
+    Labels below scale:
+    0 = Not at all likely — 10 = Extremely likely
+  - Question 3:
+    Optional text area:
+    "Anything else you'd like to share? (optional)"
+    Placeholder: "Your feedback helps us improve."
+  - Submit button in var(--brand) color
+  - On submit: replace form with:
+    "Thank you for your feedback.
+     We appreciate you trusting us with your home."
+    No redirect, no external links
+  - If token already used: show
+    "This survey has already been submitted. 
+     Thank you."
+  - If token invalid: show
+    "This link is no longer active."
+
+── FRONTEND (INTERNAL) ──
+
+Satisfaction section under Reports in left nav.
+
+Satisfaction Report page:
+  Top metrics row (4 stat cards):
+    - Rolling 30-Day NPS score
+    - Average Rating (last 30 days)
+    - Response Rate % 
+      (flag with warning state if < 20%:
+       "Low response rate — consider 
+        adjusting send timing in Settings")
+    - Follow-Up Required count 
+      (links to follow-up queue)
+
+  NPS Benchmark callout card:
+    "Your industry benchmark 
+     (residential cleaning): 38–52 NPS
+     Your current score: [X] — [Below / Within / Above] 
+     benchmark"
+    Card border color:
+      Below = #DC2626 (red tint)
+      Within = #D97706 (amber tint)
+      Above = #16A34A (green tint)
+
+  Ratings by Technician table:
+    Columns: Technician, Avg Rating, 
+    Response Count, Trend (up/flat/down arrow)
+
+  Follow-Up Queue section:
+    List of customers with follow_up_required = true
+    Columns: Customer, NPS Score, Date, 
+    Last Communication, "Log Outreach" button
+    "Log Outreach" opens communication log 
+    quick-entry pre-linked to this customer
+
+  Survey History table:
+    All sent surveys with columns:
+    Customer, Job Date, Sent, Responded, 
+    NPS, Rating, Suppressed badge if applicable
+
+Customer profile — Satisfaction tab:
+  - Latest NPS score with trend arrow
+  - Survey history for this client (last 5)
+  - Follow-up flag if nps_score <= 6
+
+Customer list view:
+  - Flag indicator on customer card if 
+    latest NPS score <= 6 
+    (small colored indicator, no text label)
+
+Company Settings — Satisfaction section:
+  Auto-send toggle:
+    "Automatically send satisfaction survey 
+     after job completion"
+  If enabled: 
+    "Send survey X hours after job end time"
+    Hours selector: 1 / 2 / 4 / 8 / 24
+  Company type selector 
+  (residential / commercial / both)
+  — used for benchmark band selection
+
+═══════════════════════════════════════════════════════
+IMPLEMENTATION RULES (apply to both features):
+═══════════════════════════════════════════════════════
+- Every table includes company_id (tenant isolation)
+- Every API route validates JWT + company_id
+- All charts use recharts (already in stack)
+- No new npm dependencies unless unavoidable
+- New nav items added under logical existing 
+  parent sections only
+- All features mobile-responsive
+- No feature crashes if data is missing or sparse
+- All async loads use skeleton loaders, not spinners
+- Graceful empty states on all lists and tables
+
+
+That’s the complete, self-contained Phase 2 prompt. Every patch is woven in — throttle logic, response rate, approval workflow, budget cap, and NPS benchmark context are all native to the spec now, not bolted on. Run it clean.​​​​​​​​​​​​​​​​

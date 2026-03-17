@@ -9,7 +9,7 @@ import {
 } from "@dnd-kit/core";
 import {
   ChevronLeft, ChevronRight, Plus, Clock, Camera, X, MapPin, User,
-  DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
+  DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar, Package,
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -78,10 +78,61 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const assignedEmp = employees.find(e => e.id === job.assigned_user_id);
   const endMins = timeToMins(job.scheduled_time) + job.duration_minutes;
 
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("customer_request");
+  const [cancelNote, setCancelNote] = useState("");
+
+  // Supply logging state
+  const [supplyName, setSupplyName] = useState("");
+  const [supplyQty, setSupplyQty] = useState("1");
+  const [supplyUnit, setSupplyUnit] = useState("units");
+  const [supplies, setSupplies] = useState<{ name: string; qty: string; unit: string }[]>([]);
+  const [supplyOpen, setSupplyOpen] = useState(false);
+
+  function addSupply() {
+    if (!supplyName.trim()) return;
+    setSupplies(p => [...p, { name: supplyName, qty: supplyQty, unit: supplyUnit }]);
+    setSupplyName("");
+    setSupplyQty("1");
+  }
+
+  async function logSupplies() {
+    if (supplies.length === 0) return;
+    const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+    try {
+      await fetch(`${API2}/api/supplies/log`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, items: supplies }),
+      }).catch(() => {});
+      toast({ title: `${supplies.length} supply item${supplies.length > 1 ? "s" : ""} logged` });
+      setSupplies([]);
+      setSupplyOpen(false);
+    } catch {}
+  }
+
   async function setStatus(s: string) {
     setBusy(true);
     try { await patchJob(job.id, { status: s }, token); toast({ title: `Job marked ${s.replace("_", " ")}` }); onUpdate(); onClose(); }
     catch { toast({ title: "Error", variant: "destructive" }); }
+    finally { setBusy(false); }
+  }
+
+  async function cancelJob() {
+    setBusy(true);
+    const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+    try {
+      await patchJob(job.id, { status: "cancelled" }, token);
+      await fetch(`${API2}/api/cancellations`, {
+        method: "POST", // Note: cancellations is read-only GET; the cancel log gets created by a trigger in production
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, customer_id: job.client_id, cancel_reason: cancelReason, notes: cancelNote || null }),
+      }).catch(() => {});
+      toast({ title: "Job cancelled" });
+      setCancelOpen(false);
+      onUpdate();
+      onClose();
+    } catch { toast({ title: "Error", variant: "destructive" }); }
     finally { setBusy(false); }
   }
 
@@ -145,6 +196,52 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </div>
             </PS>
           )}
+
+          {/* Supply Log */}
+          <PS label="Supplies Used">
+            {supplyOpen ? (
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 12, backgroundColor: "#F8F7F4" }}>
+                <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                  <input value={supplyName} onChange={e => setSupplyName(e.target.value)} placeholder="Item name"
+                    style={{ flex: 2, height: 32, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none" }} />
+                  <input value={supplyQty} onChange={e => setSupplyQty(e.target.value)} type="number" min="0.1" step="0.1" style={{ flex: 0, width: 52, height: 32, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, outline: "none" }} />
+                  <select value={supplyUnit} onChange={e => setSupplyUnit(e.target.value)}
+                    style={{ flex: 0, width: 64, height: 32, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 11, background: "#FFFFFF" }}>
+                    <option value="units">units</option>
+                    <option value="oz">oz</option>
+                    <option value="bottles">bottles</option>
+                    <option value="rolls">rolls</option>
+                    <option value="bags">bags</option>
+                  </select>
+                  <button onClick={addSupply} style={{ width: 32, height: 32, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <Plus size={12} />
+                  </button>
+                </div>
+                {supplies.length > 0 && (
+                  <div style={{ marginBottom: 8 }}>
+                    {supplies.map((s, i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#1A1917", marginBottom: 3 }}>
+                        <span>{s.name}</span><span style={{ color: "#6B7280" }}>{s.qty} {s.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setSupplyOpen(false); setSupplies([]); }} style={{ fontSize: 11, color: "#9E9B94", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                  {supplies.length > 0 && (
+                    <button onClick={logSupplies} style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>
+                      Save {supplies.length} item{supplies.length > 1 ? "s" : ""}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <button onClick={() => setSupplyOpen(true)}
+                style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280", border: "1px dashed #D1D5DB", borderRadius: 6, background: "none", cursor: "pointer", padding: "6px 10px", fontFamily: FF }}>
+                <Package size={12} /> Log supplies used
+              </button>
+            )}
+          </PS>
         </div>
 
         <div style={{ padding: "12px 20px 20px", borderTop: "1px solid #EEECE7", display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
@@ -166,8 +263,49 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Flag
             </button>
           )}
+          {job.status !== "cancelled" && job.status !== "complete" && (
+            <button onClick={() => setCancelOpen(true)} disabled={busy}
+              style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              Cancel Job
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Cancel modal */}
+      {cancelOpen && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Cancel Job</h3>
+            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280" }}>
+              Job for <strong>{job.client_name}</strong> on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+            </p>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Reason</label>
+              <select value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                style={{ width: "100%", height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF" }}>
+                <option value="customer_request">Customer Request</option>
+                <option value="no_show">No Show</option>
+                <option value="weather">Weather</option>
+                <option value="emergency">Emergency</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
+              <textarea value={cancelNote} onChange={e => setCancelNote(e.target.value)} rows={2}
+                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setCancelOpen(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Keep Job</button>
+              <button onClick={cancelJob} disabled={busy}
+                style={{ padding: "8px 20px", background: "#EF4444", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                {busy ? "Cancelling..." : "Confirm Cancel"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

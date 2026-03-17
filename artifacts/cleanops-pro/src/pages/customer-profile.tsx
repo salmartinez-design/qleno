@@ -8,8 +8,10 @@ import {
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, Check, X, Eye, EyeOff,
   Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
+  MessageCircle, RefreshCw, Activity,
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab } from "./customer-profile-tabs2";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -70,6 +72,9 @@ const TABS = [
   { id: "tech", label: "Tech Preferences", icon: UserX },
   { id: "notes", label: "Notes", icon: StickyNote },
   { id: "portal", label: "Portal Account", icon: Globe },
+  { id: "comm-log", label: "Comm Log", icon: MessageCircle },
+  { id: "recurring", label: "Recurring", icon: RefreshCw },
+  { id: "revenue-trend", label: "Revenue Trend", icon: Activity },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -362,9 +367,56 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
                 {client.qbo_customer_id ? `Connected (ID: ${client.qbo_customer_id})` : "Not connected"}
               </p>
             </div>
+            {client.referral_source && (
+              <div>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>Referral Source</label>
+                <p style={{ margin: 0, fontSize: "13px", color: "#1A1917", textTransform: "capitalize" }}>
+                  {client.referral_source.replace(/_/g, " ")}
+                  {client.referral_by_customer_name && <span style={{ color: "#6B7280" }}> — {client.referral_by_customer_name}</span>}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Intelligence Badges */}
+      {(client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined) ? (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+          {client.latest_nps_score !== null && client.latest_nps_score !== undefined && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>NPS Score</span>
+              <span style={{
+                fontSize: 16, fontWeight: 800,
+                color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B"
+              }}>{client.latest_nps_score}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                background: client.latest_nps_score >= 9 ? "#DCFCE7" : client.latest_nps_score >= 7 ? "#FEF3C7" : "#FEE2E2",
+                color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B",
+              }}>
+                {client.latest_nps_score >= 9 ? "Promoter" : client.latest_nps_score >= 7 ? "Passive" : "Detractor"}
+              </span>
+            </div>
+          )}
+          {client.churn_risk_score !== null && client.churn_risk_score !== undefined && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Churn Risk</span>
+              <span style={{
+                fontSize: 16, fontWeight: 800,
+                color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534"
+              }}>{client.churn_risk_score}%</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
+                background: client.churn_risk_score >= 70 ? "#FEE2E2" : client.churn_risk_score >= 40 ? "#FEF3C7" : "#DCFCE7",
+                color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534",
+              }}>
+                {client.churn_risk_score >= 70 ? "High" : client.churn_risk_score >= 40 ? "Medium" : "Low"}
+              </span>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       {/* Quick Actions */}
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "16px" }}>
@@ -1273,6 +1325,269 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
   );
 }
 
+// ─── Comm Log Tab ─────────────────────────────────────────────────────────────
+function CommLogTab({ clientId }: { clientId: number }) {
+  const [form, setForm] = useState({ direction: "inbound", channel: "phone", summary: "" });
+  const [submitting, setSubmitting] = useState(false);
+
+  const { data: logs = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["comm-log", clientId],
+    queryFn: () => apiFetch(`/api/comms?customer_id=${clientId}`),
+  });
+
+  async function submit() {
+    if (!form.summary.trim()) return;
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/comms", { method: "POST", body: JSON.stringify({ ...form, customer_id: clientId }) });
+      setForm(p => ({ ...p, summary: "" }));
+      refetch();
+    } catch {} finally { setSubmitting(false); }
+  }
+
+  const DIR_COLORS: Record<string, React.CSSProperties> = {
+    inbound:  { background: "#DCFCE7", color: "#166534" },
+    outbound: { background: "#DBEAFE", color: "#1D4ED8" },
+  };
+  const CH_LABELS: Record<string, string> = { phone: "Phone", email: "Email", sms: "SMS", in_person: "In Person", other: "Other" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Log new */}
+      <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 20 }}>
+        <h4 style={{ margin: "0 0 14px", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>Log Communication</h4>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Direction</label>
+            <select value={form.direction} onChange={e => setForm(p => ({ ...p, direction: e.target.value }))}
+              style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF" }}>
+              <option value="inbound">Inbound</option>
+              <option value="outbound">Outbound</option>
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Channel</label>
+            <select value={form.channel} onChange={e => setForm(p => ({ ...p, channel: e.target.value }))}
+              style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF" }}>
+              {Object.entries({ phone: "Phone", email: "Email", sms: "SMS", in_person: "In Person", other: "Other" }).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <textarea value={form.summary} onChange={e => setForm(p => ({ ...p, summary: e.target.value }))} rows={2}
+          placeholder="Brief summary of the communication..."
+          style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, resize: "vertical", fontFamily: "'Plus Jakarta Sans', sans-serif", outline: "none", marginBottom: 10, boxSizing: "border-box" as const }} />
+        <button onClick={submit} disabled={submitting || !form.summary.trim()}
+          style={{ padding: "7px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          {submitting ? "Logging..." : "Log Entry"}
+        </button>
+      </div>
+
+      {/* Log list */}
+      <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+        {isLoading ? (
+          <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /></div>
+        ) : logs.length === 0 ? (
+          <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No communication logs yet</div>
+        ) : logs.map((log: any) => (
+          <div key={log.id} style={{ padding: "14px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", gap: 12, alignItems: "flex-start" }}>
+            <div style={{ flexShrink: 0, marginTop: 2 }}>
+              <span style={{ ...DIR_COLORS[log.direction], padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const }}>
+                {log.direction}
+              </span>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", textTransform: "capitalize" as const }}>{CH_LABELS[log.channel] || log.channel}</span>
+                <span style={{ fontSize: 11, color: "#9E9B94" }}>·</span>
+                <span style={{ fontSize: 11, color: "#9E9B94" }}>{new Date(log.logged_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                {log.logged_by_name && <><span style={{ fontSize: 11, color: "#9E9B94" }}>·</span><span style={{ fontSize: 11, color: "#9E9B94" }}>by {log.logged_by_name}</span></>}
+              </div>
+              <p style={{ margin: 0, fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>{log.summary}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// ─── Recurring Tab ─────────────────────────────────────────────────────────────
+function RecurringTab({ clientId }: { clientId: number }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ frequency: "biweekly", day_of_week: "monday", start_date: new Date().toISOString().split("T")[0], base_fee: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  const { data: schedules = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["recurring", clientId],
+    queryFn: () => apiFetch(`/api/recurring?customer_id=${clientId}`),
+  });
+
+  async function save() {
+    setSaving(true);
+    try {
+      await apiFetch("/api/recurring", { method: "POST", body: JSON.stringify({ ...form, customer_id: clientId }) });
+      setShowAdd(false);
+      refetch();
+    } catch {} finally { setSaving(false); }
+  }
+
+  async function pause(id: number) {
+    await apiFetch(`/api/recurring/${id}`, { method: "DELETE" });
+    refetch();
+  }
+
+  const FREQ_LABELS: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", monthly: "Monthly", custom: "Custom" };
+  const DAY_LABELS: Record<string, string> = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button onClick={() => setShowAdd(true)}
+          style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          <Plus size={13} /> Add Schedule
+        </button>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94" }}><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /></div>
+      ) : schedules.length === 0 ? (
+        <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>
+          No recurring schedules. Add one to auto-generate jobs for this client.
+        </div>
+      ) : (
+        <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+          {schedules.map((s: any) => (
+            <div key={s.id} style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{FREQ_LABELS[s.frequency]}</span>
+                  {s.day_of_week && <span style={{ fontSize: 12, color: "#6B7280" }}>· {DAY_LABELS[s.day_of_week]}</span>}
+                  {s.base_fee && <span style={{ fontSize: 12, fontWeight: 600, color: "#166534" }}>· ${parseFloat(s.base_fee).toFixed(0)}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: "#9E9B94" }}>
+                  Starts {new Date(s.start_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  {s.last_generated_date && <> · Last gen: {new Date(s.last_generated_date + "T12:00").toLocaleDateString()}</>}
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <span style={{ padding: "2px 8px", backgroundColor: "#DCFCE7", color: "#166534", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
+                <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B7280" }}>Pause</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showAdd && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 18px", fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Add Recurring Schedule</h3>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Frequency</label>
+                <select value={form.frequency} onChange={e => setForm(p => ({ ...p, frequency: e.target.value }))}
+                  style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF" }}>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Bi-weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Day of Week</label>
+                <select value={form.day_of_week} onChange={e => setForm(p => ({ ...p, day_of_week: e.target.value }))}
+                  style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF" }}>
+                  {["monday","tuesday","wednesday","thursday","friday","saturday","sunday"].map(d => (
+                    <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Start Date</label>
+                <input type="date" value={form.start_date} onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))}
+                  style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, boxSizing: "border-box" as const }} />
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Base Fee ($)</label>
+                <input type="number" value={form.base_fee} onChange={e => setForm(p => ({ ...p, base_fee: e.target.value }))}
+                  style={{ width: "100%", height: 34, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box" as const }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 8 }}>
+              <button onClick={() => setShowAdd(false)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, background: "#FFFFFF", cursor: "pointer" }}>Cancel</button>
+              <button onClick={save} disabled={saving}
+                style={{ padding: "7px 16px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                {saving ? "Saving..." : "Save Schedule"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+}
+
+// ─── Revenue Trend Tab ─────────────────────────────────────────────────────────
+function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) {
+
+  // Build monthly revenue from jobs
+  const monthly: Record<string, number> = {};
+  jobs.filter((j: any) => j.status === "complete").forEach((j: any) => {
+    if (!j.scheduled_date) return;
+    const d = new Date(j.scheduled_date + "T12:00");
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    monthly[key] = (monthly[key] || 0) + (parseFloat(j.base_fee) || 0);
+  });
+
+  const last12 = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(); d.setMonth(d.getMonth() - (11 - i));
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return { month: d.toLocaleDateString("en-US", { month: "short" }), revenue: monthly[key] || 0 };
+  });
+
+  const total = last12.reduce((s, r) => s + r.revenue, 0);
+  const avg = total / 12;
+  const ltv = total * 1.5; // simple estimate
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* KPI strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1A1917" }}>${total.toFixed(0)}</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>12-Month Revenue</div>
+        </div>
+        <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "#1A1917" }}>${avg.toFixed(0)}</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>Avg / Month</div>
+        </div>
+        <div style={{ backgroundColor: "var(--brand-dim)", border: "1px solid rgba(91,155,213,0.2)", borderRadius: 10, padding: "16px 20px" }}>
+          <div style={{ fontSize: 22, fontWeight: 800, color: "var(--brand)" }}>${ltv.toFixed(0)}</div>
+          <div style={{ fontSize: 11, color: "var(--brand)", marginTop: 2 }}>Est. LTV</div>
+        </div>
+      </div>
+
+      {/* Chart */}
+      <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px" }}>
+        <h4 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>Monthly Revenue (Last 12 Months)</h4>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={last12} margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F0EEE9" />
+            <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#9E9B94", fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
+            <YAxis tick={{ fontSize: 11, fill: "#9E9B94", fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
+            <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, borderRadius: 6 }} />
+            <Bar dataKey="revenue" fill="var(--brand)" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Profile Page ─────────────────────────────────────────────────────────
 export default function CustomerProfilePage() {
   const [, navigate] = useLocation();
@@ -1374,6 +1689,9 @@ export default function CustomerProfilePage() {
               {tab === "tech" && <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetch} />}
               {tab === "notes" && <NotesTab clientId={clientId} client={profile} />}
               {tab === "portal" && <PortalTab clientId={clientId} client={profile} onPortalInvite={() => portalInviteMut.mutate()} refetch={refetch} />}
+              {tab === "comm-log" && <CommLogTab clientId={clientId} />}
+              {tab === "recurring" && <RecurringTab clientId={clientId} />}
+              {tab === "revenue-trend" && <RevenueTrendTab clientId={clientId} jobs={profile.jobs || []} />}
             </div>
           </div>
         </div>

@@ -238,6 +238,24 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── SECTION 3B: INTELLIGENCE STRIP ───────────────── */}
+        {kpis && (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10 }}>
+            {[
+              { label: 'Revenue Forecast', value: kpis.forecast_next_month != null ? fmt$(kpis.forecast_next_month) : '—', sub: 'next 30 days', color: 'var(--brand)', bg: 'var(--brand-dim)' },
+              { label: 'Avg Client LTV', value: kpis.avg_ltv != null ? fmt$(kpis.avg_ltv) : '—', sub: 'estimated lifetime', color: '#16A34A', bg: '#DCFCE7' },
+              { label: 'High Churn Risk', value: kpis.high_churn_count != null ? kpis.high_churn_count : (kpis.clients_at_risk ?? '—'), sub: 'clients at risk', color: (kpis.high_churn_count || kpis.clients_at_risk || 0) > 0 ? '#991B1B' : '#166534', bg: (kpis.high_churn_count || kpis.clients_at_risk || 0) > 0 ? '#FEE2E2' : '#DCFCE7' },
+              { label: 'Avg NPS', value: kpis.avg_nps != null ? kpis.avg_nps.toFixed(1) : '—', sub: 'last 90 days', color: '#1D4ED8', bg: '#DBEAFE' },
+            ].map(w => (
+              <div key={w.label} style={{ backgroundColor: w.bg, border: '1px solid transparent', borderRadius: 10, padding: '14px 16px' }}>
+                <p style={{ fontSize: isMobile ? 10 : 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px', fontFamily: FF }}>{w.label}</p>
+                <p style={{ fontSize: isMobile ? 20 : 24, fontWeight: 800, color: w.color, margin: '0 0 2px', lineHeight: 1, fontFamily: FF }}>{w.value}</p>
+                <p style={{ fontSize: 10, color: '#9E9B94', margin: 0, fontFamily: FF }}>{w.sub}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── SECTION 4: ACTION ITEMS ───────────────────────── */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

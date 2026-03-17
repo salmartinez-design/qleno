@@ -4,7 +4,7 @@ import { z } from "zod/v4";
 import { companiesTable } from "./companies";
 
 export const userRoleEnum = pgEnum("user_role", [
-  "owner", "admin", "office", "technician", "super_admin"
+  "owner", "admin", "office", "technician", "team_lead", "super_admin"
 ]);
 
 export const payTypeEnum = pgEnum("pay_type", [
@@ -55,6 +55,7 @@ export const usersTable = pgTable("users", {
   invite_accepted_at: timestamp("invite_accepted_at"),
   onboarding_complete: boolean("onboarding_complete").default(false),
   is_active: boolean("is_active").notNull().default(true),
+  crew_id: integer("crew_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

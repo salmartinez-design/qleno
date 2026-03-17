@@ -33,6 +33,16 @@ import quoteScopesRouter from "./quote-scopes.js";
 import closeDayRouter from "./close-day.js";
 import paymentLinksRouter from "./payment-links.js";
 import zonesRouter from "./zones.js";
+import recurringRouter from "./recurring.js";
+import cancellationRouter from "./cancellation.js";
+import commLogRouter from "./communication-log.js";
+import incentivesRouter from "./incentives.js";
+import satisfactionRouter from "./satisfaction.js";
+import churnRouter from "./churn.js";
+import retentionRouter from "./retention.js";
+import addonsRouter from "./addons.js";
+import routeSequencesRouter from "./route-sequences.js";
+import suppliesRouter from "./supplies.js";
 
 const router: IRouter = Router();
 
@@ -70,5 +80,15 @@ router.use("/quote-scopes", quoteScopesRouter);
 router.use("/close-day", closeDayRouter);
 router.use("/payment-links", paymentLinksRouter);
 router.use("/zones", zonesRouter);
+router.use("/recurring", recurringRouter);
+router.use("/cancellations", cancellationRouter);
+router.use("/comms", commLogRouter);
+router.use("/incentives", incentivesRouter);
+router.use("/satisfaction", satisfactionRouter);
+router.use("/churn", churnRouter);
+router.use("/retention", retentionRouter);
+router.use("/addons", addonsRouter);
+router.use("/routes", routeSequencesRouter);
+router.use("/supplies", suppliesRouter);
 
 export default router;

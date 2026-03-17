@@ -5,6 +5,10 @@ import { companiesTable } from "./companies";
 
 export const clientTypeEnum = pgEnum("client_type", ["residential", "commercial"]);
 export const paymentTermsEnum = pgEnum("client_payment_terms", ["due_on_receipt", "net_15", "net_30"]);
+export const referralSourceEnum = pgEnum("referral_source", [
+  "google", "nextdoor", "facebook", "yelp", "client_referral",
+  "door_hanger", "yard_sign", "website", "other",
+]);
 
 export const clientsTable = pgTable("clients", {
   id: serial("id").primaryKey(),
@@ -58,6 +62,8 @@ export const clientsTable = pgTable("clients", {
   card_expiry: text("card_expiry"),
   card_saved_at: timestamp("card_saved_at"),
   zone_id: integer("zone_id"),
+  referral_source: referralSourceEnum("referral_source"),
+  referral_by_customer_id: integer("referral_by_customer_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

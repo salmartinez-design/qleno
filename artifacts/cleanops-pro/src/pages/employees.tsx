@@ -13,6 +13,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   admin:       { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
   technician:  { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
   office:      { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
 };
 

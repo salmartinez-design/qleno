@@ -25,6 +25,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   admin:      { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
   technician: { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
   office:     { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
 };
 
@@ -56,7 +57,7 @@ const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Su
 const TABS = [
   'Information','Tags & Skills','Attendance','Availability',
   'User Account','Contacts','Scorecards','Additional Pay',
-  'Contact Tickets','Jobs','Notes',
+  'Contact Tickets','Jobs','Notes','Incentives',
 ];
 
 const SKILLS_OPTIONS = [
@@ -367,6 +368,12 @@ export default function EmployeeProfilePage() {
     queryKey: ['scorecards-emp', userId],
     queryFn: () => apiFetch(`/users/${userId}/scorecards`),
     enabled: activeTab === 'Scorecards',
+  });
+
+  const { data: incentivesData = [] } = useQuery<any[]>({
+    queryKey: ['incentives-earned', userId],
+    queryFn: () => apiFetch(`/incentives/earned?user_id=${userId}`),
+    enabled: activeTab === 'Incentives',
   });
 
   const [form, setForm] = useState<Record<string, any>>({});
@@ -1122,6 +1129,51 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── NOTES TAB ── */}
+          {activeTab === 'Incentives' && (
+            <div>
+              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
+                <div style={{ padding:'14px 20px', borderBottom:'1px solid #EEECE7' }}>
+                  <p style={{ margin:0, fontSize:13, fontWeight:700, color:'#1A1917' }}>Incentives Earned</p>
+                  <p style={{ margin:'3px 0 0', fontSize:12, color:'#9E9B94' }}>Bonuses and rewards from active incentive programs</p>
+                </div>
+                {incentivesData.length === 0 ? (
+                  <div style={{ padding:'48px 0', textAlign:'center', color:'#9E9B94', fontSize:13 }}>No incentives earned yet</div>
+                ) : (
+                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #EEECE7' }}>
+                        {['Program','Type','Amount','Period','Awarded'].map(h => (
+                          <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incentivesData.map((inc: any) => (
+                        <tr key={inc.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                          <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || 'Program'}</td>
+                          <td style={{ padding:'12px 16px' }}>
+                            <span style={{ fontSize:11, padding:'2px 7px', borderRadius:4, background:'#EDE9FE', color:'#5B21B6', fontWeight:600, textTransform:'capitalize' as const }}>
+                              {(inc.incentive_type || 'bonus').replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>
+                            {inc.amount_type === 'percentage' ? `${inc.amount}%` : `$${parseFloat(inc.amount || 0).toFixed(2)}`}
+                          </td>
+                          <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                            {inc.period_start ? new Date(inc.period_start + 'T12:00').toLocaleDateString('en-US', { month:'short', year:'numeric' }) : '—'}
+                          </td>
+                          <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                            {inc.awarded_at ? new Date(inc.awarded_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
           {activeTab === 'Notes' && (
             <div>
               <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
