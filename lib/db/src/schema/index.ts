@@ -33,3 +33,4 @@ export * from "./form_submissions";
 export * from "./quote_scopes";
 export * from "./daily_summaries";
 export * from "./app_audit_log";
+export * from "./payment_links";

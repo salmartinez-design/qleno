@@ -69,6 +69,10 @@ router.get("/", requireAuth, async (req, res) => {
         payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
+        po_number: invoicesTable.po_number,
+        payment_terms: invoicesTable.payment_terms,
+        billing_contact_name: invoicesTable.billing_contact_name,
+        billing_contact_email: invoicesTable.billing_contact_email,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -121,7 +125,11 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { client_id, job_id, line_items: rawLineItems, tips = 0, auto_send = false, auto_charge = false } = req.body;
+    const {
+      client_id, job_id, line_items: rawLineItems, tips = 0, auto_send = false,
+      po_number, payment_terms: reqPaymentTerms, billing_contact_name: reqBillingName,
+      billing_contact_email: reqBillingEmail,
+    } = req.body;
 
     let finalClientId = client_id;
     let finalLineItems = rawLineItems;
@@ -155,8 +163,26 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     const subtotal = (finalLineItems || []).reduce((s: number, item: any) => s + (item.total || 0), 0);
     const total = subtotal + (tips || 0);
 
+    // Look up client to inherit payment terms, billing contact
+    const [clientRecord] = await db
+      .select({
+        payment_terms: clientsTable.payment_terms,
+        billing_contact_name: clientsTable.billing_contact_name,
+        billing_contact_email: clientsTable.billing_contact_email,
+        auto_charge: clientsTable.auto_charge,
+        stripe_customer_id: clientsTable.stripe_customer_id,
+        card_last_four: clientsTable.card_last_four,
+        first_name: clientsTable.first_name,
+        last_name: clientsTable.last_name,
+        email: clientsTable.email,
+      })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, finalClientId));
+
+    const effectiveTerms = reqPaymentTerms || clientRecord?.payment_terms || "due_on_receipt";
+    const daysToAdd = effectiveTerms === "net_30" ? 30 : effectiveTerms === "net_15" ? 15 : 0;
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 7);
+    dueDate.setDate(dueDate.getDate() + daysToAdd);
     const dueDateStr = dueDate.toISOString().split("T")[0];
 
     const [newInvoice] = await db
@@ -173,17 +199,17 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         status: auto_send ? "sent" : "draft",
         sent_at: auto_send ? new Date() : null,
         created_by: req.auth!.userId,
+        po_number: po_number || null,
+        payment_terms: effectiveTerms,
+        billing_contact_name: reqBillingName || clientRecord?.billing_contact_name || null,
+        billing_contact_email: reqBillingEmail || clientRecord?.billing_contact_email || null,
       })
       .returning();
 
     const invNumber = generateInvoiceNumber(newInvoice.id);
     await db.update(invoicesTable).set({ invoice_number: invNumber }).where(eq(invoicesTable.id, newInvoice.id));
 
-    const [client] = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name, email: clientsTable.email })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, finalClientId))
-      .limit(1);
+    const client = clientRecord;
 
     await db.insert(notificationLogTable).values({
       company_id: req.auth!.companyId,
@@ -205,6 +231,52 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       });
     }
 
+    // ── Auto-charge if client has card on file and auto_charge is enabled ────
+    let autoChargeResult: { success: boolean; error?: string } | null = null;
+    if (client?.auto_charge && client?.stripe_customer_id && client?.card_last_four) {
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      if (stripeSecretKey && stripeSecretKey !== "payments disabled") {
+        try {
+          const Stripe = (await import("stripe")).default;
+          const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" as any });
+          const customer = await stripe.customers.retrieve(client.stripe_customer_id) as any;
+          const defaultPm = customer.invoice_settings?.default_payment_method;
+          if (defaultPm) {
+            const intent = await stripe.paymentIntents.create({
+              amount: Math.round(total * 100),
+              currency: "usd",
+              customer: client.stripe_customer_id,
+              payment_method: defaultPm,
+              confirm: true,
+              off_session: true,
+              metadata: { invoice_id: String(newInvoice.id), company_id: String(req.auth!.companyId) },
+            });
+            if (intent.status === "succeeded") {
+              await db.update(invoicesTable)
+                .set({ status: "paid", paid_at: new Date(), stripe_payment_intent_id: intent.id })
+                .where(eq(invoicesTable.id, newInvoice.id));
+              await db.insert(paymentsTable).values({
+                company_id: req.auth!.companyId,
+                client_id: finalClientId,
+                invoice_id: newInvoice.id,
+                amount: total.toString(),
+                method: "card",
+                stripe_payment_intent_id: intent.id,
+                notes: `Auto-charged •••• ${client.card_last_four}`,
+              } as any).catch(() => {});
+              autoChargeResult = { success: true };
+            }
+          }
+        } catch (err: any) {
+          console.error("Auto-charge failed:", err.message);
+          await db.update(invoicesTable)
+            .set({ payment_failed: true })
+            .where(eq(invoicesTable.id, newInvoice.id));
+          autoChargeResult = { success: false, error: err.message };
+        }
+      }
+    }
+
     return res.status(201).json({
       ...newInvoice,
       invoice_number: invNumber,
@@ -212,6 +284,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       subtotal,
       tips: tips || 0,
       total,
+      auto_charge_result: autoChargeResult,
     });
   } catch (err) {
     console.error("Create invoice error:", err);

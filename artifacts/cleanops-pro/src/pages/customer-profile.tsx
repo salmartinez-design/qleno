@@ -7,7 +7,7 @@ import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, Check, X, Eye, EyeOff,
   Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
-  ClipboardList, DollarSign, BookOpen, Paperclip,
+  ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab } from "./customer-profile-tabs2";
 
@@ -59,6 +59,7 @@ const TABS = [
   { id: "overview", label: "Overview", icon: Home },
   { id: "homes", label: "Homes", icon: MapPin },
   { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "card-on-file", label: "Card on File", icon: ShieldCheck },
   { id: "quotes", label: "Quotes", icon: ClipboardList },
   { id: "payments", label: "Payments", icon: DollarSign },
   { id: "agreements", label: "Agreements", icon: FileText },
@@ -980,6 +981,200 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
   );
 }
 
+// ─── Card on File Tab ─────────────────────────────────────────────────────────
+function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }) {
+  const [sending, setSending] = useState<"email" | "sms" | null>(null);
+  const [sent, setSent] = useState<"email" | "sms" | null>(null);
+  const [togglingAutoCharge, setTogglingAutoCharge] = useState(false);
+
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const hasCard = !!client.card_last_four;
+  const brandIcon = client.card_brand ? client.card_brand.charAt(0).toUpperCase() + client.card_brand.slice(1) : "Card";
+
+  async function sendCardLink(channel: "email" | "sms") {
+    setSending(channel);
+    try {
+      const res = await fetch(`${API}/api/payment-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({
+          client_id: client.id,
+          purpose: "save_card",
+          send_email: channel === "email",
+          send_sms: channel === "sms",
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        alert(err.error || "Failed to send link");
+      } else {
+        setSent(channel);
+        setTimeout(() => setSent(null), 3000);
+      }
+    } catch {
+      alert("Network error — please try again");
+    } finally {
+      setSending(null);
+    }
+  }
+
+  async function toggleAutoCharge() {
+    setTogglingAutoCharge(true);
+    try {
+      await fetch(`${API}/api/clients/${client.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ auto_charge: !client.auto_charge }),
+      });
+      refetch();
+    } finally {
+      setTogglingAutoCharge(false);
+    }
+  }
+
+  async function removeCard() {
+    if (!confirm("Remove card on file? This cannot be undone.")) return;
+    await fetch(`${API}/api/clients/${client.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      body: JSON.stringify({ card_last_four: null, card_brand: null, card_expiry: null, card_saved_at: null }),
+    });
+    refetch();
+  }
+
+  return (
+    <div style={{ padding: "0 0 24px" }}>
+      {/* Card status */}
+      <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px", marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", marginBottom: 16, fontFamily: FF }}>Payment Method</div>
+
+        {hasCard ? (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ width: 36, height: 36, background: "#059669", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <CreditCard size={18} color="#fff" />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14, color: "#1A1917", fontFamily: FF }}>
+                  {brandIcon} •••• {client.card_last_four}
+                  {client.card_expiry && <span style={{ marginLeft: 8, fontWeight: 400, color: "#6B7280", fontSize: 12 }}>expires {client.card_expiry}</span>}
+                </div>
+                {client.card_saved_at && (
+                  <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>
+                    Saved {new Date(client.card_saved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </div>
+                )}
+              </div>
+              <button onClick={removeCard} style={{ fontSize: 12, color: "#DC2626", background: "none", border: "none", cursor: "pointer", fontFamily: FF, textDecoration: "underline" }}>
+                Remove
+              </button>
+            </div>
+
+            {/* Auto-charge toggle */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "#F7F6F3", borderRadius: 8, marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", fontFamily: FF }}>Auto-charge on invoice creation</div>
+                <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>Automatically charges this card when an invoice is created</div>
+              </div>
+              <button
+                onClick={toggleAutoCharge}
+                disabled={togglingAutoCharge}
+                style={{
+                  width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
+                  background: client.auto_charge ? "var(--brand)" : "#D1D5DB",
+                  position: "relative", transition: "background 0.2s", flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: "absolute", top: 2, left: client.auto_charge ? 22 : 2,
+                  width: 20, height: 20, borderRadius: "50%", background: "#fff",
+                  transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                }} />
+              </button>
+            </div>
+
+            {/* Send new link */}
+            <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginBottom: 8 }}>Send a new card link to update the saved method:</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => sendCardLink("email")}
+                disabled={!!sending}
+                style={{ flex: 1, padding: "10px 0", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF, color: sending === "email" ? "#9E9B94" : "#1A1917" }}
+              >
+                {sent === "email" ? "Sent!" : sending === "email" ? "Sending..." : "Send New Link via Email"}
+              </button>
+              <button
+                onClick={() => sendCardLink("sms")}
+                disabled={!!sending}
+                style={{ flex: 1, padding: "10px 0", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF, color: sending === "sms" ? "#9E9B94" : "#1A1917" }}
+              >
+                {sent === "sms" ? "Sent!" : sending === "sms" ? "Sending..." : "Send New Link via SMS"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ width: 36, height: 36, background: "#E5E2DC", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <CreditCard size={18} color="#9E9B94" />
+              </div>
+              <div style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>No payment method saved</div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => sendCardLink("email")}
+                disabled={!!sending}
+                style={{ flex: 1, padding: "11px 0", background: "var(--brand)", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, color: "#fff" }}
+              >
+                {sent === "email" ? "Sent!" : sending === "email" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Card Link via Email"}
+              </button>
+              <button
+                onClick={() => sendCardLink("sms")}
+                disabled={!!sending}
+                title={!client.phone ? "No phone on file" : ""}
+                style={{ flex: 1, padding: "11px 0", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: client.phone ? "pointer" : "not-allowed", fontFamily: FF, color: client.phone ? "#1A1917" : "#9E9B94" }}
+              >
+                {sent === "sms" ? "Sent!" : sending === "sms" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Card Link via SMS"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Commercial billing info */}
+      {client.client_type === "commercial" && (
+        <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", marginBottom: 16, fontFamily: FF }}>Billing Settings</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
+            <div>
+              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Payment Terms</div>
+              <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                {client.payment_terms === "net_30" ? "NET 30" : client.payment_terms === "net_15" ? "NET 15" : "Due on Receipt"}
+              </div>
+            </div>
+            <div>
+              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>PO Required</div>
+              <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.po_number_required ? "Yes" : "No"}</div>
+            </div>
+            {client.billing_contact_name && (
+              <div>
+                <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Billing Contact</div>
+                <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.billing_contact_name}</div>
+              </div>
+            )}
+            {client.billing_contact_email && (
+              <div>
+                <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Billing Email</div>
+                <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.billing_contact_email}</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Portal Account Tab ────────────────────────────────────────────────────────
 function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: number; client: any; onPortalInvite: () => void; refetch: () => void }) {
   const portalStatus = client.portal_access ? "registered" : client.portal_invite_sent_at ? "invited" : "none";
@@ -1162,6 +1357,7 @@ export default function CustomerProfilePage() {
               {tab === "overview" && <OverviewTab client={profile} onUpdate={d => updateMut.mutateAsync(d)} refetch={refetch} />}
               {tab === "homes" && <HomesTab clientId={clientId} homes={profile.homes || []} refetch={refetch} />}
               {tab === "billing" && <BillingTab invoices={profile.invoices || []} />}
+              {tab === "card-on-file" && <CardOnFileTab client={profile} refetch={refetch} />}
               {tab === "quotes" && <QuotesTab clientId={clientId} client={profile} />}
               {tab === "payments" && <PaymentsTab clientId={clientId} client={profile} />}
               {tab === "agreements" && <AgreementsTab clientId={clientId} agreements={agreements} refetch={() => { refetchAgreements(); refetch(); }} />}

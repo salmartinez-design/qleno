@@ -112,6 +112,17 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (geofence_clockout_radius_ft !== undefined) patch.geofence_clockout_radius_ft = geofence_clockout_radius_ft;
     if (geofence_override_allowed !== undefined) patch.geofence_override_allowed = geofence_override_allowed;
     if (geofence_soft_mode !== undefined) patch.geofence_soft_mode = geofence_soft_mode;
+    const {
+      default_payment_terms_residential, default_payment_terms_commercial,
+      default_invoice_notes_residential, default_invoice_notes_commercial,
+      auto_send_invoices, auto_charge_on_invoice,
+    } = req.body;
+    if (default_payment_terms_residential !== undefined) patch.default_payment_terms_residential = default_payment_terms_residential;
+    if (default_payment_terms_commercial !== undefined) patch.default_payment_terms_commercial = default_payment_terms_commercial;
+    if (default_invoice_notes_residential !== undefined) patch.default_invoice_notes_residential = default_invoice_notes_residential;
+    if (default_invoice_notes_commercial !== undefined) patch.default_invoice_notes_commercial = default_invoice_notes_commercial;
+    if (auto_send_invoices !== undefined) patch.auto_send_invoices = auto_send_invoices;
+    if (auto_charge_on_invoice !== undefined) patch.auto_charge_on_invoice = auto_charge_on_invoice;
 
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 

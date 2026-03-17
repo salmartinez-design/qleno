@@ -1,0 +1,369 @@
+Even better. That’s a cleaner flow than what I described. Let me make sure I understand exactly what you want.
+What you’re describing:
+
+Job completed → 
+Invoice generated → 
+Client gets email/text with secure link → 
+Client clicks link → enters card → 
+Card saved to their profile → 
+You charge it immediately or on future jobs
+
+
+Is that right? And for clients who already have a card on file from a previous job — do you want it to auto-charge immediately when the invoice is created, or do you still want to manually trigger the charge?
+That distinction matters for how we build the automation.
+
+The Secure Card Link — How It Works
+This is called a payment request link. Stripe handles this natively. Here’s the architecture:
+
+You create invoice → 
+Stripe generates a unique secure URL → 
+URL sent via Resend email + Twilio SMS → 
+Client opens link on any device → 
+Enters card in Stripe's hosted form → 
+Card tokenized and stored against client → 
+Invoice marked paid → 
+You see it in CleanOps Pro instantly
+
+
+The link expires after 72 hours for security. Client never creates an account. One tap, card saved, done.
+
+Updated Evinco-Specific Rules
+Based on what you just told me:
+
+
+
+|Setting         |Value                      |
+|----------------|---------------------------|
+|Payment terms   |NET 30 max                 |
+|Billing trigger |After each job completion  |
+|Preferred method|Card on file               |
+|Card collection |Secure link via email + SMS|
+|Auto-charge     |When card on file exists   |
+
+The Combined Prompt
+Here’s the full version with card-on-file link flow built in — paste this into Replit:
+
+Context: CleanOps Pro — clean-ops-pro.replit.app
+Login: owner@phescleaning.com / demo1234
+Tech: React + Express + Supabase + Stripe + 
+Resend + Twilio + Tailwind + Plus Jakarta Sans
+Design: #F7F6F3 bg, #FFFFFF cards, #1A1917 text,
+var(--brand) accent, NO emojis, NO dark mode
+
+FEATURE — COMMERCIAL CLIENT SUPPORT + 
+CARD ON FILE PAYMENT LINKS
+
+Building for Evinco Services — commercial-only 
+tenant that bills after each job completion.
+Clients pay via card on file. Card is collected
+via secure payment link sent by email and SMS.
+
+---
+
+PART A — CLIENT PROFILE: COMMERCIAL FIELDS
+
+Add to clients table:
+- client_type: 'residential' | 'commercial'
+  (default 'residential')
+- billing_contact_name (text)
+- billing_contact_email (text)
+- billing_contact_phone (text)
+- po_number_required (boolean, default false)
+- default_po_number (text, nullable)
+- payment_terms: 'due_on_receipt' | 'net_15' | 
+  'net_30' (default 'due_on_receipt')
+  MAX is net_30 — do not include net_60
+- auto_charge (boolean, default false)
+  When true: automatically charge card on file
+  when invoice is created for this client
+- stripe_customer_id (text, nullable)
+  Stores Stripe customer ID for card on file
+- card_last_four (text, nullable)
+- card_brand (text, nullable)
+- card_expiry (text, nullable)
+- card_saved_at (timestamptz, nullable)
+
+On client profile — add Payment section:
+
+If no card on file:
+- Gray card showing "No payment method saved"
+- Two buttons side by side:
+  "Send Card Link via Email"
+  "Send Card Link via SMS"
+  (SMS disabled with tooltip if Twilio not configured)
+
+If card on file:
+- Green card showing:
+  [Card brand icon] •••• [last 4] expires [MM/YY]
+  "Saved [date]"
+- "Remove Card" link (requires confirmation)
+- "Charge Now" button
+- Auto-charge toggle: "Auto-charge on invoice 
+  creation" with current state shown
+
+---
+
+PART B — SECURE PAYMENT LINK
+
+When "Send Card Link via Email" or SMS is clicked:
+
+1. CREATE PAYMENT LINK RECORD
+   Table: payment_links
+   id, company_id, client_id, 
+   token (unique random 32-char string),
+   purpose: 'save_card' | 'pay_invoice',
+   invoice_id (nullable),
+   amount (nullable — for pay_invoice),
+   expires_at (timestamptz — 72 hours from now),
+   used_at (timestamptz, nullable),
+   created_by (user_id)
+
+2. GENERATE SECURE URL
+   Format: 
+   https://[app-domain]/pay/[token]
+   
+   This is a PUBLIC route — no login required.
+   Anyone with the link can access it.
+
+3. SEND VIA EMAIL (if Resend configured)
+   To: client billing email
+   Subject: "[Company Name] — Save your 
+   payment method"
+   Body: clean branded email with:
+   - Company name and brand color
+   - "Hi [Client Name],"
+   - "Please save a payment method for future 
+     invoices from [Company Name]."
+   - Large CTA button: "Save Payment Method"
+     linking to the secure URL
+   - "This link expires in 72 hours."
+   - "You will not be charged today."
+
+4. SEND VIA SMS (if Twilio configured)
+   To: client billing phone or primary phone
+   Message: "[Company Name]: Please save your 
+   payment method for future invoices. 
+   Link expires in 72 hours: [URL]"
+
+5. LOG to notification_log
+
+---
+
+PART C — PUBLIC PAYMENT PAGE /pay/:token
+
+This page requires NO login.
+Accessible by anyone with the link.
+
+On load:
+1. Look up token in payment_links table
+2. If token not found: show "This link is invalid"
+3. If expires_at < now: show "This link has expired.
+   Please contact [Company Name] for a new link."
+4. If used_at is set: show "This payment method 
+   has already been saved. Thank you."
+
+If valid token, show branded page:
+- Company logo and brand color at top
+- "Secure Payment Method" heading
+- If purpose = 'save_card':
+  "Save your card for future invoices from 
+  [Company Name]. You will not be charged today."
+- If purpose = 'pay_invoice':
+  "Pay Invoice #[number] — $[amount]"
+
+Stripe Elements card form:
+- Card number, expiry, CVC fields
+- Cardholder name field
+- Checkbox: "Save this card for future invoices"
+  (checked by default, cannot uncheck for 
+  save_card purpose)
+- Submit button: "Save Card Securely" or 
+  "Pay $[amount]"
+- Stripe badge: "Secured by Stripe"
+- "Your card information is encrypted and 
+  never stored on our servers."
+
+On successful card save:
+1. Create Stripe customer if not exists
+   stripe_customer_id stored on client record
+2. Attach payment method to Stripe customer
+3. Update client record:
+   card_last_four, card_brand, card_expiry,
+   card_saved_at = now()
+4. Mark payment_link.used_at = now()
+5. Log to audit_log
+6. Show success page:
+   Large checkmark SVG (no emoji)
+   "Payment method saved successfully."
+   "Thank you, [Client Name]."
+   "[Company Name] will use this card for 
+   future invoices."
+   No further action needed — page can be closed.
+
+On failed card:
+- Show Stripe error message inline
+- Allow retry without generating new link
+
+---
+
+PART D — AUTO-CHARGE ON INVOICE CREATION
+
+When an invoice is created for a client where
+auto_charge = true AND card on file exists:
+
+1. Create invoice record as normal
+2. Immediately attempt Stripe charge:
+   - Use stored stripe_customer_id
+   - Charge invoice amount
+3. On success:
+   - Update invoice status to 'paid'
+   - Create payment record
+   - Send receipt email to client:
+     Subject: "Receipt from [Company Name] — 
+     Invoice #[number]"
+     Body: amount charged, last 4 digits,
+     date, job details
+4. On failure:
+   - Keep invoice status as 'sent'
+   - Flag: payment_failed = true
+   - Send email to client:
+     "Your payment of $[amount] was declined.
+     Please update your payment method: [new link]"
+   - Alert owner in dashboard Needs Attention panel:
+     "Payment failed for [Client Name] — $[amount]"
+   - Log to notification_log
+
+---
+
+PART E — INVOICE UPDATES FOR COMMERCIAL
+
+Add to invoices table:
+- po_number (text, nullable)
+- payment_terms (text, default 'due_on_receipt')
+- billing_contact_name (text)
+- billing_contact_email (text)
+
+Due date calculation based on payment_terms:
+- due_on_receipt: today
+- net_15: today + 15 days
+- net_30: today + 30 days
+
+When creating invoice for commercial client:
+- Pull payment_terms from client record
+- Pull billing contact from client record
+- Show PO number field if po_number_required = true
+- Pre-fill with default_po_number if set
+
+---
+
+PART F — COMPANY SETTINGS: INVOICING TAB
+
+Add "Invoicing" tab to Company Settings:
+
+Default Payment Terms:
+- Residential clients: dropdown (default: 
+  due_on_receipt)
+- Commercial clients: dropdown (default: net_30)
+  Maximum option: net_30
+
+Default Invoice Notes:
+- Residential: textarea
+- Commercial: textarea
+
+Auto-send invoices on job completion:
+- Toggle (default OFF)
+- "Automatically create and send invoice when 
+  job is marked complete"
+
+Auto-charge on invoice creation:
+- Toggle (default OFF)
+- "Automatically charge card on file when 
+  invoice is created for clients with 
+  auto-charge enabled"
+
+---
+
+PART G — EVINCO TENANT SETUP
+
+Create new tenant in database:
+- Company name: Evinco Services
+- Slug: evinco
+- Business type: commercial
+- Brand color: #2D6A4F
+- Owner email: sal@evinco.com
+- Password: EvincoOps2026!
+- Plan: Starter, Active
+- Default payment terms: net_30
+- Auto-send invoices: true
+- Auto-charge: true (per client setting)
+
+Seed 3 commercial test clients for Evinco:
+1. Westfield Property Management
+   billing email: billing@westfield.com
+   billing phone: (312) 555-0201
+   payment terms: NET 30
+   PO required: yes
+   No card on file yet
+
+2. Lakeside Office Partners
+   billing email: ap@lakeside.com
+   billing phone: (312) 555-0202
+   payment terms: NET 30
+   PO required: no
+   No card on file yet
+
+3. Metro Commercial Spaces
+   billing email: finance@metrocommercial.com
+   billing phone: (312) 555-0203
+   payment terms: NET 15
+   PO required: no
+   No card on file yet
+
+---
+
+PART H — INVOICE LIST: COMMERCIAL VIEW
+
+On /invoices for commercial tenant:
+Show additional columns:
+- PO Number (if present)
+- Payment Terms badge (NET 30, NET 15, etc.)
+- Billing Contact name
+
+Card on file status indicator per client row
+in customer list:
+- Green dot: card on file
+- Gray dot: no card on file
+- Red dot: card declined/expired
+
+---
+
+TESTING CHECKLIST:
+[ ] Client profile shows commercial fields when 
+    commercial type selected
+[ ] "Send Card Link via Email" button works
+[ ] Payment link email received with correct branding
+[ ] /pay/:token page loads without login
+[ ] Card can be saved via payment link
+[ ] client record updates with card details
+[ ] Expired link shows correct message
+[ ] Used link shows correct message
+[ ] Auto-charge fires when invoice created for 
+    auto-charge client
+[ ] Failed charge alerts owner in dashboard
+[ ] Failed charge sends new payment link to client
+[ ] Invoice due date calculates from payment terms
+[ ] PO number required validation works
+[ ] Evinco tenant accessible at /login
+[ ] 3 Evinco test clients created
+[ ] Commercial scopes available in quote tool
+[ ] All works at 375px mobile
+[ ] No emojis anywhere
+[ ] RLS enforced — Evinco cannot see PHES data
+
+bash push-to-github.sh 'Commercial support: 
+card on file payment links, auto-charge, 
+NET 30 invoicing, Evinco tenant setup'
+
+
+Once this runs you’ll have everything HouseCall Pro does for Evinco — plus the auto-charge flow that HCP charges extra for. And it’ll be running on your own platform at $100/month instead of whatever HCP charges Evinco right now.
+What does Evinco currently pay HCP?​​​​​​​​​​​​​​​​

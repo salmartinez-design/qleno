@@ -1,7 +1,10 @@
-import { pgTable, serial, text, integer, timestamp, numeric, boolean, date } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, numeric, boolean, date, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
+
+export const clientTypeEnum = pgEnum("client_type", ["residential", "commercial"]);
+export const paymentTermsEnum = pgEnum("client_payment_terms", ["due_on_receipt", "net_15", "net_30"]);
 
 export const clientsTable = pgTable("clients", {
   id: serial("id").primaryKey(),
@@ -42,6 +45,18 @@ export const clientsTable = pgTable("clients", {
   property_group_id: integer("property_group_id"),
   default_card_last_4: text("default_card_last_4"),
   default_card_brand: text("default_card_brand"),
+  client_type: clientTypeEnum("client_type").notNull().default("residential"),
+  billing_contact_name: text("billing_contact_name"),
+  billing_contact_email: text("billing_contact_email"),
+  billing_contact_phone: text("billing_contact_phone"),
+  po_number_required: boolean("po_number_required").notNull().default(false),
+  default_po_number: text("default_po_number"),
+  payment_terms: paymentTermsEnum("payment_terms").notNull().default("due_on_receipt"),
+  auto_charge: boolean("auto_charge").notNull().default(false),
+  card_last_four: text("card_last_four"),
+  card_brand: text("card_brand"),
+  card_expiry: text("card_expiry"),
+  card_saved_at: timestamp("card_saved_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

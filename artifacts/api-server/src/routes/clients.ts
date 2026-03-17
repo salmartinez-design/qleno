@@ -255,7 +255,14 @@ router.get("/:id", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);
-    const { first_name, last_name, email, phone, address, city, state, zip, notes, company_name, frequency, service_type, base_fee, allowed_hours, is_active, home_access_notes, alarm_code, pets, client_since } = req.body;
+    const {
+      first_name, last_name, email, phone, address, city, state, zip, notes, company_name,
+      frequency, service_type, base_fee, allowed_hours, is_active, home_access_notes,
+      alarm_code, pets, client_since,
+      client_type, billing_contact_name, billing_contact_email, billing_contact_phone,
+      po_number_required, default_po_number, payment_terms, auto_charge,
+      card_last_four, card_brand, card_expiry, card_saved_at,
+    } = req.body;
     const geo = address !== undefined ? await geocodeAddress(address, city, state, zip) : null;
     const updated = await db.update(clientsTable).set({
       ...(first_name && { first_name }),
@@ -278,6 +285,18 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(pets !== undefined && { pets }),
       ...(client_since !== undefined && { client_since }),
       ...(geo && { lat: geo.lat, lng: geo.lng }),
+      ...(client_type !== undefined && { client_type }),
+      ...(billing_contact_name !== undefined && { billing_contact_name }),
+      ...(billing_contact_email !== undefined && { billing_contact_email }),
+      ...(billing_contact_phone !== undefined && { billing_contact_phone }),
+      ...(po_number_required !== undefined && { po_number_required }),
+      ...(default_po_number !== undefined && { default_po_number }),
+      ...(payment_terms !== undefined && { payment_terms }),
+      ...(auto_charge !== undefined && { auto_charge }),
+      ...(card_last_four !== undefined && { card_last_four }),
+      ...(card_brand !== undefined && { card_brand }),
+      ...(card_expiry !== undefined && { card_expiry }),
+      ...(card_saved_at !== undefined && { card_saved_at }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });
     return res.json(updated[0]);

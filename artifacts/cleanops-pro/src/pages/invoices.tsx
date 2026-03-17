@@ -427,17 +427,17 @@ export default function InvoicesPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Invoice #", "Client", "Amount", "Due Date", "Days Overdue", "Status", ""].map(h => (
+                  {["Invoice #", "Client", "PO #", "Terms", "Amount", "Due Date", "Days Overdue", "Status", ""].map(h => (
                     <th key={h} style={{ ...TH, textAlign: h === "" ? "right" as const : "left" as const }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={7} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
+                  <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
                 ) : invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={7} style={{ padding: 48, textAlign: "center" }}>
+                    <td colSpan={9} style={{ padding: 48, textAlign: "center" }}>
                       <AlertCircle size={28} style={{ color: "#C4C0BB", marginBottom: 10 }} />
                       <p style={{ color: "#6B7280", fontSize: 13, margin: 0 }}>No invoices found.</p>
                     </td>
@@ -455,6 +455,16 @@ export default function InvoicesPage() {
                         {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
                       </td>
                       <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</td>
+                      <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                        {inv.po_number || "—"}
+                      </td>
+                      <td style={{ padding: "13px 18px" }}>
+                        {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
+                          <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                            {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
+                          </span>
+                        ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
+                      </td>
                       <td style={{ padding: "13px 18px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(inv.total || 0).toFixed(2)}</td>
                       <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
                         {inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}

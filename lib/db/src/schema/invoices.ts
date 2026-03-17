@@ -31,6 +31,10 @@ export const invoicesTable = pgTable("invoices", {
   square_payment_id: text("square_payment_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   paid_at: timestamp("paid_at"),
+  po_number: text("po_number"),
+  payment_terms: text("payment_terms").default("due_on_receipt"),
+  billing_contact_name: text("billing_contact_name"),
+  billing_contact_email: text("billing_contact_email"),
 });
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({ id: true, created_at: true });

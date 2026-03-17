@@ -54,6 +54,7 @@ import QuoteBuilderPage from "@/pages/quote-builder";
 import QuoteDetailPage from "@/pages/quote-detail";
 import QuotingPage from "@/pages/quoting";
 import InvoiceDetailPage from "@/pages/invoice-detail";
+import PayPage from "@/pages/pay";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -114,6 +115,7 @@ function Router() {
       <Route path="/quotes/:id" component={QuoteDetailPage} />
       <Route path="/quotes" component={QuotesPage} />
 
+      <Route path="/pay/:token" component={PayPage} />
       <Route path="/sign/:token" component={SignPage} />
 
       <Route path="/admin" component={AdminDashboard} />

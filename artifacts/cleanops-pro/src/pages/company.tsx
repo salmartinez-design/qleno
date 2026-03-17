@@ -6,13 +6,14 @@ import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X, ImageIcon } from "lucide-react";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'branding', label: 'Branding' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'clock-inout', label: 'Clock In/Out' },
+  { id: 'invoicing', label: 'Invoicing' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'payroll', label: 'Payroll Options' },
 ];
@@ -57,6 +58,7 @@ export default function CompanyPage() {
         {activeTab === 'general' && <GeneralTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
         {activeTab === 'clock-inout' && <ClockInOutTab />}
+        {activeTab === 'invoicing' && <InvoicingTab />}
         {activeTab === 'integrations' && <PlaceholderTab title="Integrations" desc="Connect QuickBooks, Stripe, and other services." />}
         {activeTab === 'payroll' && <PlaceholderTab title="Payroll Options" desc="Configure pay cadence and export settings." />}
       </div>
@@ -889,6 +891,180 @@ function ClockInOutTab() {
           {saving ? 'Saving…' : 'Save Settings'}
         </button>
       </div>
+    </div>
+  );
+}
+
+function InvoicingTab() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const BASE = (window as any).__BASE__ || import.meta.env?.BASE_URL?.replace(/\/$/, '') || '';
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState({
+    default_payment_terms_residential: 'due_on_receipt',
+    default_payment_terms_commercial: 'net_30',
+    default_invoice_notes_residential: '',
+    default_invoice_notes_commercial: '',
+    auto_send_invoices: false,
+    auto_charge_on_invoice: false,
+  });
+
+  useEffect(() => {
+    const headers = getAuthHeaders();
+    fetch(`${BASE}/api/companies/me`, { headers })
+      .then(r => r.json())
+      .then(d => {
+        const c = d.data || d;
+        setSettings({
+          default_payment_terms_residential: c.default_payment_terms_residential || 'due_on_receipt',
+          default_payment_terms_commercial: c.default_payment_terms_commercial || 'net_30',
+          default_invoice_notes_residential: c.default_invoice_notes_residential || '',
+          default_invoice_notes_commercial: c.default_invoice_notes_commercial || '',
+          auto_send_invoices: !!c.auto_send_invoices,
+          auto_charge_on_invoice: !!c.auto_charge_on_invoice,
+        });
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      const res = await fetch(`${BASE}/api/companies/me`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      toast({ title: 'Invoicing settings saved' });
+    } catch {
+      toast({ title: 'Save failed', description: 'Please try again.', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const termOptions = [
+    { value: 'due_on_receipt', label: 'Due on Receipt' },
+    { value: 'net_15', label: 'NET 15' },
+    { value: 'net_30', label: 'NET 30' },
+  ];
+
+  const labelStyle: React.CSSProperties = {
+    display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280',
+    marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF,
+  };
+  const selectStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 14, fontFamily: FF, color: '#1A1917', background: '#fff', appearance: 'none',
+  };
+  const textareaStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 13, fontFamily: FF, color: '#1A1917', background: '#fff', resize: 'vertical',
+    minHeight: 80, boxSizing: 'border-box',
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading...</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+      {/* Payment Terms */}
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Default Payment Terms</div>
+        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>Applied when creating new invoices if not overridden per client.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Residential Clients</label>
+            <select
+              value={settings.default_payment_terms_residential}
+              onChange={e => setSettings(s => ({ ...s, default_payment_terms_residential: e.target.value }))}
+              style={selectStyle}
+            >
+              {termOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Commercial Clients</label>
+            <select
+              value={settings.default_payment_terms_commercial}
+              onChange={e => setSettings(s => ({ ...s, default_payment_terms_commercial: e.target.value }))}
+              style={selectStyle}
+            >
+              {termOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Default Invoice Notes */}
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Default Invoice Notes</div>
+        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>Pre-filled on new invoices for each client type.</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Residential</label>
+            <textarea
+              value={settings.default_invoice_notes_residential}
+              onChange={e => setSettings(s => ({ ...s, default_invoice_notes_residential: e.target.value }))}
+              placeholder="Thank you for your business!"
+              style={textareaStyle}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Commercial</label>
+            <textarea
+              value={settings.default_invoice_notes_commercial}
+              onChange={e => setSettings(s => ({ ...s, default_invoice_notes_commercial: e.target.value }))}
+              placeholder="Please include invoice number on your payment."
+              style={textareaStyle}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Automation */}
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 20, fontFamily: FF }}>Automation</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>Auto-send invoices on job completion</div>
+              <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>Automatically create and send invoice when a job is marked complete</div>
+            </div>
+            <ToggleSwitch
+              checked={settings.auto_send_invoices}
+              onChange={v => setSettings(s => ({ ...s, auto_send_invoices: v }))}
+            />
+          </div>
+          <div style={{ borderTop: '1px solid #F0EEE9', paddingTop: 16, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>Auto-charge on invoice creation</div>
+              <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>Automatically charge card on file when invoice is created for clients with auto-charge enabled</div>
+            </div>
+            <ToggleSwitch
+              checked={settings.auto_charge_on_invoice}
+              onChange={v => setSettings(s => ({ ...s, auto_charge_on_invoice: v }))}
+            />
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+          border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, alignSelf: 'flex-start',
+          cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: FF,
+        }}
+      >
+        {saving ? 'Saving…' : 'Save Invoicing Settings'}
+      </button>
     </div>
   );
 }

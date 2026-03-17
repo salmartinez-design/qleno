@@ -31,6 +31,7 @@ import formTemplatesRouter from "./form-templates.js";
 import signRouter from "./sign.js";
 import quoteScopesRouter from "./quote-scopes.js";
 import closeDayRouter from "./close-day.js";
+import paymentLinksRouter from "./payment-links.js";
 
 const router: IRouter = Router();
 
@@ -66,5 +67,6 @@ router.use("/form-templates", formTemplatesRouter);
 router.use("/sign", signRouter);
 router.use("/quote-scopes", quoteScopesRouter);
 router.use("/close-day", closeDayRouter);
+router.use("/payment-links", paymentLinksRouter);
 
 export default router;
