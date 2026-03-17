@@ -5,6 +5,7 @@ import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
+import { resolveZoneForZip } from "./zones.js";
 
 const router = Router();
 
@@ -145,6 +146,15 @@ router.post("/", requireAuth, async (req, res) => {
       } else {
         await db.update(jobsTable).set({ geocode_failed: true }).where(eq(jobsTable.id, jobId));
         newJob[0] = { ...newJob[0], geocode_failed: true };
+      }
+    }
+
+    // Auto-assign zone from client's zip code
+    if (client?.zip) {
+      const zoneId = await resolveZoneForZip(req.auth!.companyId, client.zip);
+      if (zoneId) {
+        await db.update(jobsTable).set({ zone_id: zoneId }).where(eq(jobsTable.id, jobId));
+        newJob[0] = { ...newJob[0], zone_id: zoneId } as any;
       }
     }
 

@@ -32,6 +32,7 @@ import signRouter from "./sign.js";
 import quoteScopesRouter from "./quote-scopes.js";
 import closeDayRouter from "./close-day.js";
 import paymentLinksRouter from "./payment-links.js";
+import zonesRouter from "./zones.js";
 
 const router: IRouter = Router();
 
@@ -68,5 +69,6 @@ router.use("/sign", signRouter);
 router.use("/quote-scopes", quoteScopesRouter);
 router.use("/close-day", closeDayRouter);
 router.use("/payment-links", paymentLinksRouter);
+router.use("/zones", zonesRouter);
 
 export default router;

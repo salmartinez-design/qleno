@@ -1,0 +1,318 @@
+Context: CleanOps Pro — clean-ops-pro.replit.app
+Login: owner@phescleaning.com / demo1234
+Tech: React + Express + Supabase + Tailwind + 
+Plus Jakarta Sans
+Design: #F7F6F3 bg, #FFFFFF cards, #1A1917 text,
+var(--brand) accent, NO emojis, NO dark mode
+
+FEATURE — SERVICE ZONES BY ZIP CODE
+
+Build a service zone system that color codes 
+geographic coverage areas by zip code.
+Zones appear throughout the platform wherever
+jobs and clients are displayed.
+
+Mobile principle: on mobile you are OPERATING 
+not ADMINISTERING. Show colors only. Never show 
+zip codes on mobile. Keep zone information to 
+the absolute minimum needed to run the day.
+
+---
+
+PART A — DATABASE
+
+Create table: service_zones
+  id, company_id,
+  name (text — e.g. "Southwest Zone"),
+  color (text — hex color e.g. "#FF69B4"),
+  zip_codes (text array),
+  is_active (boolean, default true),
+  sort_order (int),
+  created_at (timestamptz)
+
+Create table: service_zone_employees
+  id, zone_id, user_id, company_id
+
+Add to clients table:
+  zone_id (uuid, nullable → service_zones)
+
+Add to jobs table:
+  zone_id (uuid, nullable → service_zones)
+
+RLS on all tables via company_id.
+
+Auto-assign zone: when a job or client is 
+created or updated with an address, extract 
+the zip code and match against 
+service_zones.zip_codes array.
+If match found: auto-set zone_id.
+If no match: zone_id remains null.
+
+---
+
+PART B — SERVICE ZONES SETTINGS PAGE
+
+Route: /company/zones
+Add "Service Zones" to Company sidebar
+(owner only, under Quoting).
+
+DESKTOP LAYOUT (768px and above):
+
+Header: "Service Zones" + "+ Add Zone" button
+
+Table with columns:
+- Color swatch (filled circle)
+- Zone Name
+- Zip Codes (show first 3 then "+X more")
+- Employees (count)
+- Jobs This Month (count)
+- Active toggle
+- Edit button
+
+Click Edit OR "+ Add Zone":
+Opens RIGHT SIDE DRAWER with:
+
+  Zone Name (text input)
+  
+  Zone Color — 8 swatches:
+  Pink #FF69B4
+  Blue #5B9BD5
+  Green #2D6A4F
+  Purple #7F77DD
+  Orange #F97316
+  Red #E53E3E
+  Teal #0D9488
+  Yellow #EAB308
+  
+  Zip Codes:
+  Tag input — type zip, press Enter to add
+  as removable tag pill
+  Validate: 5 digits only
+  Shows count: "X zip codes added"
+  
+  Assigned Employees:
+  Multi-select dropdown of active employees
+  Shows selected as name chips
+  
+  Save / Cancel buttons
+
+MOBILE LAYOUT (below 768px):
+
+Zones settings page is accessible on mobile 
+but simplified:
+
+- Horizontal scrollable colored tab strip:
+  [● Southwest] [● Northwest] [● Chicago] [+ Add]
+
+- Tapping a tab shows ONLY:
+  Zone name (large, zone color)
+  Assigned employees (names only)
+  Jobs this month (number)
+  "Edit Zone" button
+
+- DO NOT show zip codes on mobile at all
+  Zip codes are admin/setup data only
+  Never needed while operating in the field
+
+- Edit Zone on mobile opens a bottom sheet with:
+  Zone name field
+  Color swatches
+  Employee assignment
+  NO zip code management on mobile
+  "Manage zip codes on desktop" hint text
+
+---
+
+PART C — SEED ZONES FOR PHES
+
+When first accessing /company/zones for PHES 
+tenant, auto-seed if no zones exist:
+
+1. Southwest Zone
+   Color: #FF69B4 (pink)
+   Zips: 60453, 60456, 60458, 60459, 60464,
+         60465, 60480, 60482, 60487
+
+2. Chicago South Zone
+   Color: #5B9BD5 (blue)
+   Zips: 60629, 60632, 60636, 60638, 60643,
+         60652, 60655
+
+3. Northwest Zone
+   Color: #F97316 (orange)
+   Zips: 60634, 60630, 60631, 60646, 60656,
+         60068, 60714
+
+4. North Shore Zone
+   Color: #2D6A4F (green)
+   Zips: 60201, 60202, 60203, 60091, 60093,
+         60076, 60077
+
+---
+
+PART D — DISPATCH BOARD: ZONE COLOR CODING
+
+DESKTOP:
+- Each job chip has a 3px colored left border
+  matching its zone color
+- No zone text on the chip — color only
+- Tooltip on hover shows zone name
+- Team Today left panel: colored dot next to 
+  each employee assigned to a zone
+
+Zone filter dropdown in dispatch header:
+"All Zones" | [● Southwest] | [● Chicago] etc.
+Filters chips to selected zone only.
+
+MOBILE:
+- Each job chip has colored left border only
+- No zone name text anywhere on mobile dispatch
+- No zone tooltip on mobile
+- Zone filter: colored dot buttons in a row
+  above the job list — tap to filter, tap again
+  to clear. Dots only, no text labels.
+  Example: [●] [●] [●] [●] = one dot per zone
+
+---
+
+PART E — CLIENT + JOB PROFILES
+
+DESKTOP:
+Client profile header:
+Small colored zone badge next to name:
+● Southwest Zone
+
+Job detail slide-in panel:
+Zone badge below address:
+● Southwest Zone
+
+Jobs list table:
+Zone colored dot column.
+
+MOBILE:
+Client profile: colored dot only next to 
+name — no zone name text
+
+Job detail: NO zone information shown at all
+on mobile. Not needed while in the field.
+
+Jobs list mobile: colored dot only on each row.
+No text label.
+
+---
+
+PART F — ZIP CODE SCREENING ON QUOTE TOOL
+
+On online quote iFrame and office quote form,
+when zip code is entered:
+
+If zip matches a zone:
+- Show: "● Southwest Zone — We service 
+  your area" in green
+- Continue with quote
+
+If zip does not match any zone:
+- Show: "We don't currently service this area.
+  Enter your email to be notified when 
+  we expand."
+- Email capture field + "Notify Me" button
+- Save to waitlist table:
+  company_id, email, zip_code, created_at
+- Do not proceed with quote
+
+If no zones configured:
+- Skip zip screening entirely
+
+MOBILE quote form:
+- If in zone: show small green dot + 
+  "We service this area" — no zone name
+- If out of zone: same message as desktop
+
+---
+
+PART G — ZONE PERFORMANCE TABLE
+
+On /company/zones page, below the zones list,
+show a simple performance table:
+
+DESKTOP only — do not show on mobile:
+
+Zone Performance This Month:
+| Zone | Jobs | Revenue | Avg Bill |
+Color coded rows matching zone colors.
+
+---
+
+PART H — EMPLOYEE ZONE ASSIGNMENT
+
+On employee profile → Information tab:
+"Primary Zone" field:
+Dropdown of active zones with color swatches.
+Shows colored dot badge when zone selected.
+
+DESKTOP dispatch board:
+Colored dot next to employee name in Gantt rows.
+
+Cross-zone warning on desktop:
+When dragging a job chip to an employee in a 
+different zone, show amber tooltip:
+"This job is in [Zone A]. [Employee] is 
+assigned to [Zone B]."
+Does not block — warning only.
+
+MOBILE:
+No cross-zone warnings on mobile.
+No zone assignment visible on mobile employee 
+rows — too cluttered.
+
+---
+
+PART I — GLOBAL MOBILE RULE FOR ZONES
+
+Apply this rule everywhere zones appear on mobile:
+
+SHOW: Colored dot or colored border only
+NEVER SHOW on mobile:
+- Zone name text
+- Zip code lists
+- Zone performance data
+- Cross-zone warnings
+- Zone assignment details
+
+The color communicates everything needed 
+while operating in the field.
+Full zone management is desktop only.
+
+---
+
+TESTING CHECKLIST:
+[ ] /company/zones loads correctly on desktop
+[ ] Table shows all zones with color swatches
+[ ] Add zone drawer opens and saves correctly
+[ ] Zip code tags add and remove correctly
+[ ] PHES seed zones created on first visit
+[ ] Edit zone works on desktop
+[ ] Mobile shows tab strip — NO zip codes
+[ ] Mobile edit opens bottom sheet correctly
+[ ] "Manage zip codes on desktop" hint shows
+[ ] Client address auto-assigns zone on save
+[ ] Job auto-assigns zone from client zip
+[ ] Dispatch board shows colored left borders
+[ ] Dispatch zone filter works on desktop
+[ ] Mobile dispatch shows dot filter buttons only
+[ ] Client profile shows zone badge on desktop
+[ ] Client profile shows dot only on mobile
+[ ] Job detail shows zone on desktop only
+[ ] Quote form blocks out-of-zone zips
+[ ] Waitlist saves out-of-zone emails
+[ ] Zone performance table desktop only
+[ ] Employee zone assignment saves correctly
+[ ] Cross-zone warning shows on desktop drag
+[ ] No cross-zone warning on mobile
+[ ] All pages work at 375px
+[ ] No emojis anywhere
+[ ] RLS enforced per company
+
+bash push-to-github.sh 'Service zones: zip code 
+zones, color coding, mobile optimized, 
+dispatch integration, zip screening'

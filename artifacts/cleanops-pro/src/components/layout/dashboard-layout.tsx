@@ -54,6 +54,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/reports/contact-tickets':      'Contact Tickets',
   '/reports/hot-sheet':            'Hot Sheet',
   '/reports/first-time':           'First Time In',
+  '/company/zones':                'Service Zones',
 };
 
 const BOTTOM_TABS_MANAGER = [

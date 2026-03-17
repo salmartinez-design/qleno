@@ -37,8 +37,8 @@ const TIMES = Array.from({ length: TOTAL_SLOTS }, (_, i) => {
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
-interface DispatchJob { id: number; client_id: number; client_name: string; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; }
-interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; }
+interface DispatchJob { id: number; client_id: number; client_name: string; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; }
+interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -288,9 +288,11 @@ function JobChip({ job, onClick }: { job: DispatchJob; onClick: (j: DispatchJob)
   const width = Math.max(SLOT_W, (job.duration_minutes / 30) * SLOT_W);
   const isComplete = job.status === "complete";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left }, disabled: isComplete });
+  const borderColor = job.zone_color || sc.dot;
   return (
     <div ref={setNodeRef} onClick={e => { e.stopPropagation(); onClick(job); }} {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${sc.dot}`, padding: "6px 8px", boxSizing: "border-box", overflow: "hidden", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      title={job.zone_name ? job.zone_name : undefined}
+      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "hidden", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
         {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
         {job.after_photo_count > 0 && <Camera size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
@@ -313,7 +315,10 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: "#FFFFFF", borderRight: "1px solid #E5E2DC", display: "flex", alignItems: "center", padding: "0 14px", gap: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 800 }}>{initials}</div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{employee.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5 }}>
+            {employee.name}
+            {employee.zone && <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
+          </div>
           <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.role}</div>
           <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1 }}>
             {employee.jobs.length} job{employee.jobs.length !== 1 ? "s" : ""} · {Math.floor(totalMins / 60)}h{totalMins % 60 > 0 ? ` ${totalMins % 60}m` : ""} · ${revenue.toFixed(0)}
@@ -361,6 +366,8 @@ export default function JobsPage() {
   const [desktopView, setDesktopView] = useState<"timeline" | "list">("timeline");
   const [jobDates, setJobDates] = useState<Set<string>>(new Set());
   const refreshRef = useRef(0);
+  const [zones, setZones] = useState<{ id: number; name: string; color: string }[]>([]);
+  const [selectedZoneFilter, setSelectedZoneFilter] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     const id = ++refreshRef.current;
@@ -381,6 +388,15 @@ export default function JobsPage() {
   }, [selectedDate, token]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Load zones for filter
+  useEffect(() => {
+    const API = (window as any).__API_BASE__ || "";
+    fetch(`${API}/api/zones`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setZones(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [token]);
 
   // Now-line calculation
   const nowLine = (() => {
@@ -404,15 +420,33 @@ export default function JobsPage() {
     const newLeft = originalLeft + delta.x;
     const newMins = DAY_START + Math.round(newLeft / SLOT_W) * 30;
     const patch: any = { scheduled_time: minsToStr(newMins) };
-    if (empId !== job.assigned_user_id) patch.assigned_user_id = empId;
+    if (empId !== job.assigned_user_id) {
+      patch.assigned_user_id = empId;
+      // Cross-zone warning: if job zone differs from employee's primary zone
+      const targetEmployee = data.employees.find(emp => emp.id === empId);
+      if (targetEmployee?.zone && job.zone_id && targetEmployee.zone.zone_id !== job.zone_id) {
+        toast({ title: `Cross-zone assignment`, description: `${targetEmployee.name} is in ${targetEmployee.zone.zone_name} but this job is in ${job.zone_name || "a different zone"}.` });
+      }
+    }
     try { await patchJob(job.id, patch, token); await load(); }
     catch { toast({ title: "Failed to update job", variant: "destructive" }); }
   }
   function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
 
-  const allJobs = data ? [
-    ...data.unassigned_jobs,
-    ...data.employees.flatMap(e => e.jobs.map(j => ({ ...j, assigned_user_name: e.name }))),
+  // Zone-filtered dispatch data
+  const filteredData = data ? {
+    employees: data.employees.map(e => ({
+      ...e,
+      jobs: selectedZoneFilter !== null ? e.jobs.filter(j => j.zone_id === selectedZoneFilter) : e.jobs,
+    })),
+    unassigned_jobs: selectedZoneFilter !== null
+      ? data.unassigned_jobs.filter(j => j.zone_id === selectedZoneFilter)
+      : data.unassigned_jobs,
+  } : null;
+
+  const allJobs = filteredData ? [
+    ...filteredData.unassigned_jobs,
+    ...filteredData.employees.flatMap(e => e.jobs.map(j => ({ ...j, assigned_user_name: e.name }))),
   ].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time)) : [];
 
   const stats = {
@@ -488,6 +522,23 @@ export default function JobsPage() {
             })}
           </div>
 
+          {/* Zone filter dots — mobile */}
+          {zones.length > 0 && (
+            <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "8px 14px", flexShrink: 0, display: "flex", gap: 6, overflowX: "auto", alignItems: "center" }}>
+              <button onClick={() => setSelectedZoneFilter(null)}
+                style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, border: selectedZoneFilter === null ? "1.5px solid var(--brand)" : "1.5px solid #E5E2DC", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#6B7280", cursor: "pointer", flexShrink: 0 }}>
+                All
+              </button>
+              {zones.map(z => (
+                <button key={z.id} onClick={() => setSelectedZoneFilter(selectedZoneFilter === z.id ? null : z.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, border: `1.5px solid ${selectedZoneFilter === z.id ? z.color : "#E5E2DC"}`, backgroundColor: selectedZoneFilter === z.id ? `${z.color}22` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#6B7280", cursor: "pointer", flexShrink: 0 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
+                  {z.name}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Job list */}
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }}>
             {loading ? (
@@ -495,15 +546,15 @@ export default function JobsPage() {
             ) : allJobs.length === 0 ? (
               <div style={{ textAlign: "center", padding: 48 }}>
                 <Calendar size={36} style={{ color: "#D0CEC9", marginBottom: 12 }} />
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs {isToday ? "today" : "this day"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? " in this zone" : ""}</div>
                 <div style={{ fontSize: 13, color: "#9E9B94" }}>Tap "+ New Job" to schedule one</div>
               </div>
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
-                {data?.unassigned_jobs && data.unassigned_jobs.length > 0 && (
+                {filteredData?.unassigned_jobs && filteredData.unassigned_jobs.length > 0 && (
                   <div style={{ marginTop: 8, padding: "10px 14px", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 10, fontSize: 13, color: "#92400E", fontWeight: 600 }}>
-                    {data.unassigned_jobs.length} job{data.unassigned_jobs.length !== 1 ? "s" : ""} still unassigned
+                    {filteredData.unassigned_jobs.length} job{filteredData.unassigned_jobs.length !== 1 ? "s" : ""} still unassigned
                   </div>
                 )}
               </>
@@ -540,10 +591,10 @@ export default function JobsPage() {
 
             {/* Team summary */}
             <div style={{ flex: 1, overflowY: "auto" }}>
-              {data && (
+              {filteredData && (
                 <>
                   <div style={{ padding: "12px 14px 6px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94" }}>Team Today</div>
-                  {data.employees.map(e => {
+                  {filteredData.employees.map(e => {
                     const mins = e.jobs.reduce((s, j) => s + j.duration_minutes, 0);
                     const rev = e.jobs.reduce((s, j) => s + (j.amount || 0), 0);
                     const initials = e.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
@@ -551,7 +602,10 @@ export default function JobsPage() {
                       <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderBottom: "1px solid #F5F3F0" }}>
                         <div style={{ width: 30, height: 30, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>{initials}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5 }}>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{e.name}</span>
+                            {e.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: e.zone.zone_color, flexShrink: 0 }} title={e.zone.zone_name} />}
+                          </div>
                           <div style={{ fontSize: 10, color: "#9E9B94" }}>{e.jobs.length} job{e.jobs.length !== 1 ? "s" : ""} · {Math.floor(mins / 60)}h · ${rev.toFixed(0)}</div>
                         </div>
                         {e.jobs.some(j => j.status === "in_progress") && (
@@ -565,13 +619,13 @@ export default function JobsPage() {
                   })}
 
                   {/* Unassigned */}
-                  {data.unassigned_jobs.length > 0 && (
+                  {filteredData.unassigned_jobs.length > 0 && (
                     <>
                       <div style={{ padding: "12px 14px 6px", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#DC2626" }}>
-                        Unassigned · {data.unassigned_jobs.length}
+                        Unassigned · {filteredData.unassigned_jobs.length}
                       </div>
                       <div style={{ padding: "0 14px 10px" }}>
-                        {data.unassigned_jobs.map(j => <UnassignedChip key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                        {filteredData.unassigned_jobs.map(j => <UnassignedChip key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
                       </div>
                     </>
                   )}
@@ -604,6 +658,23 @@ export default function JobsPage() {
                   <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20 }}>{s.label}</span>
                 ))}
 
+                {/* Zone filter */}
+                {zones.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button onClick={() => setSelectedZoneFilter(null)}
+                      style={{ fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 20, border: selectedZoneFilter === null ? "1.5px solid var(--brand)" : "1.5px solid #E5E2DC", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "#FAFAF9", color: selectedZoneFilter === null ? "var(--brand)" : "#6B7280", cursor: "pointer" }}>
+                      All Zones
+                    </button>
+                    {zones.map(z => (
+                      <button key={z.id} onClick={() => setSelectedZoneFilter(selectedZoneFilter === z.id ? null : z.id)}
+                        style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${selectedZoneFilter === z.id ? z.color : "#E5E2DC"}`, backgroundColor: selectedZoneFilter === z.id ? `${z.color}22` : "#FAFAF9", color: selectedZoneFilter === z.id ? z.color : "#6B7280", cursor: "pointer" }}>
+                        <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: z.color }} />
+                        {z.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* View toggle */}
                 <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
                   <button onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex" }}><LayoutGrid size={14} /></button>
@@ -628,14 +699,14 @@ export default function JobsPage() {
                     </div>
                   ))}
                 </div>
-                {data && data.employees.length === 0 && data.unassigned_jobs.length === 0 ? (
+                {filteredData && filteredData.employees.every(e => e.jobs.length === 0) && filteredData.unassigned_jobs.length === 0 ? (
                   <div style={{ padding: 60, textAlign: "center" }}>
                     <Calendar size={40} style={{ color: "#D0CEC9", marginBottom: 14 }} />
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs scheduled {isToday ? "today" : "this day"}</div>
-                    <div style={{ fontSize: 13, color: "#9E9B94" }}>Click "+ New Job" to get started</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs scheduled {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? ` in this zone` : ""}</div>
+                    <div style={{ fontSize: 13, color: "#9E9B94" }}>{selectedZoneFilter !== null ? "Try clearing the zone filter or pick a different day" : "Click \"+ New Job\" to get started"}</div>
                   </div>
                 ) : (
-                  data && data.employees.map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} />)
+                  filteredData && filteredData.employees.map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} />)
                 )}
               </div>
             ) : (
@@ -647,7 +718,7 @@ export default function JobsPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
                     {allJobs.map(j => (
                       <div key={j.id} onClick={() => setSelectedJob(j)}
-                        style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", borderLeft: `4px solid ${(STATUS[j.status] || STATUS.scheduled).dot}` }}>
+                        style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", borderLeft: `4px solid ${j.zone_color || (STATUS[j.status] || STATUS.scheduled).dot}` }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{j.client_name}</div>

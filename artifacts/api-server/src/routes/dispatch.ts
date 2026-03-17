@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable } from "@workspace/db/schema";
-import { eq, and, count, sql, isNull } from "drizzle-orm";
+import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable } from "@workspace/db/schema";
+import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
@@ -41,9 +41,13 @@ router.get("/", requireAuth, async (req, res) => {
         base_fee: jobsTable.base_fee,
         allowed_hours: jobsTable.allowed_hours,
         notes: jobsTable.notes,
+        zone_id: jobsTable.zone_id,
+        zone_color: serviceZonesTable.color,
+        zone_name: serviceZonesTable.name,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+      .leftJoin(serviceZonesTable, eq(jobsTable.zone_id, serviceZonesTable.id))
       .where(and(
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.scheduled_date, date),
@@ -51,9 +55,33 @@ router.get("/", requireAuth, async (req, res) => {
       ))
       .orderBy(jobsTable.scheduled_time);
 
+    // Employee zone assignments
+    const empZones = await db
+      .select({
+        user_id: serviceZoneEmployeesTable.user_id,
+        zone_id: serviceZoneEmployeesTable.zone_id,
+        zone_color: serviceZonesTable.color,
+        zone_name: serviceZonesTable.name,
+      })
+      .from(serviceZoneEmployeesTable)
+      .innerJoin(serviceZonesTable, eq(serviceZonesTable.id, serviceZoneEmployeesTable.zone_id))
+      .where(eq(serviceZoneEmployeesTable.company_id, companyId));
+
+    const empZoneMap: Record<number, { zone_id: number; zone_color: string; zone_name: string }> = {};
+    for (const r of empZones) {
+      if (!empZoneMap[r.user_id]) {
+        empZoneMap[r.user_id] = { zone_id: r.zone_id, zone_color: r.zone_color, zone_name: r.zone_name };
+      }
+    }
+
     if (jobs.length === 0) {
       return res.json({
-        employees: employees.map(e => ({ ...e, name: `${e.first_name} ${e.last_name}`, jobs: [] })),
+        employees: employees.map(e => ({
+          ...e,
+          name: `${e.first_name} ${e.last_name}`,
+          jobs: [],
+          zone: empZoneMap[e.id] ?? null,
+        })),
         unassigned_jobs: [],
       });
     }
@@ -113,6 +141,9 @@ router.get("/", requireAuth, async (req, res) => {
         notes: j.notes,
         before_photo_count: photos.before,
         after_photo_count: photos.after,
+        zone_id: j.zone_id,
+        zone_color: j.zone_color ?? null,
+        zone_name: j.zone_name ?? null,
         clock_entry: clock ? {
           id: clock.id,
           clock_in_at: clock.clock_in_at,
@@ -141,6 +172,7 @@ router.get("/", requireAuth, async (req, res) => {
         name: `${e.first_name} ${e.last_name}`,
         role: e.role,
         jobs: jobsByEmployee.get(e.id) || [],
+        zone: empZoneMap[e.id] ?? null,
       })),
       unassigned_jobs: unassigned,
     });

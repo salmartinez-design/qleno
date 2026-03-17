@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable } from "@workspace/db/schema";
+import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable } from "@workspace/db/schema";
 import { eq, and, sql, avg, count, desc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -134,6 +134,13 @@ router.get("/:id", requireAuth, async (req, res) => {
         eq(jobsTable.company_id, req.auth!.companyId)
       ));
 
+    // Look up zone assignment for this employee
+    const zoneAssignments = await db
+      .select({ zone_id: serviceZonesTable.id, zone_name: serviceZonesTable.name, zone_color: serviceZonesTable.color })
+      .from(serviceZoneEmployeesTable)
+      .leftJoin(serviceZonesTable, eq(serviceZoneEmployeesTable.zone_id, serviceZonesTable.id))
+      .where(and(eq(serviceZoneEmployeesTable.user_id, userId), eq(serviceZoneEmployeesTable.company_id, req.auth!.companyId)));
+
     const { password_hash: _, ...safeUser } = user[0];
     return res.json({
       ...safeUser,
@@ -142,6 +149,8 @@ router.get("/:id", requireAuth, async (req, res) => {
       recent_jobs: recentJobs,
       scorecard_avg: scoreAvg[0].avg ? parseFloat(scoreAvg[0].avg) : null,
       total_jobs: totalJobs[0].count,
+      zones: zoneAssignments,
+      primary_zone: zoneAssignments[0] || null,
     });
   } catch (err) {
     console.error("Get user error:", err);

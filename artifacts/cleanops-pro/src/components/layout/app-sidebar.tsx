@@ -2,7 +2,7 @@ import {
   LogOut, X, LayoutDashboard, CalendarDays, ClipboardList, Clock,
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, ArrowUpCircle, Tag,
-  BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate, Calculator, FileText as FileTextIcon,
+  BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate, Calculator, FileText as FileTextIcon, MapPin,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -54,6 +54,7 @@ const NAV_SECTIONS = [
       { title: "Agreements",        url: "/company/agreements",         icon: PenLine,        roles: ["owner", "admin"] },
       { title: "Forms",             url: "/company/forms",              icon: LayoutTemplate, roles: ["owner", "admin"] },
       { title: "Quoting",           url: "/company/quoting",            icon: Calculator,     roles: ["owner", "admin"] },
+      { title: "Service Zones",     url: "/company/zones",              icon: MapPin,         roles: ["owner"] },
     ],
   },
 ];

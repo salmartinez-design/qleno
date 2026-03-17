@@ -156,6 +156,9 @@ export default function QuoteBuilderPage() {
   const [leadEmail, setLeadEmail] = useState("");
   const [leadPhone, setLeadPhone] = useState("");
   const [address, setAddress] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [zipZone, setZipZone] = useState<{ name: string; color: string } | null | "uncovered">("uncovered" as const);
+  const [checkingZip, setCheckingZip] = useState(false);
 
   const [scopeId, setScopeId] = useState<number | null>(null);
   const [frequencyId, setFrequencyId] = useState<number | null>(null);
@@ -267,6 +270,18 @@ export default function QuoteBuilderPage() {
       internal_memo: internalMemo || null,
       status,
     };
+  }
+
+  async function checkZip(zip: string) {
+    const clean = zip.trim().replace(/\D/g, "").slice(0, 5);
+    if (clean.length < 5) { setZipZone(null); return; }
+    setCheckingZip(true);
+    try {
+      const zones = await apiFetch("/api/zones");
+      const match = (Array.isArray(zones) ? zones : []).find((z: any) => Array.isArray(z.zip_codes) && z.zip_codes.includes(clean));
+      setZipZone(match ? { name: match.name, color: match.color } : "uncovered");
+    } catch { setZipZone(null); }
+    finally { setCheckingZip(false); }
   }
 
   async function save(status: string = "draft", thenConvert = false) {
@@ -434,10 +449,32 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
 
-                <div>
-                  <Label className="text-xs">Service Address</Label>
-                  <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, City, State" className="mt-1" />
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <Label className="text-xs">Service Address</Label>
+                    <Input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, City, State" className="mt-1" />
+                  </div>
+                  <div style={{ width: 110 }}>
+                    <Label className="text-xs">Zip Code</Label>
+                    <Input value={zipCode} onChange={e => setZipCode(e.target.value)} onBlur={e => checkZip(e.target.value)} placeholder="60453" maxLength={5} className="mt-1" />
+                  </div>
                 </div>
+
+                {/* Zone status banner */}
+                {checkingZip && (
+                  <div className="text-xs text-[#9E9B94] px-1">Checking service area...</div>
+                )}
+                {!checkingZip && zipZone && zipZone !== "uncovered" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: `${zipZone.color}14`, border: `1px solid ${zipZone.color}44`, fontSize: 12, fontWeight: 600, color: zipZone.color }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: zipZone.color, flexShrink: 0 }} />
+                    This address is in {zipZone.name} — covered service zone.
+                  </div>
+                )}
+                {!checkingZip && zipZone === "uncovered" && zipCode.trim().length === 5 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", fontSize: 12, fontWeight: 600, color: "#92400E" }}>
+                    This zip code is outside current service zones. You may still create the quote, but a waitlist message will be flagged.
+                  </div>
+                )}
 
                 <div className="flex justify-end">
                   <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5" onClick={() => setActiveSection(1)}>

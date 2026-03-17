@@ -344,6 +344,13 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Notes',
   });
 
+  const { data: zonesData } = useQuery({
+    queryKey: ['zones'],
+    queryFn: () => apiFetch('/zones'),
+  });
+  const zones: { id: number; name: string; color: string }[] = Array.isArray(zonesData) ? zonesData : [];
+  const [zoneAssigning, setZoneAssigning] = useState(false);
+
   const { data: jobsData } = useQuery({
     queryKey: ['employee-jobs', userId],
     queryFn: () => apiFetch(`/users/${userId}/jobs`),
@@ -375,6 +382,16 @@ export default function EmployeeProfilePage() {
       refetchUser();
     } catch { showToast('Save failed'); }
     setSaving(false);
+  }
+
+  async function assignZone(zoneId: number | null) {
+    setZoneAssigning(true);
+    try {
+      await apiFetch('/zones/user-zone', { method: 'PUT', body: JSON.stringify({ user_id: userId, zone_id: zoneId }) });
+      showToast('Zone assignment updated');
+      refetchUser();
+    } catch { showToast('Failed to update zone'); }
+    setZoneAssigning(false);
   }
 
   const [availability, setAvailability] = useState(
@@ -655,6 +672,27 @@ export default function EmployeeProfilePage() {
                   <Toggle value={!!form.overtime_eligible} onChange={v=>setField('overtime_eligible',v)} label="Overtime Eligible"/>
                 </div>
               </SectionCard>
+
+              {zones.length > 0 && (
+                <SectionCard title="Service Zone">
+                  <p style={{ margin: '0 0 10px', fontSize: 12, color: '#6B7280' }}>
+                    Assign this employee to a service zone. Controls their territory on the dispatch board.
+                  </p>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button onClick={() => assignZone(null)} disabled={zoneAssigning}
+                      style={{ fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: !user?.primary_zone ? '1.5px solid var(--brand)' : '1.5px solid #E5E2DC', backgroundColor: !user?.primary_zone ? 'var(--brand-dim)' : '#FAFAF9', color: !user?.primary_zone ? 'var(--brand)' : '#6B7280', cursor: 'pointer' }}>
+                      No Zone
+                    </button>
+                    {zones.map((z: { id: number; name: string; color: string }) => (
+                      <button key={z.id} onClick={() => assignZone(z.id)} disabled={zoneAssigning}
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${user?.primary_zone?.zone_id === z.id ? z.color : '#E5E2DC'}`, backgroundColor: user?.primary_zone?.zone_id === z.id ? `${z.color}22` : '#FAFAF9', color: user?.primary_zone?.zone_id === z.id ? z.color : '#6B7280', cursor: 'pointer' }}>
+                        <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: z.color }} />
+                        {z.name}
+                      </button>
+                    ))}
+                  </div>
+                </SectionCard>
+              )}
 
               <div style={{ display:'flex', justifyContent:'flex-end' }}>
                 <button onClick={saveProfile} disabled={saving}

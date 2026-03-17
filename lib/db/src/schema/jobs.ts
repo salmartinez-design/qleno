@@ -38,6 +38,7 @@ export const jobsTable = pgTable("jobs", {
   job_lat: numeric("job_lat", { precision: 10, scale: 7 }),
   job_lng: numeric("job_lng", { precision: 10, scale: 7 }),
   geocode_failed: boolean("geocode_failed").notNull().default(false),
+  zone_id: integer("zone_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

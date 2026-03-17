@@ -117,6 +117,47 @@ All hardening verified via curl and audit log checks (March 2026):
 - `artifacts/cleanops-pro/src/components/error-boundary.tsx` — React error boundary
 - `artifacts/cleanops-pro/src/lib/auth.ts` — token auto-refresh + logout API call
 
+## Sprint 7: Service Zones by Zip Code — Complete
+
+All 7 tasks implemented and E2E tested (March 2026).
+
+### DB Schema Changes
+- New `service_zones` table: `id`, `company_id`, `name`, `color`, `zip_codes` (text[]), `sort_order`, `is_active`, `notes`
+- New `service_zone_employees` table: `zone_id`, `user_id`, `company_id`, `is_primary` — joins employees to zones
+- New `waitlist` table: `id`, `company_id`, `zip_code`, `name`, `email`, `phone`, `notes`, `status`
+- `clients` table gains: `zone_id` (FK → service_zones)
+- `jobs` table gains: `zone_id` (FK → service_zones), `zone_color` (varchar)
+
+### API Changes
+- `GET /api/zones` — list all zones with employee counts, job counts (this month), employee name arrays; auto-seeds 4 PHES zones on first call for company_id=1
+- `POST /api/zones` — create zone (owner/admin)
+- `PUT /api/zones/:id` — update zone name/color/zip_codes/sort_order (owner/admin)
+- `DELETE /api/zones/:id` — delete zone (owner)
+- `GET /api/zones/public?company_id=X` — no-auth endpoint for quote form zip lookup
+- `PUT /api/zones/user-zone` — assign employee to zone (body: `{user_id, zone_id}`); removes all prior assignments first
+- `POST /api/zones/waitlist` — add zip to waitlist
+- PHES auto-seed: 4 zones with zip arrays (Southwest Zone, South Chicago, Northwest Chicago, North Suburbs)
+- `GET /api/clients/:id` (full profile) — now joins `serviceZonesTable` to return `zone_name` + `zone_color`
+- `GET /api/users/:id` — returns `zones` array + `primary_zone` from `serviceZoneEmployeesTable`
+
+### Frontend Changes
+- **Zones Settings Page** (`/company/zones`): desktop table with sort_order + right-side drawer for create/edit; mobile tab strip + bottom sheet; zip codes displayed as removable pills; employee list per zone; link added to Company Settings sidebar
+- **Dispatch Board** (`/jobs`): zone filter pill buttons in header (All Zones + per-zone with colored dots); job chips have colored left borders (`zone_color`); employee names in left sidebar show small colored zone dot when assigned; cross-zone drag warning toast
+- **Customer Profile** (`/customers/:id`): zone badge (colored dot + zone name pill) in ClientSidebar header
+- **Quote Builder** (`/quotes/new`): Zip Code input (110px, 5-char) in Customer Info section; `checkZip()` calls `/api/zones/public` on blur; green covered banner or yellow out-of-zone banner displayed inline
+- **Employee Profile** (`/employees/:id`): "Service Zone" SectionCard in Information tab with zone pill buttons (No Zone + one per zone); `assignZone()` calls `PUT /api/zones/user-zone`
+
+### Key Files
+- `artifacts/api-server/src/routes/zones.ts` — full zones router (CRUD, auto-seed, resolveZoneForZip, waitlist, employee-zone assignment)
+- `lib/db/src/schema/service_zones.ts` — service_zones table
+- `lib/db/src/schema/service_zone_employees.ts` — service_zone_employees table
+- `lib/db/src/schema/waitlist.ts` — waitlist table
+- `artifacts/cleanops-pro/src/pages/zones.tsx` — zones settings page (desktop + mobile)
+- `artifacts/cleanops-pro/src/pages/jobs.tsx` — dispatch board (zone filter + borders + employee dots)
+- `artifacts/cleanops-pro/src/pages/customer-profile.tsx` — zone badge in sidebar
+- `artifacts/cleanops-pro/src/pages/quote-builder.tsx` — zip screening
+- `artifacts/cleanops-pro/src/pages/employee-profile.tsx` — zone assignment card
+
 ## External Dependencies
 
 - **Stripe:** For subscription management and payment processing (invoicing, charging cards, refunds).

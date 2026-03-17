@@ -57,6 +57,7 @@ export const clientsTable = pgTable("clients", {
   card_brand: text("card_brand"),
   card_expiry: text("card_expiry"),
   card_saved_at: timestamp("card_saved_at"),
+  zone_id: integer("zone_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

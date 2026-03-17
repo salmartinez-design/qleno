@@ -34,3 +34,6 @@ export * from "./quote_scopes";
 export * from "./daily_summaries";
 export * from "./app_audit_log";
 export * from "./payment_links";
+export * from "./service_zones";
+export * from "./service_zone_employees";
+export * from "./waitlist";

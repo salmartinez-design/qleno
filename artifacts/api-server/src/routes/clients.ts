@@ -4,9 +4,11 @@ import {
   clientsTable, jobsTable, usersTable, invoicesTable,
   scorecardsTable, clientHomesTable, technicianPreferencesTable,
   clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
+  serviceZonesTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { resolveZoneForZip } from "./zones.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -143,6 +145,7 @@ router.post("/", requireAuth, async (req, res) => {
   try {
     const { first_name, last_name, email, phone, address, city, state, zip, notes, company_name, frequency, service_type, base_fee, allowed_hours } = req.body;
     const geo = address ? await geocodeAddress(address, city, state, zip) : null;
+    const zoneId = await resolveZoneForZip(req.auth!.companyId, zip);
     const newClient = await db.insert(clientsTable).values({
       company_id: req.auth!.companyId,
       first_name, last_name, email, phone, address, city, state, zip, notes,
@@ -150,6 +153,7 @@ router.post("/", requireAuth, async (req, res) => {
       ...(base_fee && { base_fee: String(base_fee) }),
       ...(allowed_hours && { allowed_hours: String(allowed_hours) }),
       ...(geo && { lat: geo.lat, lng: geo.lng }),
+      ...(zoneId && { zone_id: zoneId }),
     }).returning();
     return res.status(201).json(newClient[0]);
   } catch (err) {
@@ -202,8 +206,17 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
     const next_cleaning = upcoming_jobs[0]?.scheduled_date || null;
     const avg_bill = invoices.length ? revenue_all_time / invoices.length : 0;
 
+    // Look up zone data if client has a zone_id
+    let zoneData: { zone_name: string; zone_color: string } | null = null;
+    if (client.zone_id) {
+      const [zone] = await db.select({ name: serviceZonesTable.name, color: serviceZonesTable.color })
+        .from(serviceZonesTable).where(eq(serviceZonesTable.id, client.zone_id)).limit(1);
+      if (zone) zoneData = { zone_name: zone.name, zone_color: zone.color };
+    }
+
     return res.json({
       ...client,
+      ...(zoneData || {}),
       homes,
       tech_preferences: preferences,
       notification_settings: notifications,
@@ -264,6 +277,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       card_last_four, card_brand, card_expiry, card_saved_at,
     } = req.body;
     const geo = address !== undefined ? await geocodeAddress(address, city, state, zip) : null;
+    const newZoneId = zip !== undefined ? await resolveZoneForZip(req.auth!.companyId, zip) : undefined;
     const updated = await db.update(clientsTable).set({
       ...(first_name && { first_name }),
       ...(last_name && { last_name }),
@@ -297,6 +311,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(card_brand !== undefined && { card_brand }),
       ...(card_expiry !== undefined && { card_expiry }),
       ...(card_saved_at !== undefined && { card_saved_at }),
+      ...(newZoneId !== undefined && { zone_id: newZoneId }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });
     return res.json(updated[0]);

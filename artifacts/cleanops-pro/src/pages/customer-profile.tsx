@@ -162,6 +162,12 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
                 {client.service_type === "recurring" ? "Recurring" : "One-Time"}
               </span>
             )}
+            {client.zone_name && client.zone_color && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: `${client.zone_color}18`, border: `1px solid ${client.zone_color}55`, color: client.zone_color, padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: client.zone_color, display: "inline-block" }} />
+                {client.zone_name}
+              </span>
+            )}
           </div>
 
           {/* Portal pill */}

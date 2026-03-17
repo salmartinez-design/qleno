@@ -55,6 +55,7 @@ import QuoteDetailPage from "@/pages/quote-detail";
 import QuotingPage from "@/pages/quoting";
 import InvoiceDetailPage from "@/pages/invoice-detail";
 import PayPage from "@/pages/pay";
+import ZonesPage from "@/pages/zones";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -110,6 +111,7 @@ function Router() {
       <Route path="/company/agreements" component={AgreementBuilderPage} />
       <Route path="/company/forms" component={FormsPage} />
       <Route path="/company/quoting" component={QuotingPage} />
+      <Route path="/company/zones" component={ZonesPage} />
       <Route path="/quotes/new" component={QuoteBuilderPage} />
       <Route path="/quotes/:id/edit" component={QuoteBuilderPage} />
       <Route path="/quotes/:id" component={QuoteDetailPage} />
