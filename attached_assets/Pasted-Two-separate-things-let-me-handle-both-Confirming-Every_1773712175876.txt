@@ -1,0 +1,311 @@
+Two separate things — let me handle both.
+
+Confirming Everything Is On GitHub
+Paste this into Replit Shell:
+
+git status
+git log --oneline -20
+
+
+git status tells you if there are any uncommitted changes sitting locally that haven’t been pushed.
+git log --oneline -20 shows your last 20 commits — you should see all your sprint names there.
+Then go to github.com/salmartinez-design/clean-ops-pro and visually confirm the last commit timestamp matches your most recent Replit session.
+If git status shows untracked or modified files, run:
+
+bash push-to-github.sh 'manual backup - confirm all code saved'
+
+
+Geofencing Prompt — Clock In/Out
+Paste this into Replit:
+
+Context: CleanOps Pro — clean-ops-pro.replit.app
+Login: owner@phescleaning.com / demo1234
+Tech: React + Express + Supabase + Tailwind + Plus Jakarta Sans
+Design: #F7F6F3 bg, #FFFFFF cards, #1A1917 text, 
+var(--brand) accent, NO emojis, NO dark mode
+
+FEATURE — GPS GEOFENCING FOR CLOCK IN/OUT
+
+Currently employees can clock in from anywhere. 
+Build enforced geofencing so employees must be 
+within a set distance of the job address to clock in 
+and clock out.
+
+---
+
+PART A — JOB ADDRESS GEOCODING
+
+When a job is created or updated with an address:
+- Automatically geocode the address to lat/lng using 
+  Google Maps Geocoding API (GOOGLE_MAPS_API_KEY)
+- Store lat/lng on the jobs table:
+  job_lat (numeric), job_lng (numeric)
+- If GOOGLE_MAPS_API_KEY is not configured: skip 
+  geocoding, log warning, geofencing will be disabled
+- If address cannot be geocoded: flag the job with 
+  geocode_failed = true, show warning on job detail
+
+---
+
+PART B — COMPANY GEOFENCING SETTINGS
+
+Add geofencing settings to Company Settings page 
+under a new "Clock In/Out" tab:
+
+Settings:
+1. Enforce Geofencing (toggle, default ON)
+   "Employees must be within range of job address 
+   to clock in and out"
+
+2. Clock In Radius (number input, default 500)
+   Unit: feet
+   "How close must employee be to job address 
+   to clock in"
+   Range: 100-2640 feet (half mile max)
+
+3. Clock Out Radius (number input, default 1000)  
+   "How close must employee be to clock out"
+   Slightly larger than clock in to account for 
+   employee finishing outside
+   Range: 100-2640 feet
+
+4. Override Allowed (toggle, default ON)
+   "Allow owner/admin to manually override a 
+   failed geofence check"
+
+5. Soft Mode (toggle, default OFF)
+   "Warn employee if outside range but still 
+   allow clock in — logs the distance violation"
+
+Save button — saves to companies table:
+  geofence_enabled (boolean, default true)
+  geofence_clockin_radius_ft (int, default 500)
+  geofence_clockout_radius_ft (int, default 1000)
+  geofence_override_allowed (boolean, default true)
+  geofence_soft_mode (boolean, default false)
+
+---
+
+PART C — CLOCK IN ENFORCEMENT (My Jobs / Mobile)
+
+When employee taps "Clock In" on /my-jobs:
+
+1. REQUEST LOCATION
+   - Browser requests GPS location
+   - If employee denies location: show message
+     "Location access is required to clock in. 
+     Please enable location in your browser settings."
+   - Do not allow clock in without location
+
+2. CALCULATE DISTANCE
+   Use Haversine formula to calculate distance 
+   between employee's current GPS coordinates 
+   and job's geocoded lat/lng.
+   
+   Haversine formula in JavaScript:
+
+
+function getDistanceFt(lat1, lng1, lat2, lng2) {
+const R = 20902231; // Earth radius in feet
+const dLat = (lat2-lat1) * Math.PI/180;
+const dLng = (lng2-lng1) * Math.PI/180;
+const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+Math.cos(lat1 * Math.PI/180) *
+Math.cos(lat2 * Math.PI/180) *
+Math.sin(dLng/2) * Math.sin(dLng/2);
+const c = 2 * Math.atan2(Math.sqrt(a),
+Math.sqrt(1-a));
+return R * c;
+}
+
+
+3. GEOFENCE DECISION
+
+If geofence_enabled = false:
+- Allow clock in, skip all checks
+- Log employee GPS coordinates anyway
+
+If geofence_soft_mode = true:
+- Allow clock in regardless of distance
+- If outside radius: show amber warning
+  "You are X feet from the job address. 
+  Your location has been logged."
+- Log distance_ft and outside_geofence = true
+
+If distance <= clockin_radius_ft:
+- Allow clock in
+- Show green confirmation: "Clocked in successfully"
+- Log distance_ft, outside_geofence = false
+
+If distance > clockin_radius_ft:
+- BLOCK clock in
+- Show red message:
+  "You are too far from this job location.
+  You must be within [X] feet to clock in.
+  Current distance: [X] feet.
+  Please drive to the job address and try again."
+- Log the failed attempt to clock_in_attempts table
+
+4. STORE WITH CLOCK ENTRY
+On successful clock in, store to 
+time_clock_entries:
+- clock_in_lat, clock_in_lng
+- clock_in_distance_ft (distance from job)
+- clock_in_outside_geofence (boolean)
+- clock_in_location_accuracy (GPS accuracy in meters 
+  from browser)
+
+---
+
+PART D — CLOCK OUT ENFORCEMENT
+
+Same logic as clock in but using 
+geofence_clockout_radius_ft.
+
+When employee taps "Clock Out":
+1. Request current GPS location
+2. Calculate distance from job address
+3. Apply same decision tree as clock in
+4. Store to time_clock_entries:
+- clock_out_lat, clock_out_lng  
+- clock_out_distance_ft
+- clock_out_outside_geofence (boolean)
+
+---
+
+PART E — ADMIN OVERRIDE
+
+When an employee is blocked from clocking in 
+due to geofence:
+
+If geofence_override_allowed = true:
+- Show a second button below the error:
+"Request Override"
+- This sends a push notification / shows alert 
+to owner/admin on their dashboard
+- Owner/admin sees: "[Employee] is requesting 
+a clock-in override for [Job] — they are 
+[X] feet away. Allow?"
+- Two buttons: "Allow Override" | "Deny"
+- If allowed: employee gets notification 
+"Override approved — you can now clock in"
+Clock in proceeds, logged with 
+override_approved = true, override_by = admin_user_id
+- If denied: employee sees "Override denied. 
+Please go to the job location."
+
+For urgent situations — owner/admin can also 
+manually clock in any employee from the 
+Clock Monitor page:
+- Click employee row → "Manual Clock In"
+- Enter time, confirm override reason
+- Logged to audit_log
+
+---
+
+PART F — CLOCK MONITOR UPDATES
+
+Update the Clock Monitor page to show 
+geofencing data:
+
+Add columns to the clock entries table:
+- Distance column: shows "X ft" in green if within 
+range, red if outside range
+- Location badge: green "IN RANGE" or red 
+"OUT OF RANGE" or amber "SOFT MODE"
+
+Add a Geofence Violations section at the top 
+if any entries today have outside_geofence = true:
+- Amber warning card: "X clock entries today 
+were outside the geofence"
+- List each violation: employee name, job, 
+distance, time
+- "Review" button per violation
+
+---
+
+PART G — FAILED CLOCK ATTEMPT LOG
+
+Create table: clock_in_attempts
+id, company_id, user_id, job_id,
+attempted_at (timestamptz),
+employee_lat, employee_lng,
+job_lat, job_lng,
+distance_ft (numeric),
+radius_ft (numeric),
+result ('success'|'blocked'|'soft_warned'|
+       'override_approved'|'override_denied'),
+override_by (uuid, nullable)
+
+This gives you a full audit trail of every 
+clock in attempt, successful or not.
+
+---
+
+PART H — DISTANCE DISPLAY ON MY JOBS
+
+On the /my-jobs employee mobile view, 
+for each job card show a live distance indicator:
+
+- Use browser geolocation to get current position
+- Calculate distance to job address in real time
+- Display below job address:
+Green: "0.2 miles away — You're here"
+Amber: "0.8 miles away — Heading there"  
+Red: "3.2 miles away — Drive to location"
+
+Update every 60 seconds automatically.
+This helps employees know when they're 
+close enough to clock in before they tap the button.
+
+---
+
+DATABASE ADDITIONS:
+Add to jobs table if not present:
+job_lat (numeric, nullable)
+job_lng (numeric, nullable)
+geocode_failed (boolean, default false)
+
+Add to time_clock_entries if not present:
+clock_in_lat, clock_in_lng (numeric)
+clock_out_lat, clock_out_lng (numeric)
+clock_in_distance_ft, clock_out_distance_ft (numeric)
+clock_in_outside_geofence (boolean, default false)
+clock_out_outside_geofence (boolean, default false)
+clock_in_location_accuracy (numeric)
+override_approved (boolean, default false)
+override_by (uuid, nullable → users)
+
+Add to companies table if not present:
+geofence_enabled (boolean, default true)
+geofence_clockin_radius_ft (int, default 500)
+geofence_clockout_radius_ft (int, default 1000)
+geofence_override_allowed (boolean, default true)
+geofence_soft_mode (boolean, default false)
+
+All new tables need RLS with company_id.
+
+---
+
+TESTING CHECKLIST:
+[ ] Job address geocodes to lat/lng on creation
+[ ] Company Settings shows Clock In/Out tab
+[ ] Geofence radius saves and persists
+[ ] Clock in blocked when outside radius
+[ ] Clock in allowed when inside radius
+[ ] Distance shown on My Jobs job cards
+[ ] Soft mode warns but allows clock in
+[ ] Override request flow works end to end
+[ ] Clock Monitor shows distance column
+[ ] Geofence violations card appears when relevant
+[ ] clock_in_attempts table logs every attempt
+[ ] Manual clock in from Clock Monitor works
+[ ] All works at 375px mobile width
+[ ] No emojis anywhere
+
+bash push-to-github.sh 'Geofencing: clock in/out 
+enforcement, distance display, override flow, 
+clock monitor updates'
+
+
+Run the GitHub check first — takes 2 minutes. Then paste the geofencing prompt. This is a big feature but it’s one of your strongest competitive advantages over MC — they have geofencing but it’s buried and not configurable. Yours will be visual, real-time, and owner-controllable from settings.​​​​​​​​​​​​​​​​

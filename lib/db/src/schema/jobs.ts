@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, numeric, date, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, numeric, date, pgEnum, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -35,6 +35,9 @@ export const jobsTable = pgTable("jobs", {
   notes: text("notes"),
   completion_pdf_url: text("completion_pdf_url"),
   completion_pdf_sent_at: timestamp("completion_pdf_sent_at"),
+  job_lat: numeric("job_lat", { precision: 10, scale: 7 }),
+  job_lng: numeric("job_lng", { precision: 10, scale: 7 }),
+  geocode_failed: boolean("geocode_failed").notNull().default(false),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

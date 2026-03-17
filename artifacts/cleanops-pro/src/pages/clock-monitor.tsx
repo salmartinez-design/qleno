@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, MapPin } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -36,8 +36,60 @@ type Entry = {
   clock_in_at: string;
   clock_out_at: string | null;
   distance_from_job_ft: number | null;
+  clock_in_distance_ft: number | null;
+  clock_out_distance_ft: number | null;
+  clock_in_outside_geofence: boolean;
+  clock_out_outside_geofence: boolean;
+  override_approved: boolean;
   flagged: boolean;
 };
+
+type Violation = {
+  id: number;
+  user_name: string;
+  job_id: number;
+  clock_in_at: string;
+  clock_in_distance_ft: number | null;
+  clock_out_distance_ft: number | null;
+  clock_in_outside_geofence: boolean;
+  clock_out_outside_geofence: boolean;
+};
+
+function DistanceBadge({ distanceFt, outsideGeofence, overrideApproved }: {
+  distanceFt: number | null;
+  outsideGeofence: boolean;
+  overrideApproved?: boolean;
+}) {
+  if (distanceFt === null) return <span style={{ color: "#9E9B94" }}>—</span>;
+
+  if (overrideApproved) {
+    return (
+      <span>
+        <span style={{ fontSize: 12, color: "#7C3AED", fontWeight: 600 }}>{Math.round(distanceFt)} ft</span>
+        {" "}
+        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 20, backgroundColor: "#EDE9FE", color: "#7C3AED" }}>OVERRIDE</span>
+      </span>
+    );
+  }
+
+  if (outsideGeofence) {
+    return (
+      <span>
+        <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 600 }}>{Math.round(distanceFt)} ft</span>
+        {" "}
+        <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 20, backgroundColor: "#FEE2E2", color: "#991B1B" }}>OUT OF RANGE</span>
+      </span>
+    );
+  }
+
+  return (
+    <span>
+      <span style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>{Math.round(distanceFt)} ft</span>
+      {" "}
+      <span style={{ fontSize: 10, fontWeight: 600, padding: "1px 6px", borderRadius: 20, backgroundColor: "#DCFCE7", color: "#166534" }}>IN RANGE</span>
+    </span>
+  );
+}
 
 function FlagModal({ entry, onClose, onDismiss }: { entry: Entry; onClose: () => void; onDismiss: () => void }) {
   return (
@@ -46,10 +98,10 @@ function FlagModal({ entry, onClose, onDismiss }: { entry: Entry; onClose: () =>
       <div style={{ position: "relative", backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, maxWidth: 420, width: "90%", boxShadow: "0 8px 40px rgba(0,0,0,0.12)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
           <div style={{ width: 36, height: 36, borderRadius: "50%", backgroundColor: "#FEE2E2", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <AlertTriangle size={18} color="#DC2626"/>
+            <AlertTriangle size={18} color="#DC2626" />
           </div>
           <div>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", margin: 0 }}>Geo-fence Flag</p>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", margin: 0 }}>Geofence Flag</p>
             <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>Job #{entry.job_id}</p>
           </div>
         </div>
@@ -58,9 +110,14 @@ function FlagModal({ entry, onClose, onDismiss }: { entry: Entry; onClose: () =>
           <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 4px" }}>
             Clocked in at {formatDateTime(entry.clock_in_at)}
           </p>
-          {entry.distance_from_job_ft !== null && (
+          {entry.clock_in_distance_ft !== null && (
+            <p style={{ fontSize: 13, color: "#DC2626", fontWeight: 600, margin: "0 0 4px" }}>
+              Clock-in: {Math.round(entry.clock_in_distance_ft)} ft from job site
+            </p>
+          )}
+          {entry.clock_out_distance_ft !== null && (
             <p style={{ fontSize: 13, color: "#DC2626", fontWeight: 600, margin: 0 }}>
-              {Math.round(entry.distance_from_job_ft)} ft from job site
+              Clock-out: {Math.round(entry.clock_out_distance_ft)} ft from job site
             </p>
           )}
         </div>
@@ -100,6 +157,16 @@ export default function ClockMonitorPage() {
     refetchInterval: 30000,
   });
 
+  const { data: violationsData } = useQuery({
+    queryKey: ["clock-violations", today],
+    queryFn: async () => {
+      const res = await apiFetch(`/timeclock/violations`);
+      if (!res.ok) return { data: [] };
+      return res.json();
+    },
+    refetchInterval: 30000,
+  });
+
   const dismissMutation = useMutation({
     mutationFn: async (entryId: number) => {
       const res = await apiFetch(`/timeclock/${entryId}/unflag`, { method: "PATCH" });
@@ -109,30 +176,32 @@ export default function ClockMonitorPage() {
     onSuccess: () => {
       toast({ title: "Flag dismissed" });
       qc.invalidateQueries({ queryKey: ["clock-monitor"] });
+      qc.invalidateQueries({ queryKey: ["clock-violations"] });
       setSelectedEntry(null);
     },
     onError: () => toast({ variant: "destructive", title: "Failed to dismiss flag" }),
   });
 
   const entries: Entry[] = data?.data || [];
+  const violations: Violation[] = violationsData?.data || [];
   const flaggedCount = entries.filter(e => e.flagged).length;
   const activeCount = entries.filter(e => !e.clock_out_at).length;
+  const outOfRangeCount = entries.filter(e => e.clock_in_outside_geofence || e.clock_out_outside_geofence).length;
 
   return (
     <DashboardLayout>
       <div style={{ padding: "28px 32px", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-        {/* Header */}
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Clock Monitor</h1>
           <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Today's clock activity across all employees</p>
         </div>
 
-        {/* Stats */}
         <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
           {[
             { label: "Total Entries", value: entries.length, color: "#1A1917", bg: "#FFFFFF" },
             { label: "Currently Active", value: activeCount, color: "#166534", bg: "#DCFCE7" },
             { label: "Flagged", value: flaggedCount, color: "#991B1B", bg: "#FEE2E2" },
+            { label: "Out of Range", value: outOfRangeCount, color: "#92400E", bg: "#FEF3C7" },
           ].map(stat => (
             <div key={stat.label} style={{ backgroundColor: stat.bg, border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 20px", minWidth: 130 }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: stat.color, margin: "0 0 2px" }}>{stat.value}</p>
@@ -141,7 +210,36 @@ export default function ClockMonitorPage() {
           ))}
         </div>
 
-        {/* Table */}
+        {violations.length > 0 && (
+          <div style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12, padding: "16px 20px", marginBottom: 24 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <MapPin size={16} color="#D97706" />
+              <p style={{ fontSize: 14, fontWeight: 700, color: "#92400E", margin: 0 }}>
+                {violations.length} clock {violations.length === 1 ? "entry" : "entries"} today outside the geofence
+              </p>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {violations.map(v => (
+                <div key={v.id} style={{ backgroundColor: "#FFFFFF", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{v.user_name}</span>
+                    <span style={{ fontSize: 12, color: "#6B7280", marginLeft: 10 }}>Job #{v.job_id}</span>
+                    <span style={{ fontSize: 12, color: "#9E9B94", marginLeft: 10 }}>{formatDateTime(v.clock_in_at)}</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {v.clock_in_outside_geofence && v.clock_in_distance_ft !== null && (
+                      <span style={{ fontSize: 11, color: "#DC2626", fontWeight: 600 }}>In: {Math.round(v.clock_in_distance_ft)} ft</span>
+                    )}
+                    {v.clock_out_outside_geofence && v.clock_out_distance_ft !== null && (
+                      <span style={{ fontSize: 11, color: "#DC2626", fontWeight: 600 }}>Out: {Math.round(v.clock_out_distance_ft)} ft</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, overflow: "hidden" }}>
           {isLoading ? (
             <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontSize: 14 }}>Loading clock entries…</div>
@@ -155,7 +253,7 @@ export default function ClockMonitorPage() {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid #EEECE7" }}>
-                    {["Employee", "Job", "Clock In", "Clock Out", "Duration", "Distance", "Status"].map(h => (
+                    {["Employee", "Job", "Clock In", "Clock Out", "Duration", "Clock-In Distance", "Status"].map(h => (
                       <th key={h} style={{ textAlign: "left", padding: "12px 16px", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                     ))}
                   </tr>
@@ -164,31 +262,38 @@ export default function ClockMonitorPage() {
                   {entries.map(entry => {
                     const isFlagged = entry.flagged;
                     const isActive = !entry.clock_out_at;
+                    const isOutOfRange = entry.clock_in_outside_geofence || entry.clock_out_outside_geofence;
                     return (
                       <tr
                         key={entry.id}
                         onClick={() => isFlagged ? setSelectedEntry(entry) : undefined}
                         style={{
                           borderBottom: "1px solid #F0EEE9",
-                          backgroundColor: isFlagged ? "rgba(239, 68, 68, 0.04)" : "#FFFFFF",
-                          borderLeft: isFlagged ? "3px solid #EF4444" : "3px solid transparent",
+                          backgroundColor: isFlagged ? "rgba(239, 68, 68, 0.04)" : isOutOfRange ? "rgba(245, 158, 11, 0.04)" : "#FFFFFF",
+                          borderLeft: isFlagged ? "3px solid #EF4444" : isOutOfRange ? "3px solid #F59E0B" : "3px solid transparent",
                           cursor: isFlagged ? "pointer" : "default",
                           transition: "background-color 0.1s",
                         }}
                         onMouseEnter={e => { if (!isFlagged) return; (e.currentTarget as HTMLElement).style.backgroundColor = "rgba(239, 68, 68, 0.08)"; }}
-                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isFlagged ? "rgba(239, 68, 68, 0.04)" : "#FFFFFF"; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.backgroundColor = isFlagged ? "rgba(239, 68, 68, 0.04)" : isOutOfRange ? "rgba(245, 158, 11, 0.04)" : "#FFFFFF"; }}
                       >
                         <td style={{ padding: "12px 16px", fontWeight: 600, color: "#1A1917" }}>{entry.user_name}</td>
                         <td style={{ padding: "12px 16px", color: "#6B7280" }}>#{entry.job_id}</td>
                         <td style={{ padding: "12px 16px", color: "#1A1917" }}>{formatDateTime(entry.clock_in_at)}</td>
                         <td style={{ padding: "12px 16px", color: "#1A1917" }}>{formatDateTime(entry.clock_out_at)}</td>
                         <td style={{ padding: "12px 16px", color: "#1A1917" }}>{formatDuration(entry.clock_in_at, entry.clock_out_at)}</td>
-                        <td style={{ padding: "12px 16px", color: entry.distance_from_job_ft && entry.distance_from_job_ft > 500 ? "#DC2626" : "#1A1917" }}>
-                          {entry.distance_from_job_ft !== null ? `${Math.round(entry.distance_from_job_ft)} ft` : "—"}
+                        <td style={{ padding: "12px 16px" }}>
+                          <DistanceBadge
+                            distanceFt={entry.clock_in_distance_ft ?? entry.distance_from_job_ft}
+                            outsideGeofence={entry.clock_in_outside_geofence}
+                            overrideApproved={entry.override_approved}
+                          />
                         </td>
                         <td style={{ padding: "12px 16px" }}>
                           {isFlagged ? (
-                            <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: "#FEE2E2", color: "#991B1B" }}>Flagged ↗</span>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: "#FEE2E2", color: "#991B1B", cursor: "pointer" }}>Flagged</span>
+                          ) : entry.override_approved ? (
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: "#EDE9FE", color: "#7C3AED" }}>Override</span>
                           ) : isActive ? (
                             <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: "#DCFCE7", color: "#166534" }}>On Job</span>
                           ) : (

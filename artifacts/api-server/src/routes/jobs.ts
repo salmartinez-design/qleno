@@ -4,6 +4,7 @@ import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, in
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
+import { geocodeAddress } from "../lib/geocode.js";
 
 const router = Router();
 
@@ -119,16 +120,38 @@ router.post("/", requireAuth, async (req, res) => {
       .select({
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
         assigned_user_name: sql<string>`concat(${usersTable.first_name}, ' ', ${usersTable.last_name})`,
+        address: clientsTable.address,
+        city: clientsTable.city,
+        state: clientsTable.state,
+        zip: clientsTable.zip,
       })
       .from(clientsTable)
       .leftJoin(usersTable, eq(usersTable.id, assigned_user_id))
       .where(eq(clientsTable.id, client_id))
       .limit(1);
 
+    const client = jobWithClient[0];
+    const jobId = newJob[0].id;
+
+    if (client?.address) {
+      const fullAddress = [client.address, client.city, client.state, client.zip].filter(Boolean).join(", ");
+      const coords = await geocodeAddress(fullAddress);
+      if (coords) {
+        await db
+          .update(jobsTable)
+          .set({ job_lat: String(coords.lat), job_lng: String(coords.lng), geocode_failed: false })
+          .where(eq(jobsTable.id, jobId));
+        newJob[0] = { ...newJob[0], job_lat: String(coords.lat) as any, job_lng: String(coords.lng) as any, geocode_failed: false };
+      } else {
+        await db.update(jobsTable).set({ geocode_failed: true }).where(eq(jobsTable.id, jobId));
+        newJob[0] = { ...newJob[0], geocode_failed: true };
+      }
+    }
+
     return res.status(201).json({
       ...newJob[0],
-      client_name: jobWithClient[0]?.client_name || "",
-      assigned_user_name: jobWithClient[0]?.assigned_user_name || null,
+      client_name: client?.client_name || "",
+      assigned_user_name: client?.assigned_user_name || null,
       before_photo_count: 0,
       after_photo_count: 0,
     });
@@ -155,6 +178,9 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         zip: clientsTable.zip,
         lat: clientsTable.lat,
         lng: clientsTable.lng,
+        job_lat: jobsTable.job_lat,
+        job_lng: jobsTable.job_lng,
+        geocode_failed: jobsTable.geocode_failed,
         client_notes: clientsTable.notes,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
@@ -209,6 +235,8 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         ...j,
         lat: j.lat ? parseFloat(j.lat) : null,
         lng: j.lng ? parseFloat(j.lng) : null,
+        job_lat: j.job_lat ? parseFloat(j.job_lat) : null,
+        job_lng: j.job_lng ? parseFloat(j.job_lng) : null,
         base_fee: j.base_fee ? parseFloat(j.base_fee) : 0,
         before_photo_count: photoMap.get(j.id)?.before || 0,
         after_photo_count: photoMap.get(j.id)?.after || 0,

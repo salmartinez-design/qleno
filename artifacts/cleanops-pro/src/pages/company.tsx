@@ -6,12 +6,13 @@ import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X, ImageIcon } from "lucide-react";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'branding', label: 'Branding' },
   { id: 'notifications', label: 'Notifications' },
+  { id: 'clock-inout', label: 'Clock In/Out' },
   { id: 'integrations', label: 'Integrations' },
   { id: 'payroll', label: 'Payroll Options' },
 ];
@@ -55,6 +56,7 @@ export default function CompanyPage() {
         {activeTab === 'branding' && <BrandingTab />}
         {activeTab === 'general' && <GeneralTab />}
         {activeTab === 'notifications' && <NotificationsTab />}
+        {activeTab === 'clock-inout' && <ClockInOutTab />}
         {activeTab === 'integrations' && <PlaceholderTab title="Integrations" desc="Connect QuickBooks, Stripe, and other services." />}
         {activeTab === 'payroll' && <PlaceholderTab title="Payroll Options" desc="Configure pay cadence and export settings." />}
       </div>
@@ -705,6 +707,188 @@ function NotificationsTab() {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+        background: checked ? 'var(--brand, #5B9BD5)' : '#E5E2DC',
+        position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+      }}
+    >
+      <div style={{
+        width: 18, height: 18, borderRadius: 9, background: '#fff',
+        position: 'absolute', top: 3, left: checked ? 23 : 3,
+        transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+      }} />
+    </button>
+  );
+}
+
+function ClockInOutTab() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const BASE = (window as any).__BASE__ || import.meta.env?.BASE_URL?.replace(/\/$/, '') || '';
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [settings, setSettings] = useState({
+    geofence_enabled: true,
+    geofence_clockin_radius_ft: 500,
+    geofence_clockout_radius_ft: 1000,
+    geofence_override_allowed: true,
+    geofence_soft_mode: false,
+  });
+
+  useEffect(() => {
+    const headers = getAuthHeaders();
+    fetch(`${BASE}/api/companies/me`, { headers })
+      .then(r => r.json())
+      .then(d => {
+        setSettings({
+          geofence_enabled: d.geofence_enabled ?? true,
+          geofence_clockin_radius_ft: d.geofence_clockin_radius_ft ?? 500,
+          geofence_clockout_radius_ft: d.geofence_clockout_radius_ft ?? 1000,
+          geofence_override_allowed: d.geofence_override_allowed ?? true,
+          geofence_soft_mode: d.geofence_soft_mode ?? false,
+        });
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
+      const res = await fetch(`${BASE}/api/companies/me`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(settings),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      toast({ title: 'Clock In/Out settings saved' });
+    } catch {
+      toast({ variant: 'destructive', title: 'Failed to save settings' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const CARD: React.CSSProperties = {
+    background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12,
+    padding: '20px 24px', marginBottom: 12,
+  };
+  const ROW: React.CSSProperties = {
+    display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16,
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading…</div>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF, maxWidth: 640 }}>
+      <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 20px' }}>
+        Control GPS enforcement for employee clock-in and clock-out. Employees must be within the configured radius of the job address.
+      </p>
+
+      <div style={CARD}>
+        <div style={ROW}>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Enforce Geofencing</p>
+            <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Employees must be within range of job address to clock in and out</p>
+          </div>
+          <ToggleSwitch checked={settings.geofence_enabled} onChange={v => setSettings(s => ({ ...s, geofence_enabled: v }))} />
+        </div>
+      </div>
+
+      <div style={{ ...CARD, opacity: settings.geofence_enabled ? 1 : 0.45, pointerEvents: settings.geofence_enabled ? 'auto' : 'none' }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 16px' }}>Radius Settings</p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+              Clock In Radius (feet)
+            </label>
+            <input
+              type="number"
+              min={100} max={2640}
+              value={settings.geofence_clockin_radius_ft}
+              onChange={e => setSettings(s => ({ ...s, geofence_clockin_radius_ft: parseInt(e.target.value) || 500 }))}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+            />
+            <p style={{ fontSize: 11, color: '#9E9B94', margin: '4px 0 0' }}>How close must employee be to clock in. Range: 100–2640 ft</p>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+              Clock Out Radius (feet)
+            </label>
+            <input
+              type="number"
+              min={100} max={2640}
+              value={settings.geofence_clockout_radius_ft}
+              onChange={e => setSettings(s => ({ ...s, geofence_clockout_radius_ft: parseInt(e.target.value) || 1000 }))}
+              style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+            />
+            <p style={{ fontSize: 11, color: '#9E9B94', margin: '4px 0 0' }}>Slightly larger to account for employees finishing outside</p>
+          </div>
+        </div>
+
+        <div style={{ marginTop: 12, padding: '10px 14px', background: '#F0F7FF', borderRadius: 8 }}>
+          <p style={{ fontSize: 12, color: '#1E40AF', margin: 0 }}>
+            {(settings.geofence_clockin_radius_ft / 5280).toFixed(2)} mi clock-in radius &nbsp;·&nbsp; {(settings.geofence_clockout_radius_ft / 5280).toFixed(2)} mi clock-out radius
+          </p>
+        </div>
+      </div>
+
+      <div style={{ ...CARD, opacity: settings.geofence_enabled ? 1 : 0.45, pointerEvents: settings.geofence_enabled ? 'auto' : 'none' }}>
+        <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 16px' }}>Enforcement Mode</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={ROW}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1917', margin: '0 0 3px' }}>Allow Override</p>
+              <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Owner and admins can manually approve a failed geofence check</p>
+            </div>
+            <ToggleSwitch checked={settings.geofence_override_allowed} onChange={v => setSettings(s => ({ ...s, geofence_override_allowed: v }))} />
+          </div>
+          <div style={{ borderTop: '1px solid #F0EEE9', paddingTop: 16, ...ROW }}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1917', margin: '0 0 3px' }}>Soft Mode</p>
+              <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Warn employee if outside range but still allow clock in — logs the distance violation</p>
+            </div>
+            <ToggleSwitch checked={settings.geofence_soft_mode} onChange={v => setSettings(s => ({ ...s, geofence_soft_mode: v }))} />
+          </div>
+        </div>
+
+        {settings.geofence_soft_mode && (
+          <div style={{ marginTop: 12, padding: '10px 14px', background: '#FFFBEB', borderLeft: '3px solid #F59E0B', borderRadius: '0 6px 6px 0' }}>
+            <p style={{ fontSize: 12, color: '#92400E', margin: 0 }}>
+              Soft mode is active. Employees outside the radius will see a warning but can still clock in. All violations are logged.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{
+            padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+            border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
+            cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
+            fontFamily: FF,
+          }}
+        >
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
+      </div>
     </div>
   );
 }

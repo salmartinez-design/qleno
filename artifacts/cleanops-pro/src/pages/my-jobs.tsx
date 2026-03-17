@@ -41,6 +41,17 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
+function getDistanceFt(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 20902231;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
 type TimeclockEntry = {
   id: number;
   job_id: number;
@@ -59,6 +70,9 @@ type Job = {
   zip: string | null;
   lat: number | null;
   lng: number | null;
+  job_lat: number | null;
+  job_lng: number | null;
+  geocode_failed: boolean;
   client_notes: string | null;
   service_type: string;
   status: string;
@@ -162,13 +176,43 @@ function StatusTimeline({ jobId }: { jobId: number }) {
   );
 }
 
-function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
+function DistanceBadge({ jobLat, jobLng, empPos }: {
+  jobLat: number | null; jobLng: number | null;
+  empPos: { lat: number; lng: number } | null;
+}) {
+  if (!jobLat || !jobLng) return null;
+  if (!empPos) return (
+    <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0" }}>Getting location…</p>
+  );
+
+  const ft = getDistanceFt(empPos.lat, empPos.lng, jobLat, jobLng);
+  const miles = (ft / 5280).toFixed(1);
+
+  let color = "#166534";
+  let bg = "#DCFCE7";
+  let label = "You're here";
+  if (ft > 2640) { color = "#991B1B"; bg = "#FEE2E2"; label = "Drive to location"; }
+  else if (ft > 660) { color = "#92400E"; bg = "#FEF3C7"; label = "Heading there"; }
+
+  return (
+    <span style={{
+      display: "inline-block", fontSize: 11, fontWeight: 600,
+      padding: "2px 8px", borderRadius: 20, backgroundColor: bg, color, marginTop: 4,
+    }}>
+      {parseFloat(miles) < 0.1 ? `${ft} ft` : `${miles} mi`} away — {label}
+    </span>
+  );
+}
+
+function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
   const [photosBefore, setPhotosBefore] = useState<string[]>([]);
   const [photosAfter, setPhotosAfter] = useState<string[]>([]);
   const [paused, setPaused] = useState(false);
+  const [geofenceError, setGeofenceError] = useState<{ message: string; distanceFt: number; radiusFt: number; overrideAllowed: boolean } | null>(null);
+  const [softWarning, setSoftWarning] = useState<string | null>(null);
 
   const entry = job.time_clock_entry;
   const isClockedIn = entry && !entry.clock_out_at;
@@ -186,24 +230,39 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
   useEffect(() => { loadPhotos(); }, [loadPhotos]);
 
   const clockInMutation = useMutation({
-    mutationFn: async ({ lat, lng }: { lat: number; lng: number }) => {
+    mutationFn: async ({ lat, lng, accuracy, override_token }: { lat: number; lng: number; accuracy?: number; override_token?: string }) => {
       const res = await apiFetch("/timeclock/clock-in", {
         method: "POST",
-        body: JSON.stringify({ job_id: job.id, lat, lng }),
+        body: JSON.stringify({ job_id: job.id, lat, lng, accuracy, override_token }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Clock in failed");
+      if (!res.ok) throw { status: res.status, ...data };
       return data;
     },
     onSuccess: (data) => {
+      setGeofenceError(null);
+      if (data.soft_warned) {
+        setSoftWarning(`You are ${Math.round(data.clock_in_distance_ft || 0)} feet from the job address. Your location has been logged.`);
+      }
       if (data.flagged) {
         toast({ title: "Clocked in — out of zone", description: `${Math.round(data.distance_from_job_ft || 0)} ft from job site`, variant: "destructive" });
       } else {
-        toast({ title: "Clocked in", description: data.distance_from_job_ft ? `${Math.round(data.distance_from_job_ft)} ft from job` : "Location recorded" });
+        toast({ title: "Clocked in", description: data.clock_in_distance_ft ? `${Math.round(data.clock_in_distance_ft)} ft from job` : "Location recorded" });
       }
       onRefresh();
     },
-    onError: (e: Error) => toast({ variant: "destructive", title: "Clock in failed", description: e.message }),
+    onError: (e: any) => {
+      if (e.error === "GEOFENCE_BLOCKED") {
+        setGeofenceError({
+          message: e.message,
+          distanceFt: Math.round(e.distance_ft || 0),
+          radiusFt: e.radius_ft || 500,
+          overrideAllowed: e.override_allowed ?? true,
+        });
+      } else {
+        toast({ variant: "destructive", title: "Clock in failed", description: e.message || "Unknown error" });
+      }
+    },
   });
 
   const clockOutMutation = useMutation({
@@ -215,17 +274,24 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
       const data = await res.json();
       if (!res.ok) {
         if (data.error === "PHOTOS_REQUIRED") throw new Error("PHOTOS_REQUIRED");
+        if (data.error === "GEOFENCE_BLOCKED") throw { ...data };
         throw new Error(data.message || "Clock out failed");
       }
       return data;
     },
-    onSuccess: () => {
-      toast({ title: "Job complete!", description: "Clock out recorded." });
+    onSuccess: (data) => {
+      if (data.soft_warned) {
+        toast({ title: "Job complete", description: `Clocked out — ${Math.round(data.clock_out_distance_ft || 0)} ft from job (logged)` });
+      } else {
+        toast({ title: "Job complete!", description: "Clock out recorded." });
+      }
       onRefresh();
     },
-    onError: (e: Error) => {
+    onError: (e: any) => {
       if (e.message === "PHOTOS_REQUIRED") {
         toast({ variant: "destructive", title: "After photo required", description: "Upload at least 1 after photo first" });
+      } else if (e.error === "GEOFENCE_BLOCKED") {
+        toast({ variant: "destructive", title: "Too far to clock out", description: e.message });
       } else {
         toast({ variant: "destructive", title: "Clock out failed", description: e.message });
       }
@@ -251,11 +317,17 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
     onError: () => toast({ variant: "destructive", title: "Status update failed" }),
   });
 
-  const getLocation = (cb: (lat: number, lng: number) => void) => {
+  const getLocation = (cb: (lat: number, lng: number, accuracy?: number) => void) => {
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setGeoLoading(false); cb(pos.coords.latitude, pos.coords.longitude); },
-      () => { setGeoLoading(false); toast({ variant: "destructive", title: "Location unavailable", description: "Please enable location access" }); },
+      (pos) => {
+        setGeoLoading(false);
+        cb(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
+      },
+      () => {
+        setGeoLoading(false);
+        toast({ variant: "destructive", title: "Location access required", description: "Please enable location in your browser settings." });
+      },
       { enableHighAccuracy: true, timeout: 15000 }
     );
   };
@@ -295,6 +367,14 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
         </p>
       )}
 
+      <DistanceBadge jobLat={job.job_lat} jobLng={job.job_lng} empPos={empPos} />
+
+      {job.geocode_failed && (
+        <p style={{ fontSize: 11, color: "#92400E", backgroundColor: "#FEF3C7", borderRadius: 4, padding: "3px 8px", display: "inline-block", marginTop: 4 }}>
+          Address could not be geocoded — geofencing unavailable
+        </p>
+      )}
+
       {job.client_notes && (
         <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Client Notes</p>
@@ -308,6 +388,37 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
       {isClockedIn && photosAfter.length === 0 && (
         <div style={{ backgroundColor: "#FEF3C7", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>After photos required before clock-out</p>
+        </div>
+      )}
+
+      {softWarning && (
+        <div style={{ backgroundColor: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 12, color: "#92400E", fontWeight: 600, margin: 0 }}>Location warning</p>
+          <p style={{ fontSize: 12, color: "#92400E", margin: "4px 0 0" }}>You are {softWarning}</p>
+        </div>
+      )}
+
+      {geofenceError && (
+        <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "14px 16px", marginTop: 12 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#991B1B", margin: "0 0 6px" }}>Too far to clock in</p>
+          <p style={{ fontSize: 12, color: "#7F1D1D", margin: "0 0 12px", lineHeight: 1.5 }}>
+            You are {geofenceError.distanceFt} ft from this job. Must be within {geofenceError.radiusFt} ft to clock in. Please drive to the job address and try again.
+          </p>
+          {geofenceError.overrideAllowed && (
+            <button
+              onClick={() => {
+                setGeofenceError(null);
+                getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy, override_token: "approved" }));
+              }}
+              style={{
+                width: "100%", height: 40, backgroundColor: "#FEF3C7", color: "#92400E",
+                border: "1px solid #F59E0B", borderRadius: 8, fontSize: 13, fontWeight: 600,
+                cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              Request Override — Clock in anyway
+            </button>
+          )}
         </div>
       )}
 
@@ -332,7 +443,6 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
               <ElapsedTimer clockInAt={entry!.clock_in_at} />
             </div>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 12px" }}>Time on job</p>
-            {/* Pause / Resume */}
             <button
               onClick={() => smsMutation.mutate(paused ? "resumed" : "paused")}
               disabled={smsMutation.isPending}
@@ -369,7 +479,6 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
           </div>
         ) : (
           <div>
-            {/* On My Way button — sends SMS before clock-in */}
             <button
               onClick={() => smsMutation.mutate("on_my_way")}
               disabled={smsMutation.isPending}
@@ -383,7 +492,11 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
               {smsMutation.isPending ? "Sending…" : "On My Way"}
             </button>
             <button
-              onClick={() => getLocation((lat, lng) => clockInMutation.mutate({ lat, lng }))}
+              onClick={() => {
+                setGeofenceError(null);
+                setSoftWarning(null);
+                getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy }));
+              }}
               disabled={clockInMutation.isPending || geoLoading}
               style={{
                 width: "100%", height: 48, backgroundColor: "var(--brand)", color: "#FFFFFF",
@@ -406,6 +519,7 @@ function JobCard({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
 export default function MyJobsPage() {
   const token = useAuthStore(state => state.token);
   const qc = useQueryClient();
+  const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
 
   let userInfo: { firstName: string; lastName: string } | null = null;
   if (token) {
@@ -417,6 +531,26 @@ export default function MyJobsPage() {
   const initials = userInfo ? `${userInfo.firstName[0] || ""}${userInfo.lastName[0] || ""}`.toUpperCase() : "?";
 
   const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+  useEffect(() => {
+    let watchId: number | null = null;
+
+    const update = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => setEmpPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000 }
+      );
+    };
+
+    update();
+    const interval = setInterval(update, 60000);
+
+    return () => {
+      clearInterval(interval);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["my-jobs"],
@@ -435,7 +569,6 @@ export default function MyJobsPage() {
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
-        {/* Sticky Header */}
         <div style={{
           position: "sticky", top: 0, zIndex: 10,
           backgroundColor: "#FFFFFF", borderBottom: "1px solid #E5E2DC",
@@ -459,7 +592,7 @@ export default function MyJobsPage() {
           ) : (
             <>
               {activeJobs.map(job => (
-                <JobCard key={job.id} job={job} onRefresh={refetch} />
+                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} />
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>
@@ -469,6 +602,8 @@ export default function MyJobsPage() {
                       <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{job.client_name}</p>
                       <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                       {job.scheduled_time && <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{formatTime(job.scheduled_time)}</p>}
+                      {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{job.address}{job.city ? `, ${job.city}` : ""}</p>}
+                      <DistanceBadge jobLat={job.job_lat} jobLng={job.job_lng} empPos={empPos} />
                     </div>
                   ))}
                 </div>

@@ -92,6 +92,8 @@ router.patch("/me", requireAuth, async (req, res) => {
       name, logo_url, pay_cadence, geo_fence_threshold_ft, brand_color,
       sms_on_my_way_enabled, sms_arrived_enabled, sms_paused_enabled,
       sms_complete_enabled, twilio_from_number,
+      geofence_enabled, geofence_clockin_radius_ft, geofence_clockout_radius_ft,
+      geofence_override_allowed, geofence_soft_mode,
     } = req.body;
 
     const patch: Record<string, unknown> = {};
@@ -105,6 +107,11 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (sms_paused_enabled !== undefined) patch.sms_paused_enabled = sms_paused_enabled;
     if (sms_complete_enabled !== undefined) patch.sms_complete_enabled = sms_complete_enabled;
     if (twilio_from_number !== undefined) patch.twilio_from_number = twilio_from_number;
+    if (geofence_enabled !== undefined) patch.geofence_enabled = geofence_enabled;
+    if (geofence_clockin_radius_ft !== undefined) patch.geofence_clockin_radius_ft = geofence_clockin_radius_ft;
+    if (geofence_clockout_radius_ft !== undefined) patch.geofence_clockout_radius_ft = geofence_clockout_radius_ft;
+    if (geofence_override_allowed !== undefined) patch.geofence_override_allowed = geofence_override_allowed;
+    if (geofence_soft_mode !== undefined) patch.geofence_soft_mode = geofence_soft_mode;
 
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 
