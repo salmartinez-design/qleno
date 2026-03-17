@@ -17,6 +17,7 @@ export const incentiveProgramsTable = pgTable("incentive_programs", {
   threshold_value: numeric("threshold_value", { precision: 10, scale: 2 }),
   reward_amount: numeric("reward_amount", { precision: 10, scale: 2 }).notNull(),
   reward_type: incentiveRewardTypeEnum("reward_type").notNull(),
+  monthly_budget_cap: numeric("monthly_budget_cap", { precision: 10, scale: 2 }),
   is_active: boolean("is_active").notNull().default(true),
   effective_date: date("effective_date"),
   created_at: timestamp("created_at").notNull().defaultNow(),

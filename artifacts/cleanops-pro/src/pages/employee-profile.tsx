@@ -372,7 +372,7 @@ export default function EmployeeProfilePage() {
 
   const { data: incentivesData = [] } = useQuery<any[]>({
     queryKey: ['incentives-earned', userId],
-    queryFn: () => apiFetch(`/incentives/earned?user_id=${userId}`),
+    queryFn: () => apiFetch(`/incentives/earned?employee_id=${userId}`),
     enabled: activeTab === 'Incentives',
   });
 
@@ -1129,50 +1129,76 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── NOTES TAB ── */}
-          {activeTab === 'Incentives' && (
-            <div>
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                <div style={{ padding:'14px 20px', borderBottom:'1px solid #EEECE7' }}>
-                  <p style={{ margin:0, fontSize:13, fontWeight:700, color:'#1A1917' }}>Incentives Earned</p>
-                  <p style={{ margin:'3px 0 0', fontSize:12, color:'#9E9B94' }}>Bonuses and rewards from active incentive programs</p>
+          {activeTab === 'Incentives' && (() => {
+            const thisYear = new Date().getFullYear();
+            const ytdAll = incentivesData.filter((i: any) => i.earned_date && new Date(i.earned_date + 'T12:00').getFullYear() === thisYear);
+            const ytdEarned = ytdAll.reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const ytdPaid = ytdAll.filter((i: any) => i.status === 'paid' || i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const pendingUnpaid = ytdAll.filter((i: any) => i.status === 'approved' && !i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
+            const STATUS_S: Record<string, { bg: string; color: string; label: string }> = {
+              pending_approval: { bg:'#FEF3C7', color:'#92400E', label:'Pending Approval' },
+              approved:         { bg:'#DBEAFE', color:'#1E40AF', label:'Approved' },
+              rejected:         { bg:'#F3F4F6', color:'#6B7280', label:'Rejected' },
+              paid:             { bg:'#DCFCE7', color:'#166534', label:'Paid' },
+            };
+            return (
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {/* YTD summary cards */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+                  {[
+                    { label:'Earned YTD', value:`$${ytdEarned.toFixed(2)}`, color:'#1A1917' },
+                    { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#166534' },
+                    { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#92400E' : '#9E9B94' },
+                  ].map(c => (
+                    <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', textAlign:'center' }}>
+                      <div style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em', marginBottom:6 }}>{c.label}</div>
+                      <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
+                    </div>
+                  ))}
                 </div>
-                {incentivesData.length === 0 ? (
-                  <div style={{ padding:'48px 0', textAlign:'center', color:'#9E9B94', fontSize:13 }}>No incentives earned yet</div>
-                ) : (
-                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                    <thead>
-                      <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                        {['Program','Type','Amount','Period','Awarded'].map(h => (
-                          <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em' }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {incentivesData.map((inc: any) => (
-                        <tr key={inc.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
-                          <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || 'Program'}</td>
-                          <td style={{ padding:'12px 16px' }}>
-                            <span style={{ fontSize:11, padding:'2px 7px', borderRadius:4, background:'#EDE9FE', color:'#5B21B6', fontWeight:600, textTransform:'capitalize' as const }}>
-                              {(inc.incentive_type || 'bonus').replace(/_/g, ' ')}
-                            </span>
-                          </td>
-                          <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>
-                            {inc.amount_type === 'percentage' ? `${inc.amount}%` : `$${parseFloat(inc.amount || 0).toFixed(2)}`}
-                          </td>
-                          <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
-                            {inc.period_start ? new Date(inc.period_start + 'T12:00').toLocaleDateString('en-US', { month:'short', year:'numeric' }) : '—'}
-                          </td>
-                          <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
-                            {inc.awarded_at ? new Date(inc.awarded_at).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
-                          </td>
+
+                {/* History table */}
+                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
+                  <div style={{ padding:'12px 18px', borderBottom:'1px solid #EEECE7' }}>
+                    <p style={{ margin:0, fontSize:13, fontWeight:700, color:'#1A1917' }}>Incentive History</p>
+                  </div>
+                  {incentivesData.length === 0 ? (
+                    <div style={{ padding:'40px 0', textAlign:'center', color:'#9E9B94', fontSize:13 }}>No incentives earned yet</div>
+                  ) : (
+                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                      <thead>
+                        <tr style={{ borderBottom:'1px solid #EEECE7' }}>
+                          {['Program','Amount','Earned Date','Status','Paid Date'].map(h => (
+                            <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{h}</th>
+                          ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
+                      </thead>
+                      <tbody>
+                        {incentivesData.map((inc: any) => {
+                          const s = STATUS_S[inc.status] ?? STATUS_S.approved;
+                          return (
+                            <tr key={inc.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || '—'}</td>
+                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
+                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                                {inc.earned_date ? new Date(inc.earned_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
+                              </td>
+                              <td style={{ padding:'12px 16px' }}>
+                                <span style={{ padding:'2px 7px', borderRadius:4, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
+                              </td>
+                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                                {inc.paid_date ? new Date(inc.paid_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {activeTab === 'Notes' && (
             <div>

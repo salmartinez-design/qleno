@@ -15,6 +15,8 @@ export const satisfactionSurveysTable = pgTable("satisfaction_surveys", {
   rating: integer("rating"),
   comment: text("comment"),
   follow_up_required: boolean("follow_up_required").notNull().default(false),
+  suppressed: boolean("suppressed").notNull().default(false),
+  suppressed_reason: text("suppressed_reason"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
