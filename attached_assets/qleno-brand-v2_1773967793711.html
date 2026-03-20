@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qleno — Brand Identity v2</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: #E8E8E4;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1.5rem;
+  }
+  .sheet {
+    width: 100%;
+    max-width: 700px;
+  }
+  .sheet-eyebrow {
+    font-size: 10px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: #888;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .sheet-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #0A0E1A;
+    letter-spacing: -0.4px;
+    margin-bottom: 24px;
+  }
+  .card {
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+    padding: 3rem 2rem;
+  }
+  .card-light  { background: #F3F3F0; }
+  .card-dark   { background: #0A0E1A; }
+  .card-mint   { background: #00C9A0; }
+
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .grid-2 .card, .grid-3 .card { margin-bottom: 0; padding: 2.5rem 1.5rem; }
+
+  .section-label {
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: .10em;
+    text-transform: uppercase;
+    color: #AAA;
+    margin: 20px 0 8px;
+  }
+
+  .swatches { display: flex; gap: 8px; margin-bottom: 8px; }
+  .swatch {
+    flex: 1;
+    height: 68px;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 9px 12px;
+  }
+  .swatch-name { font-size: 9px; font-weight: 600; letter-spacing:.04em; text-transform:uppercase; line-height:1.8; }
+  .swatch-hex  { font-size: 9px; font-weight: 400; opacity: .8; }
+
+  .usage-note {
+    font-size: 11px;
+    color: #999;
+    text-align: center;
+    margin-top: 4px;
+    letter-spacing: .01em;
+  }
+  .icon-label {
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    margin-top: 12px;
+    color: #AAA;
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <p class="sheet-eyebrow">Qleno</p>
+  <p class="sheet-title">Brand Identity</p>
+
+  <!-- PRIMARY: light background -->
+  <div class="card card-light">
+    <svg width="240" height="66" viewBox="0 0 240 66" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+        <!-- Q ring open arc: center (27,27) radius 19, gap at 4-5 o'clock -->
+        <path d="M43,38 A19,19 0 1 0 46,30"/>
+        <!-- Squeegee tail -->
+        <line x1="43" y1="38" x2="51" y2="52"/>
+        <!-- Mop/squeegee head — perpendicular to tail direction -->
+        <line x1="45" y1="56" x2="57" y2="49"/>
+      </g>
+      <text x="88" y="44"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+        font-weight="700" font-size="36" fill="#0A0E1A" letter-spacing="-1.2">qleno</text>
+    </svg>
+  </div>
+
+  <!-- PRIMARY: dark background -->
+  <div class="card card-dark">
+    <svg width="240" height="66" viewBox="0 0 240 66" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+        <path d="M43,38 A19,19 0 1 0 46,30"/>
+        <line x1="43" y1="38" x2="51" y2="52"/>
+        <line x1="45" y1="56" x2="57" y2="49"/>
+      </g>
+      <text x="88" y="44"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+        font-weight="700" font-size="36" fill="#FFFFFF" letter-spacing="-1.2">qleno</text>
+    </svg>
+  </div>
+
+  <!-- PRIMARY: mint background -->
+  <div class="card card-mint">
+    <svg width="240" height="66" viewBox="0 0 240 66" xmlns="http://www.w3.org/2000/svg">
+      <g stroke="#0A0E1A" stroke-linecap="round" fill="none" stroke-width="5.5">
+        <path d="M43,38 A19,19 0 1 0 46,30"/>
+        <line x1="43" y1="38" x2="51" y2="52"/>
+        <line x1="45" y1="56" x2="57" y2="49"/>
+      </g>
+      <text x="88" y="44"
+        font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif"
+        font-weight="700" font-size="36" fill="#0A0E1A" letter-spacing="-1.2">qleno</text>
+    </svg>
+  </div>
+
+  <!-- STACKED + ICON SIZES -->
+  <p class="section-label">Stacked lockup &amp; icon scale</p>
+  <div class="grid-2">
+
+    <!-- Stacked lockup -->
+    <div class="card card-light" style="flex-direction:column; gap:14px; align-items:center;">
+      <svg width="56" height="56" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+          <path d="M43,38 A19,19 0 1 0 46,30"/>
+          <line x1="43" y1="38" x2="51" y2="52"/>
+          <line x1="45" y1="56" x2="57" y2="49"/>
+        </g>
+      </svg>
+      <span style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-weight:700;font-size:28px;color:#0A0E1A;letter-spacing:-0.5px;">qleno</span>
+    </div>
+
+    <!-- Icon scale grid -->
+    <div class="card card-dark" style="flex-direction:column; gap:0; align-items:flex-start; padding:2rem;">
+      <div style="display:flex; align-items:flex-end; gap:20px; padding-bottom:4px;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+          <svg width="48" height="48" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+              <path d="M43,38 A19,19 0 1 0 46,30"/>
+              <line x1="43" y1="38" x2="51" y2="52"/>
+              <line x1="45" y1="56" x2="57" y2="49"/>
+            </g>
+          </svg>
+          <span style="font-size:9px;color:#444;font-weight:500;font-family:system-ui;">48px</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+          <svg width="32" height="32" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+              <path d="M43,38 A19,19 0 1 0 46,30"/>
+              <line x1="43" y1="38" x2="51" y2="52"/>
+              <line x1="45" y1="56" x2="57" y2="49"/>
+            </g>
+          </svg>
+          <span style="font-size:9px;color:#444;font-weight:500;font-family:system-ui;">32px</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+          <svg width="20" height="20" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+              <path d="M43,38 A19,19 0 1 0 46,30"/>
+              <line x1="43" y1="38" x2="51" y2="52"/>
+              <line x1="45" y1="56" x2="57" y2="49"/>
+            </g>
+          </svg>
+          <span style="font-size:9px;color:#444;font-weight:500;font-family:system-ui;">20px</span>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+          <svg width="14" height="14" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+            <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+              <path d="M43,38 A19,19 0 1 0 46,30"/>
+              <line x1="43" y1="38" x2="51" y2="52"/>
+              <line x1="45" y1="56" x2="57" y2="49"/>
+            </g>
+          </svg>
+          <span style="font-size:9px;color:#444;font-weight:500;font-family:system-ui;">14px</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- APP ICON / FAVICON -->
+  <p class="section-label">App icon &amp; favicon</p>
+  <div class="grid-3">
+    <div class="card card-dark" style="flex-direction:column; gap:12px;">
+      <div style="width:72px;height:72px;background:#0A0E1A;border-radius:18px;border:2px solid #1E2535;display:flex;align-items:center;justify-content:center;">
+        <svg width="44" height="44" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <g stroke="#00C9A0" stroke-linecap="round" fill="none" stroke-width="5.5">
+            <path d="M43,38 A19,19 0 1 0 46,30"/>
+            <line x1="43" y1="38" x2="51" y2="52"/>
+            <line x1="45" y1="56" x2="57" y2="49"/>
+          </g>
+        </svg>
+      </div>
+      <span class="icon-label" style="color:#555;">iOS / Android</span>
+    </div>
+    <div class="card card-light" style="flex-direction:column; gap:12px;">
+      <div style="width:72px;height:72px;background:#00C9A0;border-radius:18px;display:flex;align-items:center;justify-content:center;">
+        <svg width="44" height="44" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <g stroke="#0A0E1A" stroke-linecap="round" fill="none" stroke-width="5.5">
+            <path d="M43,38 A19,19 0 1 0 46,30"/>
+            <line x1="43" y1="38" x2="51" y2="52"/>
+            <line x1="45" y1="56" x2="57" y2="49"/>
+          </g>
+        </svg>
+      </div>
+      <span class="icon-label">Mint variant</span>
+    </div>
+    <div class="card card-light" style="flex-direction:column; gap:12px;">
+      <div style="width:72px;height:72px;background:#F3F3F0;border:2px solid #E0E0DC;border-radius:18px;display:flex;align-items:center;justify-content:center;">
+        <svg width="44" height="44" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+          <g stroke="#0A0E1A" stroke-linecap="round" fill="none" stroke-width="5.5">
+            <path d="M43,38 A19,19 0 1 0 46,30"/>
+            <line x1="43" y1="38" x2="51" y2="52"/>
+            <line x1="45" y1="56" x2="57" y2="49"/>
+          </g>
+        </svg>
+      </div>
+      <span class="icon-label">Light variant</span>
+    </div>
+  </div>
+
+  <!-- PALETTE -->
+  <p class="section-label">Color palette</p>
+  <div class="swatches">
+    <div class="swatch" style="background:#00C9A0;">
+      <span class="swatch-name" style="color:#004438;">Electric Mint</span>
+      <span class="swatch-hex"  style="color:#004438;">#00C9A0</span>
+    </div>
+    <div class="swatch" style="background:#0A0E1A;">
+      <span class="swatch-name" style="color:#4A5568;">Qleno Night</span>
+      <span class="swatch-hex"  style="color:#4A5568;">#0A0E1A</span>
+    </div>
+    <div class="swatch" style="background:#F3F3F0; border:1.5px solid #E0E0DC;">
+      <span class="swatch-name" style="color:#AAA;">Smoke</span>
+      <span class="swatch-hex"  style="color:#AAA;">#F3F3F0</span>
+    </div>
+    <div class="swatch" style="background:#FFFFFF; border:1.5px solid #E0E0DC;">
+      <span class="swatch-name" style="color:#AAA;">Pure</span>
+      <span class="swatch-hex"  style="color:#AAA;">#FFFFFF</span>
+    </div>
+  </div>
+
+  <!-- MARK CONCEPT NOTE -->
+  <div style="background:#FFFFFF; border-radius:14px; padding:1.5rem 1.75rem; margin-top:8px; border:1.5px solid #E8E8E4;">
+    <p style="font-size:11px; font-weight:600; color:#0A0E1A; letter-spacing:.06em; text-transform:uppercase; margin-bottom:8px;">Mark concept</p>
+    <p style="font-size:13px; color:#555; line-height:1.7;">The Q ring is a precision open arc. The tail descends from the gap and terminates in a short perpendicular bar — the geometry of a squeegee blade. Clean, geometric, unambiguous at any size. The mark reads as both a letterform and a cleaning tool without illustration.</p>
+  </div>
+
+</div>
+</body>
+</html>

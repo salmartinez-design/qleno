@@ -1,0 +1,202 @@
+You are working on CleanOps Pro, which is being rebranded to Qleno.
+Implement the new Qleno brand identity across the entire application.
+
+═══════════════════════════════════════════════════════
+BRAND ASSETS — BUILD THESE EXACTLY AS SPECIFIED
+═══════════════════════════════════════════════════════
+
+The Qleno mark is an SVG built from three strokes only.
+No fills. No gradients. No raster images.
+Stroke color is always #00C9A0 (Electric Mint) on dark/light 
+backgrounds, and #0A0E1A (Qleno Night) on mint backgrounds.
+
+MARK SVG (canonical — use this exact path data everywhere):
+
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <g stroke="#00C9A0" stroke-linecap="round" fill="none" 
+     stroke-width="5.5">
+    <path d="M43,38 A19,19 0 1 0 46,30"/>
+    <line x1="43" y1="38" x2="51" y2="52"/>
+    <line x1="45" y1="56" x2="57" y2="49"/>
+  </g>
+</svg>
+
+Scale the viewBox container to match placement size.
+Never stretch or distort the viewBox proportions.
+stroke-width stays 5.5 at all sizes — SVG scaling handles it.
+
+WORDMARK:
+- Text: "qleno" (always lowercase)
+- Font: Plus Jakarta Sans, weight 700
+- Letter spacing: -0.04em
+- Color: #0A0E1A on light backgrounds
+         #FFFFFF on dark backgrounds
+         #0A0E1A on mint backgrounds
+
+COLOR TOKENS — add to global CSS / Tailwind config:
+--qleno-mint:    #00C9A0
+--qleno-night:   #0A0E1A
+--qleno-smoke:   #F3F3F0
+--qleno-pure:    #FFFFFF
+
+These are BRAND tokens, separate from the existing 
+per-tenant --brand variable. Do not replace --brand.
+
+═══════════════════════════════════════════════════════
+CREATE: QlenoMark COMPONENT
+═══════════════════════════════════════════════════════
+
+Create a reusable React component: QlenoMark.jsx
+
+Props:
+  size       — number (px), default 32
+  theme      — 'mint' | 'dark' | 'light', default 'mint'
+               mint  = #00C9A0 stroke
+               dark  = #00C9A0 stroke (on dark bg)
+               light = #0A0E1A stroke (on light bg)
+  className  — optional string
+
+Component renders the canonical SVG mark only.
+No wordmark included in this component.
+
+═══════════════════════════════════════════════════════
+CREATE: QlenoLogo COMPONENT
+═══════════════════════════════════════════════════════
+
+Create a reusable React component: QlenoLogo.jsx
+
+Props:
+  size       — 'sm' | 'md' | 'lg', default 'md'
+               sm: mark 20px, wordmark 16px
+               md: mark 28px, wordmark 22px
+               lg: mark 40px, wordmark 32px
+  theme      — 'light' | 'dark', default 'light'
+  layout     — 'horizontal' | 'stacked', default 'horizontal'
+  className  — optional string
+
+Horizontal layout: mark left, wordmark right, 
+aligned center, gap 10px.
+
+Stacked layout: mark centered on top, 
+wordmark centered below, gap 12px.
+
+═══════════════════════════════════════════════════════
+IMPLEMENTATION — WHERE TO PLACE THESE COMPONENTS
+═══════════════════════════════════════════════════════
+
+── 1. LOGIN PAGE ──
+Replace any existing logo/product name with:
+<QlenoLogo size="lg" theme="light" layout="stacked" />
+Centered above the login form card.
+Below the logo, add tagline in secondary text:
+"Cleaning operations software"
+Font: Plus Jakarta Sans 13px, #6B6860, letter-spacing .04em
+
+── 2. SIDEBAR / LEFT NAV — COLLAPSED STATE ──
+At the top of the collapsed sidebar:
+<QlenoMark size="28" theme="mint" />
+Centered horizontally in the collapsed nav column.
+
+── 3. SIDEBAR / LEFT NAV — EXPANDED STATE ──
+At the top of the expanded sidebar:
+<QlenoLogo size="md" theme="light" layout="horizontal" />
+Left-aligned with 20px left padding.
+Below the logo, maintain existing tenant name display 
+and role badge — do not remove those.
+
+── 4. SUPER ADMIN PORTAL (/admin) ──
+Same as sidebar expanded state but use:
+<QlenoLogo size="md" theme="dark" layout="horizontal" />
+Super Admin nav has dark background — use dark theme logo.
+
+── 5. BROWSER TAB — PAGE TITLE ──
+Update all page <title> tags:
+Format: "[Page Name] — Qleno"
+Examples:
+  "Dashboard — Qleno"
+  "Dispatch Board — Qleno"
+  "Invoices — Qleno"
+  "Login — Qleno"
+
+── 6. FAVICON ──
+Generate a favicon using the mark only.
+Create a 32x32 SVG favicon:
+  Background: #0A0E1A rounded rect (rx 7)
+  Mark centered, size 22px, stroke #00C9A0
+
+Add to index.html:
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+Create /public/favicon.svg with this content:
+<svg width="32" height="32" viewBox="0 0 32 32" 
+     xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" rx="7" fill="#0A0E1A"/>
+  <g transform="translate(-9, -9) scale(0.484)"
+     stroke="#00C9A0" stroke-linecap="round" 
+     fill="none" stroke-width="5.5">
+    <path d="M43,38 A19,19 0 1 0 46,30"/>
+    <line x1="43" y1="38" x2="51" y2="52"/>
+    <line x1="45" y1="56" x2="57" y2="49"/>
+  </g>
+</svg>
+
+── 7. EMAIL TEMPLATES (Resend) ──
+In all outgoing email templates, replace any 
+existing logo or product name reference with:
+Plain text: "qleno" in the email header
+Color: #00C9A0 for the wordmark text
+Font stack: system-ui, sans-serif, 700 weight
+Do not embed SVG in emails — text only for deliverability.
+
+── 8. SURVEY PAGE (/survey/:token) ──
+At the top of the public survey page:
+<QlenoLogo size="sm" theme="light" layout="horizontal" />
+Centered. Below the Qleno logo, show the tenant's 
+company name in secondary text — not the Qleno wordmark 
+twice. Format: "Powered by Qleno" in 10px secondary text 
+below the tenant name.
+
+── 9. SUPER ADMIN PORTAL — ALL REFERENCES ──
+Replace any text references to "CleanOps Pro" in the 
+Super Admin portal UI with "Qleno".
+Update the /admin page header, any admin cards, 
+and any descriptive copy that references the 
+old product name.
+
+── 10. APP-WIDE TEXT REPLACEMENT ──
+Search and replace all instances of:
+  "CleanOps Pro" → "Qleno"
+  "cleanopspro"  → "qleno" (where it appears in UI text,
+                   NOT in API routes or variable names)
+
+Do NOT rename:
+  - API route paths
+  - Database table names  
+  - Variable names in code
+  - Environment variable keys
+  - The Replit project name
+  - GitHub repository name
+These are infrastructure concerns handled separately.
+
+═══════════════════════════════════════════════════════
+IMPLEMENTATION RULES
+═══════════════════════════════════════════════════════
+- QlenoMark and QlenoLogo are the ONLY way the 
+  logo appears anywhere in the app. No inline SVG 
+  duplicated in individual files.
+- Never use an <img> tag for the logo.
+- The mark SVG must never be wrapped in a div with 
+  a colored background unless building the app icon 
+  variant explicitly.
+- The existing per-tenant --brand color system is 
+  completely untouched. Qleno brand tokens are 
+  additive, not replacements.
+- Plus Jakarta Sans is already the app font — 
+  no font changes needed.
+- After implementation, do a final pass and confirm:
+  1. Login page shows Qleno logo, no old branding
+  2. Sidebar shows mark (collapsed) and full logo (expanded)
+  3. Browser tab reads "Dashboard — Qleno"
+  4. Favicon is the dark rounded square with mint mark
+  5. /admin portal shows no "CleanOps Pro" text anywhere
+  6. All tenant-facing pages untouched re: --brand color
