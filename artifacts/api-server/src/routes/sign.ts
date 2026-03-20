@@ -108,7 +108,7 @@ router.post("/:token", async (req, res) => {
       pdfUrl = await generateAgreementPdf({
         submissionId: submission.id,
         formName: submission.form_name || "Service Agreement",
-        companyName: submission.company_name || "CleanOps Pro",
+        companyName: submission.company_name || "Qleno",
         termsBody: submission.terms_body || "",
         responses: responses || {},
         signatureName: signature_name,

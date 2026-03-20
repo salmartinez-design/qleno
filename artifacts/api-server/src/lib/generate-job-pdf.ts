@@ -115,7 +115,7 @@ export async function generateJobCompletionPdf(data: JobPdfData): Promise<string
 
     doc.fontSize(9).fillColor(gray).font("Helvetica")
       .text(
-        `This document was generated automatically by CleanOps Pro on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.`,
+        `This document was generated automatically by Qleno on ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}.`,
         50, y, { width: doc.page.width - 100, align: "center" }
       );
 

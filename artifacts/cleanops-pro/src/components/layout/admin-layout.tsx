@@ -3,8 +3,9 @@ import { useLocation, Link } from "wouter";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import {
   LayoutDashboard, Building2, CreditCard, BookOpen,
-  LogOut, X, Menu, Shield, ArrowLeft
+  LogOut, X, Menu, ArrowLeft
 } from "lucide-react";
+import { QlenoLogo } from "@/components/brand/QlenoLogo";
 
 const ADMIN_NAV = [
   { title: "Dashboard",       url: "/admin",                icon: LayoutDashboard },
@@ -63,11 +64,10 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
       height: "100%",
     }}>
       {/* Header */}
-      <div style={{ padding: "18px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ padding: "16px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <Shield size={16} color={PURPLE} strokeWidth={2} />
-            <span style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>Qleno</span>
+          <div style={{ marginBottom: "8px" }}>
+            <QlenoLogo size="md" theme="light" layout="horizontal" />
           </div>
           <span style={{
             fontSize: "10px", fontWeight: 700, color: PURPLE,

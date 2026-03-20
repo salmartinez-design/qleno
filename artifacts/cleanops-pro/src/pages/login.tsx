@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
+import { QlenoLogo } from "@/components/brand/QlenoLogo";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -19,6 +20,10 @@ export default function Login() {
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
   const { toast } = useToast();
+
+  useEffect(() => {
+    document.title = "Login — Qleno";
+  }, []);
 
   useEffect(() => {
     if (token) {
@@ -75,17 +80,21 @@ export default function Login() {
     <div style={{
       minHeight: '100vh', width: '100%',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      backgroundColor: '#F7F6F3', padding: '16px',
+      backgroundColor: '#F3F3F0', padding: '16px',
       fontFamily: "'Plus Jakarta Sans', sans-serif",
     }}>
       <div style={{ position: 'relative', width: '100%', maxWidth: '400px', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '16px', padding: '40px 36px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: '36px' }}>
-          <div style={{ backgroundColor: '#F7F6F3', borderRadius: '10px', padding: '10px 18px', marginBottom: '18px', display: 'inline-block', border: '1px solid #EEECE7' }}>
-            <img src="/phes-logo.jpeg" alt="PHES Cleaning LLC" style={{ height: '44px', width: 'auto', objectFit: 'contain', display: 'block' }} />
+          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
+            <QlenoLogo size="lg" theme="light" layout="stacked" />
           </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#1A1917', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>Qleno</h1>
-          <p style={{ fontSize: '13px', color: '#6B7280', margin: 0 }}>Sign in to your workspace</p>
+          <p style={{
+            fontSize: '13px', color: '#6B6860', margin: 0,
+            letterSpacing: '0.04em', fontFamily: "'Plus Jakarta Sans', sans-serif",
+          }}>
+            Cleaning operations software
+          </p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
@@ -95,7 +104,7 @@ export default function Login() {
               type="email"
               placeholder="you@yourcompany.com"
               style={INP}
-              onFocus={e => (e.target.style.borderColor = 'var(--brand)')}
+              onFocus={e => (e.target.style.borderColor = '#00C9A0')}
               onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
               {...register("email")}
             />
@@ -105,13 +114,13 @@ export default function Login() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
               <label style={{ fontSize: '11px', fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
-              <a href="#" style={{ fontSize: '12px', color: 'var(--brand)', textDecoration: 'none' }}>Forgot password?</a>
+              <a href="#" style={{ fontSize: '12px', color: '#00C9A0', textDecoration: 'none' }}>Forgot password?</a>
             </div>
             <input
               type="password"
               placeholder="••••••••"
               style={INP}
-              onFocus={e => (e.target.style.borderColor = 'var(--brand)')}
+              onFocus={e => (e.target.style.borderColor = '#00C9A0')}
               onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
               {...register("password")}
             />
@@ -123,7 +132,7 @@ export default function Login() {
             disabled={loginMutation.isPending}
             style={{
               width: '100%', height: '44px',
-              backgroundColor: 'var(--brand)', color: '#FFFFFF',
+              backgroundColor: '#0A0E1A', color: '#FFFFFF',
               borderRadius: '8px', fontSize: '14px', fontWeight: 600,
               border: 'none', cursor: loginMutation.isPending ? 'wait' : 'pointer',
               opacity: loginMutation.isPending ? 0.7 : 1, marginTop: '6px',

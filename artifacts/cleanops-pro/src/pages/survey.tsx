@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useRoute } from "wouter";
 import { CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { QlenoLogo } from "@/components/brand/QlenoLogo";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -97,10 +98,14 @@ export default function SurveyPage() {
       <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "36px 28px", maxWidth: 500, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
         {/* Header */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: brand, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 12px", fontSize: 20, fontWeight: 800, color: "#FFFFFF" }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <QlenoLogo size="sm" theme="light" layout="horizontal" />
+          </div>
+          <div style={{ width: 44, height: 44, borderRadius: 11, backgroundColor: brand, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px", fontSize: 18, fontWeight: 800, color: "#FFFFFF" }}>
             {companyName[0]}
           </div>
-          <h1 style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{companyName}</h1>
+          <h1 style={{ fontSize: 17, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{companyName}</h1>
+          <p style={{ fontSize: 10, color: "#9E9B94", margin: "0 0 8px", letterSpacing: "0.02em" }}>Powered by Qleno</p>
           <p style={{ fontSize: 14, color: "#6B7280", margin: 0 }}>How was your cleaning today?</p>
         </div>
 

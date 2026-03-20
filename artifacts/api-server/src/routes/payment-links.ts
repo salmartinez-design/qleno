@@ -329,7 +329,7 @@ function buildCardLinkEmail({ clientName, companyName, payUrl, brandColor }: {
     <p style="color:#6B7280;font-size:13px;">This link expires in 72 hours. You will not be charged today.</p>
   </div>
   <div class="footer">
-    <p>This email was sent by ${companyName} via CleanOps Pro.</p>
+    <p>This email was sent by ${companyName} via Qleno.</p>
     <p>If you did not expect this email, you can safely ignore it.</p>
   </div>
 </div>

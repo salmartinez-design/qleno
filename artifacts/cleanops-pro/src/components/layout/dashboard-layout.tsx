@@ -209,6 +209,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   }, [location]);
 
   useEffect(() => {
+    const pt = title || ROUTE_TITLES[location] || 'Qleno';
+    document.title = `${pt} — Qleno`;
+  }, [location, title]);
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;

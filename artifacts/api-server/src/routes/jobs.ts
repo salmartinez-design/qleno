@@ -606,7 +606,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
         client_address: sql<string>`coalesce(${clientsTable.address}, '')`,
         assigned_user_name: sql<string | null>`concat(${usersTable.first_name}, ' ', ${usersTable.last_name})`,
-        company_name: sql<string>`coalesce((select name from companies where id = ${jobsTable.company_id}), 'CleanOps Pro')`,
+        company_name: sql<string>`coalesce((select name from companies where id = ${jobsTable.company_id}), 'Qleno')`,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -625,7 +625,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
         const d = jobDetail[0];
         pdfUrl = await generateJobCompletionPdf({
           jobId,
-          companyName: d.company_name || "CleanOps Pro",
+          companyName: d.company_name || "Qleno",
           clientName: d.client_name || "Unknown Client",
           clientAddress: d.client_address || "",
           serviceType: d.service_type || "Cleaning",
