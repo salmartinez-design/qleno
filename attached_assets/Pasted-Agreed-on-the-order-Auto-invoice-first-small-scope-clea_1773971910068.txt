@@ -1,0 +1,200 @@
+Agreed on the order. Auto-invoice first — small scope, clean change, unblocks the entire payment chain for both companies. Here’s the prompt.
+
+You are working on Qleno (formerly CleanOps Pro), a multi-tenant 
+SaaS platform for cleaning businesses.
+
+TECH STACK: React 18, Tailwind, Express/Node.js, Supabase 
+(Postgres + RLS + JWT), Plus Jakarta Sans only.
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand)
+- NO emojis, NO dark mode, light theme only
+
+All endpoints: JWT protected, company_id scoped, RLS enforced.
+
+═══════════════════════════════════════════════════════
+FEATURE: AUTO-INVOICE ON JOB COMPLETION
+═══════════════════════════════════════════════════════
+
+When a job is marked complete, the system must 
+automatically generate a draft invoice for that job 
+if one does not already exist.
+
+This is a foundational change that enables the Square 
+payment chain (PHES) and Stripe auto-charge chain 
+(Evinco) in subsequent sprints.
+
+── BACKEND ──
+
+Modify the job completion endpoint:
+  POST /api/jobs/:id/complete
+  (or wherever job status is set to 'complete')
+
+After setting job status to 'complete', run this logic:
+
+  1. Check if an invoice already exists for this job_id
+     SELECT * FROM invoices WHERE job_id = :id 
+     AND company_id = :company_id LIMIT 1
+
+  2. If invoice already exists — do nothing, return job
+
+  3. If no invoice exists — auto-create one:
+
+     invoice fields to populate:
+       company_id    — from JWT
+       job_id        — the completed job id
+       client_id     — from job record
+       status        — 'draft'
+       issued_date   — today (UTC)
+       due_date      — today + company payment_terms_days
+                       (default 0 if not set — due on receipt)
+       line_items    — JSONB array built from job:
+         [{
+           description: job.service_type (formatted),
+           quantity: 1,
+           unit_price: job.price || 0,
+           total: job.price || 0
+         }]
+       subtotal      — job.price || 0
+       tax_amount    — 0 (tax not yet implemented)
+       total_amount  — job.price || 0
+       notes         — null
+       created_by    — user_id from JWT
+
+  4. Return the completed job with the new invoice 
+     attached: { ...job, invoice: { id, status, total } }
+
+Add to companies table if not present:
+  payment_terms_days  integer default 0
+  -- 0 = due on receipt
+  -- 30 = NET 30
+  -- configurable per tenant in Company Settings
+
+Create a new endpoint:
+  POST /api/jobs/:id/complete-and-invoice
+  — Wraps the above logic in a single transaction
+  — If invoice creation fails, job completion still 
+    persists — do not roll back the job status
+  — Log the failure to the audit log
+
+── FRONTEND ──
+
+DISPATCH BOARD / JOB DETAIL — Mark Complete flow:
+
+Current behavior: button marks job complete.
+New behavior: same button, but after marking complete,
+show a confirmation toast:
+  "Job marked complete — invoice #[ID] created"
+  With a "View Invoice" link that navigates to 
+  the invoice detail
+
+If invoice already existed:
+  "Job marked complete — existing invoice updated"
+
+If invoice creation failed silently:
+  "Job marked complete — invoice could not be 
+   generated. Create it manually in Invoices."
+
+MOBILE MY JOBS — Clock out completion:
+
+After a tech clocks out and the job moves to complete,
+the auto-invoice fires server-side silently.
+No UI change needed on the tech's mobile view.
+The office sees the invoice appear on their 
+Invoices page automatically.
+
+INVOICES PAGE:
+
+Auto-generated invoices appear in the invoice list 
+with status 'draft' immediately.
+No visual distinction needed between auto-generated 
+and manually created invoices — they are the same.
+
+COMPANY SETTINGS — General tab:
+
+Add payment terms field:
+  Label: "Default payment terms"
+  Select: 
+    Due on receipt (0 days)
+    NET 7
+    NET 15
+    NET 30
+  Default: Due on receipt
+  Helper text: "Applied to all auto-generated invoices. 
+   Can be overridden per invoice."
+
+Saves to companies.payment_terms_days.
+
+── EVINCO-SPECIFIC BEHAVIOR ──
+
+Evinco's workflow is:
+  Job marked complete → invoice auto-created → 
+  card on file charged (Sprint 7)
+
+For now, the auto-invoice is the first half of that 
+chain. The auto-charge will be wired in Sprint 7.
+
+Evinco will set payment_terms_days = 30 (NET 30) 
+in Company Settings.
+
+When Evinco's invoice is auto-created:
+  due_date = completed_date + 30 days
+  status = 'draft' (becomes 'sent' when charge 
+  is triggered in Sprint 7)
+
+── PHES-SPECIFIC BEHAVIOR ──
+
+PHES will set payment_terms_days = 0 (due on receipt).
+When PHES's invoice is auto-created:
+  due_date = completed_date (same day)
+  status = 'draft' (owner reviews and sends/charges 
+  manually until Square is wired in Sprint next)
+
+── EDGE CASES TO HANDLE ──
+
+1. Job has no price set (price = null or 0):
+   Still create the invoice with total = 0.
+   Owner edits price before sending.
+   Do not block invoice creation on $0 jobs.
+
+2. Job is already complete and re-saved:
+   Check for existing invoice first — 
+   never create duplicates.
+
+3. Job is cancelled after invoice was created:
+   Do not auto-void the invoice.
+   Owner handles manually.
+   (Auto-void is a future sprint.)
+
+4. Recurring job completion:
+   Each individual job instance generates its 
+   own invoice — not a consolidated invoice.
+   (Consolidated billing is a future feature.)
+
+── CONFIRMATION CHECKLIST ──
+
+After implementation confirm:
+1. POST /api/jobs/:id/complete creates invoice 
+   atomically when none exists
+2. Duplicate invoices are never created for 
+   the same job_id + company_id
+3. payment_terms_days is used for due_date 
+   calculation correctly
+4. Evinco NET 30 and PHES due-on-receipt 
+   both produce correct due dates
+5. Failed invoice creation does not roll back 
+   job completion
+6. Auto-generated invoice appears in /invoices 
+   immediately after job completion
+7. Company Settings General tab has 
+   payment terms selector
+8. JWT and company_id scoping enforced on 
+   all new/modified endpoints
+
+
+Once this confirms clean, Square is next. That prompt will be larger — Square OAuth connection, payment abstraction layer activation for PHES, charge-now flow wiring to Square instead of Stripe. Want me to write that Square prompt now so it’s ready to go the moment this one lands?​​​​​​​​​​​​​​​​

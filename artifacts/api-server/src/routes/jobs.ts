@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -649,6 +649,72 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       console.error("PDF generation error (non-fatal):", pdfErr);
     }
 
+    // ── Auto-invoice on completion ────────────────────────────────────────
+    let autoInvoice: { id: number; status: string; total: string } | null = null;
+    let invoiceCreated = false;
+    let invoiceError = false;
+
+    try {
+      const companyId = req.auth!.companyId;
+
+      const existing = await db
+        .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total })
+        .from(invoicesTable)
+        .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
+        .limit(1);
+
+      if (existing[0]) {
+        autoInvoice = { id: existing[0].id, status: existing[0].status, total: existing[0].total };
+      } else {
+        const [co] = await db
+          .select({ payment_terms_days: companiesTable.payment_terms_days })
+          .from(companiesTable)
+          .where(eq(companiesTable.id, companyId))
+          .limit(1);
+
+        const termsDays = co?.payment_terms_days ?? 0;
+        const today = new Date();
+        const due = new Date(today);
+        due.setDate(due.getDate() + termsDays);
+        const dueDateStr = due.toISOString().split("T")[0];
+
+        const termsLabel =
+          termsDays === 30 ? "net_30" :
+          termsDays === 15 ? "net_15" :
+          termsDays === 7  ? "net_7"  : "due_on_receipt";
+
+        const job = updated[0];
+        const amount = parseFloat((job as any).base_fee ?? "0");
+        const svcLabel = ((job as any).service_type ?? "Cleaning Service")
+          .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+
+        const lineItems = [{ description: svcLabel, quantity: 1, unit_price: amount, total: amount }];
+
+        const [newInv] = await db
+          .insert(invoicesTable)
+          .values({
+            company_id: companyId,
+            job_id: jobId,
+            client_id: (job as any).client_id,
+            status: "draft",
+            line_items: lineItems,
+            subtotal: amount.toFixed(2),
+            total: amount.toFixed(2),
+            due_date: dueDateStr,
+            payment_terms: termsLabel,
+            created_by: req.auth!.userId,
+          })
+          .returning({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total });
+
+        autoInvoice = { id: newInv.id, status: newInv.status, total: newInv.total };
+        invoiceCreated = true;
+      }
+    } catch (invErr) {
+      console.error("Auto-invoice error (non-fatal):", invErr);
+      invoiceError = true;
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     return res.json({
       ...updated[0],
       client_name: jobDetail[0]?.client_name ?? "",
@@ -656,6 +722,9 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       before_photo_count: beforeCount[0]?.count ?? 0,
       after_photo_count: afterPhotos[0].count,
       completion_pdf_url: pdfUrl,
+      invoice: autoInvoice,
+      invoice_created: invoiceCreated,
+      invoice_error: invoiceError,
     });
   } catch (err) {
     console.error("Complete job error:", err);

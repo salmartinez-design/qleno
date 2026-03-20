@@ -45,6 +45,7 @@ export const companiesTable = pgTable("companies", {
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),
+  payment_terms_days: integer("payment_terms_days").notNull().default(0),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

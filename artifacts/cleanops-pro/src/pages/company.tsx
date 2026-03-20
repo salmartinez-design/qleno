@@ -330,22 +330,31 @@ function GeneralTab() {
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [payCadence, setPayCadence] = useState('biweekly');
+  const [paymentTermsDays, setPaymentTermsDays] = useState(0);
 
   useEffect(() => {
     if (company) {
       setName(company.name || '');
       setPayCadence(company.pay_cadence || 'biweekly');
+      setPaymentTermsDays((company as any).payment_terms_days ?? 0);
     }
   }, [company]);
 
   const handleSave = () => {
     updateCompany.mutate(
-      { data: { name, pay_cadence: payCadence as any } as any },
+      { data: { name, pay_cadence: payCadence as any, payment_terms_days: paymentTermsDays } as any },
       {
         onSuccess: () => toast({ title: "Settings saved", description: "Company profile updated." }),
         onError: () => toast({ variant: "destructive", title: "Error", description: "Failed to save settings." }),
       }
     );
+  };
+
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const selectStyle: React.CSSProperties = {
+    width: '100%', fontFamily: FF, fontSize: '13px', color: '#1A1917',
+    backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px',
+    padding: '10px 14px', outline: 'none', cursor: 'pointer', appearance: 'none' as any,
   };
 
   return (
@@ -354,19 +363,31 @@ function GeneralTab() {
         <input
           value={name}
           onChange={e => setName(e.target.value)}
-          style={{ width: '100%', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '13px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none' }}
+          style={{ width: '100%', fontFamily: FF, fontSize: '13px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none' }}
         />
       </Section>
       <Section title="Pay Cadence" desc="How often payroll is processed.">
         <div style={{ display: 'flex', gap: '8px' }}>
           {[{ id: 'weekly', label: 'Weekly' }, { id: 'biweekly', label: 'Bi-weekly' }, { id: 'semimonthly', label: 'Semi-monthly' }].map(opt => (
-            <button key={opt.id} onClick={() => setPayCadence(opt.id)} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B7280' }}>
+            <button key={opt.id} onClick={() => setPayCadence(opt.id)} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: FF, cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B7280' }}>
               {opt.label}
             </button>
           ))}
         </div>
       </Section>
-      <button onClick={handleSave} disabled={updateCompany.isPending} style={{ alignSelf: 'flex-start', padding: '10px 24px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '6px', fontSize: '13px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, border: 'none', cursor: 'pointer', opacity: updateCompany.isPending ? 0.7 : 1 }}>
+      <Section title="Default payment terms" desc="Applied to all auto-generated invoices. Can be overridden per invoice.">
+        <select
+          value={paymentTermsDays}
+          onChange={e => setPaymentTermsDays(parseInt(e.target.value))}
+          style={selectStyle}
+        >
+          <option value={0}>Due on receipt</option>
+          <option value={7}>NET 7</option>
+          <option value={15}>NET 15</option>
+          <option value={30}>NET 30</option>
+        </select>
+      </Section>
+      <button onClick={handleSave} disabled={updateCompany.isPending} style={{ alignSelf: 'flex-start', padding: '10px 24px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '6px', fontSize: '13px', fontFamily: FF, fontWeight: 600, border: 'none', cursor: 'pointer', opacity: updateCompany.isPending ? 0.7 : 1 }}>
         {updateCompany.isPending ? 'Saving...' : 'Save Settings'}
       </button>
     </div>

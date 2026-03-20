@@ -113,9 +113,38 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
   async function setStatus(s: string) {
     setBusy(true);
-    try { await patchJob(job.id, { status: s }, token); toast({ title: `Job marked ${s.replace("_", " ")}` }); onUpdate(); onClose(); }
-    catch { toast({ title: "Error", variant: "destructive" }); }
-    finally { setBusy(false); }
+    try {
+      if (s === "complete") {
+        const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+        const r = await fetch(`${API2}/api/jobs/${job.id}/complete`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          throw new Error((err as any).message || "Failed to complete job");
+        }
+        const result = await r.json();
+        if (result.invoice_error) {
+          toast({ title: "Job marked complete", description: "Invoice could not be generated. Create it manually in Invoices." });
+        } else if (result.invoice_created && result.invoice) {
+          toast({ title: "Job marked complete", description: `Invoice #${result.invoice.id} created` });
+        } else if (result.invoice) {
+          toast({ title: "Job marked complete", description: "Existing invoice found" });
+        } else {
+          toast({ title: "Job marked complete" });
+        }
+      } else {
+        await patchJob(job.id, { status: s }, token);
+        toast({ title: `Job marked ${s.replace("_", " ")}` });
+      }
+      onUpdate();
+      onClose();
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message || "Something went wrong", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function cancelJob() {
