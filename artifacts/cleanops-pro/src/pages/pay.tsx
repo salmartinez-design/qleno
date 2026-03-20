@@ -116,7 +116,7 @@ export default function PayPage() {
   }
 
   const brand = data?.company?.brand_color || "#5B9BD5";
-  const companyName = data?.company?.name || "CleanOps Pro";
+  const companyName = data?.company?.name || "Qleno";
   const clientName = data?.client ? `${data.client.first_name} ${data.client.last_name}` : "there";
 
   return (

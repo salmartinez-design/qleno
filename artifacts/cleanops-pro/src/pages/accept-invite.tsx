@@ -104,7 +104,7 @@ export default function AcceptInvitePage() {
           <h2 style={{ fontSize:22, fontWeight:700, color:'#1A1917', margin:'0 0 6px 0' }}>
             Welcome, {invite?.first_name}!
           </h2>
-          <p style={{ fontSize:14, color:'#6B6860', margin:0 }}>Set up your CleanOps Pro account to get started</p>
+          <p style={{ fontSize:14, color:'#6B6860', margin:0 }}>Set up your Qleno account to get started</p>
         </div>
 
         {done && (

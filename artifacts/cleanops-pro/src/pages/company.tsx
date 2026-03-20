@@ -297,7 +297,7 @@ function BrandingTab() {
             ) : (
               <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '14px', color: '#1A1917', margin: '0 0 4px 0' }}>{(company as any)?.name || 'Your Company'}</p>
             )}
-            <p style={{ fontSize: '11px', color: '#9E9B94', margin: 0 }}>CleanOps Pro</p>
+            <p style={{ fontSize: '11px', color: '#9E9B94', margin: 0 }}>Qleno</p>
           </div>
           {[
             { label: 'Dashboard', active: false },

@@ -235,7 +235,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     );
   }
 
-  const pageTitle = title || ROUTE_TITLES[location] || 'CleanOps Pro';
+  const pageTitle = title || ROUTE_TITLES[location] || 'Qleno';
   const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '';
 
   if (isMobile) {

@@ -81,7 +81,7 @@ export default function SignPage() {
   };
 
   const brand = data?.company_brand || "#5B9BD5";
-  const companyName = data?.company_name || "CleanOps Pro";
+  const companyName = data?.company_name || "Qleno";
   const formName = data?.form_name || "Service Agreement";
   const schema = Array.isArray(data?.form_schema) ? data.form_schema : [];
   const termsBody = data?.terms_body || "";
@@ -125,7 +125,7 @@ export default function SignPage() {
           </a>
         )}
         <div style={{ marginTop: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
-          <Shield size={13} /> Secured by CleanOps Pro eSign
+          <Shield size={13} /> Secured by Qleno eSign
         </div>
       </div>
     </div>
@@ -265,7 +265,7 @@ export default function SignPage() {
         </div>
 
         <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
-          <Shield size={12} /> Secured by CleanOps Pro · Electronic signature compliant with E-SIGN Act &amp; UETA
+          <Shield size={12} /> Secured by Qleno · Electronic signature compliant with E-SIGN Act &amp; UETA
         </div>
       </div>
     </div>

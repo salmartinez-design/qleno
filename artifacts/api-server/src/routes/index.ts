@@ -43,6 +43,7 @@ import retentionRouter from "./retention.js";
 import addonsRouter from "./addons.js";
 import routeSequencesRouter from "./route-sequences.js";
 import suppliesRouter from "./supplies.js";
+import revenueGoalRouter from "./revenue-goal.js";
 
 const router: IRouter = Router();
 
@@ -90,5 +91,6 @@ router.use("/retention", retentionRouter);
 router.use("/addons", addonsRouter);
 router.use("/routes", routeSequencesRouter);
 router.use("/supplies", suppliesRouter);
+router.use("/revenue-goal", revenueGoalRouter);
 
 export default router;

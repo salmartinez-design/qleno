@@ -89,7 +89,7 @@ export default function PortalLoginPage() {
         </form>
 
         <p style={{ textAlign:'center', fontSize:12, color:'#9E9B94', marginTop:20 }}>
-          Powered by <strong style={{ color:'#1A1917' }}>CleanOps Pro</strong>
+          Powered by <strong style={{ color:'#1A1917' }}>Qleno</strong>
         </p>
       </div>
     </div>

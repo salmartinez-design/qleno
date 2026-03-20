@@ -69,7 +69,7 @@ export default function CompanyBillingPage() {
       <div style={{ padding: "28px 32px", maxWidth: "900px", margin: "0 auto" }}>
         <div style={{ marginBottom: "28px" }}>
           <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#1A1917", margin: 0 }}>Subscription & Billing</h1>
-          <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>Manage your CleanOps Pro subscription</div>
+          <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>Manage your Qleno subscription</div>
         </div>
 
         {/* Current plan */}

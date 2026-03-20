@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, ArrowUpCircle, Tag,
   BookOpen, Star, Settings, Building2, CreditCard, PenLine, LayoutTemplate, Calculator, FileText as FileTextIcon, MapPin,
-  AlertTriangle, HeartPulse, Smile, Gift, Share2, Route, Package,
+  AlertTriangle, HeartPulse, Smile, Gift, Share2, Route, Package, Target,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -35,6 +35,7 @@ const NAV_SECTIONS = [
     label: "Grow",
     items: [
       { title: "Reports",       url: "/reports",                  icon: BarChart2,    roles: ["owner", "admin", "office"] },
+      { title: "Revenue Goal",  url: "/reports/revenue-goal",     icon: Target,       roles: ["owner", "admin"] },
       { title: "Core KPIs",     url: "/reports/insights",         icon: TrendingUp,   roles: ["owner", "admin", "office"] },
       { title: "NPS & Surveys", url: "/reports/satisfaction",     icon: Smile,        roles: ["owner", "admin", "office"] },
       { title: "Incentives",    url: "/reports/incentives",       icon: Gift,         roles: ["owner", "admin"] },
@@ -141,17 +142,17 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
       <div style={{ height: 56, padding: '0 16px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EEECE7' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, overflow: 'hidden' }}>
           {logoUrl ? (
-            <img src={logoUrl} alt={companyName} style={{ height: 28, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+            <img src={logoUrl} alt={companyName} style={{ height: 40, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
           ) : (
-            <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <span style={{ fontSize: 12, fontWeight: 800, color: '#FFFFFF', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                {(companyName?.[0] || 'C').toUpperCase()}
+            <div style={{ width: 40, height: 40, borderRadius: 10, backgroundColor: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#FFFFFF', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                {(companyName?.[0] || 'Q').toUpperCase()}
               </span>
             </div>
           )}
           <div style={{ overflow: 'hidden' }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{companyName}</p>
-            <p style={{ fontSize: 10, fontWeight: 500, color: '#9E9B94', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>CleanOps Pro</p>
+            <p style={{ fontSize: 10, fontWeight: 500, color: '#9E9B94', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Qleno</p>
           </div>
         </div>
         {mobile && (

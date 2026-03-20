@@ -67,7 +67,7 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
             <Shield size={16} color={PURPLE} strokeWidth={2} />
-            <span style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>CleanOps Pro</span>
+            <span style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>Qleno</span>
           </div>
           <span style={{
             fontSize: "10px", fontWeight: 700, color: PURPLE,

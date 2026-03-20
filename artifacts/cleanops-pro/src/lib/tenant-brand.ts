@@ -39,6 +39,6 @@ export function useTenantBrand() {
     company,
     brandColor: (company as any)?.brand_color || '#5B9BD5',
     logoUrl: (company as any)?.logo_url || null,
-    companyName: company?.name || 'CleanOps Pro',
+    companyName: company?.name || 'Qleno',
   };
 }

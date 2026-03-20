@@ -84,7 +84,7 @@ export default function Login() {
           <div style={{ backgroundColor: '#F7F6F3', borderRadius: '10px', padding: '10px 18px', marginBottom: '18px', display: 'inline-block', border: '1px solid #EEECE7' }}>
             <img src="/phes-logo.jpeg" alt="PHES Cleaning LLC" style={{ height: '44px', width: 'auto', objectFit: 'contain', display: 'block' }} />
           </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#1A1917', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>CleanOps Pro</h1>
+          <h1 style={{ fontSize: '22px', fontWeight: 700, color: '#1A1917', margin: '0 0 6px 0', letterSpacing: '-0.02em' }}>Qleno</h1>
           <p style={{ fontSize: '13px', color: '#6B7280', margin: 0 }}>Sign in to your workspace</p>
         </div>
 
