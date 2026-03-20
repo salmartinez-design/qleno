@@ -1,0 +1,96 @@
+You are working on Qleno, a multi-tenant SaaS platform for 
+residential and commercial cleaning businesses operating across 
+multiple US states and jurisdictions.
+
+You are building the Employee Policy Configuration system — the 
+settings layer that allows each tenant to configure their own 
+pay structure, attendance rules, leave policies, and quality 
+enforcement rules to match their specific company policies and 
+local legal requirements.
+
+CRITICAL ARCHITECTURE PRINCIPLE:
+Qleno is a policy ENFORCEMENT engine, not a legal compliance engine.
+The system never tells a tenant what law applies to them.
+The system never auto-configures settings based on state or city.
+All policy fields are blank or set to safe defaults on tenant creation.
+The tenant's owner or HR administrator fills in every value.
+Every configuration page must include a persistent disclaimer:
+"These settings reflect your company policy. 
+ Consult legal counsel to ensure compliance with applicable 
+ federal, state, and local employment law."
+
+TECH STACK: React 18, Tailwind, Express/Node.js, Supabase 
+(Postgres + RLS), Plus Jakarta Sans (ONLY font).
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand)
+- NO emojis, NO dark mode, light theme only
+- Plus Jakarta Sans only
+- Status badges: pill shape, muted background, colored text
+- Skeleton loaders for all async loads
+- All monetary values: USD, 2 decimal places, comma-formatted
+
+All endpoints: JWT protected, company_id scoped, RLS enforced.
+
+═══════════════════════════════════════════════════════
+DATABASE — NEW TABLES
+═══════════════════════════════════════════════════════
+
+Create company_pay_policy table:
+{
+  id,
+  company_id                        unique,
+
+  -- Training
+  training_period_weeks             integer default 3,
+  training_hourly_rate              decimal default 0,
+
+  -- Job minimums
+  job_minimum_hours_enabled         boolean default false,
+  job_minimum_hours                 decimal default 3,
+
+  -- Commission
+  commission_type                   enum: percent_per_job / 
+                                         flat_per_job / 
+                                         hourly_only / 
+                                         none
+                                    default: hourly_only,
+  commission_rate                   decimal default 0,
+  commission_condition_label        text 
+                                    default 'All quality 
+                                    standards met',
+
+  -- Wage floors (tenant sets — never auto-pulled)
+  min_hourly_wage_per_period        decimal default 0,
+  min_hourly_wage_per_job           decimal default 0,
+
+  -- Mileage
+  mileage_reimbursement_enabled     boolean default false,
+  mileage_rate_per_mile             decimal default 0,
+  mileage_job_to_job_only           boolean default true,
+  mileage_submission_deadline_days  integer default 30,
+
+  -- Overtime
+  overtime_rule                     enum: federal_only / 
+                                         state_overlay / 
+                                         daily_california
+                                    default: federal_only,
+
+  -- Payroll period
+  pay_week_start_day                enum: sunday / monday
+                                    default: sunday,
+  full_time_hours_threshold         integer default 40,
+
+  -- Quality probation
+  quality_probation_enabled         boolean default false,
+  quality_probation_trigger_count   integer default 2,
+  quality_probation_rolling_days    integer default 30,
+  quality_probation_duration_days   integer default 30,
+  quality_probation_hourly_rate     decimal default 0,
+  recovery_tech_rate                decimal default 0,
+  return_to_commission_clean_da
