@@ -140,8 +140,8 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
       overflow: 'hidden',
     }}>
       {/* Logo */}
-      <div style={{ padding: '0 20px', height: 64, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EEECE7' }}>
-        <QlenoLogo size="md" theme="light" layout="horizontal" />
+      <div style={{ padding: '0 20px', height: 72, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #EEECE7' }}>
+        <QlenoLogo size="lg" theme="light" layout="horizontal" />
         {mobile && (
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 4, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
             <X size={18} />
@@ -150,12 +150,12 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
       </div>
 
       {/* Tenant identity */}
-      <div style={{ padding: '10px 16px', borderBottom: '1px solid #EEECE7', display: 'flex', alignItems: 'center', gap: 9, overflow: 'hidden' }}>
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid #EEECE7', display: 'flex', alignItems: 'center', gap: 10, overflow: 'hidden' }}>
         {logoUrl ? (
-          <img src={logoUrl} alt={companyName} style={{ height: 28, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
+          <img src={logoUrl} alt={companyName} style={{ height: 36, width: 'auto', objectFit: 'contain', flexShrink: 0 }} />
         ) : (
-          <div style={{ width: 28, height: 28, borderRadius: 7, backgroundColor: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <span style={{ fontSize: 12, fontWeight: 800, color: '#FFFFFF', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          <div style={{ width: 36, height: 36, borderRadius: 9, backgroundColor: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#FFFFFF', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
               {(companyName?.[0] || 'Q').toUpperCase()}
             </span>
           </div>
