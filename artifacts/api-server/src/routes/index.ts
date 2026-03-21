@@ -49,6 +49,7 @@ import hrAttendanceRouter from "./hr-attendance.js";
 import hrDisciplineRouter from "./hr-discipline.js";
 import hrLeaveRouter from "./hr-leave.js";
 import hrQualityRouter from "./hr-quality.js";
+import accountsRouter from "./accounts.js";
 
 const router: IRouter = Router();
 
@@ -102,5 +103,6 @@ router.use("/hr-attendance", hrAttendanceRouter);
 router.use("/hr-discipline", hrDisciplineRouter);
 router.use("/hr-leave", hrLeaveRouter);
 router.use("/hr-quality", hrQualityRouter);
+router.use("/accounts", accountsRouter);
 
 export default router;

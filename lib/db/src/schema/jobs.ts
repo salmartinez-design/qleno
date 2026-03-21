@@ -21,7 +21,9 @@ export const frequencyEnum = pgEnum("frequency", [
 export const jobsTable = pgTable("jobs", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  client_id: integer("client_id").references(() => clientsTable.id).notNull(),
+  client_id: integer("client_id").references(() => clientsTable.id),
+  account_id: integer("account_id"),
+  account_property_id: integer("account_property_id"),
   assigned_user_id: integer("assigned_user_id").references(() => usersTable.id),
   service_type: serviceTypeEnum("service_type").notNull(),
   status: jobStatusEnum("status").notNull().default("scheduled"),

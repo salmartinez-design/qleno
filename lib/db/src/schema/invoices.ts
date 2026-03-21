@@ -13,7 +13,8 @@ export const invoiceStatusEnum = pgEnum("invoice_status", [
 export const invoicesTable = pgTable("invoices", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  client_id: integer("client_id").references(() => clientsTable.id).notNull(),
+  client_id: integer("client_id").references(() => clientsTable.id),
+  account_id: integer("account_id"),
   job_id: integer("job_id").references(() => jobsTable.id),
   invoice_number: text("invoice_number"),
   status: invoiceStatusEnum("status").notNull().default("draft"),

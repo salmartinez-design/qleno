@@ -1,0 +1,582 @@
+You are working on Qleno, a multi-tenant SaaS platform for 
+residential and commercial cleaning businesses.
+
+This sprint builds the Commercial Account Architecture — 
+the foundational data model that supports property management 
+accounts with multiple properties, hourly billing, service-type 
+rate cards, multi-contact routing, and consolidated invoicing.
+
+This is a PHES Day 1 requirement. PHES is 70% commercial — 
+property management turnovers and common areas — and cannot 
+migrate without this architecture in place.
+
+TECH STACK: React 18, Tailwind, Express/Node.js, Supabase 
+(Postgres + RLS), Plus Jakarta Sans only.
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand)
+- NO emojis, NO dark mode, light theme only
+- Plus Jakarta Sans only
+- Skeleton loaders for all async loads
+- All monetary values: USD, 2 decimal places, comma-formatted
+
+All endpoints: JWT protected, company_id scoped, RLS enforced.
+Never expose data across tenant boundaries.
+
+═══════════════════════════════════════════════════════
+PART 1 — CLIENT TYPE FLAG
+═══════════════════════════════════════════════════════
+
+Add to existing clients/customers table:
+  client_type    enum: residential / commercial
+                 default: residential
+  account_id     FK to accounts table (nullable)
+                 — set when client is linked to 
+                   a commercial account
+
+This flag drives:
+  - Which fields display on the client profile
+  - Which billing model is available
+  - Which KPIs the client counts toward
+  - Whether the client appears on residential 
+    or commercial dashboard segments
+
+On client create/edit form:
+  Add "Client Type" toggle at the top:
+  Residential / Commercial
+  When Commercial is selected:
+    - Show account linking field
+    - Hide loyalty points section
+    - Show business name field
+    - Show billing contact field
+    - Show PO number field (optional)
+
+═══════════════════════════════════════════════════════
+PART 2 — DATABASE SCHEMA
+═══════════════════════════════════════════════════════
+
+Create accounts table:
+{
+  id                    uuid primary key default gen_random_uuid(),
+  company_id            integer not null FK companies,
+  account_name          text not null,
+  account_type          enum: property_management /
+                              commercial_office /
+                              retail /
+                              other
+                        default: property_management,
+  invoice_frequency     enum: per_job / weekly / 
+                              monthly / custom
+                        default: per_job,
+  payment_terms_days    integer default 0,
+  payment_method        enum: card_on_file / check / 
+                              ach / invoice_only
+                        default: invoice_only,
+  notes                 text,
+  is_active             boolean default true,
+  created_at            timestamp default now(),
+  updated_at            timestamp default now()
+}
+
+Create account_rate_cards table:
+{
+  id                uuid primary key default gen_random_uuid(),
+  account_id        uuid not null FK accounts,
+  company_id        integer not null FK companies,
+  service_type      text not null,
+  -- Examples: 'Apartment Turnover', 'Common Areas',
+  --   'Deep Clean', 'Move In/Out', 'Standard Clean'
+  billing_method    enum: hourly / flat_rate / per_unit
+                    default: hourly,
+  rate_amount       decimal(10,2) not null,
+  unit_label        text default 'hr',
+  -- 'hr', 'job', 'unit', 'sq ft'
+  is_active         boolean default true,
+  notes             text,
+  created_at        timestamp default now()
+}
+
+Create account_properties table:
+{
+  id                uuid primary key default gen_random_uuid(),
+  account_id        uuid not null FK accounts,
+  company_id        integer not null FK companies,
+  property_name     text,
+  -- e.g. "PPM | 1000 North La Salle"
+  address           text not null,
+  city              text,
+  state             text,
+  zip               text,
+  unit_count        integer,
+  -- Number of units in building (for apartment buildings)
+  property_type     enum: apartment_building /
+                          condo /
+                          common_area /
+                          office /
+                          retail /
+                          other
+                    default: apartment_building,
+  lat               decimal(10,8),
+  lng               decimal(11,8),
+  zone_id           uuid nullable FK service_zones,
+  default_service_type text,
+  -- Pre-fills service type when scheduling a job 
+  -- at this property
+  access_notes      text,
+  -- Gate codes, key location, building access info
+  is_active         boolean default true,
+  created_at        timestamp default now(),
+  updated_at        timestamp default now()
+}
+
+Create account_contacts table:
+{
+  id                    uuid primary key default gen_random_uuid(),
+  account_id            uuid not null FK accounts,
+  company_id            integer not null FK companies,
+  name                  text not null,
+  role                  enum: billing / operations /
+                              onsite / accountant /
+                              property_manager / other
+                        default: operations,
+  email                 text,
+  phone                 text,
+  receives_invoices     boolean default false,
+  receives_on_way_sms   boolean default false,
+  receives_completion_notifications boolean default false,
+  is_primary            boolean default false,
+  notes                 text,
+  created_at            timestamp default now()
+}
+
+Modify jobs table — add these fields if not present:
+  account_id            uuid nullable FK accounts,
+  property_id           uuid nullable FK account_properties,
+  billing_method        enum: hourly / flat_rate / per_unit,
+  hourly_rate           decimal(10,2),
+  -- Pulled from account_rate_cards on job creation
+  -- Dispatcher can override
+  billed_hours          decimal(5,2),
+  -- Auto-calculated from clock in/out
+  -- Can be manually overridden before invoicing
+  billed_amount         decimal(10,2),
+  -- Auto-calculated: billed_hours × hourly_rate
+  -- Or flat_rate amount
+  service_type          text,
+  -- Drives rate card lookup
+
+═══════════════════════════════════════════════════════
+PART 3 — HOURLY BILLING ENGINE
+═══════════════════════════════════════════════════════
+
+When a job has billing_method = 'hourly':
+
+ON JOB COMPLETION:
+  1. Pull all timeclock entries for this job_id
+  2. Calculate total_hours:
+     SUM of (clock_out - clock_in) across all 
+     timeclock entries for this job
+     Round to 2 decimal places
+     (e.g. 2 hours 37 minutes = 2.62 hours)
+  3. Set jobs.billed_hours = total_hours
+     (can be manually edited by owner/admin 
+      before invoice is created)
+  4. Set jobs.billed_amount = 
+     billed_hours × jobs.hourly_rate
+  5. Auto-create invoice with:
+     line_items: [{
+       description: service_type + ' — ' + 
+                    property_name + ' · ' + 
+                    billed_hours + ' hrs @ $' + 
+                    hourly_rate + '/hr',
+       quantity: billed_hours,
+       unit_price: hourly_rate,
+       total: billed_amount
+     }]
+     total_amount: billed_amount
+     due_date: today + account.payment_terms_days
+
+MANUAL HOURS OVERRIDE:
+  Owner/admin can edit billed_hours on a completed 
+  job before the invoice is sent.
+  Editing billed_hours auto-recalculates billed_amount.
+  Show original clock-in/out derived hours alongside 
+  the editable field:
+  "Actual time on site: 2.62 hrs · Billed: [   ] hrs"
+
+For flat_rate jobs:
+  billed_amount = jobs.price (existing field)
+  No hours calculation needed
+
+═══════════════════════════════════════════════════════
+PART 4 — RATE CARD AUTO-POPULATION
+═══════════════════════════════════════════════════════
+
+When creating a job:
+
+  If account_id is set AND service_type is selected:
+    1. Query account_rate_cards WHERE
+       account_id = selected account AND
+       service_type = selected service_type AND
+       is_active = true
+    2. If rate found:
+       Auto-fill billing_method and hourly_rate
+       Show read-only indicator: 
+       "Rate from account card: $60/hr"
+       Allow dispatcher to override with note
+    3. If no rate found for this service type:
+       Show warning: 
+       "No rate configured for this service type.
+        Enter rate manually or update the 
+        account rate card."
+       Allow manual entry
+
+  If no account_id (residential or unlinked job):
+    Use existing flat-rate pricing flow
+
+═══════════════════════════════════════════════════════
+PART 5 — CONSOLIDATED INVOICING
+═══════════════════════════════════════════════════════
+
+For accounts with invoice_frequency = 'weekly' 
+or 'monthly':
+
+  Do NOT auto-create per-job invoices.
+  Instead: mark job as 'pending_consolidation' 
+  after completion.
+
+  Add POST /api/accounts/:id/generate-invoice
+  — Owner/admin triggers manually OR 
+    runs on schedule based on invoice_frequency
+  — Collects all jobs for this account with 
+    status = 'complete' AND invoice_id IS NULL
+    within the billing period
+  — Creates ONE invoice with multiple line items:
+    One line item per job:
+    { description: date + property + service_type + 
+                   hours + rate,
+      quantity: billed_hours,
+      unit_price: hourly_rate,
+      total: billed_amount }
+  — Invoice subtotal = sum of all line items
+  — Due date = invoice date + payment_terms_days
+
+  On the account profile:
+    "Generate Invoice" button visible when there 
+    are uninvoiced completed jobs.
+    Shows count: "4 jobs pending invoicing 
+    — total $847.00"
+    Clicking opens a preview of the consolidated 
+    invoice before confirming.
+
+═══════════════════════════════════════════════════════
+PART 6 — BACKEND ROUTES
+═══════════════════════════════════════════════════════
+
+ACCOUNTS
+GET    /api/accounts
+       — list all accounts for company
+       — include: account_name, account_type,
+         property_count, active_properties_count,
+         revenue_12m, last_job_date,
+         uninvoiced_jobs_count, uninvoiced_total
+
+POST   /api/accounts
+       — create account
+
+GET    /api/accounts/:id
+       — get single account with:
+         properties[], contacts[], rate_cards[],
+         recent_jobs (last 10), revenue stats
+
+PUT    /api/accounts/:id
+       — update account
+
+DELETE /api/accounts/:id
+       — soft delete (set is_active = false)
+
+ACCOUNT RATE CARDS
+GET    /api/accounts/:id/rates
+POST   /api/accounts/:id/rates
+PUT    /api/accounts/:id/rates/:rateId
+DELETE /api/accounts/:id/rates/:rateId
+
+ACCOUNT PROPERTIES
+GET    /api/accounts/:id/properties
+POST   /api/accounts/:id/properties
+PUT    /api/accounts/:id/properties/:propId
+DELETE /api/accounts/:id/properties/:propId
+       — soft delete only
+
+ACCOUNT CONTACTS
+GET    /api/accounts/:id/contacts
+POST   /api/accounts/:id/contacts
+PUT    /api/accounts/:id/contacts/:contactId
+DELETE /api/accounts/:id/contacts/:contactId
+
+CONSOLIDATED INVOICING
+POST   /api/accounts/:id/generate-invoice
+       — preview or confirm consolidated invoice
+GET    /api/accounts/:id/uninvoiced-jobs
+       — list all uninvoiced completed jobs
+
+RATE CARD LOOKUP
+GET    /api/accounts/:id/rates/lookup?service_type=
+       — returns matching rate for job creation
+         auto-population
+
+═══════════════════════════════════════════════════════
+PART 7 — FRONTEND: ACCOUNTS PAGE
+═══════════════════════════════════════════════════════
+
+Add /accounts route to App.tsx and left nav 
+under MANAGE section, between Customers and Employees.
+Label: "Accounts"
+Icon: Building2 (lucide-react)
+
+ACCOUNTS LIST PAGE (/accounts):
+
+Header: "Accounts" + "New Account" button
+
+Filter bar:
+  Account type (All / Property Management / 
+  Commercial Office / Other)
+  Status (Active / Inactive)
+
+Accounts table columns:
+  Account Name
+  Type badge
+  Properties (count)
+  Active Jobs (count today)
+  12M Revenue
+  Uninvoiced (amount pending — amber if > 0)
+  Last Activity (date)
+  Actions (View / Edit)
+
+Empty state:
+  "No accounts yet.
+   Add your first commercial account to manage 
+   properties, rate cards, and consolidated billing."
+
+ACCOUNT DETAIL PAGE (/accounts/:id):
+
+Left sidebar (fixed):
+  Account name (large)
+  Account type badge
+  Payment terms
+  Invoice frequency
+  Is active toggle
+  Quick stats:
+    Total properties
+    Active jobs today
+    Revenue this month
+    Revenue last 12 months
+    Outstanding balance
+
+Main content — 5 tabs:
+
+TAB 1 — PROPERTIES
+  Properties grid (not a paginated table — 
+  a proper card grid, 3 columns desktop, 
+  1 column mobile):
+  Each card shows:
+    Property name
+    Address
+    Property type badge
+    Unit count (if apartment)
+    Last cleaned date
+    Next scheduled date
+    Active/Inactive toggle
+  
+  "Add Property" button opens slide-over:
+    Property name, address, city, state, zip,
+    property type, unit count (optional),
+    default service type, access notes
+  
+  Search bar above grid — filters by address 
+  or property name in real time.
+  No pagination — virtual scroll if > 50 properties.
+
+TAB 2 — RATE CARD
+  Clean table: Service Type / Billing Method / 
+  Rate / Unit / Status
+  
+  Pre-loaded service types for PHES on first setup:
+    Apartment Turnover — Hourly — $60.00/hr
+    Common Areas — Hourly — $50.00/hr
+  (These are PHES defaults — other tenants 
+   start blank)
+  
+  Inline editing — click any rate to edit in place.
+  "Add Rate" button adds a new row.
+  Rates can be deactivated without deleting.
+
+TAB 3 — CONTACTS
+  Contact cards — not a table.
+  Each card: name, role badge, email, phone,
+  notification toggles (invoices, on-way, 
+  completion).
+  "Add Contact" button.
+  One contact can be marked primary.
+
+TAB 4 — JOBS & INVOICES
+  Two sections:
+
+  SECTION A — Uninvoiced Jobs (amber header if any):
+    Table: Date / Property / Service Type / 
+    Billed Hours / Rate / Amount
+    Total at bottom
+    "Generate Invoice" button if 
+    invoice_frequency != per_job
+    
+  SECTION B — Invoice History:
+    Table: Invoice # / Period / Amount / 
+    Status badge / Due Date / Actions
+
+TAB 5 — OVERVIEW
+  Revenue chart: monthly bars, last 12 months
+  Revenue by service type: 
+    Apartment Turnover: $X (X%)
+    Common Areas: $X (X%)
+  Revenue by property: top 5 properties by revenue
+  YoY comparison: this year vs last year
+
+═══════════════════════════════════════════════════════
+PART 8 — FRONTEND: JOB CREATION CHANGES
+═══════════════════════════════════════════════════════
+
+In the job creation wizard/modal, when 
+client_type = commercial OR when account_id is set:
+
+Step 1 — Client/Account Selection:
+  Two options: 
+  "Residential Client" — existing flow unchanged
+  "Commercial Account" — new flow:
+    Select Account (dropdown, searches accounts)
+    Select Property (dropdown, filtered by account,
+    searches by address or property name)
+    Property address auto-fills from selection
+
+Step 2 — Service Details:
+  Service Type field (text + dropdown of 
+  account's configured service types)
+  
+  On service type selection:
+    Rate auto-populates from rate card:
+    "Rate: $60.00/hr (Apartment Turnover — 
+     from account rate card)"
+    Billing method shows: Hourly
+    
+    If no rate found:
+    Amber warning: "No rate for this service type.
+    Set manually or add to account rate card."
+    Manual rate entry field appears.
+
+Step 3 — Schedule & Team:
+  Existing smart dispatch flow unchanged.
+  Property address used for proximity calculation.
+
+Step 4 — Confirmation:
+  Shows: Account name, property, service type,
+  billing method, rate, scheduled time, team.
+  For hourly jobs:
+  "Invoice will be calculated from actual 
+   clock in/out time after job completion."
+
+═══════════════════════════════════════════════════════
+PART 9 — DISPATCH BOARD CHANGES
+═══════════════════════════════════════════════════════
+
+Jobs linked to accounts display differently 
+on the dispatch board:
+
+Job card shows:
+  Account name (top, bold)
+  Property address (second line, secondary text)
+  Service type badge
+  Billing: "$60/hr · Hourly" 
+  (instead of fixed price for commercial jobs)
+  
+The existing frequency color system still applies 
+for recurring commercial jobs.
+
+On the allowed vs actual hours column:
+  For hourly jobs: show clock-in/out derived hours
+  in the actual hours column.
+  Color code: green if billed_hours ≤ estimated,
+  red if billed_hours > estimated by > 30 min.
+
+═══════════════════════════════════════════════════════
+PART 10 — PHES SEED DATA
+═══════════════════════════════════════════════════════
+
+After implementation, seed one example account 
+for PHES testing (dummy data only):
+
+Account: "PPM Demo Account"
+  account_type: property_management
+  invoice_frequency: monthly
+  payment_terms_days: 30
+  payment_method: invoice_only
+
+Rate card:
+  Apartment Turnover — Hourly — $60.00/hr
+  Common Areas — Hourly — $50.00/hr
+  Deep Clean — Hourly — $65.00/hr
+
+Properties (5 dummy properties):
+  1000 North La Salle Drive, Chicago IL 60610
+  1111 North Dearborn Street, Chicago IL 60610
+  350 West Oakdale Avenue, Chicago IL 60657
+  430 West Diversey Parkway, Chicago IL 60614
+  2756 North Pine Grove Avenue, Chicago IL 60614
+
+Contacts:
+  Danny W — Operations — 312-907-2512
+    receives_on_way_sms: true
+    receives_completion_notifications: true
+  Sabin — Accountant
+    receives_invoices: true
+
+═══════════════════════════════════════════════════════
+CONFIRMATION CHECKLIST
+═══════════════════════════════════════════════════════
+
+After implementation confirm:
+
+1. /accounts route renders account list with 
+   correct columns and empty state
+2. Account detail page renders all 5 tabs
+3. Rate card auto-populates on job creation 
+   when account + service type are selected
+4. Hourly billing calculates correctly from 
+   clock in/out: hours × rate = invoice amount
+5. Manual hours override works and 
+   recalculates invoice total
+6. Consolidated invoice generates correctly 
+   for monthly accounts — one invoice, 
+   multiple line items
+7. Per-job invoice still auto-creates for 
+   accounts with invoice_frequency = per_job
+8. Commercial job creation flow works end-to-end:
+   Account → Property → Service Type → 
+   Rate auto-fill → Schedule → Complete → 
+   Invoice auto-created with correct amount
+9. Dispatch board shows account name and 
+   property correctly on commercial job cards
+10. All new tables have company_id scoping
+11. All new routes are JWT protected
+12. Client type toggle on client create/edit 
+    works correctly — commercial clients show 
+    commercial fields, residential shows 
+    residential fields
+13. PHES seed account visible under /accounts
+    with all 5 properties and rate card
+14. No residential client data affected by 
+    these changes — existing PHES residential 
+    clients continue working as before

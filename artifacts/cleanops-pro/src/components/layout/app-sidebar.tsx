@@ -2,7 +2,7 @@ import {
   LogOut, X, LayoutDashboard, CalendarDays,
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
-  BookOpen, Settings, AlertTriangle, HeartPulse,
+  BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -17,6 +17,7 @@ const NAV_SECTIONS = [
       { title: "Dispatch Board", url: "/jobs",       icon: CalendarDays },
       { title: "Jobs",           url: "/jobs",       icon: Briefcase },
       { title: "Customers",      url: "/customers",  icon: Users },
+      { title: "Accounts",       url: "/accounts",   icon: Building2, roles: ["owner", "admin", "office"] },
       { title: "Employees",      url: "/employees",  icon: UserCheck },
     ],
   },

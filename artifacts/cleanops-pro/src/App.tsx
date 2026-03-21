@@ -65,6 +65,8 @@ import AddOnCatalogPage from "@/pages/company/addons";
 import ReferralReportPage from "@/pages/reports/referrals";
 import IncentivesPage from "@/pages/reports/incentives";
 import RevenueGoalPage from "@/pages/reports/revenue-goal";
+import AccountsPage from "@/pages/accounts";
+import AccountDetailPage from "@/pages/account-detail";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -130,6 +132,8 @@ function Router() {
       <Route path="/reports/referrals" component={ReferralReportPage} />
       <Route path="/reports/incentives" component={IncentivesPage} />
       <Route path="/reports/revenue-goal" component={RevenueGoalPage} />
+      <Route path="/accounts/:id" component={AccountDetailPage} />
+      <Route path="/accounts" component={AccountsPage} />
       <Route path="/quotes/new" component={QuoteBuilderPage} />
       <Route path="/quotes/:id/edit" component={QuoteBuilderPage} />
       <Route path="/quotes/:id" component={QuoteDetailPage} />

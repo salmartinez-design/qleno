@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -656,6 +656,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
 
     try {
       const companyId = req.auth!.companyId;
+      const job = updated[0] as any;
 
       const existing = await db
         .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total })
@@ -666,48 +667,70 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       if (existing[0]) {
         autoInvoice = { id: existing[0].id, status: existing[0].status, total: existing[0].total };
       } else {
-        const [co] = await db
-          .select({ payment_terms_days: companiesTable.payment_terms_days })
-          .from(companiesTable)
-          .where(eq(companiesTable.id, companyId))
-          .limit(1);
+        // If this job belongs to an account, check invoice_frequency before auto-creating
+        let skipAutoInvoice = false;
+        let termsDays = 0;
+        let clientId = job.client_id ?? null;
 
-        const termsDays = co?.payment_terms_days ?? 0;
-        const today = new Date();
-        const due = new Date(today);
-        due.setDate(due.getDate() + termsDays);
-        const dueDateStr = due.toISOString().split("T")[0];
+        if (job.account_id) {
+          const [acct] = await db
+            .select({ invoice_frequency: accountsTable.invoice_frequency, payment_terms_days: accountsTable.payment_terms_days })
+            .from(accountsTable)
+            .where(eq(accountsTable.id, job.account_id))
+            .limit(1);
+          if (acct) {
+            termsDays = acct.payment_terms_days ?? 30;
+            // Only auto-invoice on per_job; weekly/monthly get batched via consolidate endpoint
+            if (acct.invoice_frequency !== "per_job") {
+              skipAutoInvoice = true;
+            }
+          }
+        } else {
+          const [co] = await db
+            .select({ payment_terms_days: companiesTable.payment_terms_days })
+            .from(companiesTable)
+            .where(eq(companiesTable.id, companyId))
+            .limit(1);
+          termsDays = co?.payment_terms_days ?? 0;
+        }
 
-        const termsLabel =
-          termsDays === 30 ? "net_30" :
-          termsDays === 15 ? "net_15" :
-          termsDays === 7  ? "net_7"  : "due_on_receipt";
+        if (!skipAutoInvoice) {
+          const today = new Date();
+          const due = new Date(today);
+          due.setDate(due.getDate() + termsDays);
+          const dueDateStr = due.toISOString().split("T")[0];
 
-        const job = updated[0];
-        const amount = parseFloat((job as any).base_fee ?? "0");
-        const svcLabel = ((job as any).service_type ?? "Cleaning Service")
-          .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+          const termsLabel =
+            termsDays === 30 ? "net_30" :
+            termsDays === 15 ? "net_15" :
+            termsDays === 7  ? "net_7"  : "due_on_receipt";
 
-        const lineItems = [{ description: svcLabel, quantity: 1, unit_price: amount, total: amount }];
+          const amount = parseFloat(job.base_fee ?? "0");
+          const svcLabel = (job.service_type ?? "Cleaning Service")
+            .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
-        const [newInv] = await db
-          .insert(invoicesTable)
-          .values({
-            company_id: companyId,
-            job_id: jobId,
-            client_id: (job as any).client_id,
-            status: "draft",
-            line_items: lineItems,
-            subtotal: amount.toFixed(2),
-            total: amount.toFixed(2),
-            due_date: dueDateStr,
-            payment_terms: termsLabel,
-            created_by: req.auth!.userId,
-          })
-          .returning({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total });
+          const lineItems = [{ description: svcLabel, quantity: 1, unit_price: amount, total: amount }];
 
-        autoInvoice = { id: newInv.id, status: newInv.status, total: newInv.total };
-        invoiceCreated = true;
+          const [newInv] = await db
+            .insert(invoicesTable)
+            .values({
+              company_id: companyId,
+              job_id: jobId,
+              client_id: clientId,
+              account_id: job.account_id ?? null,
+              status: "draft",
+              line_items: lineItems,
+              subtotal: amount.toFixed(2),
+              total: amount.toFixed(2),
+              due_date: dueDateStr,
+              payment_terms: termsLabel,
+              created_by: req.auth!.userId,
+            })
+            .returning({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total });
+
+          autoInvoice = { id: newInv.id, status: newInv.status, total: newInv.total };
+          invoiceCreated = true;
+        }
       }
     } catch (invErr) {
       console.error("Auto-invoice error (non-fatal):", invErr);
