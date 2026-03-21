@@ -10,6 +10,7 @@ router.get("/", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const branch_id = req.query.branch_id as string | undefined;
 
     const employees = await db
       .select({
@@ -66,7 +67,8 @@ router.get("/", requireAuth, async (req, res) => {
       .where(and(
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.scheduled_date, date),
-        sql`${jobsTable.status} != 'cancelled'`
+        sql`${jobsTable.status} != 'cancelled'`,
+        ...(branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id))] : [])
       ))
       .orderBy(jobsTable.scheduled_time);
 

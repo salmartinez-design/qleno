@@ -2,6 +2,7 @@ import { pgTable, serial, text, integer, timestamp, numeric, boolean, date, pgEn
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
+import { branchesTable } from "./branches";
 
 export const clientTypeEnum = pgEnum("client_type", ["residential", "commercial"]);
 export const paymentTermsEnum = pgEnum("client_payment_terms", ["due_on_receipt", "net_15", "net_30"]);
@@ -65,6 +66,7 @@ export const clientsTable = pgTable("clients", {
   account_id: integer("account_id"),
   referral_source: referralSourceEnum("referral_source"),
   referral_by_customer_id: integer("referral_by_customer_id"),
+  branch_id: integer("branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

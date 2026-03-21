@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { companiesTable, usersTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { companiesTable, usersTable, branchesTable, jobsTable, clientsTable, invoicesTable } from "@workspace/db/schema";
+import { eq, sql, isNull, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { seedDemoData } from "./seed-demo.js";
 
@@ -109,6 +109,63 @@ export async function seedIfNeeded() {
 
       ownerId = ownerRow.id;
       console.log("[seed] PHES Cleaning seeded — login: salmartinez@phes.io");
+    }
+
+    // ── Branches: Oak Lawn (default) + Schaumburg ───────────────────────────
+    let oakLawnBranchId: number;
+    const existingBranches = await db
+      .select({ id: branchesTable.id, name: branchesTable.name })
+      .from(branchesTable)
+      .where(eq(branchesTable.company_id, companyId));
+
+    if (existingBranches.length === 0) {
+      console.log("[seed] Creating Oak Lawn and Schaumburg branches...");
+      const [oakLawn] = await db.insert(branchesTable).values({
+        company_id: companyId,
+        name: "Oak Lawn",
+        city: "Oak Lawn",
+        state: "IL",
+        is_default: true,
+        is_active: true,
+      }).returning({ id: branchesTable.id });
+
+      await db.insert(branchesTable).values({
+        company_id: companyId,
+        name: "Schaumburg",
+        city: "Schaumburg",
+        state: "IL",
+        is_default: false,
+        is_active: true,
+      });
+
+      oakLawnBranchId = oakLawn.id;
+      console.log("[seed] Branches created — Oak Lawn id:", oakLawnBranchId);
+
+      // Migrate all existing jobs / clients / invoices to Oak Lawn branch
+      await db.update(jobsTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(jobsTable.company_id, companyId), isNull(jobsTable.branch_id)));
+      await db.update(clientsTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(clientsTable.company_id, companyId), isNull(clientsTable.branch_id)));
+      await db.update(invoicesTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(invoicesTable.company_id, companyId), isNull(invoicesTable.branch_id)));
+      console.log("[seed] Existing records migrated to Oak Lawn branch");
+    } else {
+      oakLawnBranchId = existingBranches.find(b => b.name === "Oak Lawn")?.id ?? existingBranches[0].id;
+
+      // Ensure any newly created records without a branch get migrated
+      await db.update(jobsTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(jobsTable.company_id, companyId), isNull(jobsTable.branch_id)));
+      await db.update(clientsTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(clientsTable.company_id, companyId), isNull(clientsTable.branch_id)));
+      await db.update(invoicesTable)
+        .set({ branch_id: oakLawnBranchId })
+        .where(and(eq(invoicesTable.company_id, companyId), isNull(invoicesTable.branch_id)));
+      console.log("[seed] Branches already present — oak lawn id:", oakLawnBranchId);
     }
 
     // ── Demo data (employees, clients, jobs, invoices) ──────────────────────

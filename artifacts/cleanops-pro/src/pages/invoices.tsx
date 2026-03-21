@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
+import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CloseDayModal } from "@/components/close-day-modal";
@@ -296,10 +297,19 @@ export default function InvoicesPage() {
   let userRole = "office";
   try { userRole = JSON.parse(atob(token.split(".")[1])).role || "office"; } catch {}
   const canAdmin = userRole === "owner" || userRole === "admin";
+  const { activeBranchId } = useBranch();
+
+  const buildInvoicesUrl = () => {
+    const params = new URLSearchParams();
+    if (activeTab !== "all") params.set("status", activeTab);
+    if (activeBranchId !== "all") params.set("branch_id", String(activeBranchId));
+    const qs = params.toString();
+    return `/api/invoices${qs ? `?${qs}` : ""}`;
+  };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["invoices", activeTab],
-    queryFn: () => apiFetch(`/api/invoices${activeTab !== "all" ? `?status=${activeTab}` : ""}`),
+    queryKey: ["invoices", activeTab, activeBranchId],
+    queryFn: () => apiFetch(buildInvoicesUrl()),
   });
 
   const tabs: { id: TabId; label: string }[] = [

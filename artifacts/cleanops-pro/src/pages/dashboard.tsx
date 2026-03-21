@@ -5,6 +5,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { ChevronRight, Calendar, ShieldAlert, Building2 } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
+import { useBranch } from "@/contexts/branch-context";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -35,19 +36,21 @@ function DeltaBadge({ delta }: { delta: number | null }) {
   );
 }
 
-function useToday() {
+function useToday(branchId: number | "all") {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
+    setData(null);
+    const qs = branchId !== "all" ? `?branch_id=${branchId}` : "";
     const load = async () => {
       try {
-        const r = await apiFetch('/api/dashboard/today');
+        const r = await apiFetch(`/api/dashboard/today${qs}`);
         if (r.ok) setData(await r.json());
       } catch {}
     };
     load();
     const iv = setInterval(load, 60000);
     return () => clearInterval(iv);
-  }, []);
+  }, [branchId]);
   return data;
 }
 
@@ -77,8 +80,9 @@ export default function Dashboard() {
   const [, navigate] = useLocation();
   const [dismissedActions, setDismissedActions] = useState<Set<number>>(new Set());
   const [showCloseDay, setShowCloseDay] = useState(false);
+  const { activeBranchId, activeBranch } = useBranch();
 
-  const today = useToday();
+  const today = useToday(activeBranchId);
   const kpis = useKpis();
 
   const token = useAuthStore(state => state.token) || '';
@@ -152,7 +156,14 @@ export default function Dashboard() {
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12,
         }}>
           <div>
-            <p style={{ fontSize: isMobile ? 15 : 16, fontWeight: 600, color: '#1A1917', margin: '0 0 4px', fontFamily: FF }}>{greeting}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <p style={{ fontSize: isMobile ? 15 : 16, fontWeight: 600, color: '#1A1917', margin: 0, fontFamily: FF }}>{greeting}</p>
+              {activeBranch && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim)', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.03em', fontFamily: FF }}>
+                  {activeBranch.name}
+                </span>
+              )}
+            </div>
             <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{todayDate}</p>
           </div>
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'flex-end' }}>

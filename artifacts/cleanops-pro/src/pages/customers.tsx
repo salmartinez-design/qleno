@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useQuery } from "@tanstack/react-query";
+import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Phone, Mail, MapPin, Download, MessageSquare, UserPlus, ChevronDown } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -60,16 +61,18 @@ export default function CustomersPage() {
   const [portal, setPortal] = useState<string>("all");
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const { activeBranchId } = useBranch();
 
   const params = new URLSearchParams();
   if (search) params.set("search", search);
   if (status !== "all") params.set("status", status);
   if (frequency !== "all") params.set("frequency", frequency);
   if (portal !== "all") params.set("portal", portal);
+  if (activeBranchId !== "all") params.set("branch_id", String(activeBranchId));
   params.set("limit", "100");
 
   const { data, isLoading } = useQuery<{ data: Client[]; total: number }>({
-    queryKey: ["clients", search, status, frequency, portal],
+    queryKey: ["clients", search, status, frequency, portal, activeBranchId],
     queryFn: async () => {
       const r = await fetch(`${API}/api/clients?${params}`, { headers: getAuthHeaders() });
       return r.json();

@@ -5,6 +5,7 @@ import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { usersTable } from "./users";
 import { billingMethodEnum } from "./account_rate_cards";
+import { branchesTable } from "./branches";
 
 export const jobStatusEnum = pgEnum("job_status", [
   "scheduled", "in_progress", "complete", "cancelled"
@@ -51,6 +52,7 @@ export const jobsTable = pgTable("jobs", {
   job_lng: numeric("job_lng", { precision: 10, scale: 7 }),
   geocode_failed: boolean("geocode_failed").notNull().default(false),
   zone_id: integer("zone_id"),
+  branch_id: integer("branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

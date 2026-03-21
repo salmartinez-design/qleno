@@ -1,0 +1,73 @@
+Correct. From the employee’s perspective nothing changes. They log in, they see their jobs. Whether that job was booked from Oak Lawn or Schaumburg is invisible to them. Branch is an owner/manager concept only.
+
+Here’s the prompt:
+
+QLENO — BRANCH ARCHITECTURE SPRINT
+
+Build a branch (multi-location) system for Qleno. This must be done correctly at the data layer now so reporting and P&L work cleanly later. UI is minimal for now.
+
+SCHEMA CHANGES
+
+Create a branches table:
+
+id, company_id, name, address, city, state, zip, phone, is_default, is_active, created_at
+
+
+Seed two branches for PHES (company_id = PHES):
+
+	∙	Oak Lawn (is_default: true)
+	∙	Schaumburg (is_default: false)
+
+Add branch_id (nullable FK → branches) to: jobs, clients, invoices
+
+Add home_branch_id (nullable FK → branches) to users/employees — this is informational only, it does NOT restrict where they can be dispatched or what jobs they see.
+
+Do NOT add branch_id to timeclock, scorecards, payroll, or additional_pay. Those stay unified at the employee level.
+
+BACKEND
+
+Add branch endpoints under /api/branches:
+
+	∙	GET / — list branches for company
+	∙	POST / — create branch (owner only)
+	∙	PATCH /:id — update branch
+	∙	DELETE /:id — deactivate branch (soft delete, is_active = false)
+
+All existing job, client, and invoice queries must accept an optional branch_id query param that filters results when provided. When not provided, return all records (All Branches view).
+
+HEADER SWITCHER — OWNER AND ADMIN ROLES ONLY
+
+Add a branch switcher dropdown to the top header, positioned left of the search bar. Only visible to owner and admin roles.
+
+Show: individual branch names + “All Branches” option at top.
+Default selection on login: the tenant’s default branch.
+Persist the active branch selection in localStorage so it survives page refresh.
+When a branch is selected, pass it as context throughout the app — dispatch board, jobs list, customers list, invoices list, dashboard stats, and reports all filter to that branch.
+
+The switcher should display as a clean pill dropdown using the existing design system. No emojis. No icons inside the pill. Just the branch name and a chevron.
+
+EMPLOYEE EXPERIENCE — NO CHANGES
+
+Technician and field roles see no branch UI whatsoever. My Jobs shows all jobs assigned to them regardless of branch. Branch is invisible to them.
+
+JOB WIZARD
+
+When creating a new job, the branch field should auto-populate from the owner’s currently active branch selection. It should be editable via a simple dropdown if the owner wants to override. Label it “Location” not “Branch” in the UI.
+
+DASHBOARD
+
+When a specific branch is selected, all dashboard metrics (revenue, jobs, active clients, team today) filter to that branch. When “All Branches” is selected, metrics are company-wide.
+
+Add a small location indicator below the company name in the greeting hero — e.g. “Oak Lawn” or “All Locations” — so the owner always knows which view they’re in.
+
+WHAT NOT TO BUILD YET
+
+Do not build branch P&L comparison reports. Do not build labor cost allocation by branch. Do not add branch to payroll, scorecards, or employee profiles beyond the home_branch field. That work happens in Phase 4.
+
+MIGRATION
+
+All existing jobs, clients, and invoices should have branch_id set to the default branch (Oak Lawn) on migration. No data should be orphaned.
+
+Push to GitHub when complete: bash push-to-github.sh 'feat: branch architecture — schema, switcher, context filtering'
+
+Run that in Replit. It’s clean and additive — nothing destructive to existing data.​​​​​​​​​​​​​​​​

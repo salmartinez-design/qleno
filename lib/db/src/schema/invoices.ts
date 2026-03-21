@@ -5,6 +5,7 @@ import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { jobsTable } from "./jobs";
 import { usersTable } from "./users";
+import { branchesTable } from "./branches";
 
 export const invoiceStatusEnum = pgEnum("invoice_status", [
   "draft", "sent", "paid", "overdue"
@@ -36,6 +37,7 @@ export const invoicesTable = pgTable("invoices", {
   payment_terms: text("payment_terms").default("due_on_receipt"),
   billing_contact_name: text("billing_contact_name"),
   billing_contact_email: text("billing_contact_email"),
+  branch_id: integer("branch_id").references(() => branchesTable.id),
 });
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({ id: true, created_at: true });

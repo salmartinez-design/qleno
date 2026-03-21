@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useCallback } from "react";
+import { ReactNode, useEffect, useState, useCallback, useRef } from "react";
 import { AppSidebar } from "./app-sidebar";
 import { useAuthStore } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
@@ -9,11 +9,13 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { GlobalSearch } from "@/components/global-search";
 import { ChatPanel } from "@/components/chat-panel";
 import { KeyboardShortcutsOverlay, useKeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { useBranch } from "@/contexts/branch-context";
 import {
   LayoutDashboard, CalendarDays, ClipboardList, Users,
   UserCheck, FileText, DollarSign, BarChart2, TrendingUp,
   ArrowUpCircle, Tag, BookOpen, Star, Settings, Clock,
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
+  MapPin, ChevronDown,
 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -152,6 +154,84 @@ function MoreSheet({ open, onClose, navigate }: { open: boolean; onClose: () => 
   );
 }
 
+const BRANCH_ROLES = new Set(["owner", "admin", "office"]);
+
+function BranchSwitcher({ role, compact = false }: { role?: string; compact?: boolean }) {
+  const { branches, activeBranchId, setActiveBranchId } = useBranch();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  if (!role || !BRANCH_ROLES.has(role) || branches.length < 2) return null;
+
+  const label = activeBranchId === "all"
+    ? "All Locations"
+    : branches.find(b => b.id === activeBranchId)?.name ?? "All Locations";
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button
+        onClick={() => setOpen(p => !p)}
+        style={{
+          display: "flex", alignItems: "center", gap: compact ? 4 : 6,
+          padding: compact ? "4px 10px" : "5px 12px",
+          background: activeBranchId === "all" ? "#F7F6F3" : "var(--brand-dim)",
+          border: `1px solid ${activeBranchId === "all" ? "#E5E2DC" : "var(--brand)"}`,
+          borderRadius: 20, cursor: "pointer",
+          color: activeBranchId === "all" ? "#6B7280" : "var(--brand)",
+          fontSize: compact ? 11 : 12,
+          fontWeight: 600,
+          fontFamily: "'Plus Jakarta Sans', sans-serif",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <MapPin size={compact ? 11 : 13} />
+        {label}
+        <ChevronDown size={compact ? 10 : 12} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0,
+          background: "#FFFFFF", border: "1px solid #E5E2DC",
+          borderRadius: 10, boxShadow: "0 4px 16px rgba(0,0,0,0.10)",
+          zIndex: 200, minWidth: 160, overflow: "hidden",
+        }}>
+          {[{ id: "all" as const, name: "All Locations" }, ...branches].map(b => {
+            const isActive = b.id === activeBranchId;
+            return (
+              <button
+                key={b.id}
+                onClick={() => { setActiveBranchId(b.id as any); setOpen(false); }}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  width: "100%", padding: "9px 14px",
+                  background: isActive ? "var(--brand-dim)" : "transparent",
+                  border: "none", cursor: "pointer", textAlign: "left",
+                  fontSize: 13, fontWeight: isActive ? 600 : 400,
+                  color: isActive ? "var(--brand)" : "#1A1917",
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}
+              >
+                {b.name}
+                {isActive && <div style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: "var(--brand)" }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useUnreadCount(userId: number | undefined) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -260,11 +340,12 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
           padding: '0 16px', height: 52,
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: 'var(--brand)' }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{pageTitle}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: 'var(--brand)', flexShrink: 0 }} />
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pageTitle}</span>
+            <BranchSwitcher role={user?.role} compact />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', display: 'flex', alignItems: 'center' }}>
               <Search size={19} />
             </button>
@@ -330,9 +411,12 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <header style={{ height: 56, backgroundColor: '#FFFFFF', borderBottom: '1px solid #EEECE7', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-          <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1917', letterSpacing: '-0.02em', lineHeight: 1, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            {pageTitle}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1917', letterSpacing: '-0.02em', lineHeight: 1, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              {pageTitle}
+            </h1>
+            <BranchSwitcher role={user?.role} />
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button onClick={() => setSearchOpen(true)}

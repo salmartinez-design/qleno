@@ -2,6 +2,7 @@ import { pgTable, serial, text, integer, timestamp, boolean, numeric, date, pgEn
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
+import { branchesTable } from "./branches";
 
 export const userRoleEnum = pgEnum("user_role", [
   "owner", "admin", "office", "technician", "team_lead", "super_admin"
@@ -65,6 +66,7 @@ export const usersTable = pgTable("users", {
   onboarding_complete: boolean("onboarding_complete").default(false),
   is_active: boolean("is_active").notNull().default(true),
   crew_id: integer("crew_id"),
+  home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

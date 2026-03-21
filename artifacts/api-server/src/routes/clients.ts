@@ -39,7 +39,7 @@ function assertClientAccess(client: any, companyId: number, res: any): boolean {
 // ─── LIST CLIENTS ─────────────────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { search, page = "1", limit = "50", status, frequency, portal } = req.query;
+    const { search, page = "1", limit = "50", status, frequency, portal, branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const conditions = [eq(clientsTable.company_id, req.auth!.companyId)];
@@ -57,6 +57,7 @@ router.get("/", requireAuth, async (req, res) => {
     if (status === "inactive") conditions.push(eq(clientsTable.is_active, false));
     if (frequency && frequency !== "all") conditions.push(eq(clientsTable.frequency, frequency as string));
     if (portal === "registered") conditions.push(eq(clientsTable.portal_access, true));
+    if (branch_id && branch_id !== "all") conditions.push(eq(clientsTable.branch_id, parseInt(branch_id as string)));
     if (portal === "invited") {
       conditions.push(sql`${clientsTable.portal_invite_sent_at} IS NOT NULL AND ${clientsTable.portal_access} = false`);
     }

@@ -35,7 +35,7 @@ function formatInvoice(inv: any) {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, client_id, date_from, date_to, page = "1", limit = "50" } = req.query;
+    const { status, client_id, date_from, date_to, page = "1", limit = "50", branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const today = new Date().toISOString().split("T")[0];
@@ -49,6 +49,7 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(eq(invoicesTable.status, status as any));
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
+    if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
 
     const invoices = await db
       .select({

@@ -8,7 +8,8 @@ const router = Router();
 
 router.get("/metrics", requireAuth, async (req, res) => {
   try {
-    const { period = "week" } = req.query;
+    const { period = "week", branch_id } = req.query;
+    const branchFilter = branch_id && branch_id !== "all" ? parseInt(branch_id as string) : null;
 
     const now = new Date();
     let dateFrom: Date;
@@ -28,11 +29,15 @@ router.get("/metrics", requireAuth, async (req, res) => {
 
     const dateFromStr = dateFrom.toISOString().split("T")[0];
 
+    const jobBranchCond = branchFilter ? [eq(jobsTable.branch_id, branchFilter)] : [];
+    const invBranchCond = branchFilter ? [eq(invoicesTable.branch_id, branchFilter)] : [];
+    const clientBranchCond = branchFilter ? [eq(clientsTable.branch_id, branchFilter)] : [];
+
     const [scheduledCount, inProgressCount, completedCount, cancelledCount] = await Promise.all([
-      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "scheduled"), gte(jobsTable.scheduled_date, dateFromStr))),
-      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "in_progress"))),
-      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateFromStr))),
-      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "cancelled"), gte(jobsTable.scheduled_date, dateFromStr))),
+      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "scheduled"), gte(jobsTable.scheduled_date, dateFromStr), ...jobBranchCond)),
+      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "in_progress"), ...jobBranchCond)),
+      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateFromStr), ...jobBranchCond)),
+      db.select({ count: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, req.auth!.companyId), eq(jobsTable.status, "cancelled"), gte(jobsTable.scheduled_date, dateFromStr), ...jobBranchCond)),
     ]);
 
     const revenueResult = await db
@@ -41,13 +46,14 @@ router.get("/metrics", requireAuth, async (req, res) => {
       .where(and(
         eq(invoicesTable.company_id, req.auth!.companyId),
         eq(invoicesTable.status, "paid"),
-        gte(invoicesTable.created_at, dateFrom)
+        gte(invoicesTable.created_at, dateFrom),
+        ...invBranchCond
       ));
 
     const activeClients = await db
       .select({ count: count() })
       .from(clientsTable)
-      .where(eq(clientsTable.company_id, req.auth!.companyId));
+      .where(and(eq(clientsTable.company_id, req.auth!.companyId), ...clientBranchCond));
 
     const activeEmployees = await db
       .select({ count: count() })
@@ -151,6 +157,8 @@ router.get("/today", requireAuth, async (req, res) => {
     const now = new Date();
     const todayStr = now.toISOString().split("T")[0];
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const { branch_id } = req.query;
+    const todayBranchCond = branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id as string))] : [];
 
     // Today's job counts by status
     const [todayJobs, inProgress, complete, cancelled, scheduled] = await Promise.all([
@@ -164,11 +172,11 @@ router.get("/today", requireAuth, async (req, res) => {
       })
         .from(jobsTable)
         .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
-        .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.scheduled_date, todayStr))),
-      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "in_progress"), eq(jobsTable.scheduled_date, todayStr))),
-      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), eq(jobsTable.scheduled_date, todayStr))),
-      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "cancelled"), eq(jobsTable.scheduled_date, todayStr))),
-      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), eq(jobsTable.scheduled_date, todayStr))),
+        .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
+      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "in_progress"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
+      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
+      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "cancelled"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
+      db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
     ]);
 
     // Today's revenue (complete jobs' base_fee sum)

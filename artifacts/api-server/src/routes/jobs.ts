@@ -11,7 +11,7 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, assigned_user_id, client_id, date_from, date_to, page = "1", limit = "50", uninvoiced } = req.query;
+    const { status, assigned_user_id, client_id, date_from, date_to, page = "1", limit = "50", uninvoiced, branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const conditions: any[] = [eq(jobsTable.company_id, req.auth!.companyId)];
@@ -20,6 +20,7 @@ router.get("/", requireAuth, async (req, res) => {
     if (client_id) conditions.push(eq(jobsTable.client_id, parseInt(client_id as string)));
     if (date_from) conditions.push(gte(jobsTable.scheduled_date, date_from as string));
     if (date_to) conditions.push(lte(jobsTable.scheduled_date, date_to as string));
+    if (branch_id && branch_id !== "all") conditions.push(eq(jobsTable.branch_id, parseInt(branch_id as string)));
     if (uninvoiced === "true") {
       conditions.push(
         notExists(
@@ -103,6 +104,7 @@ router.post("/", requireAuth, async (req, res) => {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
+      branch_id,
     } = req.body;
 
     const newJob = await db
@@ -123,6 +125,7 @@ router.post("/", requireAuth, async (req, res) => {
         billing_method: billing_method || null,
         hourly_rate: hourly_rate || null,
         estimated_hours: estimated_hours || null,
+        branch_id: branch_id || null,
       })
       .returning();
 

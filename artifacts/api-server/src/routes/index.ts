@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
 import authRouter from "./auth.js";
+import branchesRouter from "./branches.js";
 import companiesRouter from "./companies.js";
 import usersRouter from "./users.js";
 import employeeExtendedRouter from "./employee-extended.js";
@@ -104,5 +105,6 @@ router.use("/hr-discipline", hrDisciplineRouter);
 router.use("/hr-leave", hrLeaveRouter);
 router.use("/hr-quality", hrQualityRouter);
 router.use("/accounts", accountsRouter);
+router.use("/branches", branchesRouter);
 
 export default router;

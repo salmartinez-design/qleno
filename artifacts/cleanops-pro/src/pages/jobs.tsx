@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
+import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
 import { JobWizard } from "@/components/job-wizard";
 import {
@@ -61,9 +62,11 @@ async function patchJob(id: number, patch: object, token: string) {
   if (!r.ok) throw new Error("Failed");
 }
 
-async function fetchDispatch(date: string, token: string): Promise<DispatchData> {
+async function fetchDispatch(date: string, token: string, branchId?: number | "all"): Promise<DispatchData> {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
-  const r = await fetch(`${API}/api/dispatch?date=${date}`, { headers: { Authorization: `Bearer ${token}` } });
+  const params = new URLSearchParams({ date });
+  if (branchId && branchId !== "all") params.set("branch_id", String(branchId));
+  const r = await fetch(`${API}/api/dispatch?${params}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!r.ok) throw new Error("Failed to load dispatch");
   return r.json();
 }
@@ -587,6 +590,7 @@ export default function JobsPage() {
   const isMobile = useIsMobile();
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
+  const { activeBranchId } = useBranch();
   const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -603,7 +607,7 @@ export default function JobsPage() {
     const id = ++refreshRef.current;
     setLoading(true);
     try {
-      const d = await fetchDispatch(dateKey(selectedDate), token);
+      const d = await fetchDispatch(dateKey(selectedDate), token, activeBranchId);
       if (id !== refreshRef.current) return;
       setData(d);
       // Collect all dates with jobs for the calendar dots
@@ -615,7 +619,7 @@ export default function JobsPage() {
       });
     } catch { toast({ title: "Could not load schedule", variant: "destructive" }); }
     finally { setLoading(false); }
-  }, [selectedDate, token]);
+  }, [selectedDate, token, activeBranchId]);
 
   useEffect(() => { load(); }, [load]);
 

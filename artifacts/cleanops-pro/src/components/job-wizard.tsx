@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuthHeaders } from "@/lib/auth";
+import { useBranch } from "@/contexts/branch-context";
 import { X, ChevronRight, ChevronLeft, Search, Check, Clock, User, Calendar, Sparkles, Zap, ArrowRightCircle, Home, RefreshCw, Wrench, Building2, LayoutGrid, MapPin, AlertTriangle, DollarSign } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -75,6 +76,7 @@ interface JobWizardProps {
 }
 
 export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
+  const { activeBranchId } = useBranch();
   const [step, setStep] = useState(0);
 
   // Step 0 — Type
@@ -285,6 +287,7 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
           billing_method: billingMethod,
           hourly_rate: billingMethod === "hourly" ? effectiveRate : undefined,
           estimated_hours: estimatedHours || undefined,
+          branch_id: activeBranchId !== "all" ? activeBranchId : undefined,
         };
       } else {
         if (!selectedClient) return;
@@ -299,6 +302,7 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
           notes: notes || undefined,
           assigned_user_id: selectedEmployee || undefined,
           status: "scheduled",
+          branch_id: activeBranchId !== "all" ? activeBranchId : undefined,
         };
       }
       const r = await fetch(`${API}/api/jobs`, {
