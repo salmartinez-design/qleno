@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { usersTable } from "./users";
+import { billingMethodEnum } from "./account_rate_cards";
 
 export const jobStatusEnum = pgEnum("job_status", [
   "scheduled", "in_progress", "complete", "cancelled"
@@ -25,6 +26,15 @@ export const jobsTable = pgTable("jobs", {
   account_id: integer("account_id"),
   account_property_id: integer("account_property_id"),
   assigned_user_id: integer("assigned_user_id").references(() => usersTable.id),
+  billing_method: billingMethodEnum("billing_method"),
+  hourly_rate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  estimated_hours: numeric("estimated_hours", { precision: 5, scale: 2 }),
+  billed_hours: numeric("billed_hours", { precision: 5, scale: 2 }),
+  billed_amount: numeric("billed_amount", { precision: 10, scale: 2 }),
+  charge_attempted_at: timestamp("charge_attempted_at"),
+  charge_succeeded_at: timestamp("charge_succeeded_at"),
+  charge_failed_at: timestamp("charge_failed_at"),
+  charge_failure_reason: text("charge_failure_reason"),
   service_type: serviceTypeEnum("service_type").notNull(),
   status: jobStatusEnum("status").notNull().default("scheduled"),
   scheduled_date: date("scheduled_date").notNull(),

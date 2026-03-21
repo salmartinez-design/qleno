@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, count, desc, sql, notExists, inArray } from "drizzle-orm";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable } from "@workspace/db/schema";
+import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
@@ -594,6 +594,42 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Job not found" });
     }
 
+    // ── Hourly billing engine ─────────────────────────────────────────────
+    const completedJob = updated[0] as any;
+    if (completedJob.billing_method === "hourly" && completedJob.hourly_rate) {
+      try {
+        // Sum all completed timeclock entries for this job
+        const tcRows = await db
+          .select({ clock_in_at: timeclockTable.clock_in_at, clock_out_at: timeclockTable.clock_out_at })
+          .from(timeclockTable)
+          .where(and(eq(timeclockTable.job_id, jobId), isNotNull(timeclockTable.clock_out_at)));
+
+        const totalMinutes = tcRows.reduce((sum, r) => {
+          if (!r.clock_out_at) return sum;
+          return sum + (new Date(r.clock_out_at).getTime() - new Date(r.clock_in_at).getTime()) / 60000;
+        }, 0);
+
+        // Round up to nearest 0.25h
+        const rawHours = totalMinutes / 60;
+        const billedHours = Math.ceil(rawHours * 4) / 4;
+        const billedAmount = billedHours * parseFloat(completedJob.hourly_rate);
+
+        await db
+          .update(jobsTable)
+          .set({
+            billed_hours: billedHours.toFixed(2),
+            billed_amount: billedAmount.toFixed(2),
+          })
+          .where(eq(jobsTable.id, jobId));
+
+        completedJob.billed_hours = billedHours.toFixed(2);
+        completedJob.billed_amount = billedAmount.toFixed(2);
+      } catch (billingErr) {
+        console.error("Billing engine error (non-fatal):", billingErr);
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     const jobDetail = await db
       .select({
         id: jobsTable.id,
@@ -705,11 +741,16 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             termsDays === 15 ? "net_15" :
             termsDays === 7  ? "net_7"  : "due_on_receipt";
 
-          const amount = parseFloat(job.base_fee ?? "0");
+          // Use billed_amount for hourly jobs; otherwise base_fee
+          const amount = completedJob.billed_amount
+            ? parseFloat(completedJob.billed_amount)
+            : parseFloat(job.base_fee ?? "0");
           const svcLabel = (job.service_type ?? "Cleaning Service")
             .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+          const qty = completedJob.billed_hours ? parseFloat(completedJob.billed_hours) : 1;
+          const unitPrice = completedJob.hourly_rate ? parseFloat(completedJob.hourly_rate) : amount;
 
-          const lineItems = [{ description: svcLabel, quantity: 1, unit_price: amount, total: amount }];
+          const lineItems = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: amount }];
 
           const [newInv] = await db
             .insert(invoicesTable)

@@ -1,0 +1,1162 @@
+```
+You are working on Qleno, a multi-tenant SaaS platform for 
+residential and commercial cleaning businesses.
+
+This sprint builds the Commercial Account Architecture — 
+the foundational data model that supports property management 
+accounts with multiple properties, hourly billing, service-type 
+rate cards, multi-contact routing, card-on-file auto-charging, 
+and flexible invoicing cadences.
+
+This is a PHES Day 1 requirement. PHES is 70% commercial — 
+property management turnovers and common areas — and cannot 
+migrate without this architecture in place.
+
+REAL-WORLD CONTEXT — READ BEFORE BUILDING:
+
+PHES operates three commercial billing patterns that must 
+all be supported:
+
+PATTERN 1 — On-demand per job, card on file (PRIMARY)
+  Client calls or texts requesting a job.
+  Office schedules it. Tech goes, clocks in, 
+  does the work, clocks out.
+  System calculates hours × rate.
+  Invoice auto-created.
+  Card on file charged immediately on job completion.
+  Receipt sent to the billing contact.
+  This is the default for PPM accounts like Daniel Walter.
+  Example: Danny texts "need turnover at 1000 La Salle" →
+  tech clocks in → clocks out after 2.62 hrs →
+  $157.20 charged to Daniel's card → done.
+
+PATTERN 2 — Scheduled recurring commercial, card on file
+  Commercial client on a fixed recurring schedule.
+  Each visit auto-invoices and charges COF on completion.
+  Same auto-charge flow as Pattern 1, just scheduled.
+
+PATTERN 3 — NET 30 invoice, no auto-charge (MINORITY)
+  Job completes → invoice generated → 
+  payment terms apply → client pays by check, 
+  ACH, or payment link.
+  No auto-charge attempt.
+  Owner marks paid manually.
+  Standard for Evinco-style commercial contracts.
+
+Almost all PHES clients — residential and commercial — 
+pay by card on file. Check/ACH are edge cases.
+The system must treat COF as the default path, 
+not an optional feature.
+
+TECH STACK: React 18, Tailwind, Express/Node.js, Supabase 
+(Postgres + RLS), Plus Jakarta Sans only.
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand)
+- NO emojis, NO dark mode, light theme only
+- Plus Jakarta Sans only
+- Skeleton loaders for all async loads
+- All monetary values: USD, 2 decimal places, 
+  comma-formatted
+- Status badges: pill shape, muted background, 
+  colored text
+
+All endpoints: JWT protected, company_id scoped, 
+RLS enforced. Never expose data across tenant boundaries.
+
+═══════════════════════════════════════════════════════
+PART 1 — CLIENT TYPE FLAG
+═══════════════════════════════════════════════════════
+
+Add to existing clients/customers table:
+  client_type    enum: residential / commercial
+                 default: residential
+  account_id     uuid nullable FK to accounts table
+                 — set when client is linked to 
+                   a commercial account
+
+This flag drives:
+  - Which fields display on the client profile
+  - Which billing model is available
+  - Which KPIs the client counts toward
+  - Whether the client appears on residential 
+    or commercial dashboard segments
+
+On client create/edit form:
+  Add "Client Type" selector at the top:
+  Residential / Commercial
+  
+  When Commercial is selected:
+    - Show account linking field (search existing 
+      accounts or create new)
+    - Show business name field
+    - Show billing contact field
+    - Show PO number field (optional)
+    - Hide loyalty points section
+    - Hide home churn rate from this client's KPIs
+
+  When Residential is selected:
+    - Show existing residential fields unchanged
+    - Show loyalty points
+    - Hide commercial fields
+
+═══════════════════════════════════════════════════════
+PART 2 — DATABASE SCHEMA
+═══════════════════════════════════════════════════════
+
+Create accounts table:
+{
+  id                    uuid primary key 
+                        default gen_random_uuid(),
+  company_id            integer not null FK companies,
+  account_name          text not null,
+  account_type          enum: property_management /
+                              commercial_office /
+                              retail /
+                              other
+                        default: property_management,
+
+  -- BILLING CONFIGURATION
+  invoice_frequency     enum: per_job / weekly / 
+                              monthly / custom
+                        default: per_job,
+  payment_terms_days    integer default 0,
+  -- 0 = due on completion (Pattern 1 + 2)
+  -- 30 = NET 30 (Pattern 3)
+
+  payment_method        enum: card_on_file / 
+                              check / 
+                              ach / 
+                              invoice_only
+                        default: card_on_file,
+  -- card_on_file = auto-charge on job completion
+  --   (or on invoice generation for weekly/monthly)
+  -- check/ach/invoice_only = no auto-charge,
+  --   owner marks paid manually
+
+  auto_charge_on_completion boolean default true,
+  -- true for card_on_file accounts
+  -- false for check/ach/invoice_only accounts
+  -- Auto-set based on payment_method:
+  --   card_on_file → true
+  --   anything else → false
+
+  stripe_customer_id    text nullable,
+  -- Stripe customer ID for this account
+  -- Set when card on file is added via /pay/:token
+  
+  square_customer_id    text nullable,
+  -- Square customer ID for PHES accounts
+
+  -- ACCOUNT INFO
+  notes                 text,
+  is_active             boolean default true,
+  created_at            timestamp default now(),
+  updated_at            timestamp default now()
+}
+
+Create account_rate_cards table:
+{
+  id                uuid primary key 
+                    default gen_random_uuid(),
+  account_id        uuid not null FK accounts,
+  company_id        integer not null FK companies,
+  service_type      text not null,
+  -- e.g. 'Apartment Turnover', 'Common Areas',
+  --   'Deep Clean', 'Move In/Out', 'Standard Clean'
+  billing_method    enum: hourly / flat_rate / per_unit
+                    default: hourly,
+  rate_amount       decimal(10,2) not null,
+  unit_label        text default 'hr',
+  -- 'hr', 'job', 'unit', 'sq ft'
+  is_active         boolean default true,
+  notes             text,
+  created_at        timestamp default now()
+}
+
+Create account_properties table:
+{
+  id                uuid primary key 
+                    default gen_random_uuid(),
+  account_id        uuid not null FK accounts,
+  company_id        integer not null FK companies,
+  property_name     text,
+  -- e.g. "PPM | 1000 North La Salle"
+  address           text not null,
+  city              text,
+  state             text,
+  zip               text,
+  unit_count        integer nullable,
+  -- Number of units (for apartment buildings)
+  property_type     enum: apartment_building /
+                          condo /
+                          common_area /
+                          office /
+                          retail /
+                          other
+                    default: apartment_building,
+  lat               decimal(10,8) nullable,
+  lng               decimal(11,8) nullable,
+  zone_id           uuid nullable FK service_zones,
+  default_service_type text nullable,
+  -- Pre-fills service type when scheduling 
+  -- a job at this property
+  access_notes      text nullable,
+  -- Gate codes, key location, building access info
+  -- Visible to tech on My Jobs mobile view
+  is_active         boolean default true,
+  created_at        timestamp default now(),
+  updated_at        timestamp default now()
+}
+
+Create account_contacts table:
+{
+  id                            uuid primary key 
+                                default gen_random_uuid(),
+  account_id                    uuid not null FK accounts,
+  company_id                    integer not null FK companies,
+  name                          text not null,
+  role                          enum: billing / 
+                                      operations /
+                                      onsite / 
+                                      accountant /
+                                      property_manager / 
+                                      other
+                                default: operations,
+  email                         text nullable,
+  phone                         text nullable,
+  receives_invoices             boolean default false,
+  receives_receipts             boolean default false,
+  -- Separate from invoices —
+  -- receives_receipts gets the 
+  -- auto-charge confirmation email
+  receives_on_way_sms           boolean default false,
+  receives_completion_notifications boolean default false,
+  is_primary                    boolean default false,
+  notes                         text nullable,
+  created_at                    timestamp default now()
+}
+
+Modify jobs table — add these fields:
+  account_id            uuid nullable FK accounts,
+  property_id           uuid nullable FK account_properties,
+  service_type          text nullable,
+  -- Drives rate card lookup
+  billing_method        enum: hourly / flat_rate / per_unit
+                        nullable,
+  hourly_rate           decimal(10,2) nullable,
+  -- Pulled from account_rate_cards on job creation
+  -- Dispatcher can override
+  estimated_hours       decimal(5,2) nullable,
+  -- Set at scheduling time for dispatch planning
+  billed_hours          decimal(5,2) nullable,
+  -- Auto-calculated from clock in/out on completion
+  -- Can be manually overridden before charging
+  billed_amount         decimal(10,2) nullable,
+  -- Auto-calculated: billed_hours × hourly_rate
+  -- Or flat_rate amount
+  charge_attempted_at   timestamp nullable,
+  charge_succeeded_at   timestamp nullable,
+  charge_failed_at      timestamp nullable,
+  charge_failure_reason text nullable
+
+═══════════════════════════════════════════════════════
+PART 3 — HOURLY BILLING ENGINE
+═══════════════════════════════════════════════════════
+
+When a job has billing_method = 'hourly'
+and is marked complete:
+
+STEP 1 — CALCULATE HOURS:
+  Pull all timeclock entries for this job_id
+  total_minutes = SUM of 
+    (clock_out_time - clock_in_time) in minutes
+    across all timeclock entries for this job
+  billed_hours = ROUND(total_minutes / 60, 2)
+  Example: 2 hrs 37 min = 157 min = 2.62 hrs
+  
+  Set jobs.billed_hours = billed_hours
+  Set jobs.billed_amount = 
+    billed_hours × jobs.hourly_rate
+
+STEP 2 — ALLOW MANUAL OVERRIDE:
+  Before charging, owner/admin can edit 
+  billed_hours on the completed job.
+  
+  UI shows:
+  "Time on site: 2.62 hrs (from clock in/out)"
+  "Billed hours: [  2.62  ] hrs" ← editable
+  "Billed amount: $157.20" ← updates on change
+  
+  If billed_hours is edited:
+    Recalculate billed_amount automatically
+    Log the override in audit_log:
+    { action: 'hours_override', 
+      original: 2.62, adjusted: 2.50,
+      adjusted_by: user_id }
+
+STEP 3 — CREATE INVOICE:
+  Auto-create invoice with:
+  line_items: [{
+    description: service_type + ' — ' + 
+                 property_name + ' · ' + 
+                 billed_hours + ' hrs @ $' + 
+                 hourly_rate + '/hr',
+    quantity: billed_hours,
+    unit_price: hourly_rate,
+    total: billed_amount
+  }]
+  total_amount: billed_amount
+  due_date: today + account.payment_terms_days
+
+STEP 4 — CHARGE CARD OR QUEUE:
+  If account.payment_method = 'card_on_file'
+  AND account.auto_charge_on_completion = true:
+
+    Check payment provider for this company:
+      PHES → Square (square_customer_id)
+      All others → Stripe (stripe_customer_id)
+
+    If card on file exists:
+      Attempt charge for invoice total_amount
+      
+      On success:
+        Set invoice.status = 'paid'
+        Set jobs.charge_succeeded_at = now()
+        Set invoice.paid_at = now()
+        Send receipt email to all contacts where
+        receives_receipts = true
+        Toast to office UI: 
+        "Job complete — $157.20 charged to 
+         Daniel Walter's card on file"
+
+      On failure:
+        Set invoice.status = 'sent'
+        Set jobs.charge_failed_at = now()
+        Set jobs.charge_failure_reason = 
+          error message from payment processor
+        Surface alert on dashboard 
+        Needs Attention queue:
+        "Charge failed for [Job] — 
+         [failure reason]. Retry or collect 
+         payment manually."
+        Do NOT retry automatically — 
+        owner action required
+
+    If NO card on file:
+      Set invoice.status = 'sent'
+      Surface alert on account profile 
+      AND dashboard Needs Attention queue:
+      "No card on file for [Account Name]. 
+       Invoice sent but not charged. 
+       Send payment link to add card."
+
+  If account.payment_method = 'check' 
+  OR 'ach' OR 'invoice_only':
+    Set invoice.status = 'sent'
+    No charge attempt
+    Owner marks paid manually
+    No alert surfaced — this is expected behavior
+
+For flat_rate jobs (billing_method = 'flat_rate'):
+  billed_amount = jobs.price (existing field)
+  Skip hours calculation
+  Proceed directly to Step 4 above
+
+═══════════════════════════════════════════════════════
+PART 4 — RATE CARD AUTO-POPULATION
+═══════════════════════════════════════════════════════
+
+When creating a job and account_id is set:
+
+On service_type selection:
+  1. Query account_rate_cards WHERE
+     account_id = selected_account_id AND
+     service_type = selected_service_type AND
+     is_active = true
+     LIMIT 1
+
+  2. If rate found:
+     Auto-fill:
+       billing_method from rate card
+       hourly_rate from rate card
+     Show read-only indicator below rate field:
+     "Rate from account card: $60.00/hr 
+      (Apartment Turnover)"
+     Show override option:
+     "Override for this job" — reveals editable 
+     rate field, logs override in audit_log
+
+  3. If no rate found for this service_type:
+     Show amber warning:
+     "No rate configured for '[service_type]' 
+      on this account. Enter rate manually or 
+      add it to the account rate card."
+     Show manual rate entry field
+
+  4. If no account_id set (residential job):
+     Use existing flat-rate pricing flow unchanged
+
+═══════════════════════════════════════════════════════
+PART 5 — CONSOLIDATED INVOICING
+═══════════════════════════════════════════════════════
+
+For accounts with invoice_frequency = 
+'weekly' or 'monthly':
+
+  Do NOT auto-charge on individual job completion.
+  Instead: 
+    Auto-create draft invoice per job (for records)
+    Set invoice.status = 'pending_consolidation'
+    Do NOT charge card yet
+
+  Add POST /api/accounts/:id/generate-invoice
+  — Owner/admin triggers manually
+  — OR runs automatically on schedule:
+    weekly → every Monday for prior week
+    monthly → 1st of each month for prior month
+
+  Logic:
+    Collect all jobs for this account where
+    invoice.status = 'pending_consolidation'
+    within the billing period
+    
+    Create ONE consolidated invoice with 
+    one line item per job:
+    { 
+      description: date + ' · ' + property_name + 
+                   ' · ' + service_type + ' · ' +
+                   billed_hours + ' hrs @ $' + 
+                   hourly_rate + '/hr',
+      quantity: billed_hours,
+      unit_price: hourly_rate,
+      total: billed_amount
+    }
+    
+    Consolidated invoice total = sum of all jobs
+    Due date = invoice_date + payment_terms_days
+    
+    Mark all included job invoices as 
+    consolidated_into = new_invoice_id
+
+  Pre-generation preview:
+    Before generating, show a preview modal:
+    "X jobs · [date range]
+     [table of all line items]
+     Total: $X,XXX.XX
+     [Confirm & Generate] [Cancel]"
+
+  Auto-charge on consolidated invoice:
+    Same logic as per-job auto-charge in Part 3.
+    If COF → charge total → receipt to 
+    contacts where receives_receipts = true.
+
+  On account profile:
+    Show uninvoiced jobs count + total when > 0:
+    "5 jobs pending invoicing — $847.00"
+    Amber indicator, links to Jobs & Invoices tab
+
+═══════════════════════════════════════════════════════
+PART 6 — BACKEND ROUTES
+═══════════════════════════════════════════════════════
+
+ACCOUNTS
+GET    /api/accounts
+       — list all active accounts for company
+       — include computed fields:
+         property_count,
+         active_jobs_today,
+         revenue_mtd,
+         revenue_12m,
+         outstanding_balance,
+         uninvoiced_jobs_count,
+         uninvoiced_total,
+         last_job_date,
+         has_card_on_file (boolean)
+
+POST   /api/accounts
+       — create account
+       — auto-set auto_charge_on_completion 
+         based on payment_method:
+         card_on_file → true
+         others → false
+
+GET    /api/accounts/:id
+       — single account detail with:
+         properties[],
+         contacts[],
+         rate_cards[],
+         recent_jobs (last 10),
+         revenue_stats,
+         charge_history (last 5)
+
+PUT    /api/accounts/:id
+       — update account
+       — if payment_method changes:
+         recalculate auto_charge_on_completion
+
+DELETE /api/accounts/:id
+       — soft delete, set is_active = false
+
+RATE CARDS
+GET    /api/accounts/:id/rates
+POST   /api/accounts/:id/rates
+PUT    /api/accounts/:id/rates/:rateId
+DELETE /api/accounts/:id/rates/:rateId
+       — soft delete, set is_active = false
+
+GET    /api/accounts/:id/rates/lookup
+       ?service_type=Apartment+Turnover
+       — returns matching active rate
+       — used for job creation auto-population
+
+PROPERTIES
+GET    /api/accounts/:id/properties
+       — includes last_cleaned_date, 
+         next_scheduled_date per property
+POST   /api/accounts/:id/properties
+PUT    /api/accounts/:id/properties/:propId
+DELETE /api/accounts/:id/properties/:propId
+       — soft delete only, 
+         never hard delete properties
+
+CONTACTS
+GET    /api/accounts/:id/contacts
+POST   /api/accounts/:id/contacts
+PUT    /api/accounts/:id/contacts/:contactId
+DELETE /api/accounts/:id/contacts/:contactId
+
+INVOICING
+GET    /api/accounts/:id/uninvoiced-jobs
+       — all completed jobs not yet invoiced 
+         or pending consolidation
+POST   /api/accounts/:id/generate-invoice
+       — preview=true: returns line items without 
+         creating invoice
+       — preview=false: creates consolidated invoice
+         and triggers charge if COF
+
+PAYMENT
+POST   /api/accounts/:id/charge
+       — manually retry a failed charge
+       — owner only
+GET    /api/accounts/:id/payment-status
+       — returns card on file status,
+         last charge date, last charge amount
+
+═══════════════════════════════════════════════════════
+PART 7 — FRONTEND: ACCOUNTS PAGE
+═══════════════════════════════════════════════════════
+
+Add /accounts route to App.tsx.
+Add "Accounts" to left nav under MANAGE section,
+between Customers and Employees.
+Icon: Building2 (lucide-react)
+
+ACCOUNTS LIST PAGE (/accounts):
+
+Page header: "Accounts" + "New Account" button
+
+Summary bar below header (4 stat cards):
+  Total Active Accounts
+  Jobs Today (across all accounts)
+  MTD Revenue (commercial accounts)
+  Pending Charges (amber if > 0 — 
+  failed charges needing attention)
+
+Filter bar:
+  Account type: All / Property Management / 
+  Commercial Office / Other
+  Status: Active / Inactive
+  Payment: All / Card on File / Check/ACH
+
+Accounts table:
+  Columns: Account Name / Type badge / 
+  Properties / Active Jobs / 12M Revenue /
+  Pending ($) / Card on File (green check 
+  or amber warning) / Last Activity / Actions
+
+  Pending column: shows uninvoiced amount in 
+  amber if invoice_frequency = per_job and
+  there are uncharged completed jobs.
+  This should not happen often for per_job 
+  accounts but surfaces failures.
+
+  Card on File column:
+    Green check = card stored
+    Amber warning = no card, account expects COF
+
+  Row click → account detail page
+  Actions: View / Edit / Deactivate
+
+Empty state:
+  "No commercial accounts yet.
+   Add your first account to manage properties,
+   rate cards, and billing in one place."
+
+NEW ACCOUNT SLIDE-OVER:
+  Opens from "New Account" button
+  Fields:
+    Account name (required)
+    Account type
+    Invoice frequency
+    Payment terms (days)
+    Payment method
+    Notes
+  On save → navigates to new account detail page
+  with prompt to add properties, rate card, 
+  and contacts
+
+ACCOUNT DETAIL PAGE (/accounts/:id):
+
+Left sidebar (sticky on desktop):
+  Account name (20px, weight 600)
+  Account type badge
+  
+  Divider
+  
+  Quick stats (label + value pairs):
+    Payment method (badge — 
+      card_on_file = green, 
+      check/ach = gray)
+    Invoice frequency
+    Payment terms
+    Properties (count, links to tab)
+    Active jobs today (count)
+    MTD revenue ($)
+    12M revenue ($)
+    Outstanding balance (red if > 0)
+  
+  Divider
+  
+  Card on file status:
+    If card stored: "Card on file" (green)
+    If no card: "No card on file" (amber)
+      + "Send payment link" button
+  
+  Divider
+  
+  Active toggle (owner only)
+  Edit Account button
+
+Main content area — 5 tabs:
+
+──────────────────────────────────────────
+TAB 1 — PROPERTIES
+──────────────────────────────────────────
+
+Search bar (real-time filter by address 
+or property name)
+
+Active / Inactive toggle filter
+
+Properties grid — 3 columns desktop, 
+1 column mobile:
+
+Each property card:
+  Property name (bold)
+  Full address
+  Property type badge
+  Unit count if apartment 
+  (e.g. "24 units")
+  
+  Divider
+  
+  Last cleaned: [date] or "Never"
+  Next scheduled: [date] or "None"
+  
+  Access notes (if set):
+  Truncated, expand on click
+  
+  Active/Inactive toggle (inline)
+  "Schedule Job" quick action button
+  — opens job creation with this 
+    property pre-selected
+
+"Add Property" button opens slide-over:
+  Property name (optional)
+  Address (required)
+  City, State, Zip
+  Property type
+  Unit count (optional)
+  Default service type (optional)
+  Access notes (optional — 
+    visible to techs on mobile)
+  
+  On save: card appears in grid immediately
+
+No pagination — virtual scroll for > 50 
+properties. All 44 Daniel Walter properties 
+visible without pagination.
+
+──────────────────────────────────────────
+TAB 2 — RATE CARD
+──────────────────────────────────────────
+
+Clean table with inline editing:
+Columns: Service Type / Billing Method / 
+Rate / Unit / Notes / Status / Actions
+
+Each row is editable in place — 
+click any cell to edit.
+
+Status toggle per row (active/inactive).
+
+"Add Service Type" button adds a new 
+editable row at the bottom.
+
+Rates can be deactivated, never deleted.
+
+Footer note:
+"Rates auto-populate when scheduling jobs 
+ for this account. Dispatchers can override 
+ per job."
+
+──────────────────────────────────────────
+TAB 3 — CONTACTS
+──────────────────────────────────────────
+
+Contact cards — 2 columns desktop, 
+1 column mobile:
+
+Each card:
+  Name + role badge
+  Email (clickable mailto)
+  Phone (clickable tel)
+  
+  Divider
+  
+  Notification toggles:
+    Receives invoices [toggle]
+    Receives receipts [toggle]
+    Receives on-way SMS [toggle]
+    Receives completion notifications [toggle]
+  
+  Primary contact badge (if is_primary = true)
+  Edit / Remove actions
+
+"Add Contact" button opens slide-over:
+  Name, role, email, phone
+  Notification preferences (toggles)
+  Set as primary (radio)
+
+One contact must be primary at all times.
+If only one contact exists, is_primary 
+is auto-set to true.
+
+──────────────────────────────────────────
+TAB 4 — JOBS & INVOICES
+──────────────────────────────────────────
+
+Two sections:
+
+SECTION A — REQUIRES ACTION
+(Only shows when there are items needing 
+attention. Hidden when clean.)
+
+  Failed charges (red header):
+  List of jobs/invoices where charge failed.
+  Each row: date / property / amount / 
+  failure reason / Retry Charge button
+
+  Pending per-job charges (amber header):
+  For per_job accounts: completed jobs 
+  where charge has not yet been attempted.
+  Should be near-zero in normal operation.
+  Each row: date / property / amount / 
+  Charge Now button
+
+  Pending consolidation (blue header):
+  For weekly/monthly accounts: jobs awaiting 
+  the next consolidated invoice.
+  Shows total amount pending.
+  "Generate Invoice Now" button (creates 
+  invoice outside the normal schedule).
+
+SECTION B — INVOICE HISTORY
+
+  Filter: All / Paid / Sent / Overdue
+
+  Table: Invoice # / Date / Period / 
+  Properties (count of line items) / 
+  Amount / Status badge / Due Date / 
+  Charge method / Actions
+
+  Row expand: shows all line items for 
+  that invoice inline.
+
+  Actions: View full invoice / 
+  Retry charge (if failed) / 
+  Mark as paid (if check/ACH)
+
+──────────────────────────────────────────
+TAB 5 — OVERVIEW
+──────────────────────────────────────────
+
+Revenue chart:
+  12-month bar chart (recharts)
+  One bar per month, total billed amount
+  Hover tooltip: month / jobs / amount
+
+Revenue by service type:
+  Horizontal bar breakdown:
+  Apartment Turnover: $X (X%)
+  Common Areas: $X (X%)
+  Other types: $X (X%)
+
+Top 5 properties by revenue:
+  Ranked list: property name / 
+  jobs count / total billed
+
+YoY comparison:
+  This year vs last year, same period
+  Delta with direction arrow
+
+Average job value for this account.
+Average hours per job by service type.
+
+═══════════════════════════════════════════════════════
+PART 8 — FRONTEND: JOB CREATION CHANGES
+═══════════════════════════════════════════════════════
+
+In the job creation wizard, Step 1 becomes:
+
+CLIENT TYPE SELECTION:
+  Two options shown as cards:
+  
+  [Residential Client]
+  Select from your residential client list.
+  Flat-rate billing.
+  
+  [Commercial Account]
+  Select account and property.
+  Hourly or flat-rate from account rate card.
+
+RESIDENTIAL flow: unchanged from existing.
+
+COMMERCIAL flow:
+
+  Step 1A — Select Account:
+    Searchable dropdown of active accounts
+    Shows: account name, property count, 
+    payment method badge
+    "New account" link if not found
+
+  Step 1B — Select Property:
+    Filtered by selected account
+    Searchable by address or property name
+    Each option shows:
+      Property name + address
+      Default service type (if set)
+      Access notes preview (if set)
+    "Add new property to this account" 
+    link at bottom of dropdown
+
+  Step 2 — Service Details:
+    Service type field
+    — dropdown shows account's configured 
+      service types first, then free text
+    
+    On service type selection:
+      Rate auto-populates from rate card:
+      Show: "Rate: $60.00/hr — Apartment 
+      Turnover (from account rate card)"
+      Billing method: Hourly (auto-set)
+      Override link: "Override for this job"
+      — reveals editable rate field
+      
+      Estimated hours field:
+      "Estimated duration (hrs)"
+      Used for dispatch planning, 
+      not for billing calculation.
+    
+    If no rate found:
+      Amber warning: "No rate configured 
+      for this service type on this account.
+      Enter manually or update rate card."
+      Manual rate entry field
+
+  Step 3 — Schedule & Team:
+    Existing smart dispatch flow.
+    Property address used for proximity.
+    Access notes visible to dispatcher:
+    "Access: Gate code #1234, key in lockbox"
+
+  Step 4 — Confirmation:
+    Shows full summary:
+    Account: [name]
+    Property: [address]
+    Service type: [type]
+    Billing: $60.00/hr · Hourly
+    Scheduled: [date/time]
+    Team: [tech names]
+    Payment: Card on file (auto-charge 
+    on completion)
+    
+    Note: "Invoice will be calculated 
+    from actual clock in/out time."
+
+═══════════════════════════════════════════════════════
+PART 9 — DISPATCH BOARD CHANGES
+═══════════════════════════════════════════════════════
+
+Commercial job cards on the dispatch board 
+display differently from residential:
+
+Job card layout for commercial jobs:
+  TOP: Account name (bold, primary text)
+  LINE 2: Property address (secondary text)
+  LINE 3: Service type badge + billing rate
+    e.g. "Apartment Turnover · $60/hr"
+  BOTTOM: Team + status badge
+
+The existing frequency color left-border 
+system still applies.
+
+Allowed vs Actual Hours column 
+(for hourly jobs):
+  Estimated hours (set at scheduling) 
+  vs actual hours (from clock in/out)
+  Color code:
+    Green: actual ≤ estimated
+    Amber: actual > estimated by ≤ 30 min
+    Red: actual > estimated by > 30 min
+  This is your payroll accuracy signal.
+
+End-of-day time clock review:
+  Owner reviews dispatch board for any 
+  hourly jobs where billed_hours seems off
+  before charges process.
+  For per_job COF accounts charges fire 
+  on job completion — not end of day.
+  The review is a quality check, not a gate.
+
+Access notes on job detail:
+  If property has access_notes set, 
+  show them prominently on the job detail 
+  view and on the tech's My Jobs mobile view:
+  "Building access: Gate code #1234, 
+   key in lockbox unit 1A"
+
+═══════════════════════════════════════════════════════
+PART 10 — MOBILE MY JOBS CHANGES
+═══════════════════════════════════════════════════════
+
+For commercial jobs on the tech's mobile view:
+
+Job card shows:
+  Account name (instead of client name)
+  Property address
+  Service type
+  Access notes (if set) — shown in 
+  an amber info card:
+  "Building access: [notes]"
+  — This replaces the need for the office 
+    to text techs the gate code separately
+
+Clock in screen for commercial jobs:
+  Shows property name + address
+  Shows access notes if set
+  GPS check against property lat/lng 
+  (same geofencing rules as residential)
+
+After clock out:
+  Tech sees: "Job complete. 
+  Your time has been recorded."
+  No billing information shown to tech.
+  Billing calculation happens server-side.
+
+═══════════════════════════════════════════════════════
+PART 11 — DASHBOARD CHANGES
+═══════════════════════════════════════════════════════
+
+Add to the Needs Attention widget on dashboard:
+
+COMMERCIAL CHARGE FAILURES (red):
+  "[Account Name] — charge failed for 
+   $[amount] on [date]. Tap to retry."
+  Links to account detail → Jobs & Invoices tab
+
+NO CARD ON FILE (amber):
+  "[Account Name] — card on file expected 
+   but none stored. Send payment link."
+  Links to account detail
+
+PENDING CHARGES (amber, per_job accounts):
+  Only surfaces if a per_job account has 
+  completed jobs that weren't charged 
+  (should be rare — means charge failed 
+   and wasn't caught at time of failure).
+
+Add to Key Numbers section on dashboard:
+  Commercial revenue today (separate from 
+  residential revenue today)
+  Only shows if company has commercial accounts
+
+═══════════════════════════════════════════════════════
+PART 12 — PHES SEED DATA
+═══════════════════════════════════════════════════════
+
+Seed one demo account for PHES testing.
+This is dummy data only — not real client info.
+
+Account: "PPM Demo Account"
+  account_type: property_management
+  invoice_frequency: per_job
+  payment_terms_days: 0
+  payment_method: card_on_file
+  auto_charge_on_completion: true
+  is_active: true
+
+Rate card:
+  Apartment Turnover — Hourly — $60.00/hr
+  Common Areas — Hourly — $50.00/hr
+  Deep Clean — Hourly — $65.00/hr
+  Move In/Out — Hourly — $60.00/hr
+
+Properties (5 dummy Chicago properties):
+  "PPM | 1000 North La Salle Drive"
+    1000 North La Salle Drive, Chicago IL 60610
+    property_type: apartment_building
+    unit_count: 30
+    default_service_type: Apartment Turnover
+  
+  "PPM | 1111 North Dearborn Street"
+    1111 North Dearborn Street, Chicago IL 60610
+    property_type: apartment_building
+    unit_count: 24
+    default_service_type: Apartment Turnover
+  
+  "PPM | 350 West Oakdale Avenue"
+    350 West Oakdale Avenue, Chicago IL 60657
+    property_type: apartment_building
+    unit_count: 18
+    default_service_type: Apartment Turnover
+  
+  "PPM | 430 West Diversey — Common Areas"
+    430 West Diversey Parkway, Chicago IL 60614
+    property_type: common_area
+    default_service_type: Common Areas
+    access_notes: "Key in lockbox, code 4421"
+  
+  "PPM | 2756 North Pine Grove"
+    2756 North Pine Grove Avenue, Chicago IL 60614
+    property_type: apartment_building
+    unit_count: 12
+    default_service_type: Apartment Turnover
+
+Contacts:
+  Danny W
+    role: operations
+    phone: 312-000-0000 (dummy)
+    receives_on_way_sms: true
+    receives_completion_notifications: true
+    is_primary: true
+  
+  Sabin (Accountant)
+    role: accountant
+    email: accountant@ppmDemo.com (dummy)
+    receives_invoices: true
+    receives_receipts: true
+    is_primary: false
+
+═══════════════════════════════════════════════════════
+CONFIRMATION CHECKLIST
+═══════════════════════════════════════════════════════
+
+After implementation confirm ALL of these:
+
+SCHEMA:
+1. accounts, account_rate_cards, 
+   account_properties, account_contacts 
+   tables all created with correct fields
+2. jobs table has new commercial fields
+3. All new tables have company_id scoping
+4. RLS policies applied to all new tables
+
+BILLING ENGINE:
+5. Hourly job completion correctly calculates 
+   billed_hours from clock in/out entries
+6. billed_amount = billed_hours × hourly_rate
+7. Manual hours override works and logs 
+   to audit_log
+8. Flat-rate jobs bypass hours calculation
+9. Payment terms applied correctly to due_date:
+   PHES per_job = due today (0 days)
+   Evinco NET 30 = due date + 30 days
+
+CHARGING:
+10. Per-job COF accounts: charge fires 
+    immediately on job completion
+11. Consolidated accounts: charge fires 
+    on invoice generation, not per job
+12. Check/ACH/invoice_only: no auto-charge, 
+    ever
+13. Failed charge surfaces in Needs Attention 
+    dashboard widget
+14. No card on file surfaces amber warning 
+    on account profile AND dashboard
+15. Receipt email routes to contacts where 
+    receives_receipts = true
+
+RATE CARDS:
+16. Rate auto-populates on job creation 
+    when account + service type selected
+17. Override works and logs to audit_log
+18. Amber warning shows when no rate 
+    found for service type
+
+FRONTEND:
+19. /accounts list page renders with all 
+    columns and summary bar
+20. Account detail renders all 5 tabs
+21. Properties grid renders without pagination
+    — virtual scroll for large accounts
+22. Contacts show notification toggles 
+    that save correctly
+23. Jobs & Invoices tab shows failed charges 
+    in red, pending in amber
+24. Commercial job creation wizard works 
+    end to end: Account → Property → 
+    Service Type → Rate auto-fill → 
+    Schedule → Confirm
+
+DISPATCH BOARD:
+25. Commercial job cards show account name, 
+    property, service type, hourly rate
+26. Allowed vs actual hours variance 
+    shows correctly for hourly jobs
+
+MOBILE:
+27. Tech sees account name and property 
+    on commercial jobs in My Jobs view
+28. Access notes visible in amber card 
+    on job detail for tech
+
+SEED DATA:
+29. PPM Demo Account visible under /accounts
+    with all 5 properties, rate card, 
+    and both contacts
+30. Scheduling a test job against 
+    PPM Demo Account auto-populates 
+    $60/hr rate for Apartment Turnover
+
+EXISTING FUNCTIONALITY:
+31. Residential clients and jobs 
+    completely unaffected
+32. Existing PHES dummy data still works
+33. All existing API routes still respond
+```
+
+---
+
+Two things before you run this in Replit.
+
+First — this is the largest prompt of the project. If Replit starts to slow down or truncate, split it at the natural break: run Parts 1–6 first (schema + backend), confirm the database tables exist, then run Parts 7–12 (frontend + seed data). The backend must land before the frontend.
+
+Second — the Square keys still aren't in Replit Secrets, so the auto-charge in Step 4 of Part 3 will stub out gracefully — it'll create the invoice and show the "no card on file" warning rather than crashing. That's correct behavior. The actual charge wiring happens when Square lands next sprint.

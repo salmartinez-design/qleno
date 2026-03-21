@@ -5,7 +5,7 @@ import { companiesTable } from "./companies";
 import { accountsTable } from "./accounts";
 
 export const billingMethodEnum = pgEnum("billing_method", [
-  "hourly", "flat", "per_unit",
+  "hourly", "flat_rate", "per_unit",
 ]);
 
 export const accountRateCardsTable = pgTable("account_rate_cards", {
@@ -13,9 +13,10 @@ export const accountRateCardsTable = pgTable("account_rate_cards", {
   account_id: integer("account_id").references(() => accountsTable.id).notNull(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   service_type: text("service_type").notNull(),
-  billing_method: billingMethodEnum("billing_method").notNull().default("flat"),
+  billing_method: billingMethodEnum("billing_method").notNull().default("hourly"),
   rate_amount: numeric("rate_amount", { precision: 10, scale: 2 }).notNull(),
-  unit_label: text("unit_label").notNull().default("job"),
+  unit_label: text("unit_label").notNull().default("hr"),
+  notes: text("notes"),
   is_active: boolean("is_active").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });

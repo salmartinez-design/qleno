@@ -62,6 +62,7 @@ export const clientsTable = pgTable("clients", {
   card_expiry: text("card_expiry"),
   card_saved_at: timestamp("card_saved_at"),
   zone_id: integer("zone_id"),
+  account_id: integer("account_id"),
   referral_source: referralSourceEnum("referral_source"),
   referral_by_customer_id: integer("referral_by_customer_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),

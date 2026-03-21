@@ -74,8 +74,12 @@ and **Evinco Services** (commercial only).
 |---|---|
 | `companies.ts` | `companies` (brand_color, geofence config, payment terms defaults) |
 | `users.ts` | `users` (role, pay_rate, commission_rate_override, hr_status, leave_balance_hours) |
-| `clients.ts` | `clients` (client_type enum residential/commercial, billing_contact_*, po_number_required, payment_terms, auto_charge, card_last_four) |
-| `jobs.ts` | `jobs` |
+| `clients.ts` | `clients` (client_type enum residential/commercial, billing_contact_*, po_number_required, payment_terms, auto_charge, card_last_four, account_id FK) |
+| `jobs.ts` | `jobs` (billing_method text, hourly_rate, estimated_hours, billed_hours, billed_amount, charge_attempted_at/succeeded_at/failed_at, charge_failure_reason) |
+| `accounts.ts` | `accounts` (account_type: property_management/commercial_office/retail/other; payment_method: card_on_file/check/ach/invoice_only; auto_charge_on_completion, stripe/square_customer_id) |
+| `account_rate_cards.ts` | `account_rate_cards` (billing_method: hourly/flat_rate/per_unit, service_type, rate_amount, unit_label, notes) |
+| `account_properties.ts` | `account_properties` (property_type: apartment_building/condo/common_area/office/retail/other, city/state/zip, default_service_type, access_notes) |
+| `account_contacts.ts` | `account_contacts` (role adds property_manager, receives_receipts, receives_on_way_sms, is_primary, notes) |
 | `invoices.ts` | `invoices` (payment_terms) |
 | `timeclock.ts` | `timeclock`, `clock_in_attempts` (geofence flags, radius_ft) |
 | `service_zones.ts` | `service_zones` (zip_codes array, color) |
@@ -111,7 +115,23 @@ and **Evinco Services** (commercial only).
 
 All routes registered in `index.ts`. Full list:
 
-`auth`, `admin`, `companies`, `users`, `clients`, `jobs`, `invoices`, `payroll`, `timeclock`, `dashboard`, `discounts`, `zones`, `dispatch`, `recurring`, `cancellation`, `communication-log`, `close-day`, `quotes`, `quote-scopes`, `reports`, `satisfaction`, `incentives`, `churn`, `retention`, `payment-links`, `payments`, `billing`, `policy`, `hr-attendance`, `hr-discipline`, `hr-leave`, `hr-quality`, `agreement-templates`, `sign`, `form-templates`, `notifications`, `messages`, `portal`, `search`, `addons`, `attachments`, `employee-extended`, `job-sms`, `loyalty`, `property-groups`, `route-sequences`, `scorecards`, `supplies`, `revenue-goal`, `health`
+`auth`, `admin`, `companies`, `users`, `clients`, `jobs`, `invoices`, `payroll`, `timeclock`, `dashboard`, `discounts`, `zones`, `dispatch`, `recurring`, `cancellation`, `communication-log`, `close-day`, `quotes`, `quote-scopes`, `reports`, `satisfaction`, `incentives`, `churn`, `retention`, `payment-links`, `payments`, `billing`, `policy`, `hr-attendance`, `hr-discipline`, `hr-leave`, `hr-quality`, `agreement-templates`, `sign`, `form-templates`, `notifications`, `messages`, `portal`, `search`, `addons`, `attachments`, `employee-extended`, `job-sms`, `loyalty`, `property-groups`, `route-sequences`, `scorecards`, `supplies`, `revenue-goal`, `health`, `accounts`
+
+**accounts routes (commercial architecture):**
+- `GET /api/accounts` — list with stats (revenue_mtd, revenue_12m, outstanding_balance, open_jobs, active_properties) per account
+- `GET /api/accounts/:id` — detail with nested rate_cards[], properties[], contacts[], stats{}
+- `POST /api/accounts` — create account
+- `PATCH /api/accounts/:id` — update (includes auto_charge_on_completion, stripe/square_customer_id)
+- `DELETE /api/accounts/:id` — soft delete
+- `GET /api/accounts/:id/rate-cards` — list, with ?service_type= filter
+- `GET /api/accounts/:id/rates/lookup?service_type=` — rate auto-fill for job wizard
+- `POST/PATCH/DELETE /api/accounts/:id/rate-cards/:cardId`
+- `GET/POST/PATCH/DELETE /api/accounts/:id/properties/:propId` — property CRUD (city/state/zip/access_notes)
+- `GET/POST/PATCH/DELETE /api/accounts/:id/contacts/:contactId` — contact CRUD (is_primary, receives_receipts/on_way_sms)
+- `GET /api/accounts/:id/uninvoiced-jobs` — completed jobs without sent/paid invoices
+- `POST /api/accounts/:id/generate-invoice` — create consolidated invoice (?preview=true for dry run)
+- `POST /api/accounts/:id/charge` — initiate payment on outstanding invoices
+- `GET /api/accounts/:id/payment-status` — summary of paid/outstanding invoices
 
 **HR routes (5 new):**
 - `GET/PUT /api/policy/pay` — company pay policy (auto-creates on first read)
@@ -136,6 +156,8 @@ All routes registered in `index.ts`. Full list:
 | `employee-profile-hr-tabs.tsx` | HR Attendance, Leave Balance, Discipline, Quality tabs |
 | `customers.tsx` | Client list |
 | `customer-profile.tsx` | Tabs: Overview, Recurring, Comm Log, Jobs, Invoices, etc. |
+| `accounts.tsx` | Commercial accounts list with summary bar (Revenue MTD, Outstanding, Open Jobs, Properties), type filter, active/inactive toggle, per-account stats |
+| `account-detail.tsx` | 5-tab commercial account detail: Overview (billing settings + activity), Properties (city/state/zip/access_notes/units), Rate Cards (service/billing_method/rate table with PATCH), Contacts (is_primary, notification prefs), Uninvoiced Jobs (with Generate Invoice button) |
 | `invoices.tsx` | Invoice list, batch drawer |
 | `invoice-detail.tsx` | Invoice detail with charge/send actions |
 | `payroll.tsx` | Payroll calculation (no Close Week lock) |
