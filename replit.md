@@ -37,7 +37,9 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 - **Payments:** Stripe integration for Qleno SaaS billing and customer payments (if API keys are configured). Square payment integration is not built.
 - **Notifications:** SMS notifications via Twilio (requires API keys).
 - **Client Portal:** Basic shell exists for login and dashboard.
-- **API Routes:** A comprehensive set of API routes are defined, covering all aspects of the application from authentication and user management to specialized features like payroll, dispatch, and HR.
+- **Document Templates + eSign:** Full document management system: `document_templates`, `document_signatures`, `document_requests` tables. Template editor in Company Settings > Documents (rich text + variable insertion). Employee Onboarding tab (send packet, resend, status). Client Agreements tab (template picker, send, resend). Public `/onboard/:token` (multi-doc scroll-gate + signature pad) and `/sign-doc/:token` (single-doc client signing) pages.
+- **Mileage Reimbursement:** `mileage_requests` table, `mileage` additionalPay type. Mileage form in My Jobs page (bottom-sheet modal). Owner/admin approve/deny queue in dashboard (MileagePendingBanner). Mileage rate configurable in Company Settings > Payroll.
+- **API Routes:** A comprehensive set of API routes are defined, covering all aspects of the application from authentication and user management to specialized features like payroll, dispatch, HR, document templates/requests, and mileage requests.
 
 ## External Dependencies
 

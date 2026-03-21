@@ -38,6 +38,7 @@ const PAY_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
   vacation_pay:  { bg: '#CCFBF1', color: '#0F766E' },
   compliment:    { bg: '#FEE2E2', color: '#991B1B' },
   amount_owed:   { bg: '#F3F4F6', color: '#6B7280' },
+  mileage:       { bg: '#FEF9C3', color: '#78350F' },
 };
 
 const TICKET_TYPE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
@@ -59,7 +60,7 @@ const TABS = [
   'Information','Tags & Skills','Attendance','Availability',
   'User Account','Contacts','Scorecards','Additional Pay',
   'Contact Tickets','Jobs','Notes','Incentives',
-  'HR Attendance','Leave Balance','Discipline','Quality',
+  'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
 
 const SKILLS_OPTIONS = [
@@ -308,6 +309,134 @@ function ScoreTrendChart({ scores }: { scores: Array<{ month: string; score: num
         <circle key={i} cx={p.x} cy={p.y} r={4} fill="var(--brand)" />
       ))}
     </svg>
+  );
+}
+
+function OnboardingTab({ employeeId }: { employeeId: number }) {
+  const [showSendModal, setShowSendModal] = useState(false);
+  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendDone, setSendDone] = useState(false);
+  const [resendingId, setResendingId] = useState<number | null>(null);
+
+  const { data: requests, refetch } = useQuery({
+    queryKey: ['onboarding-requests', employeeId],
+    queryFn: () => apiFetch(`/document-requests?employee_id=${employeeId}`),
+  });
+  const { data: templates } = useQuery({
+    queryKey: ['doc-templates-onboarding'],
+    queryFn: () => apiFetch('/document-templates?category=employee_onboarding'),
+    enabled: showSendModal,
+  });
+
+  const handleSend = async () => {
+    if (!selectedTemplates.length) return;
+    setSending(true);
+    try {
+      await apiFetch('/document-requests/send', { method: 'POST', body: JSON.stringify({ template_ids: selectedTemplates, employee_id: employeeId }) });
+      setSendDone(true);
+      setTimeout(() => { setShowSendModal(false); setSendDone(false); setSelectedTemplates([]); refetch(); }, 1500);
+    } catch { /* ignore */ }
+    setSending(false);
+  };
+
+  const handleResend = async (requestId: number) => {
+    setResendingId(requestId);
+    try {
+      await apiFetch(`/document-requests/${requestId}/resend`, { method: 'POST' });
+      refetch();
+    } catch { /* ignore */ }
+    setResendingId(null);
+  };
+
+  const toggleTemplate = (id: number) => setSelectedTemplates(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  const TH = { padding: '10px 14px', textAlign: 'left' as const, fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.05em', borderBottom: '1px solid #EEECE7' };
+
+  const docList: any[] = requests || [];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={() => setShowSendModal(true)}
+          style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
+          Send Onboarding Packet
+        </button>
+      </div>
+
+      {showSendModal && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+          <div style={{ background:'#fff',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)',maxHeight:'80vh',overflowY:'auto' }}>
+            <h3 style={{ margin:'0 0 4px',fontSize:16,fontWeight:700,color:'#1A1917' }}>Send Onboarding Packet</h3>
+            <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 16px' }}>Select which documents to include.</p>
+            {sendDone ? (
+              <div style={{ textAlign:'center',padding:'20px 0' }}>
+                <Check size={24} color="var(--brand)" style={{ display:'block',margin:'0 auto 8px' }}/>
+                <p style={{ fontSize:14,fontWeight:600,color:'#1A1917' }}>Packet sent!</p>
+              </div>
+            ) : (
+              <>
+                <div style={{ display:'flex',flexDirection:'column',gap:8,marginBottom:16 }}>
+                  {!templates || templates.length === 0 ? (
+                    <p style={{ fontSize:13,color:'#9E9B94' }}>No onboarding templates yet. Add them in Company Settings → Documents.</p>
+                  ) : templates.map((t: any) => (
+                    <label key={t.id} style={{ display:'flex',alignItems:'center',gap:10,cursor:'pointer',padding:'10px 12px',border:`1px solid ${selectedTemplates.includes(t.id)?'var(--brand)':'#E5E2DC'}`,borderRadius:8,background:selectedTemplates.includes(t.id)?'#F0FBF8':'#fff' }}>
+                      <input type="checkbox" checked={selectedTemplates.includes(t.id)} onChange={() => toggleTemplate(t.id)} style={{ accentColor:'var(--brand)',width:15,height:15 }}/>
+                      <div>
+                        <p style={{ fontSize:13,fontWeight:600,color:'#1A1917',margin:0 }}>{t.name}</p>
+                        {t.requires_signature && <p style={{ fontSize:11,color:'#9E9B94',margin:0 }}>Requires signature</p>}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
+                  <button onClick={() => { setShowSendModal(false); setSelectedTemplates([]); }}
+                    style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#fff',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                  <button onClick={handleSend} disabled={sending || !selectedTemplates.length}
+                    style={{ padding:'8px 16px',background:'var(--brand)',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:selectedTemplates.length?1:0.5 }}>
+                    {sending ? 'Sending…' : 'Send Packet'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div style={{ background:'#fff',border:'1px solid #E5E2DC',borderRadius:10,overflow:'hidden' }}>
+        <table style={{ width:'100%',borderCollapse:'collapse' }}>
+          <thead><tr style={{ background:'#FAFAF8' }}>
+            {['Document','Sent','Status',''].map(h => <th key={h} style={TH}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {docList.length === 0 ? (
+              <tr><td colSpan={4} style={{ padding:'40px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No onboarding documents sent yet</td></tr>
+            ) : docList.map((d: any) => (
+              <tr key={d.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                <td style={{ padding:'12px 14px',fontSize:13,fontWeight:600,color:'#1A1917' }}>{d.template_name || 'Document'}</td>
+                <td style={{ padding:'12px 14px',fontSize:12,color:'#6B7280' }}>{d.sent_at ? new Date(d.sent_at).toLocaleDateString() : '—'}</td>
+                <td style={{ padding:'12px 14px' }}>
+                  {d.status === 'signed'
+                    ? <span style={{ background:'#DCFCE7',color:'#166534',border:'1px solid #BBF7D0',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Signed</span>
+                    : d.status === 'expired'
+                    ? <span style={{ background:'#F3F4F6',color:'#6B7280',border:'1px solid #E5E7EB',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Expired</span>
+                    : <span style={{ background:'#FEF3C7',color:'#92400E',border:'1px solid #FDE68A',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Pending</span>
+                  }
+                </td>
+                <td style={{ padding:'12px 14px' }}>
+                  {(d.status === 'pending' || d.status === 'expired') && (
+                    <button onClick={() => handleResend(d.id)} disabled={resendingId === d.id}
+                      style={{ fontSize:12,color:'var(--brand)',background:'none',border:'none',cursor:'pointer',fontWeight:600,padding:0,fontFamily:'inherit' }}>
+                      {resendingId === d.id ? '…' : 'Resend'}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -1247,6 +1376,10 @@ export default function EmployeeProfilePage() {
 
           {activeTab === 'Quality' && user && (
             <QualityTab employeeId={user.id} />
+          )}
+
+          {activeTab === 'Onboarding' && user && (
+            <OnboardingTab employeeId={user.id} />
           )}
 
         </div>

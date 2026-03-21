@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { Car, X, Check } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -541,10 +542,93 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
   );
 }
 
+function MileageModal({ onClose }: { onClose: () => void }) {
+  const { toast } = useToast();
+  const [form, setForm] = useState({ service_date: new Date().toISOString().split('T')[0], from_client_name: '', to_client_name: '', miles: '', notes: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
+  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleSubmit = async () => {
+    if (!form.from_client_name || !form.to_client_name || !form.miles) return;
+    setSubmitting(true);
+    try {
+      const token = useAuthStore.getState().token;
+      const r = await fetch(`${BASE}/api/mileage-requests`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      });
+      if (!r.ok) throw new Error();
+      setDone(true);
+      setTimeout(onClose, 1800);
+    } catch {
+      toast({ title: 'Failed to submit request', variant: 'destructive' });
+    }
+    setSubmitting(false);
+  };
+
+  const field = { width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: 'border-box' as const };
+  const lbl = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block', marginBottom: 4, fontFamily: "'Plus Jakarta Sans', sans-serif" };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}>
+      <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '24px 20px', width: '100%', maxWidth: 460, maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Car size={18} color="var(--brand)"/>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Mileage Reimbursement</span>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="#9E9B94"/></button>
+        </div>
+
+        {done ? (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 24, background: '#F0FBF8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+              <Check size={22} color="var(--brand)"/>
+            </div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Request submitted!</p>
+            <p style={{ fontSize: 13, color: '#6B7280', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Your manager will review and approve it.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div>
+              <label style={lbl}>Service Date</label>
+              <input type="date" value={form.service_date} onChange={e => set('service_date', e.target.value)} style={field}/>
+            </div>
+            <div>
+              <label style={lbl}>From (Client / Location)</label>
+              <input value={form.from_client_name} onChange={e => set('from_client_name', e.target.value)} placeholder="e.g. Home, John Smith" style={field}/>
+            </div>
+            <div>
+              <label style={lbl}>To (Client / Location)</label>
+              <input value={form.to_client_name} onChange={e => set('to_client_name', e.target.value)} placeholder="e.g. Jane Doe, Warehouse" style={field}/>
+            </div>
+            <div>
+              <label style={lbl}>Miles Driven</label>
+              <input type="number" min="0" step="0.1" value={form.miles} onChange={e => set('miles', e.target.value)} placeholder="0.0" style={field}/>
+            </div>
+            <div>
+              <label style={lbl}>Notes (optional)</label>
+              <textarea value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any additional details…" rows={2}
+                style={{ ...field, resize: 'vertical' as const }}/>
+            </div>
+            <button onClick={handleSubmit} disabled={submitting || !form.from_client_name || !form.to_client_name || !form.miles}
+              style={{ padding: '12px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer', marginTop: 4 }}>
+              {submitting ? 'Submitting…' : 'Submit Request'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function MyJobsPage() {
   const token = useAuthStore(state => state.token);
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [showMileage, setShowMileage] = useState(false);
 
   let userInfo: { firstName: string; lastName: string } | null = null;
   if (token) {
@@ -603,7 +687,10 @@ export default function MyJobsPage() {
             {initials}
           </div>
           <span style={{ fontSize: 15, fontWeight: 600, color: "#1A1917" }}>My Jobs</span>
-          <span style={{ fontSize: 12, color: "#6B6860" }}>{today}</span>
+          <button onClick={() => setShowMileage(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+            <Car size={13}/> Mileage
+          </button>
         </div>
 
         <div style={{ padding: "16px 14px" }}>
@@ -637,6 +724,7 @@ export default function MyJobsPage() {
           )}
         </div>
       </div>
+      {showMileage && <MileageModal onClose={() => setShowMileage(false)}/>}
     </div>
   );
 }

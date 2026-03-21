@@ -1,0 +1,182 @@
+QLENO — DOCUMENT TEMPLATES + ESIGN SPRINT
+
+Build a fully multi-tenant document management and eSign system. This replaces Jotform, JotformSign, and DocuSign entirely. All content is tenant-owned. Qleno owns the workflow only. No PHES-specific content, rates, or legal language is hardcoded anywhere in this build.
+
+PART 1 — DOCUMENT TEMPLATES
+
+Schema
+
+Create the following tables:
+
+document_templates
+- id
+- company_id (FK — RLS enforced)
+- name (e.g. "Employee Handbook")
+- category (enum: employee_onboarding, employee_operational, client_residential, client_commercial)
+- content (text — rich text HTML)
+- is_required (boolean — for onboarding queue)
+- is_active (boolean)
+- requires_signature (boolean)
+- created_at, updated_at
+
+document_signatures
+- id
+- company_id
+- template_id (FK)
+- employee_id (nullable FK)
+- client_id (nullable FK)
+- signed_at
+- signer_name
+- signer_email
+- signature_data (text — base64 drawn signature or typed name)
+- ip_address
+- user_agent
+- document_snapshot (text — full HTML content at time of signing, immutable)
+
+document_requests
+- id
+- company_id
+- template_id (FK)
+- employee_id (nullable FK)
+- client_id (nullable FK)
+- token (uuid — secure, unique, single-use)
+- status (enum: pending, viewed, signed, expired)
+- sent_at
+- expires_at (72 hours from sent_at)
+- signed_at
+- reminder_sent_at
+
+
+All tables enforce company_id RLS. Signatures store a full snapshot of the document content at time of signing so future edits to the template do not alter historical records.
+
+PART 2 — TEMPLATE EDITOR IN COMPANY SETTINGS
+
+Add a “Documents” tab to Company Settings between HR Policies and Integrations.
+
+The Documents tab has two sections:
+
+Employee Documents — lists all templates with category employee_onboarding or employee_operational. Columns: Name, Required (toggle), Signature Required (toggle), Last Updated, Actions (Edit, Preview, Deactivate).
+
+Client Documents — lists all templates with category client_residential or client_commercial. Columns: Name, Category, Last Updated, Actions (Edit, Preview, Deactivate).
+
+Template Editor
+
+Clicking Edit or New Template opens a full-page editor (not a modal — this needs space).
+
+The editor includes:
+
+	∙	Template name field
+	∙	Category selector
+	∙	Is Required toggle (employee onboarding only)
+	∙	Requires Signature toggle
+	∙	Rich text content editor — support bold, italic, underline, headings (H2, H3), bullet lists, numbered lists, paragraph breaks, and horizontal dividers. No color pickers, no font selectors. Plus Jakarta Sans always. The editor must render clean HTML output.
+	∙	Variable insertion support — a button that inserts merge fields the system will auto-populate at send time: {{employee_name}}, {{employee_email}}, {{company_name}}, {{date}}, {{client_name}}, {{client_address}}, {{service_frequency}}, {{service_rate}}
+	∙	Preview button — renders the document exactly as the signer will see it
+	∙	Save Draft and Publish buttons
+
+Templates can be edited at any time. Edits do not affect previously signed document snapshots.
+
+Legal disclaimer rendered below the editor at all times in secondary text color:
+“Qleno provides document delivery and signature collection tools only. Document content is your responsibility. Qleno does not provide legal advice and does not verify that your documents comply with applicable law. Consult qualified legal counsel before distributing employment or client agreements.”
+
+PART 3 — EMPLOYEE ONBOARDING FLOW
+
+Trigger
+
+When a new employee is created and their User Account tab has a login email set, a “Send Onboarding Packet” button appears on their profile. Clicking it generates a document_request record for each active, required employee_onboarding template and sends a single onboarding email to the employee.
+
+The email subject is: “Your onboarding documents from [Company Name]”
+Body: “Hi [First Name], please review and sign your onboarding documents before your first shift. Click the button below to get started.”
+Single CTA button linking to: /onboard/:token
+
+Onboarding Page — /onboard/:token
+
+This is a public-facing page. No login required. Token validates against document_requests.
+
+The page shows a progress indicator at the top: “Document 1 of 5” style.
+
+Documents are presented one at a time in the order they were created. Each document shows:
+
+	∙	Document title
+	∙	Full rendered content (scrollable)
+	∙	Scroll-to-bottom is required before the sign button activates — use an intersection observer on the last paragraph
+	∙	If requires_signature is true: a signature pad below the content. Support both drawn signature (canvas) and typed name (renders in a cursive-style font). Toggle between the two modes.
+	∙	Checkbox: “I have read and agree to this document”
+	∙	“Sign and Continue” button (disabled until scrolled and checkbox checked)
+	∙	If requires_signature is false: just the checkbox and a “Acknowledge and Continue” button
+
+On completion of all documents, show a confirmation screen: “You’re all set. Your documents have been submitted to [Company Name].”
+
+Each signing action writes to document_signatures with timestamp, IP, user agent, signer name, signer email, and a full snapshot of the document HTML. This is the audit trail.
+
+Employee Profile — Onboarding Status
+
+Add an “Onboarding” section to the employee profile Information tab showing:
+
+	∙	Overall status: Complete / Incomplete / Not Started
+	∙	List of each required document with status: Signed (with date) / Pending / Not Sent
+	∙	Resend button per document
+	∙	“Send Onboarding Packet” button if not yet sent
+
+Employees with incomplete onboarding show a warning indicator on the Employees list page.
+
+PART 4 — CLIENT AGREEMENT ESIGN
+
+Send Agreement from Client Profile
+
+On the client profile, add an “Agreements” tab. It shows:
+
+	∙	List of all sent agreements with status (Pending / Signed / Expired) and signed date
+	∙	“Send Agreement” button — opens a modal to select a template (residential or commercial), confirm the client’s email, and send
+
+Sending generates a document_request with a unique token and sends an email to the client:
+Subject: “Service Agreement from [Company Name]”
+Body: “Hi [Client Name], please review and sign your service agreement. This link expires in 72 hours.”
+CTA: Link to /sign/:token
+
+Signing Page — /sign/:token
+
+Same pattern as the onboarding page but single-document. Shows full document content, scroll-to-bottom required, signature pad, checkbox, Submit button.
+
+Merge fields {{client_name}}, {{client_address}}, {{service_frequency}}, {{service_rate}}, {{date}}, {{company_name}} are populated from the client record at render time.
+
+On completion: confirmation screen. Owner receives a notification (Needs Attention item or email if Resend is configured): “[Client Name] signed their service agreement.”
+
+Expired tokens (past 72 hours) show: “This link has expired. Please contact [Company Name] to receive a new agreement.”
+
+Signed agreements are downloadable as PDF from the client profile. Use the existing PDF generation pattern in the codebase, or generate via browser print-to-PDF if no pattern exists.
+
+PART 5 — MILEAGE REIMBURSEMENT FORM
+
+Add a “Mileage Reimbursement” button to the tech mobile portal (same area as the future Supply Request button).
+
+The form captures:
+
+	∙	Service date (date picker, defaults to today)
+	∙	Job sequence: From (client name selector — pulls from their jobs that day) and To (client name selector)
+	∙	Miles driven (numeric input)
+	∙	Rate per mile — auto-populated from company setting, read-only on this form
+	∙	Calculated reimbursement amount (miles × rate, displayed in real time)
+	∙	Notes field (optional)
+	∙	Policy acknowledgment checkbox: “I confirm this mileage is accurate, reflects job-to-job travel only, and does not include home-to-first-job or last-job-to-home miles.”
+	∙	Submit button
+
+Add a Mileage Rate field to Company Settings under Payroll Options. Default value $0.725. Label: “Mileage Reimbursement Rate (per mile)”. Editable by owner only. Help text: “Updated annually to match the IRS standard mileage rate.”
+
+Submitted mileage requests appear in owner/admin Needs Attention queue as “Mileage reimbursement request from [Employee Name] — $[Amount]” with Approve and Deny actions. Approved requests are added as a reimbursement line in the employee’s payroll for the current period. Denied requests notify the employee with the denial reason.
+
+Mileage reimbursement history is visible on the employee’s Additional Pay tab filtered by type = mileage.
+
+WHAT NOT TO BUILD IN THIS SPRINT
+
+Do not build supply request from employee portal yet — that is a separate sprint.
+Do not build SMS notifications for document signing — Twilio not yet configured.
+Do not build document expiration reminders beyond the initial 72-hour window.
+Do not build bulk send (send one agreement to multiple clients at once) — future feature.
+
+AFTER COMPLETION
+
+Push to GitHub:
+bash push-to-github.sh 'feat: document templates, esign, employee onboarding flow, client agreements, mileage reimbursement'
+
+This is a large sprint. If Replit agent hits context limits, split it at the natural seams: run Parts 1 and 2 first (schema + template editor), confirm they work, then run Parts 3 and 4 (onboarding + client eSign), then Part 5 (mileage). Each part is independently functional.​​​​​​​​​​​​​​​​

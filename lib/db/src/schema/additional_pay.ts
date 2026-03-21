@@ -6,7 +6,7 @@ import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
 
 export const additionalPayTypeEnum = pgEnum("additional_pay_type", [
-  "tips", "sick_pay", "holiday_pay", "bonus", "vacation_pay", "compliment", "amount_owed"
+  "tips", "sick_pay", "holiday_pay", "bonus", "vacation_pay", "compliment", "amount_owed", "mileage"
 ]);
 
 export const additionalPayTable = pgTable("additional_pay", {

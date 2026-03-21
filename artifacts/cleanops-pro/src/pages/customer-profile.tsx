@@ -600,64 +600,138 @@ function BillingTab({ invoices }: { invoices: any[] }) {
 
 // ─── Agreements Tab ────────────────────────────────────────────────────────────
 function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; agreements: any[]; refetch: () => void }) {
-  const [showForm, setShowForm] = useState(false);
-  const [template, setTemplate] = useState("Standard Service Agreement");
+  const [showModal, setShowModal] = useState(false);
+  const [selectedTemplates, setSelectedTemplates] = useState<number[]>([]);
+  const [sending, setSending] = useState(false);
+  const [sendDone, setSendDone] = useState(false);
+  const [resendingId, setResendingId] = useState<number | null>(null);
 
-  const sendMut = useMutation({
-    mutationFn: () => apiFetch(`/api/clients/${clientId}/agreements/send`, { method: "POST", body: JSON.stringify({ template_name: template }) }),
-    onSuccess: () => { refetch(); setShowForm(false); },
+  const { data: docRequests = [], refetch: refetchDocs } = useQuery<any[]>({
+    queryKey: ["client-doc-requests", clientId],
+    queryFn: () => apiFetch(`/api/document-requests?client_id=${clientId}`),
   });
 
+  const { data: templates = [], isLoading: tplLoading } = useQuery<any[]>({
+    queryKey: ["client-doc-templates"],
+    queryFn: () => apiFetch("/api/document-templates?category=client_residential"),
+    enabled: showModal,
+  });
+
+  const toggleTemplate = (id: number) => setSelectedTemplates(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+
+  const handleSend = async () => {
+    if (!selectedTemplates.length) return;
+    setSending(true);
+    try {
+      await apiFetch("/api/document-requests/send", { method: "POST", body: JSON.stringify({ template_ids: selectedTemplates, client_id: clientId }) });
+      setSendDone(true);
+      setTimeout(() => { setShowModal(false); setSendDone(false); setSelectedTemplates([]); refetchDocs(); refetch(); }, 1500);
+    } catch { /* ignore */ }
+    setSending(false);
+  };
+
+  const handleResend = async (requestId: number) => {
+    setResendingId(requestId);
+    try {
+      await apiFetch(`/api/document-requests/${requestId}/resend`, { method: "POST" });
+      refetchDocs();
+    } catch { /* ignore */ }
+    setResendingId(null);
+  };
+
   const TH: React.CSSProperties = { padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #EEECE7" };
+
+  const allDocs = [
+    ...docRequests.map((d: any) => ({ ...d, _src: "new" })),
+    ...agreements.filter(a => !docRequests.find((d: any) => d.id === a.id)).map((a: any) => ({ ...a, _src: "legacy" })),
+  ];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+        <button onClick={() => setShowModal(true)} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
           <Send size={13} /> Send Agreement
         </button>
       </div>
-      {showForm && (
-        <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" }}>
-          <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Send Service Agreement</h3>
-          <div style={{ marginBottom: "12px" }}>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Agreement Template</label>
-            <select value={template} onChange={e => setTemplate(e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", background: "#FFFFFF" }}>
-              <option>Standard Service Agreement</option>
-              <option>Commercial Cleaning Contract</option>
-              <option>Move-In / Move-Out Agreement</option>
-            </select>
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
-            <button onClick={() => sendMut.mutate()} disabled={sendMut.isPending} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
-              {sendMut.isPending ? "Sending..." : "Send Agreement"}
-            </button>
+
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto" }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Send Agreement</h3>
+            <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>Select one or more document templates to send.</p>
+            {sendDone ? (
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <Check size={24} color="var(--brand)" style={{ display: "block", margin: "0 auto 8px" }}/>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Agreement sent!</p>
+              </div>
+            ) : (
+              <>
+                {tplLoading ? (
+                  <p style={{ fontSize: 13, color: "#9E9B94" }}>Loading templates…</p>
+                ) : templates.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#9E9B94" }}>No client agreement templates found. Add them in Company Settings → Documents.</p>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+                    {templates.map((t: any) => (
+                      <label key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "10px 12px", border: `1px solid ${selectedTemplates.includes(t.id) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: selectedTemplates.includes(t.id) ? "#F0FBF8" : "#fff" }}>
+                        <input type="checkbox" checked={selectedTemplates.includes(t.id)} onChange={() => toggleTemplate(t.id)} style={{ accentColor: "var(--brand)", width: 15, height: 15 }}/>
+                        <div>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", margin: 0 }}>{t.name}</p>
+                          {t.requires_signature && <p style={{ fontSize: 11, color: "#9E9B94", margin: 0 }}>Requires signature</p>}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button onClick={() => { setShowModal(false); setSelectedTemplates([]); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B7280", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={handleSend} disabled={sending || !selectedTemplates.length} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: selectedTemplates.length ? 1 : 0.5 }}>
+                    {sending ? "Sending…" : "Send"}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ backgroundColor: "#FAFAF8" }}>
-            {["Agreement","Sent","Accepted","IP Address","Status"].map(h => <th key={h} style={TH}>{h}</th>)}
+            {["Agreement","Sent","Status","Signed",""].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
-            {agreements.length === 0 ? (
+            {allDocs.length === 0 ? (
               <tr><td colSpan={5} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No agreements sent yet</td></tr>
-            ) : agreements.map(a => (
-              <tr key={a.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
-                <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{a.template_name || "Service Agreement"}</td>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(a.sent_at)}</td>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{a.accepted_at ? fmtDate(a.accepted_at) : "Pending"}</td>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#9E9B94", fontFamily: "monospace" }}>{a.ip_address || "-"}</td>
-                <td style={{ padding: "12px 16px" }}>
-                  {a.accepted_at
-                    ? <span style={{ background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
-                    : <span style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
-                  }
-                </td>
-              </tr>
-            ))}
+            ) : allDocs.map((a: any) => {
+              const isSigned = a._src === "new" ? a.status === "signed" : !!a.accepted_at;
+              const isPending = a._src === "new" ? a.status === "pending" : !a.accepted_at;
+              return (
+                <tr key={`${a._src}-${a.id}`} style={{ borderBottom: "1px solid #F0EEE9" }}>
+                  <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{a.template_name || "Service Agreement"}</td>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(a.sent_at)}</td>
+                  <td style={{ padding: "12px 16px" }}>
+                    {isSigned
+                      ? <span style={{ background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
+                      : a.status === "expired"
+                      ? <span style={{ background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Expired</span>
+                      : <span style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
+                    }
+                  </td>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>
+                    {a._src === "new" && a.signed_at ? fmtDate(a.signed_at) : a.accepted_at ? fmtDate(a.accepted_at) : "—"}
+                  </td>
+                  <td style={{ padding: "12px 16px" }}>
+                    {a._src === "new" && isPending && (
+                      <button onClick={() => handleResend(a.id)} disabled={resendingId === a.id}
+                        style={{ fontSize: 12, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}>
+                        {resendingId === a.id ? "…" : "Resend"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

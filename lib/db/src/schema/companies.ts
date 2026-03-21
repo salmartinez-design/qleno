@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, pgEnum, boolean, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -46,6 +46,7 @@ export const companiesTable = pgTable("companies", {
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
+  mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7000"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

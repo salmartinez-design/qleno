@@ -68,6 +68,8 @@ import IncentivesPage from "@/pages/reports/incentives";
 import RevenueGoalPage from "@/pages/reports/revenue-goal";
 import AccountsPage from "@/pages/accounts";
 import AccountDetailPage from "@/pages/account-detail";
+import OnboardPage from "@/pages/onboard";
+import SignDocPage from "@/pages/sign-doc";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -142,6 +144,8 @@ function Router() {
 
       <Route path="/pay/:token" component={PayPage} />
       <Route path="/sign/:token" component={SignPage} />
+      <Route path="/onboard/:token" component={OnboardPage} />
+      <Route path="/sign-doc/:token" component={SignDocPage} />
 
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/admin/companies" component={AdminCompanies} />

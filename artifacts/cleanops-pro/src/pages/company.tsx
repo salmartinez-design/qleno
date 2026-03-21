@@ -6,8 +6,9 @@ import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
 import { Upload, X, ImageIcon } from "lucide-react";
 import { HRPoliciesTab } from "./company/hr-policies";
+import { DocumentsTab } from "./company/documents";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -15,9 +16,10 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'notifications', label: 'Notifications' },
   { id: 'clock-inout', label: 'Clock In/Out' },
   { id: 'invoicing', label: 'Invoicing' },
-  { id: 'integrations', label: 'Integrations' },
   { id: 'payroll', label: 'Payroll Options' },
   { id: 'hr-policies', label: 'HR Policies' },
+  { id: 'documents', label: 'Documents' },
+  { id: 'integrations', label: 'Integrations' },
 ];
 
 export default function CompanyPage() {
@@ -62,8 +64,9 @@ export default function CompanyPage() {
         {activeTab === 'clock-inout' && <ClockInOutTab />}
         {activeTab === 'invoicing' && <InvoicingTab />}
         {activeTab === 'integrations' && <PlaceholderTab title="Integrations" desc="Connect QuickBooks, Stripe, and other services." />}
-        {activeTab === 'payroll' && <PlaceholderTab title="Payroll Options" desc="Configure pay cadence and export settings." />}
+        {activeTab === 'payroll' && <PayrollOptionsTab />}
         {activeTab === 'hr-policies' && <HRPoliciesTab />}
+        {activeTab === 'documents' && <DocumentsTab />}
       </div>
     </DashboardLayout>
   );
@@ -409,6 +412,68 @@ function PlaceholderTab({ title, desc }: { title: string; desc: string }) {
     <div style={{ padding: '48px 0', textAlign: 'center', border: '1px dashed #E5E2DC', borderRadius: '8px' }}>
       <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: '0 0 8px 0' }}>{title}</h3>
       <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', margin: 0 }}>{desc}</p>
+    </div>
+  );
+}
+
+function PayrollOptionsTab() {
+  const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
+  const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
+  const { toast } = useToast();
+  const [mileageRate, setMileageRate] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (company?.data?.mileage_rate != null) {
+      setMileageRate(String(company.data.mileage_rate));
+    }
+  }, [company?.data?.mileage_rate]);
+
+  const handleSave = async () => {
+    if (!mileageRate) return;
+    setSaving(true);
+    try {
+      await updateCompany.mutateAsync({ body: { mileage_rate: mileageRate } as any });
+      toast({ title: 'Payroll settings saved' });
+    } catch {
+      toast({ title: 'Failed to save', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const fieldLabel = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block', marginBottom: 5, fontFamily: "'Plus Jakarta Sans', sans-serif" };
+  const fieldInput = { padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", background: '#fff', color: '#1A1917', width: 160 };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 28, maxWidth: 600 }}>
+      <div>
+        <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Payroll Options</h3>
+        <p style={{ fontSize: 13, color: '#6B7280', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Configure pay cadence and reimbursement settings.</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <label style={fieldLabel}>Mileage Reimbursement Rate (per mile)</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+          <input
+            type="number"
+            step="0.001"
+            min="0"
+            value={mileageRate}
+            onChange={e => setMileageRate(e.target.value)}
+            style={fieldInput}
+            placeholder="0.700"
+          />
+        </div>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Updated annually to match the IRS standard mileage rate.</p>
+      </div>
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer', alignSelf: 'flex-start' }}
+      >
+        {saving ? 'Saving...' : 'Save Payroll Settings'}
+      </button>
     </div>
   );
 }

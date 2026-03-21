@@ -3,7 +3,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
-import { ChevronRight, Calendar, ShieldAlert, Building2 } from "lucide-react";
+import { ChevronRight, Calendar, ShieldAlert, Building2, Car, Check, X } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
 
@@ -317,6 +317,9 @@ export default function Dashboard() {
         {/* ── HR Alerts widget (owner/admin only) ── */}
         {canAdmin && <HRAlertsBanner />}
 
+        {/* ── Mileage Pending queue (owner/admin only) ── */}
+        {canAdmin && <MileagePendingBanner />}
+
         {/* Employee board — compact version */}
         {today?.employee_board?.length > 0 && (
           <div>
@@ -421,6 +424,103 @@ function CommercialAlertsBanner() {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+function MileagePendingBanner() {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [actioning, setActioning] = useState<Record<number, boolean>>({});
+  const [denyingId, setDenyingId] = useState<number | null>(null);
+  const [denyReason, setDenyReason] = useState("");
+
+  const load = () => {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    fetch(`${base}/api/mileage-requests?status=pending`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : [])
+      .then(setRequests)
+      .catch(() => {});
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleApprove = async (id: number) => {
+    setActioning(p => ({ ...p, [id]: true }));
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    await fetch(`${base}/api/mileage-requests/${id}/approve`, { method: "POST", headers: getAuthHeaders() }).catch(() => {});
+    setActioning(p => ({ ...p, [id]: false }));
+    load();
+  };
+
+  const handleDeny = async (id: number) => {
+    setActioning(p => ({ ...p, [id]: true }));
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    await fetch(`${base}/api/mileage-requests/${id}/deny`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ denial_reason: denyReason }),
+    }).catch(() => {});
+    setActioning(p => ({ ...p, [id]: false }));
+    setDenyingId(null);
+    setDenyReason("");
+    load();
+  };
+
+  if (!requests.length) return null;
+
+  return (
+    <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+        <Car size={15} color="#6B7280"/>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FF }}>
+          Mileage Requests
+        </span>
+        <span style={{ fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", borderRadius: 10, padding: "1px 7px", marginLeft: 4, fontFamily: FF }}>
+          {requests.length} pending
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {requests.map((r: any) => (
+          <div key={r.id} style={{ background: "#FAFAF9", border: "1px solid #E5E2DC", borderRadius: 8, padding: "12px 14px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: "0 0 2px", fontFamily: FF }}>{r.employee_name}</p>
+                <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 2px", fontFamily: FF }}>
+                  {r.from_client_name} → {r.to_client_name}
+                </p>
+                <p style={{ fontSize: 12, color: "#6B7280", margin: 0, fontFamily: FF }}>
+                  {r.miles} mi · <span style={{ fontWeight: 600, color: "#1A1917" }}>${parseFloat(r.reimbursement_amount || "0").toFixed(2)}</span>
+                  {r.service_date && ` · ${new Date(r.service_date + "T00:00:00").toLocaleDateString()}`}
+                </p>
+              </div>
+              <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                <button onClick={() => handleApprove(r.id)} disabled={actioning[r.id]}
+                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                  <Check size={12}/> Approve
+                </button>
+                <button onClick={() => setDenyingId(r.id)} disabled={actioning[r.id]}
+                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                  <X size={12}/> Deny
+                </button>
+              </div>
+            </div>
+            {denyingId === r.id && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E5E2DC" }}>
+                <input value={denyReason} onChange={e => setDenyReason(e.target.value)}
+                  placeholder="Reason for denial (optional)"
+                  style={{ width: "100%", padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" as const }}
+                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => { setDenyingId(null); setDenyReason(""); }}
+                    style={{ padding: "5px 12px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, background: "#fff", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                  <button onClick={() => handleDeny(r.id)}
+                    style={{ padding: "5px 12px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Confirm Deny</button>
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
