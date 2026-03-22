@@ -13,7 +13,7 @@ import { useBranch } from "@/contexts/branch-context";
 import {
   LayoutDashboard, CalendarDays, ClipboardList, Users,
   UserCheck, FileText, DollarSign, BarChart2, TrendingUp,
-  ArrowUpCircle, Tag, BookOpen, Star, Settings, Clock,
+  BookOpen, Star, Settings, Clock,
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
   ChevronDown,
 } from "lucide-react";
@@ -38,7 +38,6 @@ const ROUTE_TITLES: Record<string, string> = {
   '/payroll':                      'Payroll',
   '/cleancyclopedia':              'Cleancyclopedia',
   '/loyalty':                      'Loyalty',
-  '/discounts':                    'Discounts',
   '/company':                      'Company Settings',
   '/reports':                      'Reports',
   '/reports/insights':             'Core KPIs',
@@ -81,8 +80,6 @@ const MORE_CARDS = [
   { title: 'Payroll',        href: '/payroll',            icon: DollarSign  },
   { title: 'Reports',        href: '/reports',            icon: BarChart2   },
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
-  { title: 'Rate Increase',  href: '/discounts',          icon: ArrowUpCircle },
-  { title: 'Discounts',      href: '/discounts',          icon: Tag         },
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
   { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
   { title: 'Company',        href: '/company',            icon: Settings    },

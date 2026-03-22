@@ -47,6 +47,14 @@ export const companiesTable = pgTable("companies", {
   annual_revenue_goal: integer("annual_revenue_goal"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
   mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7000"),
+  phone: text("phone"),
+  email: text("email"),
+  address: text("address"),
+  city: text("city"),
+  state: text("state"),
+  zip: text("zip"),
+  business_hours: text("business_hours"),
+  booking_policies: text("booking_policies"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

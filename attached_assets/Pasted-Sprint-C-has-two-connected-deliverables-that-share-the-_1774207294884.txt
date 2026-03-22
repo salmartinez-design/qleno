@@ -1,0 +1,304 @@
+Sprint C has two connected deliverables that share the same pricing engine 
+built in Sprint B:
+
+1. Wire the internal quote builder to the pricing engine
+2. Build the public-facing iFrame booking widget at /book/:tenantSlug
+
+Both surfaces use POST /api/pricing/calculate for price calculation.
+Neither hardcodes any pricing data.
+
+---
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF  
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand) per tenant
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+## PART 1 — INTERNAL QUOTE BUILDER
+
+The existing quote builder in /quotes currently references quote_scopes 
+(the old table). Replace this with the new pricing engine.
+
+**Changes required:**
+
+1. Scope selector — replace the old scope dropdown with a fetch from 
+GET /api/pricing/scopes. Group by scope_group (Residential / Commercial). 
+Show only active scopes.
+
+2. Sq footage input — add a square footage number input that appears 
+after scope selection. This drives the tier lookup.
+
+3. Frequency selector — after scope is selected, fetch 
+GET /api/pricing/scopes/:id/frequencies and render the frequency options 
+as a button group. Default to "One Time".
+
+4. Add-ons — after scope is selected, fetch 
+GET /api/pricing/scopes/:id/addons and render active add-ons as 
+selectable cards. Each card shows name, price (flat or % of base). 
+Selecting a card adds it to the calculation.
+
+5. Live price panel — a persistent sidebar or bottom bar that shows the 
+current price breakdown in real time as the user changes sqft, frequency, 
+or add-ons. Call POST /api/pricing/calculate on every change with a 
+200ms debounce. Display:
+   - Scope name
+   - Sq footage
+   - Estimated hours
+   - Hourly rate
+   - Base price
+   - Each selected add-on with its calculated price
+   - Subtotal
+   - Discount code field → on apply, call calculate again with 
+     discount_code, show discount_amount and final_total
+   - Minimum bill notice if minimum_applied = true
+
+6. Discount code field — text input with Apply button. On apply, 
+call POST /api/pricing/calculate with the discount_code included. 
+Show the discount amount and adjusted total. Show an error if the 
+code is invalid or inactive.
+
+7. Save Quote — saves all fields to the quotes table including: 
+scope_id, sqft, frequency, selected addon_ids (JSON array), 
+discount_code, base_price, addons_total, discount_amount, final_total, 
+estimated_hours, hourly_rate. The quote record should store the full 
+price snapshot so it does not change if pricing is updated later.
+
+8. Save Quote & Book — saves the quote and immediately creates a job 
+record from it, pre-populated with the client, scope, date, and price. 
+Navigates to the new job on the dispatch board.
+
+Do not remove the client selector, date picker, notes field, or any 
+other existing quote fields. Only replace the scope/pricing section.
+
+---
+
+## PART 2 — iFRAME BOOKING WIDGET
+
+Build a public-facing booking flow at /book/:tenantSlug.
+
+This route requires NO authentication. It is fully public.
+It is designed to be embedded as an iFrame on any tenant's website.
+
+The PHES slug is "phes-cleaning" → /book/phes-cleaning
+
+The widget must be self-contained — no sidebar, no app navigation, 
+no login UI. Just the booking flow and a persistent right-side panel 
+showing contact info and business hours pulled from the company record.
+
+---
+
+**Step 0 — Tenant lookup**
+On mount, fetch company data by slug from a new public endpoint:
+GET /api/public/company/:slug
+
+This endpoint requires NO auth. Returns:
+- company name
+- brand color
+- logo URL
+- phone
+- email  
+- business hours (from company settings)
+- office locations (branch names and cities)
+- active scopes of work (name, scope_group, id)
+- important policies text (from company settings — add a 
+  "booking_policies" text field to the companies table if not present)
+
+Apply the tenant brand color as --brand CSS variable on the widget root.
+Show the company logo if present.
+
+If the slug does not match any company, show a clean "Not found" state.
+
+---
+
+**Step 1 — Contact info**
+Fields:
+- First name (required)
+- Last name (required)  
+- Cell phone (required, format validation)
+- Email (required, email validation)
+- Zip code (required)
+- Referral source (select: Google, Facebook, Instagram, Nextdoor, 
+  Friend/Family, Other)
+- SMS consent checkbox with text: "I agree to receive text message 
+  updates about my appointments. Message and data rates may apply."
+- Terms checkbox: "I have read and agree to the terms and conditions."
+
+Progress bar at top showing current step.
+
+---
+
+**Step 2 — Scope selection**
+Show active scopes grouped by scope_group using a new public endpoint:
+GET /api/public/scopes/:companyId
+
+Each scope shows as a selectable card with name and scope group.
+Single selection only.
+
+After scope selection, show the home details section:
+- Square footage (number input)
+- Bedrooms (stepper: - / number / +)
+- Bathrooms (stepper)
+- Half bathrooms (stepper)  
+- Floors (stepper)
+- People in household (stepper)
+- Pets (stepper, required)
+- Cleanliness scale 1–3 (stepper with label: 
+  1=Very Clean, 2=Moderately Clean, 3=Very Dirty)
+
+After sq footage is entered (on blur), call 
+POST /api/public/calculate with scope_id + sqft + frequency="onetime"
+and show the running price in the summary panel.
+
+---
+
+**Step 3 — Frequency + add-ons**
+Fetch active frequency factors for the selected scope from:
+GET /api/public/frequencies/:scopeId
+
+Show frequency options as selectable cards (Single, Weekly, 
+Bi-Weekly, Monthly).
+For Deep Clean / Move In-Out, only "Single" should be available — 
+this is controlled by which frequency factors are active on that scope.
+
+Fetch active add-ons from:
+GET /api/public/addons/:scopeId
+
+Show add-on cards with name, price, quantity input where relevant.
+Each selection updates the running total via 
+POST /api/public/calculate.
+
+Discount code field with Apply button.
+
+Address field — pre-fill from zip if possible, allow full address entry.
+
+Summary panel updates in real time throughout.
+
+---
+
+**Step 4 — Date selection**
+Calendar showing available dates.
+For now, all dates from tomorrow forward are selectable 
+(availability engine comes in a later sprint).
+Selected date shows a "First Job" chip.
+Date is required to proceed.
+
+---
+
+**Step 5 — Payment**
+Stripe Elements card input (card number, expiry, CVV).
+Billing address field — pre-fill from step 1 address.
+"Enter a new Billing Address" toggle.
+
+The card is saved as a payment method on file — it is NOT charged 
+at booking. The booking confirmation message should state:
+"Your card has been saved securely. You will be charged after 
+each completed cleaning."
+
+Use Stripe SetupIntent (not PaymentIntent) to save the card 
+without charging.
+
+Billing address is collected and attached to the Stripe customer.
+
+"Book It" button submits the booking.
+
+---
+
+**Step 6 — Confirmation**
+Full booking summary:
+- Client name and contact
+- Service address
+- Scope name
+- Sq footage, beds, baths
+- Selected add-ons with prices
+- Frequency
+- First job date
+- Total price
+- Card saved confirmation
+
+"Things to Know" section — pull from the company's booking_policies 
+field. This replaces the hardcoded MC policy text currently on phes.io. 
+No emojis.
+
+---
+
+**Public API endpoints required (all no-auth):**
+
+GET  /api/public/company/:slug         — company info for widget init
+GET  /api/public/scopes/:companyId     — active scopes for scope selector
+GET  /api/public/frequencies/:scopeId  — frequency factors for a scope
+GET  /api/public/addons/:scopeId       — add-ons for a scope
+POST /api/public/calculate             — price calculation (same logic 
+                                         as /api/pricing/calculate but 
+                                         no auth required)
+POST /api/public/book                  — submit booking. Creates:
+                                         1. Customer record (or matches 
+                                            existing by email)
+                                         2. Home record linked to customer
+                                         3. Stripe customer + SetupIntent 
+                                            for card on file
+                                         4. Job record (status: scheduled)
+                                         5. Quote record linked to job
+                                         Returns booking confirmation 
+                                         with job ID and summary
+
+Rate limit all public endpoints at 30 requests per minute per IP.
+
+---
+
+## DISCOUNT SYSTEM CONSOLIDATION
+
+As part of this sprint, retire the old /discounts page:
+1. Add a redirect from /discounts → /company?tab=pricing
+2. Remove the /discounts sidebar nav link
+3. Keep the legacy discount_codes table intact (do not delete data) 
+   but stop routing to the old page
+
+---
+
+## PORTAL LINK FIX
+
+Fix all "View Client Portal" buttons in the app to use the 
+company's slug dynamically. 
+Fetch the slug from the company record (add a slug field to companies 
+table if not already present — derive it from company name on creation).
+Any bare /portal link becomes /portal/:slug using the authenticated 
+user's company slug.
+
+---
+
+## VERIFICATION
+
+After completing the build, confirm:
+
+1. Internal quote builder — select Deep Clean scope, enter 2000 sqft, 
+   One Time frequency, add Oven and Refrigerator. 
+   Expected total: $630 base + $50 + $50 = $730. 
+   Live price panel shows this breakdown before saving.
+
+2. Internal quote builder — apply discount code MANAGER50. 
+   Expected: $730 - $50 = $680 final total shown.
+
+3. iFrame widget loads at /book/phes-cleaning with PHES brand color, 
+   logo, contact info, and business hours in the right panel.
+
+4. Complete a full test booking through the iFrame: 
+   sal@aol.com / 773-818-8400 / 3165 W 84th Place Chicago IL 60805 / 
+   2000 sqft / Deep Clean / One Time / Oven add-on / March 31 2026.
+   Confirm a job record and customer record are created in the database.
+
+5. Stripe SetupIntent completes without error in test mode 
+   (requires STRIPE_SECRET_KEY in Replit Secrets).
+
+6. /discounts redirects to /company?tab=pricing.
+
+7. "View Client Portal" buttons link to /portal/phes-cleaning 
+   for the PHES tenant.

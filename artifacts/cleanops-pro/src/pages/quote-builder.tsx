@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
@@ -16,7 +16,7 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
-import { ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown, User, Home, Calculator, PlusSquare } from "lucide-react";
+import { ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown, User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
@@ -37,106 +37,61 @@ interface Client {
   address: string;
 }
 
-interface Scope {
+interface PricingScope {
   id: number;
   name: string;
-  pricing_method: string;
-  base_hourly_rate: string;
-  min_bill_rate: string;
-  frequencies: Frequency[];
-  sqft_table: SqftEntry[];
-  addons: Addon[];
+  scope_group: string;
+  hourly_rate: string;
+  minimum_bill: string;
+  is_active: boolean;
+  sort_order: number;
 }
 
-interface Frequency {
+interface PricingFrequency {
   id: number;
+  scope_id: number;
   frequency: string;
-  factor: string;
-  available_office: boolean;
+  label: string;
+  multiplier: string;
+  rate_override: string | null;
+  sort_order: number;
 }
 
-interface SqftEntry {
-  sqft_min: number;
-  sqft_max: number | null;
-  estimated_hours: string;
-}
-
-interface Addon {
+interface PricingAddon {
   id: number;
+  scope_id: number;
   name: string;
   price_type: string;
-  price_value: string;
-  time_minutes: number;
+  price: string | null;
+  percent_of_base: string | null;
+  time_add_minutes: number;
   is_active: boolean;
-  available_office: boolean;
 }
 
-interface SelectedAddon {
-  id: number;
-  name: string;
-  price: number;
+interface CalcResult {
+  scope_id: number;
+  scope_name: string;
+  sqft: number;
+  frequency: string;
+  base_hours: number;
+  hourly_rate: number;
+  base_price: number;
+  minimum_applied: boolean;
+  addons_total: number;
+  addon_breakdown: Array<{ id: number; name: string; amount: number }>;
+  subtotal: number;
+  discount_amount: number;
+  discount_valid?: boolean;
+  final_total: number;
 }
 
 const DIRT_LEVELS = [
-  { value: "light", label: "Light — recently cleaned, minor touch-up" },
-  { value: "standard", label: "Standard — regular household cleaning" },
-  { value: "heavy", label: "Heavy — needs extra time and attention" },
-  { value: "very_heavy", label: "Very Heavy — move-out / construction level" },
+  { value: "pristine", label: "Pristine — barely been used" },
+  { value: "standard", label: "Standard — normal wear" },
+  { value: "heavy", label: "Heavy — needs deep attention" },
 ];
 
-const DIRT_MULTIPLIERS: Record<string, number> = {
-  light: 0.9,
-  standard: 1.0,
-  heavy: 1.15,
-  very_heavy: 1.3,
-};
-
-function calcHours(scope: Scope, sqft: number): number | null {
-  if (!sqft || scope.pricing_method !== "sqft") return null;
-  const row = scope.sqft_table.find(
-    r => sqft >= r.sqft_min && (r.sqft_max === null || sqft <= r.sqft_max)
-  );
-  return row ? parseFloat(row.estimated_hours) : null;
-}
-
-function calcPrice(
-  scope: Scope | null,
-  frequency: Frequency | null,
-  sqft: number,
-  dirtLevel: string,
-  manualHours: number,
-  selectedAddons: SelectedAddon[],
-  discount: number
-): { basePrice: number; estimatedHours: number | null; addonTotal: number; total: number } {
-  if (!scope) return { basePrice: 0, estimatedHours: null, addonTotal: 0, total: 0 };
-
-  const rate = parseFloat(scope.base_hourly_rate) || 65;
-  const minBill = parseFloat(scope.min_bill_rate) || 180;
-  const freqFactor = frequency ? parseFloat(frequency.factor) || 1 : 1;
-  const dirtMult = DIRT_MULTIPLIERS[dirtLevel] || 1;
-
-  let estimatedHours: number | null = null;
-  let basePrice = 0;
-
-  if (scope.pricing_method === "sqft" && sqft > 0) {
-    const hrs = calcHours(scope, sqft);
-    if (hrs !== null) {
-      estimatedHours = hrs * dirtMult;
-      basePrice = Math.max(estimatedHours * rate * freqFactor, minBill);
-    }
-  } else if (scope.pricing_method === "hourly" && manualHours > 0) {
-    estimatedHours = manualHours;
-    basePrice = Math.max(manualHours * rate * freqFactor, minBill);
-  } else if (scope.pricing_method === "flat") {
-    basePrice = minBill;
-  }
-
-  const addonTotal = selectedAddons.reduce((sum, a) => sum + a.price, 0);
-  const subtotal = basePrice + addonTotal;
-  const total = Math.max(0, subtotal - discount);
-
-  return { basePrice, estimatedHours, addonTotal, total };
-}
+const DIRT_MULTIPLIERS: Record<string, number> = { pristine: 0.9, standard: 1.0, heavy: 1.15 };
 
 const SECTION_ICONS = [User, Home, Calculator, PlusSquare];
 const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes"];
@@ -161,28 +116,47 @@ export default function QuoteBuilderPage() {
   const [checkingZip, setCheckingZip] = useState(false);
 
   const [scopeId, setScopeId] = useState<number | null>(null);
-  const [frequencyId, setFrequencyId] = useState<number | null>(null);
+  const [frequencyStr, setFrequencyStr] = useState<string>("");
   const [sqft, setSqft] = useState<number>(0);
   const [bedrooms, setBedrooms] = useState<number>(2);
   const [bathrooms, setBathrooms] = useState<number>(1);
   const [halfBaths, setHalfBaths] = useState<number>(0);
   const [pets, setPets] = useState<number>(0);
   const [dirtLevel, setDirtLevel] = useState("standard");
-  const [manualHours, setManualHours] = useState<number>(0);
-  const [selectedAddons, setSelectedAddons] = useState<SelectedAddon[]>([]);
-  const [discount, setDiscount] = useState<number>(0);
+  const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
   const [discountCode, setDiscountCode] = useState("");
+  const [discountInput, setDiscountInput] = useState("");
   const [notes, setNotes] = useState("");
   const [internalMemo, setInternalMemo] = useState("");
+
+  const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
+  const [discountError, setDiscountError] = useState("");
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Data queries ────────────────────────────────────────────────────────────
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["clients-list"],
     queryFn: () => apiFetch("/api/clients?limit=200").then((r: any) => r.data ?? r),
   });
 
-  const { data: scopes = [] } = useQuery<Scope[]>({
-    queryKey: ["quote-scopes"],
-    queryFn: () => apiFetch("/api/quote-scopes"),
+  const { data: scopes = [] } = useQuery<PricingScope[]>({
+    queryKey: ["pricing-scopes"],
+    queryFn: () => apiFetch("/api/pricing/scopes"),
+  });
+
+  const { data: frequencies = [] } = useQuery<PricingFrequency[]>({
+    queryKey: ["pricing-frequencies", scopeId],
+    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/frequencies`),
+    enabled: Boolean(scopeId),
+  });
+
+  const { data: scopeAddons = [] } = useQuery<PricingAddon[]>({
+    queryKey: ["pricing-addons", scopeId],
+    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/addons`),
+    enabled: Boolean(scopeId),
   });
 
   const { data: existingQuote } = useQuery({
@@ -191,8 +165,7 @@ export default function QuoteBuilderPage() {
     enabled: isEdit,
   });
 
-  const selectedScope = scopes.find(s => s.id === scopeId) ?? null;
-  const selectedFrequency = selectedScope?.frequencies.find(f => f.id === frequencyId) ?? null;
+  // ── Restore existing quote ───────────────────────────────────────────────────
 
   useEffect(() => {
     if (existingQuote) {
@@ -208,46 +181,72 @@ export default function QuoteBuilderPage() {
       setHalfBaths(existingQuote.half_baths || 0);
       setPets(existingQuote.pets || 0);
       setDirtLevel(existingQuote.dirt_level || "standard");
-      setManualHours(parseFloat(existingQuote.manual_hours || "0") || 0);
-      setDiscount(parseFloat(existingQuote.discount_amount || "0") || 0);
       setDiscountCode(existingQuote.discount_code || "");
+      setDiscountInput(existingQuote.discount_code || "");
       setNotes(existingQuote.notes || "");
       setInternalMemo(existingQuote.internal_memo || "");
-      setSelectedAddons(Array.isArray(existingQuote.addons) ? existingQuote.addons : []);
+      setFrequencyStr(existingQuote.frequency || "");
+      if (Array.isArray(existingQuote.addons)) {
+        const ids = existingQuote.addons.map((a: any) => a.id).filter(Boolean);
+        setSelectedAddonIds(ids);
+      }
     }
   }, [existingQuote]);
 
-  useEffect(() => {
-    if (existingQuote && scopeId && scopes.length) {
-      const scope = scopes.find(s => s.id === scopeId);
-      if (scope && existingQuote.frequency) {
-        const freq = scope.frequencies.find(f => f.frequency === existingQuote.frequency);
-        if (freq) setFrequencyId(freq.id);
-      }
-    }
-  }, [existingQuote, scopeId, scopes]);
+  // ── Auto-default frequency when scope changes ────────────────────────────────
 
   useEffect(() => {
-    if (scopeId && scopes.length) {
-      const scope = scopes.find(s => s.id === scopeId);
-      if (scope) {
-        const officeFreqs = scope.frequencies.filter(f => f.available_office);
-        if (officeFreqs.length && !frequencyId) {
-          const biWeekly = officeFreqs.find(f => f.frequency.toLowerCase().includes("two week"));
-          setFrequencyId(biWeekly?.id ?? officeFreqs[0].id);
+    if (scopeId && frequencies.length > 0 && !frequencyStr) {
+      const oneTime = frequencies.find(f => f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single"));
+      setFrequencyStr(oneTime?.frequency ?? frequencies[0].frequency);
+    }
+    if (scopeId) setSelectedAddonIds([]);
+  }, [scopeId, frequencies]);
+
+  // ── Live price calculation (debounced 200ms) ─────────────────────────────────
+
+  const runCalculate = useCallback(async (opts?: { withCode?: string }) => {
+    if (!scopeId || !sqft || !frequencyStr) {
+      setCalcResult(null);
+      return;
+    }
+    setCalcLoading(true);
+    try {
+      const result = await apiFetch("/api/pricing/calculate", {
+        method: "POST",
+        body: {
+          scope_id: scopeId,
+          sqft,
+          frequency: frequencyStr,
+          addon_ids: selectedAddonIds,
+          discount_code: opts?.withCode ?? discountCode,
+        },
+      });
+      setCalcResult(result);
+      if (opts?.withCode !== undefined) {
+        if (result.discount_valid === false) {
+          setDiscountError("Code not found or inactive");
+          setDiscountCode("");
+        } else if (result.discount_amount > 0) {
+          setDiscountError("");
+          setDiscountCode(opts.withCode);
         }
-        setSelectedAddons([]);
       }
-    }
-  }, [scopeId]);
+    } catch { /* ignore */ }
+    finally { setCalcLoading(false); }
+  }, [scopeId, sqft, frequencyStr, selectedAddonIds, discountCode]);
 
-  const pricing = useMemo(
-    () => calcPrice(selectedScope, selectedFrequency, sqft, dirtLevel, manualHours, selectedAddons, discount),
-    [selectedScope, selectedFrequency, sqft, dirtLevel, manualHours, selectedAddons, discount]
-  );
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { runCalculate(); }, 200);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [scopeId, sqft, frequencyStr, selectedAddonIds]);
+
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function buildPayload(status: string) {
     const client = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
+    const cr = calcResult;
     return {
       client_id: selectedClientId || null,
       lead_name: client ? `${client.first_name} ${client.last_name}`.trim() : leadName || null,
@@ -255,17 +254,21 @@ export default function QuoteBuilderPage() {
       lead_phone: client?.phone || leadPhone || null,
       address: address || client?.address || null,
       scope_id: scopeId || null,
-      pricing_method: selectedScope?.pricing_method || null,
-      frequency: selectedFrequency?.frequency || null,
-      estimated_hours: pricing.estimatedHours ? String(pricing.estimatedHours.toFixed(2)) : null,
-      manual_hours: manualHours > 0 ? String(manualHours) : null,
-      base_price: pricing.basePrice > 0 ? String(pricing.basePrice.toFixed(2)) : null,
-      total_price: pricing.total > 0 ? String(pricing.total.toFixed(2)) : null,
-      discount_amount: String(discount),
+      frequency: frequencyStr || null,
+      sqft: sqft || null,
+      bedrooms,
+      bathrooms,
+      half_baths: halfBaths,
+      pets,
+      dirt_level: dirtLevel,
+      addons: cr?.addon_breakdown ?? [],
       discount_code: discountCode || null,
-      addons: selectedAddons,
-      bedrooms, bathrooms, half_baths: halfBaths,
-      sqft: sqft || null, dirt_level: dirtLevel, pets,
+      base_price: cr ? String(cr.base_price) : null,
+      addons_total: cr ? String(cr.addons_total) : null,
+      discount_amount: cr ? String(cr.discount_amount) : "0",
+      total_price: cr ? String(cr.final_total) : null,
+      estimated_hours: cr ? String(cr.base_hours) : null,
+      hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,
       status,
@@ -299,7 +302,7 @@ export default function QuoteBuilderPage() {
       const savedId = result?.id ?? id;
       if (thenConvert && savedId) {
         await apiFetch(`/api/quotes/${savedId}/convert`, { method: "POST" });
-        toast.success("Quote converted. Go to Jobs to complete setup.");
+        toast.success("Quote converted to job. Go to Jobs to complete setup.");
         navigate("/jobs");
       } else if (status === "sent") {
         toast.success(isEdit ? "Quote sent" : "Quote created and marked as sent. Configure Resend API to enable email.");
@@ -308,7 +311,7 @@ export default function QuoteBuilderPage() {
         toast.success("Quote saved as draft");
         navigate(`/quotes/${savedId}`);
       }
-    } catch (err) {
+    } catch {
       toast.error("Failed to save quote");
     } finally {
       setSaving(false);
@@ -316,24 +319,38 @@ export default function QuoteBuilderPage() {
   }
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
+  const selectedScope = scopes.find(s => s.id === scopeId);
 
-  const toggleAddon = (addon: Addon) => {
-    setSelectedAddons(prev => {
-      const exists = prev.find(a => a.id === addon.id);
-      if (exists) return prev.filter(a => a.id !== addon.id);
-      const price = addon.price_type === "flat"
-        ? parseFloat(addon.price_value) || 0
-        : (pricing.basePrice * (parseFloat(addon.price_value) || 0)) / 100;
-      return [...prev, { id: addon.id, name: addon.name, price }];
-    });
-  };
+  function toggleAddon(id: number) {
+    setSelectedAddonIds(prev =>
+      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
+    );
+  }
+
+  function addonDisplayPrice(addon: PricingAddon): string {
+    if (addon.price_type === "flat" && addon.price != null) {
+      return `$${parseFloat(addon.price).toFixed(2)}`;
+    }
+    if (addon.price_type === "percent" && addon.percent_of_base != null) {
+      return `${addon.percent_of_base}% of base`;
+    }
+    return "";
+  }
 
   const sectionComplete = [
     Boolean(selectedClientId || leadName || leadEmail),
-    Boolean(sqft > 0 || selectedScope?.pricing_method === "hourly"),
-    Boolean(scopeId && frequencyId),
+    Boolean(sqft > 0),
+    Boolean(scopeId && frequencyStr),
     true,
   ];
+
+  // ── Group scopes by scope_group ──────────────────────────────────────────────
+  const scopeGroups = scopes.filter(s => s.is_active).reduce<Record<string, PricingScope[]>>((acc, s) => {
+    const g = s.scope_group || "Other";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(s);
+    return acc;
+  }, {});
 
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
@@ -349,7 +366,7 @@ export default function QuoteBuilderPage() {
             <Save className="w-4 h-4" />
             Save Draft
           </Button>
-          <Button size="sm" onClick={() => save("sent")} disabled={saving} className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5">
+          <Button size="sm" onClick={() => save("sent")} disabled={saving} className="bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5">
             <SendHorizonal className="w-4 h-4" />
             Save & Send
           </Button>
@@ -368,7 +385,7 @@ export default function QuoteBuilderPage() {
                   className={cn(
                     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
                     activeSection === i
-                      ? "bg-[#5B9BD5] text-white"
+                      ? "bg-[#00C9A0] text-white"
                       : "bg-white border border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
                   )}
                 >
@@ -460,7 +477,6 @@ export default function QuoteBuilderPage() {
                   </div>
                 </div>
 
-                {/* Zone status banner */}
                 {checkingZip && (
                   <div className="text-xs text-[#9E9B94] px-1">Checking service area...</div>
                 )}
@@ -472,12 +488,12 @@ export default function QuoteBuilderPage() {
                 )}
                 {!checkingZip && zipZone === "uncovered" && zipCode.trim().length === 5 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", fontSize: 12, fontWeight: 600, color: "#92400E" }}>
-                    This zip code is outside current service zones. You may still create the quote, but a waitlist message will be flagged.
+                    This zip code is outside current service zones. You may still create the quote.
                   </div>
                 )}
 
                 <div className="flex justify-end">
-                  <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5" onClick={() => setActiveSection(1)}>
+                  <Button size="sm" className="bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5" onClick={() => setActiveSection(1)}>
                     Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -543,7 +559,7 @@ export default function QuoteBuilderPage() {
               </div>
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(0)}>Back</Button>
-                <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5" onClick={() => setActiveSection(2)}>
+                <Button size="sm" className="bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5" onClick={() => setActiveSection(2)}>
                   Next: Service & Pricing <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </div>
@@ -552,80 +568,75 @@ export default function QuoteBuilderPage() {
 
           {activeSection === 2 && (
             <SectionCard title="Service & Pricing">
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
                   <Label className="text-xs">Service Scope</Label>
-                  <Select value={scopeId ? String(scopeId) : ""} onValueChange={v => { setScopeId(parseInt(v)); setFrequencyId(null); }}>
+                  <Select
+                    value={scopeId ? String(scopeId) : ""}
+                    onValueChange={v => { setScopeId(parseInt(v)); setFrequencyStr(""); setSelectedAddonIds([]); }}
+                  >
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Select a service..." />
                     </SelectTrigger>
                     <SelectContent>
-                      {scopes.filter(s => s.is_active !== false).map(s => (
-                        <SelectItem key={s.id} value={String(s.id)}>
-                          <div>
-                            <span className="font-medium">{s.name}</span>
-                            <span className="text-[#9E9B94] ml-2 text-xs">
-                              ${parseFloat(s.base_hourly_rate).toFixed(0)}/hr · min ${parseFloat(s.min_bill_rate).toFixed(0)}
-                            </span>
-                          </div>
-                        </SelectItem>
+                      {Object.entries(scopeGroups).map(([group, groupScopes]) => (
+                        <div key={group}>
+                          <div className="px-2 py-1 text-[10px] font-semibold text-[#9E9B94] uppercase tracking-wider">{group}</div>
+                          {groupScopes.map(s => (
+                            <SelectItem key={s.id} value={String(s.id)}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{s.name}</span>
+                                <span className="text-[#9E9B94] text-xs">
+                                  ${parseFloat(s.hourly_rate).toFixed(0)}/hr · min ${parseFloat(s.minimum_bill).toFixed(0)}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </div>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {selectedScope && (
-                  <>
-                    <div>
-                      <Label className="text-xs">Frequency</Label>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        {selectedScope.frequencies.filter(f => f.available_office).map(freq => (
-                          <button
-                            key={freq.id}
-                            onClick={() => setFrequencyId(freq.id)}
-                            className={cn(
-                              "px-3 py-2 rounded-lg border text-left transition-colors text-sm",
-                              frequencyId === freq.id
-                                ? "bg-[#5B9BD5]/10 border-[#5B9BD5] text-[#5B9BD5]"
-                                : "bg-white border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
-                            )}
-                          >
-                            <p className="font-medium text-xs">{freq.frequency}</p>
-                            <p className="text-xs text-[#9E9B94]">×{parseFloat(freq.factor).toFixed(2)}</p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {selectedScope.pricing_method === "hourly" && (
-                      <div>
-                        <Label className="text-xs">Manual Hours</Label>
-                        <Input
-                          type="number"
-                          step="0.5"
-                          value={manualHours || ""}
-                          onChange={e => setManualHours(parseFloat(e.target.value) || 0)}
-                          placeholder="e.g. 3.5"
-                          className="mt-1"
-                        />
-                      </div>
-                    )}
-
-                    <div>
-                      <Label className="text-xs">Discount Amount ($)</Label>
-                      <div className="grid grid-cols-2 gap-2 mt-1">
-                        <Input type="number" value={discount || ""} onChange={e => setDiscount(parseFloat(e.target.value) || 0)} placeholder="0.00" />
-                        <Input value={discountCode} onChange={e => setDiscountCode(e.target.value)} placeholder="Code (optional)" />
-                      </div>
-                    </div>
-                  </>
+                {scopeId && sqft === 0 && (
+                  <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-4 py-3 text-sm text-[#92400E]">
+                    Enter square footage in Property Details to calculate pricing.
+                  </div>
                 )}
-              </div>
-              <div className="flex justify-between mt-4">
-                <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
-                <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5" onClick={() => setActiveSection(3)}>
-                  Next: Add-ons <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+
+                {frequencies.length > 0 && (
+                  <div>
+                    <Label className="text-xs mb-2 block">Frequency</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {frequencies.map(freq => (
+                        <button
+                          key={freq.id}
+                          onClick={() => setFrequencyStr(freq.frequency)}
+                          className={cn(
+                            "px-3 py-2.5 rounded-lg border text-left transition-colors",
+                            frequencyStr === freq.frequency
+                              ? "bg-[#00C9A0]/10 border-[#00C9A0] text-[#00C9A0]"
+                              : "bg-white border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
+                          )}
+                        >
+                          <p className="font-semibold text-sm">{freq.label || freq.frequency}</p>
+                          {freq.rate_override ? (
+                            <p className="text-xs text-[#9E9B94]">${parseFloat(freq.rate_override).toFixed(0)}/hr</p>
+                          ) : (
+                            <p className="text-xs text-[#9E9B94]">×{parseFloat(freq.multiplier).toFixed(2)}</p>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between mt-4">
+                  <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
+                  <Button size="sm" className="bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5" onClick={() => setActiveSection(3)}>
+                    Next: Add-ons <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
               </div>
             </SectionCard>
           )}
@@ -633,30 +644,31 @@ export default function QuoteBuilderPage() {
           {activeSection === 3 && (
             <SectionCard title="Add-ons & Notes">
               <div className="space-y-4">
-                {selectedScope?.addons.filter(a => a.is_active && a.available_office).length ? (
+                {scopeAddons.filter(a => a.is_active).length > 0 && (
                   <div>
                     <Label className="text-xs mb-2 block">Add-ons for {selectedScope?.name}</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {selectedScope.addons.filter(a => a.is_active && a.available_office).map(addon => {
-                        const isSelected = selectedAddons.some(a => a.id === addon.id);
+                      {scopeAddons.filter(a => a.is_active).map(addon => {
+                        const isSelected = selectedAddonIds.includes(addon.id);
+                        const fromResult = calcResult?.addon_breakdown.find(b => b.id === addon.id);
                         return (
                           <label
                             key={addon.id}
                             className={cn(
                               "flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-colors",
-                              isSelected ? "bg-[#5B9BD5]/10 border-[#5B9BD5]" : "bg-white border-[#E5E2DC] hover:bg-[#F7F6F3]"
+                              isSelected ? "bg-[#00C9A0]/10 border-[#00C9A0]" : "bg-white border-[#E5E2DC] hover:bg-[#F7F6F3]"
                             )}
                           >
                             <Checkbox
                               checked={isSelected}
-                              onCheckedChange={() => toggleAddon(addon)}
+                              onCheckedChange={() => toggleAddon(addon.id)}
                               className="mt-0.5"
                             />
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-[#1A1917]">{addon.name}</p>
                               <p className="text-xs text-[#9E9B94]">
-                                {addon.price_type === "flat" ? `$${parseFloat(addon.price_value).toFixed(2)}` : `${addon.price_value}%`}
-                                {addon.time_minutes > 0 ? ` · ${addon.time_minutes}min` : ""}
+                                {fromResult ? `$${fromResult.amount.toFixed(2)}` : addonDisplayPrice(addon)}
+                                {addon.time_add_minutes > 0 ? ` · +${addon.time_add_minutes}min` : ""}
                               </p>
                             </div>
                           </label>
@@ -664,7 +676,37 @@ export default function QuoteBuilderPage() {
                       })}
                     </div>
                   </div>
-                ) : null}
+                )}
+
+                <div>
+                  <Label className="text-xs mb-1 block">Discount Code</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={discountInput}
+                      onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
+                      placeholder="e.g. MANAGER50"
+                      className="flex-1"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => runCalculate({ withCode: discountInput.trim() })}
+                      disabled={!discountInput.trim() || calcLoading}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                  {discountError && (
+                    <div className="flex items-center gap-1.5 mt-1 text-xs text-red-600">
+                      <AlertCircle className="w-3.5 h-3.5" /> {discountError}
+                    </div>
+                  )}
+                  {discountCode && calcResult && calcResult.discount_amount > 0 && (
+                    <div className="flex items-center gap-1.5 mt-1 text-xs text-green-600">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Code applied: -{`$${calcResult.discount_amount.toFixed(2)}`}
+                    </div>
+                  )}
+                </div>
 
                 <div>
                   <Label className="text-xs">Client-Facing Notes</Label>
@@ -692,7 +734,7 @@ export default function QuoteBuilderPage() {
                     <Button variant="outline" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5">
                       <Save className="w-3.5 h-3.5" /> Save Draft
                     </Button>
-                    <Button size="sm" onClick={() => save("sent")} disabled={saving} className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5">
+                    <Button size="sm" onClick={() => save("sent")} disabled={saving} className="bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5">
                       <SendHorizonal className="w-3.5 h-3.5" /> Send Quote
                     </Button>
                   </div>
@@ -702,69 +744,72 @@ export default function QuoteBuilderPage() {
           )}
         </div>
 
+        {/* ── Live Price Panel ──────────────────────────────────────────────── */}
         <div className="w-72 shrink-0">
           <div className="bg-white border border-[#E5E2DC] rounded-lg p-4 space-y-4 sticky top-6">
             <h3 className="font-semibold text-[#1A1917] text-sm border-b border-[#E5E2DC] pb-3">Price Preview</h3>
 
-            {selectedScope ? (
+            {calcLoading && (
+              <div className="py-4 text-center text-xs text-[#9E9B94]">Calculating...</div>
+            )}
+
+            {!calcLoading && calcResult ? (
               <>
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Scope</span>
-                    <span className="text-right text-[#1A1917] font-medium text-xs max-w-[140px] truncate">{selectedScope.name}</span>
+                    <span className="text-right text-[#1A1917] font-medium text-xs max-w-[140px] truncate">{calcResult.scope_name}</span>
                   </div>
-                  {selectedFrequency && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Frequency</span>
-                      <span className="text-[#1A1917]">{selectedFrequency.frequency}</span>
-                    </div>
-                  )}
-                  {sqft > 0 && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Sq Ft</span>
-                      <span className="text-[#1A1917]">{sqft.toLocaleString()}</span>
-                    </div>
-                  )}
-                  {pricing.estimatedHours !== null && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Est. Hours</span>
-                      <span className="text-[#1A1917]">{pricing.estimatedHours.toFixed(1)}h</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-[#6B7280]">
-                    <span>Rate</span>
-                    <span className="text-[#1A1917]">${parseFloat(selectedScope.base_hourly_rate).toFixed(0)}/hr</span>
+                    <span>Frequency</span>
+                    <span className="text-[#1A1917]">{calcResult.frequency}</span>
                   </div>
-                  {selectedFrequency && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Freq. Factor</span>
-                      <span className="text-[#1A1917]">×{parseFloat(selectedFrequency.factor).toFixed(2)}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-[#6B7280]">
-                    <span>Dirt Level</span>
-                    <span className="text-[#1A1917]">×{DIRT_MULTIPLIERS[dirtLevel]?.toFixed(2)}</span>
+                    <span>Sq Ft</span>
+                    <span className="text-[#1A1917]">{calcResult.sqft.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-[#6B7280]">
+                    <span>Est. Hours</span>
+                    <span className="text-[#1A1917]">{calcResult.base_hours.toFixed(1)}h</span>
+                  </div>
+                  <div className="flex justify-between text-[#6B7280]">
+                    <span>Hourly Rate</span>
+                    <span className="text-[#1A1917]">${calcResult.hourly_rate.toFixed(0)}/hr</span>
                   </div>
                 </div>
 
                 <div className="border-t border-[#E5E2DC] pt-3 space-y-1.5 text-sm">
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Base Price</span>
-                    <span className="text-[#1A1917]">${pricing.basePrice.toFixed(2)}</span>
+                    <span className="text-[#1A1917]">${calcResult.base_price.toFixed(2)}</span>
                   </div>
-                  <p className="text-xs text-[#9E9B94]">
-                    Min bill: ${parseFloat(selectedScope.min_bill_rate).toFixed(2)}
-                  </p>
-                  {pricing.addonTotal > 0 && (
+                  {calcResult.minimum_applied && (
+                    <p className="text-xs text-amber-600">Minimum bill rate applied</p>
+                  )}
+
+                  {calcResult.addon_breakdown.map(a => (
+                    <div key={a.id} className="flex justify-between text-[#6B7280]">
+                      <span className="truncate max-w-[150px]">{a.name}</span>
+                      <span className="text-[#1A1917]">+${a.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+
+                  {calcResult.addons_total > 0 && (
                     <div className="flex justify-between text-[#6B7280]">
-                      <span>Add-ons</span>
-                      <span className="text-[#1A1917]">+${pricing.addonTotal.toFixed(2)}</span>
+                      <span>Add-ons Total</span>
+                      <span className="text-[#1A1917]">+${calcResult.addons_total.toFixed(2)}</span>
                     </div>
                   )}
-                  {discount > 0 && (
+
+                  <div className="flex justify-between text-[#6B7280]">
+                    <span>Subtotal</span>
+                    <span className="text-[#1A1917]">${calcResult.subtotal.toFixed(2)}</span>
+                  </div>
+
+                  {calcResult.discount_amount > 0 && (
                     <div className="flex justify-between text-green-600">
                       <span>Discount{discountCode ? ` (${discountCode})` : ""}</span>
-                      <span>-${discount.toFixed(2)}</span>
+                      <span>-${calcResult.discount_amount.toFixed(2)}</span>
                     </div>
                   )}
                 </div>
@@ -773,35 +818,24 @@ export default function QuoteBuilderPage() {
                   <div className="flex justify-between items-baseline">
                     <span className="text-[#6B7280] text-sm">Total</span>
                     <span className="text-2xl font-bold text-[#1A1917]">
-                      ${pricing.total.toFixed(2)}
+                      ${calcResult.final_total.toFixed(2)}
                     </span>
                   </div>
-                  {pricing.basePrice > 0 && pricing.total === parseFloat(selectedScope.min_bill_rate) && (
-                    <p className="text-xs text-[#9E9B94] mt-1">Minimum bill rate applied</p>
-                  )}
                 </div>
-
-                {selectedAddons.length > 0 && (
-                  <div className="border-t border-[#E5E2DC] pt-3 space-y-1">
-                    <p className="text-xs text-[#9E9B94] font-medium">Selected Add-ons</p>
-                    {selectedAddons.map(a => (
-                      <div key={a.id} className="flex justify-between text-xs text-[#6B7280]">
-                        <span>{a.name}</span>
-                        <span>${a.price.toFixed(2)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
-            ) : (
+            ) : !calcLoading && !selectedScope ? (
               <div className="py-6 text-center text-[#9E9B94] text-sm">
                 Select a scope to see pricing.
               </div>
-            )}
+            ) : !calcLoading && (!sqft || sqft === 0) ? (
+              <div className="py-6 text-center text-[#9E9B94] text-sm">
+                Enter square footage to calculate price.
+              </div>
+            ) : null}
 
             <div className="border-t border-[#E5E2DC] pt-3 space-y-2">
               <Button
-                className="w-full bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white gap-1.5"
+                className="w-full bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5"
                 size="sm"
                 onClick={() => save("sent")}
                 disabled={saving || !scopeId}

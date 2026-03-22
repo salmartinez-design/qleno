@@ -1309,6 +1309,8 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
 
 // ─── Portal Account Tab ────────────────────────────────────────────────────────
 function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: number; client: any; onPortalInvite: () => void; refetch: () => void }) {
+  const { data: companyMe } = useQuery<any>({ queryKey: ["company-me"], queryFn: () => apiFetch("/api/companies/me") });
+  const companySlug = companyMe?.slug ?? "phes-cleaning";
   const portalStatus = client.portal_access ? "registered" : client.portal_invite_sent_at ? "invited" : "none";
 
   const deactivateMut = useMutation({
@@ -1391,9 +1393,14 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" }}>
         <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Portal Preview</h3>
         <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B7280" }}>Open the client portal view to see exactly what this client sees when they log in.</p>
-        <button style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer" }}>
-          <Globe size={13} /> View as Client
-        </button>
+        <a
+          href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/portal/${companySlug}/dashboard`}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: "inline-flex", alignItems: "center", gap: "8px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer", textDecoration: "none" }}
+        >
+          <Globe size={13} /> View Portal
+        </a>
       </div>
     </div>
   );

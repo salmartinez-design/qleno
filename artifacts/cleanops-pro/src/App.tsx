@@ -70,6 +70,7 @@ import AccountsPage from "@/pages/accounts";
 import AccountDetailPage from "@/pages/account-detail";
 import OnboardPage from "@/pages/onboard";
 import SignDocPage from "@/pages/sign-doc";
+import BookPage from "@/pages/book";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,7 +97,7 @@ function Router() {
       <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
       <Route path="/company" component={CompanyPage} />
       <Route path="/loyalty" component={LoyaltyPage} />
-      <Route path="/discounts" component={DiscountsPage} />
+      <Route path="/discounts" component={() => { window.location.replace((import.meta.env.BASE_URL.replace(/\/$/, "")) + "/company?tab=pricing"); return null; }} />
       <Route path="/my-jobs" component={MyJobsPage} />
 
       <Route path="/reports" component={ReportsIndexPage} />
@@ -142,6 +143,7 @@ function Router() {
       <Route path="/quotes/:id" component={QuoteDetailPage} />
       <Route path="/quotes" component={QuotesPage} />
 
+      <Route path="/book/:slug" component={BookPage} />
       <Route path="/pay/:token" component={PayPage} />
       <Route path="/sign/:token" component={SignPage} />
       <Route path="/onboard/:token" component={OnboardPage} />
