@@ -77,8 +77,16 @@ export default function AccountsPage() {
     setLoading(true);
     try {
       const r = await fetch(`${API}/api/accounts`, { headers: getAuthHeaders() });
-      if (r.ok) setAccounts(await r.json());
-    } catch {}
+      if (r.ok) {
+        const data = await r.json();
+        setAccounts(Array.isArray(data) ? data : (data?.data ?? []));
+      } else {
+        const err = await r.json().catch(() => ({}));
+        toast({ title: err?.error || "Failed to load accounts", variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Network error loading accounts", variant: "destructive" });
+    }
     setLoading(false);
   }
 

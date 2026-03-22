@@ -1,0 +1,68 @@
+Here are all 8 prompts in order. Run them sequentially — wait for each to finish and confirm before pasting the next.
+
+Sprint A — Bug Fix 1: New Invoice Button
+Fix the New Invoice button on the invoices list page. It is currently broken — clicking it does nothing.
+
+Locate the New Invoice button in the invoices list component. Identify why it is not opening a modal or navigating to a new invoice form. Wire it correctly — it should open a modal or navigate to a new invoice creation flow that allows the user to select a client, add line items, set payment terms, and save a draft invoice.
+
+Do not change any other functionality on the invoices page. Fix only the New Invoice button and its handler.
+
+Sprint A — Bug Fix 2: Dispatch Board Freeze
+Fix the Dispatch Board freeze. The board freezes on drag-and-drop and on date changes.
+
+Audit the Gantt component in jobs.tsx for re-render loops. Apply useMemo and useCallback where state changes are causing full re-renders of the job list or employee rows on every drag event or date navigation. The drag-and-drop handler should update only the affected job record, not trigger a full board re-render. Date navigation should fetch new data without destroying and remounting the entire Gantt.
+
+Do not change the visual layout, job card design, or any other functionality. Fix only the performance issue causing the freeze.
+
+Sprint A — Bug Fix 3: Accounts Page Empty State
+Fix the Accounts page showing empty despite seed data existing.
+
+The account "Pinnacle Property Management" with 5 properties, contacts Diana Reyes and Marcus Webb was seeded but is not appearing on the Accounts page. This is almost certainly a company_id mismatch between the seed script and the PHES tenant record in the database.
+
+Do the following:
+1. Check the company_id on the Pinnacle Property Management record in the accounts/properties table
+2. Check the company_id for the PHES tenant (owner@phescleaning.com) in the companies table
+3. If they do not match, update the seed data or the query filter so the Accounts page correctly scopes records to the authenticated tenant's company_id
+4. Verify the fix by confirming Pinnacle Property Management and its properties appear on the Accounts page when logged in as owner@phescleaning.com
+
+Do not change any other data or page behavior.
+
+Sprint A — Bug Fix 4: Payroll Rate Lookup
+Fix the payroll page showing incorrect hourly rates for technicians.
+
+Multiple employees are showing $18/hr despite having different rates in the seed data (James Okafor seeded at $17, others at varied rates). The payroll view is pulling a default rate instead of each employee's actual hourly_rate field.
+
+Find where the payroll summary query or component builds the employee pay rows. Ensure it reads each employee's individual hourly_rate from the employees table rather than using a hardcoded default or fallback value. If a fallback is needed when hourly_rate is null, make it explicit and logged — not silently substituted.
+
+Do not change payroll calculations, the export function, or any other payroll behavior. Fix only the rate lookup.
+
+Sprint A — Bug Fix 5: Dispatch Board Job Cards
+Fix dispatch board job cards to show two missing pieces of information:
+
+1. Assigned cleaner name(s) — the card currently shows client name, service type, time, and amount. It must also show the assigned technician's name. If multiple technicians are assigned, show the first name and "+N" for additional.
+
+2. Recurrence indicator — if the job has a frequency value other than "One Time" or null, show a small recurring indicator on the card. A simple "↻" character or a small icon with the frequency label (e.g. "Bi-weekly") is sufficient. Do not add visual clutter — keep it compact.
+
+Apply these changes to both the desktop Gantt chip and the mobile card view. Do not change the card layout, color system, zone border accents, or any other job card content.
+
+Sprint A.5 — Confirmation 1: Favicon
+AUDIT ONLY — DO NOT CHANGE ANY CODE.
+
+Check whether the file favicon.svg exists in the /public directory. Report the exact file path and confirm whether it exists or is missing. That is all.
+
+Sprint A.5 — Confirmation 2: NPS Auto-Trigger
+AUDIT ONLY — DO NOT CHANGE ANY CODE.
+
+Find where job status is changed to "complete" in the jobs route or job completion handler. Check whether POST /api/satisfaction/send is called automatically when a job is marked complete, or whether it must be triggered manually. Report exactly where in the code the job completion event fires and whether the satisfaction survey trigger is wired to it. If it is not wired, report what would need to change to wire it — but do not make any changes.
+
+Sprint A.5 — Confirmation 3: Incentive Approval UI
+AUDIT ONLY — DO NOT CHANGE ANY CODE.
+
+Open the file reports/incentives.tsx (or whatever the incentives report component is named). Report the following:
+1. Does an approve/reject workflow exist in this component for pending incentives?
+2. Are there approve and reject buttons that call an API endpoint to change an incentive's status?
+3. Is there a monthly budget cap field anywhere in this component or in company settings?
+
+Report exactly what exists in the file. Do not change anything.
+
+Run them in this exact order. Paste each result back here when done and we'll review before moving to Sprint B.

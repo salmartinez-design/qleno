@@ -3,11 +3,16 @@ import { useListUsers } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { Download, Calendar } from "lucide-react";
 
-const PAY_RATES: Record<string, number> = {
+const FALLBACK_RATES: Record<string, number> = {
   owner: 0,
   admin: 22,
   technician: 18,
 };
+function empRate(emp: any): number {
+  const r = parseFloat(emp.pay_rate);
+  if (!isNaN(r) && r > 0) return r;
+  return FALLBACK_RATES[emp.role] ?? 18;
+}
 
 export default function PayrollPage() {
   const { data, isLoading } = useListUsers({}, { request: { headers: getAuthHeaders() } });
@@ -15,7 +20,7 @@ export default function PayrollPage() {
   const billableEmployees = employees.filter((e: any) => e.role !== 'owner');
 
   const totalGross = billableEmployees.reduce((sum: number, e: any) => {
-    const rate = PAY_RATES[e.role] ?? 18;
+    const rate = empRate(e);
     return sum + rate * 40;
   }, 0);
 
@@ -32,7 +37,7 @@ export default function PayrollPage() {
             onClick={() => {
               const csv = ['Employee,Role,Hours,Rate,Gross Pay',
                 ...billableEmployees.map((e: any) => {
-                  const rate = PAY_RATES[e.role] ?? 18;
+                  const rate = empRate(e);
                   return `${e.first_name} ${e.last_name},${e.role},40,$${rate},$${(rate * 40).toFixed(2)}`;
                 })
               ].join('\n');
@@ -78,7 +83,7 @@ export default function PayrollPage() {
               {isLoading ? (
                 <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading payroll data...</td></tr>
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
-                const rate = PAY_RATES[emp.role] ?? 18;
+                const rate = empRate(emp);
                 const gross = rate * 40;
                 return (
                   <tr key={emp.id} style={{ borderBottom: '1px solid #F0EEE9', cursor: 'default' }}

@@ -11,7 +11,7 @@ import {
 import {
   ChevronLeft, ChevronRight, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar, Package,
-  Building2, AlertTriangle,
+  Building2, AlertTriangle, Repeat,
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -421,7 +421,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           {job.status.replace("_", " ")}
         </span>
       </div>
-      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {job.scheduled_time && (
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280" }}>
             <Clock size={12} style={{ color: "#9E9B94" }} />
@@ -429,6 +429,11 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
             <span style={{ color: "#C4C0BB" }}>·</span>
             {Math.floor(job.duration_minutes / 60)}h{job.duration_minutes % 60 > 0 ? ` ${job.duration_minutes % 60}m` : ""}
           </div>
+        )}
+        {job.frequency && job.frequency !== "on_demand" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 7px", borderRadius: 4 }}>
+            <Repeat size={9} />{job.frequency.replace(/_/g, " ")}
+          </span>
         )}
         {job.address && (
           <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280", flex: 1, minWidth: 0 }}>
@@ -515,24 +520,29 @@ function MiniCalendar({ value, onChange, jobDates }: { value: Date; onChange: (d
 }
 
 // ─── DESKTOP: JOB CHIP ─────────────────────────────────────────────────────────
-function JobChip({ job, onClick }: { job: DispatchJob; onClick: (j: DispatchJob) => void }) {
+function JobChip({ job, onClick, assignedName }: { job: DispatchJob; onClick: (j: DispatchJob) => void; assignedName?: string }) {
   const sc = STATUS[job.status] || STATUS.scheduled;
   const left = ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W;
   const width = Math.max(SLOT_W, (job.duration_minutes / 30) * SLOT_W);
   const isComplete = job.status === "complete";
+  const isRecurring = job.frequency && job.frequency !== "on_demand";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left }, disabled: isComplete });
   const borderColor = job.zone_color || sc.dot;
   return (
     <div ref={setNodeRef} onClick={e => { e.stopPropagation(); onClick(job); }} {...(isComplete ? {} : { ...listeners, ...attributes })}
-      title={job.zone_name ? job.zone_name : undefined}
+      title={[job.zone_name, isRecurring ? "Recurring" : ""].filter(Boolean).join(" · ") || undefined}
       style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "hidden", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
         {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
         {job.after_photo_count > 0 && <Camera size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
+        {isRecurring && <Repeat size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
         <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.client_name}</span>
       </div>
       <span style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fmtSvc(job.service_type)}</span>
-      {width > 130 && <span style={{ fontSize: 9, color: "#9E9B94" }}>{fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}</span>}
+      {width > 130 && (assignedName
+        ? <span style={{ fontSize: 9, color: "#9E9B94", display: "flex", alignItems: "center", gap: 3 }}><User size={8} />{assignedName}</span>
+        : <span style={{ fontSize: 9, color: "#9E9B94" }}>{fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}</span>
+      )}
     </div>
   );
 }
@@ -561,7 +571,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
       <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
         {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }} />)}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
-        {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} />)}
+        {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} />)}
         {employee.jobs.length === 0 && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontSize: 11, color: "#D0CEC9", letterSpacing: "0.02em" }}>No jobs scheduled</span>
@@ -662,8 +672,23 @@ export default function JobsPage() {
         toast({ title: `Cross-zone assignment`, description: `${targetEmployee.name} is in ${targetEmployee.zone.zone_name} but this job is in ${job.zone_name || "a different zone"}.` });
       }
     }
-    try { await patchJob(job.id, patch, token); await load(); }
-    catch { toast({ title: "Failed to update job", variant: "destructive" }); }
+    // Optimistic update — move chip immediately without blocking the UI on a full reload
+    const updatedJob: DispatchJob = { ...job, scheduled_time: minsToStr(newMins), assigned_user_id: empId };
+    setData(prev => {
+      if (!prev) return prev;
+      const isFromUnassigned = active.data.current?.type === "unassigned";
+      const newEmployees = prev.employees.map(emp => {
+        const withoutJob = emp.jobs.filter(j => j.id !== job.id);
+        if (emp.id === empId) return { ...emp, jobs: [...withoutJob, updatedJob] };
+        return { ...emp, jobs: withoutJob };
+      });
+      const newUnassigned = isFromUnassigned
+        ? prev.unassigned_jobs.filter(j => j.id !== job.id)
+        : prev.unassigned_jobs;
+      return { ...prev, employees: newEmployees, unassigned_jobs: newUnassigned };
+    });
+    try { await patchJob(job.id, patch, token); }
+    catch { toast({ title: "Failed to update job", variant: "destructive" }); load(); }
   }
   function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
 
@@ -964,6 +989,7 @@ export default function JobsPage() {
                         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                           {j.scheduled_time && <div style={{ fontSize: 12, color: "#6B7280", display: "flex", alignItems: "center", gap: 4 }}><Clock size={11} style={{ color: "#9E9B94" }} />{fmtTime(j.scheduled_time)}</div>}
                           {j.assigned_user_name && <div style={{ fontSize: 12, color: "#6B7280", display: "flex", alignItems: "center", gap: 4 }}><User size={11} style={{ color: "#9E9B94" }} />{j.assigned_user_name}</div>}
+                          {j.frequency && j.frequency !== "on_demand" && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 6px", borderRadius: 4 }}><Repeat size={9} />{j.frequency.replace(/_/g, " ")}</span>}
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginLeft: "auto" }}>${(j.amount || 0).toFixed(0)}</div>
                         </div>
                       </div>

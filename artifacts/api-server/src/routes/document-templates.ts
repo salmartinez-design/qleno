@@ -8,7 +8,7 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const templates = await db
       .select()
       .from(documentTemplatesTable)
@@ -23,8 +23,8 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
-    const userId = (req as any).user.id;
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
     const { name, category, content, is_required, is_active, requires_signature } = req.body;
     if (!name || !category) return res.status(400).json({ error: "name and category required" });
     const [template] = await db
@@ -49,7 +49,7 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
 
 router.get("/:id", requireAuth, async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const [template] = await db
       .select()
       .from(documentTemplatesTable)
@@ -67,7 +67,7 @@ router.get("/:id", requireAuth, async (req, res) => {
 
 router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const { name, category, content, is_required, is_active, requires_signature } = req.body;
     const [template] = await db
       .update(documentTemplatesTable)
@@ -95,7 +95,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
 
 router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     await db
       .update(documentTemplatesTable)
       .set({ is_active: false, updated_at: new Date() })

@@ -827,6 +827,20 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────
 
+    // ── NPS survey trigger (non-blocking) ────────────────────────────────
+    const clientId = (updated[0] as any).client_id;
+    if (clientId) {
+      fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": req.headers.authorization || "",
+        },
+        body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
+      }).catch((npsErr: Error) => console.error("NPS send error (non-fatal):", npsErr));
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     return res.json({
       ...updated[0],
       client_name: jobDetail[0]?.client_name ?? "",

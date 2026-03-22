@@ -8,13 +8,14 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const user = (req as any).user;
-    const companyId = user.company_id;
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
+    const role = req.auth!.role;
     const { user_id, status } = req.query;
 
     const conditions: any[] = [eq(mileageRequestsTable.company_id, companyId)];
     if (user_id) conditions.push(eq(mileageRequestsTable.user_id, parseInt(user_id as string)));
-    else if (user.role === "technician") conditions.push(eq(mileageRequestsTable.user_id, user.id));
+    else if (role === "technician") conditions.push(eq(mileageRequestsTable.user_id, userId));
     if (status) conditions.push(eq(mileageRequestsTable.status, status as any));
 
     const requests = await db
@@ -47,8 +48,8 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const user = (req as any).user;
-    const companyId = user.company_id;
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
     const {
       service_date, from_client_name, to_client_name,
       from_job_id, to_job_id, miles, notes,
@@ -71,7 +72,7 @@ router.post("/", requireAuth, async (req, res) => {
       .insert(mileageRequestsTable)
       .values({
         company_id: companyId,
-        user_id: user.id,
+        user_id: userId,
         service_date,
         from_client_name,
         to_client_name,
@@ -94,8 +95,8 @@ router.post("/", requireAuth, async (req, res) => {
 
 router.post("/:id/approve", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const user = (req as any).user;
-    const companyId = user.company_id;
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
 
     const [request] = await db
       .select()
@@ -124,7 +125,7 @@ router.post("/:id/approve", requireAuth, requireRole("owner", "admin"), async (r
       .update(mileageRequestsTable)
       .set({
         status: "approved",
-        reviewed_by: user.id,
+        reviewed_by: userId,
         reviewed_at: new Date(),
         additional_pay_id: pay.id,
       })
@@ -140,8 +141,8 @@ router.post("/:id/approve", requireAuth, requireRole("owner", "admin"), async (r
 
 router.post("/:id/deny", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const user = (req as any).user;
-    const companyId = user.company_id;
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
     const { denial_reason } = req.body;
 
     const [updated] = await db
@@ -149,7 +150,7 @@ router.post("/:id/deny", requireAuth, requireRole("owner", "admin"), async (req,
       .set({
         status: "denied",
         denial_reason: denial_reason || null,
-        reviewed_by: user.id,
+        reviewed_by: userId,
         reviewed_at: new Date(),
       })
       .where(and(

@@ -25,7 +25,7 @@ function interpolateContent(content: string, vars: Record<string, string>) {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const { employee_id, client_id } = req.query;
     const conditions: any[] = [eq(documentRequestsTable.company_id, companyId)];
     if (employee_id) conditions.push(eq(documentRequestsTable.employee_id, parseInt(employee_id as string)));
@@ -61,7 +61,7 @@ router.get("/", requireAuth, async (req, res) => {
 
 router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const { template_ids, employee_id, client_id } = req.body;
     if (!template_ids?.length) return res.status(400).json({ error: "template_ids required" });
     if (!employee_id && !client_id) return res.status(400).json({ error: "employee_id or client_id required" });
@@ -104,7 +104,7 @@ router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async
 
 router.post("/:id/resend", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const companyId = (req as any).user.company_id;
+    const companyId = req.auth!.companyId;
     const [request] = await db
       .update(documentRequestsTable)
       .set({

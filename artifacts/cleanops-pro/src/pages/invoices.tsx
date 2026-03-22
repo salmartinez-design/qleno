@@ -5,7 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar } from "lucide-react";
+import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CloseDayModal } from "@/components/close-day-modal";
 
@@ -27,6 +27,178 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
   draft:   { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
   sent:    { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
 };
+
+const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
+const INPUT_STYLE: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" };
+
+function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast();
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [clientName, setClientName] = useState("");
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [paymentTerms, setPaymentTerms] = useState("due_on_receipt");
+  const [poNumber, setPoNumber] = useState("");
+  const [lineItems, setLineItems] = useState([{ description: "", quantity: 1, unit_price: 0 }]);
+  const [saving, setSaving] = useState(false);
+
+  const { data: rawClients } = useQuery({
+    queryKey: ["client-search-invoice", clientSearch],
+    queryFn: () => apiFetch(`/api/clients?search=${encodeURIComponent(clientSearch)}&limit=20`),
+    enabled: clientSearch.length >= 1,
+  });
+  const clients: any[] = useMemo(() => {
+    const arr = Array.isArray(rawClients) ? rawClients : (rawClients?.data || rawClients?.clients || []);
+    return arr.slice(0, 8);
+  }, [rawClients]);
+
+  const subtotal = lineItems.reduce((s, item) => s + item.quantity * item.unit_price, 0);
+
+  function updateItem(idx: number, field: string, val: any) {
+    setLineItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: val } : item));
+  }
+
+  async function handleSave() {
+    if (!clientId) { toast({ title: "Select a client first", variant: "destructive" }); return; }
+    if (!lineItems.some(i => i.description.trim())) { toast({ title: "Add at least one line item", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      await apiFetch("/api/invoices", {
+        method: "POST",
+        body: JSON.stringify({
+          client_id: clientId,
+          line_items: lineItems.filter(i => i.description.trim()).map(i => ({
+            description: i.description, quantity: i.quantity,
+            rate: i.unit_price, total: i.quantity * i.unit_price,
+          })),
+          payment_terms: paymentTerms,
+          po_number: poNumber || undefined,
+        }),
+      });
+      toast({ title: "Invoice saved as draft" });
+      onDone();
+      onClose();
+    } catch (e: any) {
+      toast({ title: e.message || "Failed to create invoice", variant: "destructive" });
+    }
+    setSaving(false);
+  }
+
+  const overlay: React.CSSProperties = { position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100 };
+  const modal: React.CSSProperties = { backgroundColor: "#FFFFFF", borderRadius: 14, padding: 28, width: 600, maxWidth: "95vw", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 64px rgba(0,0,0,0.22)", fontFamily: FF };
+
+  return (
+    <div style={overlay} onClick={onClose}>
+      <div style={modal} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>New Invoice</h2>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={LABEL_STYLE}>Client</label>
+          {clientId ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", border: "1.5px solid var(--brand)", borderRadius: 8, backgroundColor: "var(--brand-dim, #f0fdf9)" }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{clientName}</span>
+              <button onClick={() => { setClientId(null); setClientName(""); setClientSearch(""); }} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}><X size={14} /></button>
+            </div>
+          ) : (
+            <div style={{ position: "relative" }}>
+              <Search size={13} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "#9E9B94", pointerEvents: "none" }} />
+              <input value={clientSearch} onChange={e => { setClientSearch(e.target.value); setShowDropdown(true); }}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                placeholder="Search by name or email..."
+                style={{ ...INPUT_STYLE, paddingLeft: 34 }} />
+              {showDropdown && clients.length > 0 && (
+                <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 10, maxHeight: 220, overflowY: "auto" }}>
+                  {clients.map((c: any) => (
+                    <div key={c.id}
+                      onMouseDown={e => { e.preventDefault(); setClientId(c.id); setClientName(`${c.first_name} ${c.last_name}`); setClientSearch(""); setShowDropdown(false); }}
+                      style={{ padding: "10px 14px", cursor: "pointer", borderBottom: "1px solid #F0EEE9" }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{c.first_name} {c.last_name}</div>
+                      {c.email && <div style={{ fontSize: 11, color: "#9E9B94" }}>{c.email}</div>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
+          <div>
+            <label style={LABEL_STYLE}>Payment Terms</label>
+            <div style={{ position: "relative" }}>
+              <select value={paymentTerms} onChange={e => setPaymentTerms(e.target.value)}
+                style={{ ...INPUT_STYLE, appearance: "none", paddingRight: 32, cursor: "pointer" }}>
+                <option value="due_on_receipt">Due on Receipt</option>
+                <option value="net_15">Net 15</option>
+                <option value="net_30">Net 30</option>
+                <option value="net_45">Net 45</option>
+              </select>
+              <ChevronDown size={13} style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", color: "#9E9B94", pointerEvents: "none" }} />
+            </div>
+          </div>
+          <div>
+            <label style={LABEL_STYLE}>PO Number (optional)</label>
+            <input value={poNumber} onChange={e => setPoNumber(e.target.value)} placeholder="e.g. PO-0042" style={INPUT_STYLE} />
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <label style={LABEL_STYLE}>Line Items</label>
+          <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 110px 32px", gap: 0, padding: "7px 12px 5px", backgroundColor: "#F7F6F3", borderBottom: "1px solid #E5E2DC" }}>
+              {["Description", "Qty", "Unit Price", ""].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: FF }}>{h}</span>
+              ))}
+            </div>
+            {lineItems.map((item, idx) => (
+              <div key={idx} style={{ display: "grid", gridTemplateColumns: "1fr 70px 110px 32px", gap: 6, padding: "8px 12px", borderBottom: idx < lineItems.length - 1 ? "1px solid #F0EEE9" : "none", alignItems: "center" }}>
+                <input value={item.description} onChange={e => updateItem(idx, "description", e.target.value)} placeholder="Service description"
+                  style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, outline: "none", fontFamily: FF, color: "#1A1917" }} />
+                <input type="number" value={item.quantity} min={1} onChange={e => updateItem(idx, "quantity", Math.max(1, parseFloat(e.target.value) || 1))}
+                  style={{ padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, outline: "none", textAlign: "center", fontFamily: FF, color: "#1A1917" }} />
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "#9E9B94", fontSize: 12 }}>$</span>
+                  <input type="number" value={item.unit_price} min={0} step={0.01} onChange={e => updateItem(idx, "unit_price", parseFloat(e.target.value) || 0)}
+                    style={{ padding: "6px 9px 6px 20px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, outline: "none", width: "100%", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" }} />
+                </div>
+                <button onClick={() => setLineItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)}
+                  style={{ border: "none", background: "transparent", cursor: lineItems.length > 1 ? "pointer" : "default", color: lineItems.length > 1 ? "#9E9B94" : "#D0CEC9", padding: 4, display: "flex", alignItems: "center" }}>
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setLineItems(prev => [...prev, { description: "", quantity: 1, unit_price: 0 }])}
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "5px 12px", border: "1px dashed #D0CEC9", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#6B7280", background: "transparent", cursor: "pointer", fontFamily: FF }}>
+            <Plus size={11} /> Add Line Item
+          </button>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div />
+          <div style={{ textAlign: "right", marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3, fontFamily: FF }}>Total</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${subtotal.toFixed(2)}</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", borderTop: "1px solid #F0EEE9", paddingTop: 18 }}>
+          <button onClick={onClose} style={{ padding: "9px 20px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, background: "#FFFFFF", cursor: "pointer", fontFamily: FF, color: "#1A1917" }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving || !clientId}
+            style={{ padding: "9px 22px", background: saving || !clientId ? "#D0CEC9" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: saving || !clientId ? "not-allowed" : "pointer", fontFamily: FF }}>
+            {saving ? "Saving..." : "Save as Draft"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
@@ -292,6 +464,7 @@ export default function InvoicesPage() {
   const [search, setSearch] = useState("");
   const [showBatch, setShowBatch] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
+  const [showNewInvoice, setShowNewInvoice] = useState(false);
 
   const token = useAuthStore(state => state.token) || "";
   let userRole = "office";
@@ -389,7 +562,7 @@ export default function InvoicesPage() {
                     </button>
                   </>
                 )}
-                <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "var(--brand)", color: "#FFFFFF", borderRadius: 8, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF }}>
+                <button onClick={() => setShowNewInvoice(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "var(--brand)", color: "#FFFFFF", borderRadius: 8, fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF }}>
                   <Plus size={14} strokeWidth={2} /> {isMobile ? "New" : "New Invoice"}
                 </button>
               </div>
@@ -508,6 +681,7 @@ export default function InvoicesPage() {
 
       {showBatch && <BatchInvoiceDrawer onClose={() => setShowBatch(false)} onDone={() => refetch()} />}
       {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} onOpenBatchInvoice={() => setShowBatch(true)} />}
+      {showNewInvoice && <NewInvoiceModal onClose={() => setShowNewInvoice(false)} onDone={() => refetch()} />}
     </>
   );
 }
