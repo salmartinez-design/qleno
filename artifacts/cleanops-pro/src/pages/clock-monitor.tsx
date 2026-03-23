@@ -198,12 +198,12 @@ export default function ClockMonitorPage() {
 
         <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
           {[
-            { label: "Total Entries", value: entries.length, color: "#1A1917", bg: "#FFFFFF" },
-            { label: "Currently Active", value: activeCount, color: "#166534", bg: "#DCFCE7" },
-            { label: "Flagged", value: flaggedCount, color: "#991B1B", bg: "#FEE2E2" },
-            { label: "Out of Range", value: outOfRangeCount, color: "#92400E", bg: "#FEF3C7" },
+            { label: "Total Entries", value: entries.length, color: "#1A1917" },
+            { label: "Currently Active", value: activeCount, color: "#16a34a" },
+            { label: "Flagged", value: flaggedCount, color: "#dc2626" },
+            { label: "Out of Range", value: outOfRangeCount, color: "#d97706" },
           ].map(stat => (
-            <div key={stat.label} style={{ backgroundColor: stat.bg, border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 20px", minWidth: 130 }}>
+            <div key={stat.label} style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 20px", minWidth: 130, flex: "1 1 130px" }}>
               <p style={{ fontSize: 24, fontWeight: 700, color: stat.color, margin: "0 0 2px" }}>{stat.value}</p>
               <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{stat.label}</p>
             </div>

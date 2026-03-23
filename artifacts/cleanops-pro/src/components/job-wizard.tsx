@@ -90,6 +90,16 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
   const [clientRecentJobs, setClientRecentJobs] = useState<any[]>([]);
   const clientDebounce = useRef<ReturnType<typeof setTimeout>>();
 
+  // Step 1 — New Customer Inline Form
+  const [showNewCust, setShowNewCust] = useState(false);
+  const [newCustFirst, setNewCustFirst] = useState("");
+  const [newCustLast, setNewCustLast] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustEmail, setNewCustEmail] = useState("");
+  const [newCustAddress, setNewCustAddress] = useState("");
+  const [newCustSaving, setNewCustSaving] = useState(false);
+  const [newCustError, setNewCustError] = useState("");
+
   // Step 1 — Commercial Account
   const [accountQuery, setAccountQuery] = useState("");
   const [accountResults, setAccountResults] = useState<any[]>([]);
@@ -110,6 +120,12 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
   const [priceOverridden, setPriceOverridden] = useState(false);
   const [frequency, setFrequency] = useState("on_demand");
   const [notes, setNotes] = useState("");
+
+  // Step 2 — Quote
+  const [showQuote, setShowQuote] = useState(false);
+  const [quoteSending, setQuoteSending] = useState(false);
+  const [quoteSent, setQuoteSent] = useState(false);
+  const [quoteError, setQuoteError] = useState("");
 
   // Step 2 — Commercial Service + Rate
   const [commercialServiceType, setCommercialServiceType] = useState("standard_clean");
@@ -145,10 +161,12 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
       setStep(0);
       setClientType("residential");
       setClientQuery(""); setClientResults([]); setSelectedClient(null); setClientRecentJobs([]);
+      setShowNewCust(false); setNewCustFirst(""); setNewCustLast(""); setNewCustPhone(""); setNewCustEmail(""); setNewCustAddress(""); setNewCustSaving(false); setNewCustError("");
       setAccountQuery(""); setAccountResults([]); setSelectedAccount(null);
       setPropertyQuery(""); setProperties([]); setSelectedProperty(null);
       setServiceType("standard_clean"); setScheduledDate(todayStr()); setScheduledTime("09:00");
       setDuration(120); setPrice(120); setPriceOverridden(false); setFrequency("on_demand"); setNotes("");
+      setShowQuote(false); setQuoteSending(false); setQuoteSent(false); setQuoteError("");
       setCommercialServiceType("standard_clean"); setRateLookup(null); setRateLookupLoading(false);
       setRateLookupDone(false); setRateOverride(false); setOverrideRate(""); setEstimatedHours("");
       setManualBillingMethod("hourly"); setManualRate("");
@@ -473,6 +491,82 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
                 </div>
               )}
 
+              {!selectedClient && !showNewCust && (
+                <button
+                  type="button"
+                  onClick={() => { setShowNewCust(true); setClientQuery(""); setClientResults([]); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "11px 14px", background: "#F7F6F3", border: "1px dashed #D1D5DB", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--brand, #00C9A0)", fontFamily: "inherit", touchAction: "manipulation" }}>
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add New Customer
+                </button>
+              )}
+
+              {showNewCust && (
+                <div style={{ border: "1px solid #E5E2DC", borderRadius: 12, padding: 16, backgroundColor: "#F7F6F3" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: 0 }}>New Customer</p>
+                    <button type="button" onClick={() => { setShowNewCust(false); setNewCustError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 2 }}><X size={14}/></button>
+                  </div>
+                  {newCustError && <p style={{ fontSize: 12, color: "#DC2626", margin: "0 0 10px", padding: "8px 12px", background: "#FEE2E2", borderRadius: 6 }}>{newCustError}</p>}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>First Name *</label>
+                      <input value={newCustFirst} onChange={e => setNewCustFirst(e.target.value)} placeholder="First"
+                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Last Name *</label>
+                      <input value={newCustLast} onChange={e => setNewCustLast(e.target.value)} placeholder="Last"
+                        style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Phone *</label>
+                    <input value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)} placeholder="(555) 555-5555" type="tel"
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                  </div>
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Email</label>
+                    <input value={newCustEmail} onChange={e => setNewCustEmail(e.target.value)} placeholder="email@example.com" type="email"
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                  </div>
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Address</label>
+                    <input value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} placeholder="123 Main St, City, FL"
+                      style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button" onClick={() => { setShowNewCust(false); setNewCustError(""); }}
+                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", fontSize: 13, cursor: "pointer", fontFamily: "inherit", color: "#6B7280" }}>
+                      Cancel
+                    </button>
+                    <button type="button" disabled={newCustSaving}
+                      onClick={async () => {
+                        if (!newCustFirst.trim() || !newCustLast.trim() || !newCustPhone.trim()) {
+                          setNewCustError("First name, last name, and phone are required."); return;
+                        }
+                        setNewCustSaving(true); setNewCustError("");
+                        try {
+                          const r = await fetch(`${API}/api/clients`, {
+                            method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                            body: JSON.stringify({ first_name: newCustFirst.trim(), last_name: newCustLast.trim(), phone: newCustPhone.trim(), email: newCustEmail.trim() || undefined, address: newCustAddress.trim() || undefined }),
+                          });
+                          if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to create customer"); }
+                          const created = await r.json();
+                          setSelectedClient(created);
+                          setClientQuery(`${created.first_name} ${created.last_name}`);
+                          setShowNewCust(false);
+                          setNewCustFirst(""); setNewCustLast(""); setNewCustPhone(""); setNewCustEmail(""); setNewCustAddress("");
+                        } catch (e: any) {
+                          setNewCustError(e.message || "Something went wrong");
+                        } finally { setNewCustSaving(false); }
+                      }}
+                      style={{ flex: 2, padding: "10px 14px", border: "none", borderRadius: 8, background: "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", opacity: newCustSaving ? 0.7 : 1 }}>
+                      {newCustSaving ? "Saving..." : "Save Customer"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {selectedClient && clientRecentJobs.length > 0 && (
                 <div>
                   <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Last 3 Jobs</p>
@@ -691,6 +785,66 @@ export function JobWizard({ open, onClose, onCreated }: JobWizardProps) {
                     style={{ width: "100%", height: 130, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "none", boxSizing: "border-box", lineHeight: 1.5 }}/>
                 </div>
               </div>
+
+              {/* View Quote section */}
+              {serviceType && duration > 0 && (
+                <div>
+                  {!showQuote ? (
+                    <button type="button" onClick={() => setShowQuote(true)}
+                      style={{ width: "100%", padding: "11px 14px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#F7F6F3", fontSize: 13, fontWeight: 600, color: "var(--brand, #00C9A0)", cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, touchAction: "manipulation" }}>
+                      View Quote
+                    </button>
+                  ) : (
+                    <div style={{ border: "1px solid #E5E2DC", borderRadius: 12, padding: 16, backgroundColor: "#F7F6F3" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: 0 }}>Quote Summary</p>
+                        <button type="button" onClick={() => { setShowQuote(false); setQuoteSent(false); setQuoteError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 2 }}><X size={14}/></button>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                          <span style={{ color: "#6B7280" }}>Service</span>
+                          <span style={{ fontWeight: 600, color: "#1A1917" }}>{fmtSvcLabel(serviceType)}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                          <span style={{ color: "#6B7280" }}>Duration</span>
+                          <span style={{ fontWeight: 600, color: "#1A1917" }}>{duration >= 60 ? `${duration / 60}h` : `${duration}m`}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                          <span style={{ color: "#6B7280" }}>Frequency</span>
+                          <span style={{ fontWeight: 600, color: "#1A1917" }}>{frequency.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, borderTop: "1px solid #E5E2DC", paddingTop: 10, marginTop: 2 }}>
+                          <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
+                          <span style={{ fontWeight: 800, color: "var(--brand, #00C9A0)" }}>${price.toFixed(2)}</span>
+                        </div>
+                      </div>
+                      {quoteError && <p style={{ fontSize: 12, color: "#DC2626", margin: "0 0 10px", padding: "8px 12px", background: "#FEE2E2", borderRadius: 6 }}>{quoteError}</p>}
+                      {quoteSent ? (
+                        <p style={{ fontSize: 13, fontWeight: 600, color: "#16A34A", textAlign: "center", padding: "10px 0" }}>Quote sent to client</p>
+                      ) : (
+                        <button type="button" disabled={quoteSending || !selectedClient}
+                          title={!selectedClient ? "Select a client first" : ""}
+                          onClick={async () => {
+                            if (!selectedClient) return;
+                            setQuoteSending(true); setQuoteError("");
+                            try {
+                              const r = await fetch(`${API}/api/quotes`, {
+                                method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+                                body: JSON.stringify({ client_id: selectedClient.id, service_type: serviceType, duration_minutes: duration, price, frequency, notes: notes || undefined, send_email: true }),
+                              });
+                              if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to send quote"); }
+                              setQuoteSent(true);
+                            } catch (e: any) { setQuoteError(e.message || "Failed to send quote"); }
+                            finally { setQuoteSending(false); }
+                          }}
+                          style={{ width: "100%", padding: "11px 14px", border: "none", borderRadius: 8, background: selectedClient ? "var(--brand, #00C9A0)" : "#E5E2DC", color: selectedClient ? "#FFFFFF" : "#9E9B94", fontSize: 13, fontWeight: 700, cursor: selectedClient ? "pointer" : "not-allowed", fontFamily: "inherit", opacity: quoteSending ? 0.7 : 1, touchAction: "manipulation" }}>
+                          {quoteSending ? "Sending..." : "Send Quote to Client"}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

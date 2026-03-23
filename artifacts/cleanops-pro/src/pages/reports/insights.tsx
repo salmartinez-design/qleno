@@ -36,10 +36,21 @@ function StarRow({ score }: { score: number }) {
 
 const CARD: React.CSSProperties = { background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 12 };
 
+function useIsMobile() {
+  const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < 640);
+  useEffect(() => {
+    const h = () => setM(window.innerWidth < 640);
+    window.addEventListener("resize", h);
+    return () => window.removeEventListener("resize", h);
+  }, []);
+  return m;
+}
+
 export default function InsightsPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [, navigate] = useLocation();
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     fetch(`${API}/api/reports/insights`, { headers: getAuthHeaders() })
@@ -68,9 +79,9 @@ export default function InsightsPage() {
 
   return (
     <DashboardLayout title="Performance Insights">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20, fontFamily: "'Plus Jakarta Sans', sans-serif", overflowX: 'hidden' }}>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: 12 }}>
           <div style={{ ...CARD, padding: '14px 18px' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Avg Job Value</p>
             <p style={{ fontSize: 28, fontWeight: 700, color: '#1A1917', margin: 0 }}>${(data?.avg_job_value || 0).toFixed(0)}</p>
@@ -88,7 +99,7 @@ export default function InsightsPage() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
 
           {/* TOP PERFORMERS */}
           <div style={{ ...CARD, padding: '20px 22px' }}>
@@ -153,7 +164,7 @@ export default function InsightsPage() {
 
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 16 }}>
 
           {/* CLIENT HEALTH */}
           <div style={{ ...CARD, padding: '20px 22px' }}>

@@ -36,7 +36,8 @@ export default function CompanyPage() {
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', gap: '2px', borderBottom: '1px solid #E5E2DC', paddingBottom: '0' }}>
+        <style>{`.co-tabs::-webkit-scrollbar{display:none}`}</style>
+        <div className="co-tabs" style={{ display: 'flex', gap: '2px', borderBottom: '1px solid #E5E2DC', paddingBottom: '0', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any, scrollbarWidth: 'none' as any, flexShrink: 0 }}>
           {TABS.map(tab => (
             <button
               key={tab.id}
@@ -53,6 +54,8 @@ export default function CompanyPage() {
                 borderBottom: `2px solid ${activeTab === tab.id ? 'var(--brand)' : 'transparent'}`,
                 marginBottom: '-1px',
                 transition: 'color 0.15s',
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
               }}
             >
               {tab.label}

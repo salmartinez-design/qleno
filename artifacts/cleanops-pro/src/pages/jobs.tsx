@@ -86,6 +86,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [cancelReason, setCancelReason] = useState("customer_request");
   const [cancelNote, setCancelNote] = useState("");
 
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleDate, setRescheduleDate] = useState(job.scheduled_date || "");
+  const [rescheduleTime, setRescheduleTime] = useState(job.scheduled_time?.slice(0, 5) || "09:00");
+  const [rescheduleBusy, setRescheduleBusy] = useState(false);
+  const [rescheduleSuccess, setRescheduleSuccess] = useState("");
+
   // Supply logging state
   const [supplyName, setSupplyName] = useState("");
   const [supplyQty, setSupplyQty] = useState("1");
@@ -335,6 +341,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Flag
             </button>
           )}
+          <button onClick={() => { setRescheduleOpen(true); setRescheduleSuccess(""); }}
+            style={{ padding: "10px 12px", border: "1px solid #BFDBFE", borderRadius: 8, backgroundColor: "#EFF6FF", color: "#1D4ED8", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            Reschedule
+          </button>
           {job.status !== "cancelled" && job.status !== "complete" && (
             <button onClick={() => setCancelOpen(true)} disabled={busy}
               style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
@@ -343,6 +353,71 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
         </div>
       </div>
+
+      {/* Reschedule modal */}
+      {rescheduleOpen && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF, padding: "0 16px" }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+            <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Reschedule Job</h3>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280" }}>
+              {job.client_name} — currently {job.scheduled_date ? new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "unscheduled"}
+            </p>
+            {rescheduleSuccess ? (
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: "#16A34A", textAlign: "center", padding: "16px 0 20px" }}>{rescheduleSuccess}</p>
+                <button onClick={() => { setRescheduleOpen(false); setRescheduleSuccess(""); onUpdate(); onClose(); }}
+                  style={{ width: "100%", padding: "10px", border: "none", borderRadius: 8, background: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New Date</label>
+                  <input type="date" value={rescheduleDate} onChange={e => setRescheduleDate(e.target.value)}
+                    style={{ width: "100%", height: 40, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF }} />
+                </div>
+                <div style={{ marginBottom: 24 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New Time</label>
+                  <input type="time" value={rescheduleTime} onChange={e => setRescheduleTime(e.target.value)}
+                    style={{ width: "100%", height: 40, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF }} />
+                </div>
+                <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                  <button onClick={() => setRescheduleOpen(false)}
+                    style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
+                    Cancel
+                  </button>
+                  <button disabled={rescheduleBusy || !rescheduleDate || !rescheduleTime}
+                    onClick={async () => {
+                      if (!rescheduleDate || !rescheduleTime) return;
+                      setRescheduleBusy(true);
+                      const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+                      try {
+                        const newStatus = job.status === "cancelled" ? "scheduled" : job.status;
+                        await patchJob(job.id, { scheduled_date: rescheduleDate, scheduled_time: rescheduleTime + ":00", status: newStatus }, token);
+                        await fetch(`${API2}/api/cancellations`, {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                          body: JSON.stringify({ job_id: job.id, customer_id: job.client_id, cancel_reason: "rescheduled", notes: `Rescheduled to ${rescheduleDate} at ${rescheduleTime}` }),
+                        }).catch(() => {});
+                        const d = new Date(rescheduleDate + "T12:00");
+                        const formatted = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                        const [h, m] = rescheduleTime.split(":").map(Number);
+                        const hFmt = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                        const timeFmt = `${hFmt}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+                        setRescheduleSuccess(`Job rescheduled to ${formatted} at ${timeFmt}`);
+                      } catch { toast({ title: "Error", description: "Could not reschedule", variant: "destructive" }); setRescheduleOpen(false); }
+                      finally { setRescheduleBusy(false); }
+                    }}
+                    style={{ padding: "8px 20px", background: "#1D4ED8", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: rescheduleBusy ? "not-allowed" : "pointer", fontFamily: FF, opacity: rescheduleBusy ? 0.7 : 1 }}>
+                    {rescheduleBusy ? "Saving..." : "Confirm Reschedule"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Cancel modal */}
       {cancelOpen && (

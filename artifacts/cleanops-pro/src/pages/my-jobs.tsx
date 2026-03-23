@@ -707,6 +707,19 @@ export default function MyJobsPage() {
           </button>
         </div>
 
+        {employeeView && (
+          <div style={{ background: "var(--brand, #00C9A0)", padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <Eye size={14} color="#fff" />
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", flex: 1 }}>
+              Viewing as {employeeView.employeeName}
+            </span>
+            <button type="button" onClick={exitView}
+              style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+              Exit
+            </button>
+          </div>
+        )}
+
         <div style={{ padding: "16px 14px" }}>
           {isLoading ? (
             <div style={{ textAlign: "center", padding: 40, color: "#9E9B94", fontSize: 14 }}>Loading your jobs…</div>

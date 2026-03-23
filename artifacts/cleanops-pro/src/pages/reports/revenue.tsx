@@ -1,9 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$, fmtDate, fmtH, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData, fmtSvc } from "./_shared";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function monthStart() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`; }
+function useIsMobile() {
+  const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < 640);
+  useEffect(() => { const h = () => setM(window.innerWidth < 640); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []);
+  return m;
+}
 
 interface RevData {
   from: string; to: string; group_by: string;
@@ -15,6 +20,7 @@ export default function RevenueReportPage() {
   const [from, setFrom] = useState(monthStart());
   const [to, setTo]   = useState(today());
   const [groupBy, setGroupBy] = useState("day");
+  const isMobile = useIsMobile();
 
   const qs = `?from=${from}&to=${to}&group_by=${groupBy}`;
   const { data, loading } = useReportData<RevData>(`/reports/revenue${qs}`);
@@ -34,7 +40,7 @@ export default function RevenueReportPage() {
 
   return (
     <DashboardLayout title="Revenue Summary">
-      <div style={{ padding: "24px 28px", maxWidth: 1100 }}>
+      <div style={{ padding: isMobile ? "16px" : "24px 28px", maxWidth: 1100, overflowX: "hidden" }}>
         <ReportHeader
           title="Revenue Summary"
           subtitle="Track revenue trends and projected income."
@@ -42,13 +48,15 @@ export default function RevenueReportPage() {
           filters={
             <>
               <DateRange from={from} to={to} onChange={(f,t) => { setFrom(f); setTo(t); }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 13, color: clr.secondary, fontWeight: 500 }}>Group by:</span>
-                {["day","week","month"].map(g => (
-                  <button key={g} onClick={() => setGroupBy(g)} style={{ padding: "5px 12px", fontSize: 12, fontWeight: 500, border: `1px solid ${clr.border}`, borderRadius: 5, cursor: "pointer", fontFamily: "inherit", backgroundColor: groupBy === g ? clr.brand : clr.card, color: groupBy === g ? "#fff" : clr.secondary }}>
-                    {g.charAt(0).toUpperCase() + g.slice(1)}
-                  </button>
-                ))}
+                <div style={{ display: "flex", gap: 6 }}>
+                  {["day","week","month"].map(g => (
+                    <button key={g} type="button" onClick={() => setGroupBy(g)} style={{ padding: "8px 14px", fontSize: 13, fontWeight: 600, border: `1px solid ${clr.border}`, borderRadius: 8, cursor: "pointer", fontFamily: "inherit", backgroundColor: groupBy === g ? clr.brand : clr.card, color: groupBy === g ? "#fff" : clr.secondary, touchAction: "manipulation", WebkitTapHighlightColor: "transparent" }}>
+                      {g.charAt(0).toUpperCase() + g.slice(1)}
+                    </button>
+                  ))}
+                </div>
               </div>
             </>
           }
