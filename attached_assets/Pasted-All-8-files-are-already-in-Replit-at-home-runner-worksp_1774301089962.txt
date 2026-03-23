@@ -1,0 +1,292 @@
+All 8 files are already in Replit at `/home/runner/workspace/attached_assets/`. No manual upload needed.
+
+Now paste the Sprint D migration prompt:
+
+---
+
+```
+Build and execute a one-time data migration script that imports 
+PHES Oak Lawn data from MaidCentral exports into Qleno's Supabase 
+database.
+
+All Excel source files are located at:
+/home/runner/workspace/attached_assets/
+
+File paths:
+- Customers (stats): /home/runner/workspace/attached_assets/Customer_Stats_-_Phes_1774300486889.xlsx
+- Customers (report): /home/runner/workspace/attached_assets/Customer_Report_-_Phes_(1)_1774300486889.xlsx
+- Revenue history: /home/runner/workspace/attached_assets/Customer_Sales_-_Phes_(1)_1774300486889.xlsx
+- Recurring schedules: /home/runner/workspace/attached_assets/Consistency_-_Phes_(2)_1774300486889.xlsx
+- Employee list: /home/runner/workspace/attached_assets/Employee_List_-_Phes_1774300486889.xlsx
+- Employee attendance: /home/runner/workspace/attached_assets/Employee_Attendance_Stats_-_Phes_1774300486889.xlsx
+
+Use the xlsx npm package to read all files. 
+Install it if not already present.
+
+---
+
+CRITICAL RULES:
+- DO NOT delete any existing data during this sprint
+- Add migration_source = 'mc_import' to all imported records
+- Run in DRY RUN mode first — read files, validate data, 
+  report counts, but do not write to database
+- Only write to database after dry run confirms counts are correct
+- If any insert fails, log the error and continue — never abort
+- All records scoped to the PHES company_id 
+  (owner email: owner@phescleaning.com)
+
+---
+
+## PART 1 — EMPLOYEES
+
+Import these 11 active technicians into the employees table.
+Role = 'technician' for all except Salvador Martinez (role = 'owner')
+and Francisco Estevez and Maribel Castillo (role = 'office').
+Pay structure = 'hourly'. Set pay_rate = null for all — 
+Sal will update rates manually after import.
+Status = 'active' for all below.
+
+Employees to import (skip if email already exists):
+1.  Norma Puga — hired 5/11/2023 — normalpuga@gmail.com — 317-400-9136
+2.  Alma Salinas — hired 6/3/2025 — salinasalma697@gmail.com — 773-815-2619
+3.  Diana Vasquez — hired 6/18/2024 — diana_vazquez1985@icloud.com — 302-668-2244
+4.  Alejandra Cuervo — hired 5/11/2023 — acuervo68@yahoo.com — 773-812-2419
+5.  Ana Valdez — hired 3/15/2024 — anaedith1602@gmail.com — 773-789-1095
+6.  Guadalupe Mejia — hired 6/11/2025 — beltran1986gm@gmail.com — 312-330-8986
+7.  Rosa Gallegos — hired 4/1/2020 — rosagallegos882@yahoo.com — 708-289-8005
+8.  Juliana Loredo — hired 1/26/2026 — loredo_juliana@yahoo.com — 312-785-9699
+9.  Juan Salazar — hired 3/12/2026 — elmagikk18@gmail.com — 177-393-0557
+10. Tatiana Merchan — hired 2/1/2024 — kh4180664@gmail.com — 312-435-2615
+11. Salvador Martinez — hired 9/1/2019 — salmartinez@phes.io — 773-818-8400
+    (role = 'owner')
+12. Francisco Estevez — hired 6/3/2024 — franciscojestevezs@gmail.com — 773-706-6000
+    (role = 'office')
+13. Maribel Castillo — hired 2/21/2023 — info@phes.io — 412-948-7719
+    (role = 'office')
+
+Also import these terminated employees with status = 'inactive':
+- Delia Martinez — terminated 2/4/2026
+- Liz Hernandez — terminated 11/27/2025
+- Evelyna Resendez — terminated 11/27/2025
+- Vanessa Gomez — terminated 12/21/2025
+
+Skip: Generic Cleaner (placeholder record)
+
+---
+
+## PART 2 — SCOPE MAPPING
+
+When importing clients and schedules, map MC scope names 
+to Qleno scope names using this table:
+
+'Hourly Deep Clean or Move In/Out' → 'Deep Clean or Move In/Out'
+'Deep Clean or Move In/Out' → 'Deep Clean or Move In/Out'
+'Hourly Standard Cleaning' → 'Standard Clean'
+'One-Time, Flat-Rate Standard Cleaning' → 'Standard Clean'
+'Recurring Cleaning' → 'Standard Clean'
+'Commercial Cleaning' → 'Commercial Cleaning'
+'PPM Common Areas' → 'Commercial Cleaning'
+'Multi-Unit Common Areas' → 'Commercial Cleaning'
+'PPM Turnover' → 'Commercial Cleaning'
+'Hourly Tasks' → 'Commercial Cleaning'
+'House Cleaning - One-Time Flat-Rate Standard Cleaning' → 'Standard Clean'
+'House Cleaning - Hourly Deep Clean or Move In/Out' → 'Deep Clean or Move In/Out'
+'House Cleaning - Hourly Standard Cleaning' → 'Standard Clean'
+'House Cleaning - Recurring Cleaning' → 'Standard Clean'
+'Commercial Cleaning - Commercial Cleaning' → 'Commercial Cleaning'
+
+If 'Standard Clean' does not exist in scopes_of_work for 
+this company, create it with:
+- scope_group: 'Residential'
+- hourly_rate: 50
+- minimum_bill: 150
+- is_active: true
+
+If 'Commercial Cleaning' does not exist, create it with:
+- scope_group: 'Commercial'
+- hourly_rate: 60
+- minimum_bill: 200
+- is_active: true
+
+---
+
+## PART 3 — CLIENTS
+
+Source: Customer_Stats file (1,265 records) as primary list.
+Cross-reference: Customer_Report file for base_fee, 
+frequency, scope, and active/canceled status.
+
+Name parsing rules:
+- If Last Name is '.' or blank → treat First Name as 
+  full business name, set last_name = ''
+- Names in "Last, First" format → split on comma
+- Strip leading/trailing whitespace from all name fields
+
+Fields to import into customers table:
+- first_name, last_name (parsed as above)
+- email (if present)
+- phone (from Cell Phone field in Customer Report)
+- customer_source → lead_source field
+- all_time_revenue → store as historical_revenue 
+  (add column if missing, numeric)
+- start_date → customer_since date
+- last_cleaning → last_job_date
+- next_cleaning → next_job_date (only if future date)
+- status: if next_cleaning is future → 'active'
+  else if last_cleaning within 90 days → 'active'
+  else → 'inactive'
+- canceled_service not empty → status = 'inactive'
+- migration_source = 'mc_import'
+- company_id = PHES company UUID
+
+Cross-reference from Customer Report:
+- base_fee → default_rate (strip $ and parse numeric)
+- frequency mapping:
+  'Every Two Weeks' → 'biweekly'
+  'Every Week' → 'weekly'
+  'Every Four Weeks' → 'monthly'
+  'Every Three Weeks' → 'monthly'
+  'Other Recurring' → 'custom'
+  'On Demand' → 'ondemand'
+  'Single' → 'onetime'
+
+Deduplication: check for existing customer by email 
+or first+last name match before inserting.
+If match found → update, not insert.
+Log count of inserts vs updates.
+
+---
+
+## PART 4 — RECURRING SCHEDULES
+
+Source: Consistency file (363 records).
+Only import records where frequency is NOT 'Single'.
+
+Tech name mapping (MC name → imported employee):
+'Alma Salinas' → Alma Salinas
+'Norma Guerrero Puga' → Norma Puga
+'Guadalupe Mejia' → Guadalupe Mejia
+'Alejandra Cuervo' → Alejandra Cuervo
+'Ana Valdez' → Ana Valdez
+'Rosa Gallegos' → Rosa Gallegos
+'Diana Vasquez' → Diana Vasquez
+'Juliana Loredo' → Juliana Loredo
+'Tatiana Merchan' → Tatiana Merchan
+'Not Scheduled' → null
+For multi-tech like 'Norma Guerrero Puga Diana Vasquez' →
+assign first named tech as primary
+
+Fields to import into recurring_schedules table:
+- customer_id: match to imported customer by name
+- frequency: map using frequency mapping above
+- assigned_employee_id: match using tech name mapping
+- preferred_start_time: from Default Start Time field
+- service_set_name: store original MC name in notes field
+- status: 'active'
+- migration_source = 'mc_import'
+
+Skip records where frequency = 'Single' or 'On Demand'.
+
+---
+
+## PART 5 — REVENUE HISTORY
+
+Source: Customer_Sales file (693 records,
+monthly columns Jan 2024 through Feb 2026).
+
+Create customer_revenue_history table if not exists:
+- id (uuid or serial PK)
+- company_id
+- customer_id
+- period_month (date — first day of month)
+- revenue (numeric)
+- migration_source (text)
+
+For each client row:
+- Match to imported customer by name
+- For each month column with non-empty dollar value,
+  insert one row with period_month = first of that month
+- Parse dollar values: strip $, commas, parse as float
+
+---
+
+## PART 6 — SCHAUMBURG BRANCH
+
+Create the Schaumburg branch record under the PHES tenant:
+- Insert into branches table: 
+  name = 'Schaumburg', 
+  company_id = PHES UUID,
+  city = 'Schaumburg',
+  state = 'IL',
+  is_active = true
+- Oak Lawn branch should already exist — 
+  if not, create it too:
+  name = 'Oak Lawn',
+  company_id = PHES UUID,
+  city = 'Oak Lawn',
+  state = 'IL',
+  is_active = true
+
+---
+
+## PART 7 — INVOICE SEQUENCE
+
+Set invoice_sequence_start = 6082 for the PHES company.
+Add this column to companies table if it does not exist
+(integer, default 1).
+
+---
+
+## PART 8 — DRY RUN REPORT
+
+Before writing anything to the database, output:
+
+MIGRATION DRY RUN REPORT
+========================
+Files read successfully: X/6
+Employees to import (active): X
+Employees to import (inactive/terminated): X
+Employees skipped (already exist): X
+Clients to import (new inserts): X
+Clients to update (existing match): X
+Clients skipped (duplicates): X
+Active clients: X
+Inactive clients: X
+Clients with future next_cleaning: X
+Recurring schedules to import: X
+Schedules with assigned tech: X
+Schedules with null tech (needs manual assignment): X
+Revenue history rows to insert: X
+Revenue total: $X
+Branches to create: X
+Any validation errors: list them
+
+Then ask: "Confirm to proceed with actual database import? 
+Reply YES to execute."
+
+Wait for confirmation before writing anything.
+
+---
+
+## PART 9 — POST-IMPORT VALIDATION
+
+After import completes, output:
+
+MIGRATION COMPLETE
+==================
+Employees imported: X
+Clients imported: X  
+Clients updated: X
+Recurring schedules imported: X
+Revenue history rows inserted: X
+Branches created: X
+Errors encountered: X (list any)
+Dummy data still present: YES — run cleanup prompt separately
+
+DO NOT delete dummy data automatically.
+Print the cleanup SQL as a dry-run output only.
+```
+
+---
+
+Let it run. It will stop and ask you to confirm before writing anything to the database. When it shows the dry run report, paste it here and we review the numbers together before you say YES.
