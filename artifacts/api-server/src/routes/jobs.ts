@@ -214,8 +214,11 @@ router.post("/", requireAuth, async (req, res) => {
 router.get("/my-jobs", requireAuth, async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
-    const userId = req.auth!.userId;
     const companyId = req.auth!.companyId;
+    let userId = req.auth!.userId;
+    if (req.auth!.role === "owner" && req.query.employee_id) {
+      userId = parseInt(req.query.employee_id as string);
+    }
 
     const jobs = await db
       .select({

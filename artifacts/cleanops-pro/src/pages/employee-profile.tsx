@@ -3,11 +3,12 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
-  Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone,
+  Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
 } from "lucide-react";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -446,6 +447,8 @@ export default function EmployeeProfilePage() {
   const userId = parseInt(id!);
   const qc = useQueryClient();
   const isMobile = useIsMobile();
+  const isOwner = getTokenRole() === 'owner';
+  const { activateView } = useEmployeeView();
 
   const [activeTab, setActiveTab] = useState('Information');
   const [saving, setSaving] = useState(false);
@@ -615,11 +618,28 @@ export default function EmployeeProfilePage() {
       <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:1200, margin:'0 auto' }}>
 
         {/* Back nav */}
-        <div style={{ marginBottom:16 }}>
+        <div style={{ marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <button onClick={() => navigate('/employees')}
             style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B7280',fontSize:13,padding:0,fontFamily:'inherit' }}>
             <ArrowLeft size={14}/> Back to Team
           </button>
+          {isOwner && user && user.role !== 'owner' && (
+            <button
+              onClick={async () => {
+                await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
+                navigate('/my-jobs');
+              }}
+              style={{
+                display:'flex', alignItems:'center', gap:6,
+                padding:'7px 14px', borderRadius:8,
+                border:'1px solid #E5E2DC', background:'#FFFFFF',
+                color:'#1A1917', fontSize:13, fontWeight:600,
+                cursor:'pointer', fontFamily:'inherit',
+              }}
+            >
+              <Eye size={14} strokeWidth={1.5} /> View as Employee
+            </button>
+          )}
         </div>
 
         {/* ── PROFILE HEADER ── */}

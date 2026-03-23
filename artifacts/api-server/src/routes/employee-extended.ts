@@ -9,6 +9,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { signToken } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -334,6 +335,18 @@ router.post("/invite/:token/accept", async (req, res) => {
     console.error("Accept invite error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
+});
+
+router.post("/:id/employee-view-log", requireAuth, async (req, res) => {
+  if (req.auth!.role !== "owner") {
+    return res.status(403).json({ error: "Owner only" });
+  }
+  const targetId = parseInt(req.params.id);
+  await logAudit(req, "employee_view_activated", "user", targetId, null, {
+    target_employee_id: targetId,
+    performed_by: req.auth!.userId,
+  });
+  return res.json({ ok: true });
 });
 
 export default router;

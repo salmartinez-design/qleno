@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { BranchProvider } from "@/contexts/branch-context";
+import { EmployeeViewProvider } from "@/contexts/employee-view-context";
 
 import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
@@ -165,9 +166,11 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-            <BranchProvider>
-              <Router />
-            </BranchProvider>
+            <EmployeeViewProvider>
+              <BranchProvider>
+                <Router />
+              </BranchProvider>
+            </EmployeeViewProvider>
           </WouterRouter>
           <Toaster />
         </TooltipProvider>

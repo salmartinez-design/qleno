@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Car, X, Check } from "lucide-react";
+import { Car, X, Check, Eye } from "lucide-react";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -211,7 +212,7 @@ function DistanceBadge({ jobLat, jobLng, empPos }: {
   );
 }
 
-function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void }) {
+function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -430,7 +431,7 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
           <p style={{ fontSize: 12, color: "#7F1D1D", margin: "0 0 12px", lineHeight: 1.5 }}>
             You are {geofenceError.distanceFt} ft from this job. Must be within {geofenceError.radiusFt} ft to clock in. Please drive to the job address and try again.
           </p>
-          {geofenceError.overrideAllowed && (
+          {geofenceError.overrideAllowed && !isPreviewMode && (
             <button
               onClick={() => {
                 setGeofenceError(null);
@@ -470,13 +471,15 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
             </div>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 12px" }}>Time on job</p>
             <button
-              onClick={() => smsMutation.mutate(paused ? "resumed" : "paused")}
-              disabled={smsMutation.isPending}
+              onClick={() => !isPreviewMode && smsMutation.mutate(paused ? "resumed" : "paused")}
+              disabled={smsMutation.isPending || isPreviewMode}
+              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: `1px solid ${paused ? "#10B981" : "#F59E0B"}`,
-                fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10,
+                fontSize: 14, fontWeight: 600, cursor: isPreviewMode ? "not-allowed" : "pointer", marginBottom: 10,
                 backgroundColor: paused ? "#DCFCE7" : "#FEF3C7",
                 color: paused ? "#166534" : "#92400E",
+                opacity: isPreviewMode ? 0.6 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -484,18 +487,22 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
             </button>
             <button
               onClick={() => {
+                if (isPreviewMode) return;
                 if (photosAfter.length === 0) {
                   toast({ variant: "destructive", title: "After photo required", description: "Upload at least 1 after photo first" });
                   return;
                 }
                 getLocation((lat, lng) => clockOutMutation.mutate({ lat, lng }));
               }}
-              disabled={clockOutMutation.isPending || geoLoading}
+              disabled={clockOutMutation.isPending || geoLoading || isPreviewMode}
+              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
               style={{
                 width: "100%", height: 48, borderRadius: 10, border: "none",
-                fontSize: 15, fontWeight: 600, cursor: photosAfter.length === 0 ? "not-allowed" : "pointer",
-                backgroundColor: photosAfter.length === 0 ? "#F3F4F6" : "#166534",
-                color: photosAfter.length === 0 ? "#9E9B94" : "#FFFFFF",
+                fontSize: 15, fontWeight: 600,
+                cursor: (isPreviewMode || photosAfter.length === 0) ? "not-allowed" : "pointer",
+                backgroundColor: (isPreviewMode || photosAfter.length === 0) ? "#F3F4F6" : "#166534",
+                color: (isPreviewMode || photosAfter.length === 0) ? "#9E9B94" : "#FFFFFF",
+                opacity: isPreviewMode ? 0.6 : 1,
                 transition: "opacity 0.15s",
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
@@ -506,12 +513,14 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
         ) : (
           <div>
             <button
-              onClick={() => smsMutation.mutate("on_my_way")}
-              disabled={smsMutation.isPending}
+              onClick={() => !isPreviewMode && smsMutation.mutate("on_my_way")}
+              disabled={smsMutation.isPending || isPreviewMode}
+              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: "1px solid var(--brand)",
-                fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10,
+                fontSize: 14, fontWeight: 600, cursor: isPreviewMode ? "not-allowed" : "pointer", marginBottom: 10,
                 backgroundColor: "var(--brand-soft)", color: "var(--brand)",
+                opacity: isPreviewMode ? 0.6 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -519,15 +528,18 @@ function JobCard({ job, empPos, onRefresh }: { job: Job; empPos: { lat: number; 
             </button>
             <button
               onClick={() => {
+                if (isPreviewMode) return;
                 setGeofenceError(null);
                 setSoftWarning(null);
                 getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy }));
               }}
-              disabled={clockInMutation.isPending || geoLoading}
+              disabled={clockInMutation.isPending || geoLoading || isPreviewMode}
+              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
               style={{
-                width: "100%", height: 48, backgroundColor: "var(--brand)", color: "#FFFFFF",
+                width: "100%", height: 48, backgroundColor: isPreviewMode ? "#E5E7EB" : "var(--brand)", color: isPreviewMode ? "#9E9B94" : "#FFFFFF",
                 borderRadius: 10, border: "none", fontSize: 15, fontWeight: 600,
-                cursor: "pointer", opacity: (clockInMutation.isPending || geoLoading) ? 0.7 : 1,
+                cursor: isPreviewMode ? "not-allowed" : "pointer",
+                opacity: (clockInMutation.isPending || geoLoading) ? 0.7 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -625,6 +637,7 @@ function MileageModal({ onClose }: { onClose: () => void }) {
 }
 
 export default function MyJobsPage() {
+  const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -662,9 +675,10 @@ export default function MyJobsPage() {
   }, []);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["my-jobs"],
+    queryKey: ["my-jobs", employeeView?.employeeId],
     queryFn: async () => {
-      const res = await apiFetch("/jobs/my-jobs");
+      const url = employeeView ? `/jobs/my-jobs?employee_id=${employeeView.employeeId}` : "/jobs/my-jobs";
+      const res = await apiFetch(url);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -704,7 +718,7 @@ export default function MyJobsPage() {
           ) : (
             <>
               {activeJobs.map(job => (
-                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} />
+                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView} />
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>

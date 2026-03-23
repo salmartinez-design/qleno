@@ -1,0 +1,112 @@
+Add an "View as Employee" impersonation feature to Qleno.
+This feature is available to the owner role only — no other 
+role can access it. It allows the owner to see the app 
+exactly as any employee would see it.
+
+---
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand) per tenant
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+## HOW IT WORKS
+
+When the owner activates "View as Employee" for a specific 
+employee, the app switches to that employee's perspective:
+
+- The sidebar and navigation show only what that employee 
+  can see (My Jobs, Clock Monitor if applicable)
+- The My Jobs view shows only that employee's assigned jobs
+- GPS clock-in/out works as if the owner is that employee
+- A persistent banner at the top of every page shows:
+  "Viewing as [Employee Name] — Exit View" with an 
+  Exit button that returns to the owner view instantly
+- The banner uses the brand accent color with white text
+- No data can be modified while in employee view — 
+  all action buttons (Mark Complete, Clock In, etc.) 
+  are visible but disabled with a tooltip: 
+  "Actions disabled in preview mode"
+
+This is a read-only preview. The owner sees but cannot act.
+
+---
+
+## WHERE TO ACCESS IT
+
+Two entry points:
+
+1. Employee profile page — add a "View as Employee" button 
+   in the header actions area next to the existing buttons.
+   Only visible to owner role. Clicking it activates 
+   employee view for that specific employee.
+
+2. Employee list page — add a small "Preview" icon button 
+   on each employee row. Owner only. Same behavior.
+
+---
+
+## SECURITY REQUIREMENTS
+
+- Only users with role = 'owner' can activate employee view
+- The impersonation is client-side only — it changes what 
+  the UI renders, not the JWT or auth token
+- No API calls are made as the employee — all data fetches 
+  use the owner's real auth token but filter results to 
+  show only what that employee would see
+- The impersonation state is stored in React context only — 
+  it clears on page refresh automatically
+- Audit log entry created when employee view is activated:
+  action = 'employee_view_activated', 
+  target_employee_id = employee id,
+  performed_by = owner user id
+
+---
+
+## PERSISTENT BANNER
+
+The banner must be visible on every page while in employee 
+view. It sits above the main content area, below the 
+top navigation bar.
+
+Banner content:
+- Left: Eye icon + "Previewing as [First Name Last Name]"
+- Right: "Exit Preview" button
+- Height: 40px
+- Background: var(--brand) color
+- Text: white
+- No close button — only the Exit Preview button removes it
+
+---
+
+## VERIFICATION
+
+After building, confirm:
+
+1. Employee profile page shows "View as Employee" button 
+   for owner role only — not visible when logged in as 
+   any other role
+
+2. Clicking the button activates employee view and the 
+   persistent banner appears at the top of every page
+
+3. My Jobs view shows only that employee's jobs
+
+4. Action buttons are visible but disabled with tooltip
+
+5. "Exit Preview" button returns to full owner view 
+   immediately with no page refresh required
+
+6. Logging in as office role (Francisco or Maribel) — 
+   the View as Employee button is not visible anywhere
+
+7. Audit log records the activation event

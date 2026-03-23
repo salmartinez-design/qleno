@@ -15,8 +15,9 @@ import {
   UserCheck, FileText, DollarSign, BarChart2, TrendingUp,
   BookOpen, Star, Settings, Clock,
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
-  ChevronDown,
+  ChevronDown, Eye,
 } from "lucide-react";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -247,6 +248,7 @@ function useUnreadCount(userId: number | undefined) {
 }
 
 export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
+  const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
   const [location, setLocation] = useLocation();
@@ -352,6 +354,33 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
           </div>
         </header>
 
+        {employeeView && (
+          <div style={{
+            backgroundColor: 'var(--brand)', height: 40,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0 16px', flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Eye size={14} style={{ color: '#fff' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Previewing as {employeeView.employeeName}
+              </span>
+            </div>
+            <button
+              onClick={exitView}
+              style={{
+                padding: '4px 10px', borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.45)',
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff', fontSize: 11, fontWeight: 600,
+                cursor: 'pointer', fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              Exit Preview
+            </button>
+          </div>
+        )}
+
         <main style={{ padding: '16px 14px 80px' }}>{children}</main>
 
         {/* Bottom nav */}
@@ -451,6 +480,33 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             )}
           </div>
         </header>
+
+        {employeeView && (
+          <div style={{
+            backgroundColor: 'var(--brand)', height: 40,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '0 28px', flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Eye size={15} style={{ color: '#fff' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Previewing as {employeeView.employeeName}
+              </span>
+            </div>
+            <button
+              onClick={exitView}
+              style={{
+                padding: '5px 14px', borderRadius: 6,
+                border: '1px solid rgba(255,255,255,0.45)',
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              Exit Preview
+            </button>
+          </div>
+        )}
 
         {fullBleed ? (
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>{children}</div>

@@ -1,0 +1,196 @@
+Good mobile audit. These are all real issues that need to be fixed before your team is on the app. Let me go through each one and write the fix prompts.
+
+What I see across the 9 screenshots:
+	1.	Revenue Summary — Week/Month buttons broken
+	2.	Clock Monitor — design can be improved
+	3.	Performance Insights — horizontal scroll on mobile
+	4.	Company Settings — horizontal scroll on mobile
+	5.	New Job wizard — no way to add a new customer from mobile
+	6.	Job detail panel — Margaret Schulz card looks good but no reschedule option
+	7.	New Job wizard — service type grid and details step need tightening
+Here are all the fix prompts. Run them together as one prompt since they are all mobile UI fixes:
+
+Fix the following mobile UI issues in Qleno. All fixes are 
+for the mobile view (375px viewport). Do not change desktop 
+layout.
+
+DESIGN SYSTEM — NON-NEGOTIABLE:
+- Background: #F7F6F3
+- Cards: #FFFFFF
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand) per tenant
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+FIX 1 — Revenue Summary: Week and Month buttons broken
+
+On the Revenue Summary report at /reports/revenue, the 
+"Week" and "Month" group-by buttons do nothing when tapped 
+on mobile. Only "Day" works. Find the button handler for 
+the group-by selector and fix it so all three options 
+(Day, Week, Month) correctly update the report data and 
+re-render the chart on mobile.
+
+---
+
+FIX 2 — Clock Monitor: visual polish
+
+The Clock Monitor page has a functional layout but the 
+4 stat cards (Total Entries, Currently Active, Flagged, 
+Out of Range) use colored backgrounds that feel inconsistent 
+with the design system. 
+
+Update the stat cards to match the design system:
+- All 4 cards: white background (#FFFFFF), 
+  #E5E2DC border
+- Currently Active number: use green text (#16a34a)
+- Flagged number: use red text (#dc2626)  
+- Out of Range number: use amber text (#d97706)
+- Total Entries number: use primary text (#1A1917)
+- Consistent card height and padding across all 4
+- "No clock entries today" empty state: center it 
+  properly with more vertical breathing room
+
+---
+
+FIX 3 — Performance Insights: horizontal scroll
+
+The Performance Insights report page has content 
+overflowing horizontally on mobile causing unwanted 
+side-scroll. 
+
+Fix by:
+- The two-column card grid (Top Performers / Employees 
+  Needing Attention) should stack to single column 
+  on mobile (max-width: 640px)
+- The Revenue by Service Type section should be 
+  full width on mobile
+- No element should exceed the viewport width
+- Add overflow-x: hidden to the page container
+- All cards should be 100% width on mobile with 
+  16px horizontal padding
+
+---
+
+FIX 4 — Company Settings: horizontal scroll
+
+Same issue as Fix 3. The Company Settings tab bar 
+(General, Branding, Notifications, Clock In/Out, 
+Invoicing, etc.) overflows horizontally on mobile.
+
+Fix the tab bar so it scrolls horizontally within 
+the tab bar itself (overflow-x: auto with 
+scrollbar hidden) but does not cause the entire 
+page to scroll sideways. The tab content below 
+should always be 100% viewport width.
+
+Also check all form fields inside each settings tab — 
+any two-column form layouts should collapse to 
+single column on mobile.
+
+---
+
+FIX 5 — Remove Rate Increase from mobile navigation
+
+The Rate Increase tool appears in the mobile nav 
+but is an owner/office desktop workflow, not 
+something needed on mobile. Remove it from the 
+mobile bottom navigation and the More menu on mobile. 
+It should still be accessible on desktop. 
+
+---
+
+FIX 6 — New Job wizard: add new customer from mobile
+
+When creating a new job on mobile via the dispatch 
+board, the client search step only allows searching 
+existing clients. There is no way to add a new 
+customer inline.
+
+Add a "New Customer" option to the client search step:
+- Below the search results, show a "Add New Customer" 
+  button
+- Tapping it opens a compact inline form with fields:
+  First name, Last name, Phone, Email, Address
+- On save, creates the customer record and 
+  auto-selects them for the job
+- Returns to the job wizard with the new customer 
+  selected
+- This must work fully on mobile without navigating 
+  away from the job wizard
+
+---
+
+FIX 7 — New Job wizard: quote from mobile
+
+Add a "Get Quote" option in the job wizard details 
+step on mobile. When a service type is selected 
+and duration is set, show a "View Quote" summary 
+section that displays:
+- Service type
+- Duration
+- Calculated price (using the pricing engine — 
+  call POST /api/pricing/calculate with the 
+  selected scope and duration)
+- Frequency
+- A "Send Quote to Client" button that creates 
+  a quote record and sends it via email 
+  (requires Resend — show disabled state with 
+  tooltip "Email not configured" if RESEND_API_KEY 
+  is not set)
+
+This gives staff the same quoting capability 
+on mobile as the desktop quote builder.
+
+---
+
+FIX 8 — Reschedule on mobile job panel
+
+The job detail panel (bottom sheet) on mobile 
+currently shows: Mark Complete, Start Job, Flag, 
+Cancel Job.
+
+Add a Reschedule button to this panel:
+- Place it next to Cancel Job at the bottom
+- Tapping it opens a date/time picker sheet
+- User selects new date and time
+- On confirm: updates the job's scheduled_date 
+  and scheduled_time, changes status back to 
+  'scheduled' if it was cancelled, logs a 
+  cancellation/reschedule record with reason 
+  'Rescheduled' in cancellationLogTable
+- Show a success confirmation: 
+  "Job rescheduled to [new date/time]"
+- This must work on mobile and desktop
+
+---
+
+VERIFICATION
+
+After all fixes, confirm:
+
+1. Revenue Summary — tap Week and Month on mobile, 
+   data updates correctly
+2. Clock Monitor — 4 cards render with white 
+   backgrounds and colored numbers only
+3. Performance Insights — no horizontal scroll 
+   on 375px viewport, cards stack vertically
+4. Company Settings — tab bar scrolls within 
+   itself, page does not scroll horizontally
+5. Rate Increase not visible in mobile navigation
+6. New Job wizard — "Add New Customer" button 
+   present and creates customer inline
+7. New Job wizard — "View Quote" section shows 
+   calculated price from pricing engine
+8. Job panel — Reschedule button present and 
+   opens date/time picker
+
+
+On your question about whether the Clock Monitor is the best it can look — the bones are right (4 stat tiles, empty state, entries list) but the colored card backgrounds are inconsistent with the rest of the design system. Fix 2 above cleans that up to match everything else. Once your real techs are clocking in you will see live data in those tiles and it will look much more useful.
+On rescheduling with 11 techs in the field — Fix 8 is critical for your operation. When a client calls to reschedule while Ana is already driving there, you or Maribel needs to be able to handle that from a phone in 30 seconds. That is exactly what this builds.​​​​​​​​​​​​​​​​

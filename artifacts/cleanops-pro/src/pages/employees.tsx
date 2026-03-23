@@ -3,8 +3,9 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useListUsers } from "@workspace/api-client-react";
-import { getAuthHeaders } from "@/lib/auth";
-import { Plus, Search, Mail, ExternalLink, Check } from "lucide-react";
+import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { Plus, Search, Mail, ExternalLink, Check, Eye } from "lucide-react";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -38,6 +39,8 @@ export default function EmployeesPage() {
   const isMobile = useIsMobile();
   const [search, setSearch] = useState('');
   const [inviteModal, setInviteModal] = useState(false);
+  const isOwner = getTokenRole() === 'owner';
+  const { activateView } = useEmployeeView();
   const [sendingInvite, setSendingInvite] = useState<number | null>(null);
   const [inviteSent, setInviteSent] = useState<number | null>(null);
   const [inviteToast, setInviteToast] = useState('');
@@ -142,7 +145,20 @@ export default function EmployeesPage() {
                       {user.pay_type === 'hourly' ? `$${user.pay_rate}/hr` : user.pay_type?.replace('_', ' ')}
                     </div>
                   </div>
-                  <div style={{ flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
+                    {isOwner && user.role !== 'owner' && (
+                      <button
+                        onClick={async e => {
+                          e.stopPropagation();
+                          await activateView({ employeeId: user.id, employeeName: `${user.first_name} ${user.last_name}` });
+                          navigate('/my-jobs');
+                        }}
+                        title="View as Employee"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: '4px', display: 'flex', alignItems: 'center' }}
+                      >
+                        <Eye size={15} strokeWidth={1.5} />
+                      </button>
+                    )}
                     {invited ? (
                       <span style={{ display:'inline-flex',alignItems:'center',gap:3,fontSize:10,fontWeight:600,color:'#166534',background:'#DCFCE7',padding:'3px 7px',borderRadius:4 }}>
                         <Check size={9}/> Invited
@@ -238,10 +254,25 @@ export default function EmployeesPage() {
                       )}
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
-                      <button onClick={() => navigate(`/employees/${user.id}`)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: '4px', display:'flex',alignItems:'center' }}>
-                        <ExternalLink size={14} strokeWidth={1.5} />
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                        {isOwner && user.role !== 'owner' && (
+                          <button
+                            onClick={async e => {
+                              e.stopPropagation();
+                              await activateView({ employeeId: user.id, employeeName: `${user.first_name} ${user.last_name}` });
+                              navigate('/my-jobs');
+                            }}
+                            title="View as Employee"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: '4px', display: 'flex', alignItems: 'center' }}
+                          >
+                            <Eye size={14} strokeWidth={1.5} />
+                          </button>
+                        )}
+                        <button onClick={() => navigate(`/employees/${user.id}`)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: '4px', display:'flex',alignItems:'center' }}>
+                          <ExternalLink size={14} strokeWidth={1.5} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
