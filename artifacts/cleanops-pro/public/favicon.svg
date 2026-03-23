@@ -2,20 +2,20 @@
   <!-- Mint green rounded square background -->
   <rect width="64" height="64" rx="14" fill="#00C9A0"/>
 
-  <!-- Three white shine lines — left side -->
+  <!-- Three white shine lines — short, crisp rays on the left -->
   <!-- Upper-left (~10 o'clock), diagonal 45° -->
-  <line x1="23" y1="20" x2="13" y2="10"
-    stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.88"/>
+  <line x1="23" y1="21" x2="14" y2="12"
+    stroke="white" stroke-width="3" stroke-linecap="round"/>
   <!-- Left — perfectly horizontal -->
-  <line x1="20" y1="32" x2="8" y2="32"
-    stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.88"/>
+  <line x1="20" y1="32" x2="9" y2="32"
+    stroke="white" stroke-width="3" stroke-linecap="round"/>
   <!-- Lower-left (~8 o'clock), diagonal 45° -->
-  <line x1="23" y1="44" x2="13" y2="54"
-    stroke="white" stroke-width="5" stroke-linecap="round" opacity="0.88"/>
+  <line x1="23" y1="43" x2="14" y2="52"
+    stroke="white" stroke-width="3" stroke-linecap="round"/>
 
-  <!-- Bold white Q, centered right of center -->
+  <!-- Bold white Q, centered right -->
   <text
-    x="40" y="32"
+    x="41" y="32"
     font-family="'Helvetica Neue', Arial, sans-serif"
     font-weight="800"
     font-size="36"

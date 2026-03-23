@@ -22,11 +22,11 @@ function CircleMark({ r, qFont }: { r: number; qFont: number }) {
   const cx = r * 2;       // circle center x (leaves r on left for shine lines)
   const cy = r + 4;       // circle center y (vertically centered)
 
-  const shineLen   = r * 0.78;
+  const shineLen   = r * 0.62;
   const cos30      = 0.866;
   const sin30      = 0.5;
   const cos45      = 0.7071;
-  const sw         = Math.max(1.5, r * 0.175); // stroke-width proportional to r
+  const sw         = Math.max(1.2, r * 0.135); // stroke-width proportional to r
 
   // 10 o'clock position on circle edge (150° from +x axis)
   const ulx = cx - r * cos30;
