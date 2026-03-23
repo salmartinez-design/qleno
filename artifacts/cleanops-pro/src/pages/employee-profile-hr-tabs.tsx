@@ -626,3 +626,4 @@ export function QualityTab({ employeeId }: { employeeId: number }) {
     </div>
   );
 }
+

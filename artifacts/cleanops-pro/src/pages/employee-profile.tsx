@@ -7,6 +7,7 @@ import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
   Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
+  Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
@@ -60,9 +61,33 @@ const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Su
 const TABS = [
   'Information','Tags & Skills','Attendance','Availability',
   'User Account','Contacts','Scorecards','Additional Pay',
+  'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
+
+const PAY_GROUPS: { label: string; types: string[] }[] = [
+  { label: 'Earnings',    types: ['bonus', 'tips', 'mileage'] },
+  { label: 'Time Off',   types: ['sick_pay', 'holiday_pay', 'vacation_pay'] },
+  { label: 'Other',      types: ['compliment', 'amount_owed'] },
+];
+
+const PAY_LABELS: Record<string, string> = {
+  bonus:        'Bonus',
+  tips:         'Tips',
+  mileage:      'Mileage',
+  sick_pay:     'Sick Pay',
+  holiday_pay:  'Holiday Pay',
+  vacation_pay: 'Vacation Pay',
+  compliment:   'Compliment',
+  amount_owed:  'Amount Owed',
+};
+
+const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
+  pending: { bg: '#FEF3C7', color: '#92400E',  label: 'Pending' },
+  paid:    { bg: '#DCFCE7', color: '#166534',  label: 'Paid' },
+  voided:  { bg: '#F3F4F6', color: '#6B7280',  label: 'Voided' },
+};
 
 const SKILLS_OPTIONS = [
   'Maintenance Cleaning','Deep Clean','Move In/Move Out','Commercial Cleaning',
@@ -498,6 +523,17 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Additional Pay',
   });
 
+  const { data: payrollHistoryData } = useQuery({
+    queryKey: ['payroll-history', userId],
+    queryFn: () => apiFetch(`/users/${userId}/payroll-history`),
+    enabled: activeTab === 'Payroll History',
+  });
+
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+  const [voidingId, setVoidingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [bulkPayModal, setBulkPayModal] = useState(false);
+
   const { data: scorecardsData, refetch: refetchScores } = useQuery({
     queryKey: ['scorecards-emp', userId],
     queryFn: () => apiFetch(`/users/${userId}/scorecards`),
@@ -585,6 +621,26 @@ export default function EmployeeProfilePage() {
     setPayModal(false); setNewPay({ type: 'bonus', amount: '', notes: '' });
     refetchPay();
     showToast('Pay entry added');
+  }
+
+  async function voidPay(payId: number) {
+    setVoidingId(payId);
+    try {
+      await apiFetch(`/users/${userId}/additional-pay/${payId}/void`, { method: 'PATCH' });
+      refetchPay();
+      showToast('Pay entry voided');
+    } catch { showToast('Failed to void entry'); }
+    setVoidingId(null);
+  }
+
+  async function deletePay(payId: number) {
+    setDeletingId(payId);
+    try {
+      await apiFetch(`/users/${userId}/additional-pay/${payId}`, { method: 'DELETE' });
+      refetchPay();
+      showToast('Pay entry deleted');
+    } catch { showToast('Cannot delete — only pending entries can be deleted'); }
+    setDeletingId(null);
   }
 
   const [skillInput, setSkillInput] = useState('');
@@ -1156,50 +1212,227 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── ADDITIONAL PAY TAB ── */}
-          {activeTab === 'Additional Pay' && (
-            <div>
-              <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
-                <button onClick={() => setPayModal(true)}
-                  style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                  <Plus size={14}/> Add Pay Entry
-                </button>
+          {activeTab === 'Additional Pay' && (() => {
+            const pays: any[] = additionalPayData?.data || [];
+            const pending = pays.filter(p => p.status === 'pending');
+            const paid    = pays.filter(p => p.status === 'paid');
+            const voided  = pays.filter(p => p.status === 'voided');
+            const pendingTotal = pending.reduce((s: number, p: any) => s + (p.type === 'amount_owed' ? -parseFloat(p.amount||0) : parseFloat(p.amount||0)), 0);
+            const paidTotal    = paid.reduce((s: number, p: any) => s + (p.type === 'amount_owed' ? -parseFloat(p.amount||0) : parseFloat(p.amount||0)), 0);
+
+            return (
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {/* Summary cards */}
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+                  {[
+                    { label:'Pending', value:`$${pendingTotal.toFixed(2)}`, count: pending.length, color:'#92400E', bg:'#FEF3C7' },
+                    { label:'Paid', value:`$${paidTotal.toFixed(2)}`, count: paid.length, color:'#166534', bg:'#DCFCE7' },
+                    { label:'Voided', value:`${voided.length} entries`, count: voided.length, color:'#6B7280', bg:'#F3F4F6' },
+                  ].map(c => (
+                    <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                        <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{c.label}</span>
+                        <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:10, background:c.bg, color:c.color }}>{c.count}</span>
+                      </div>
+                      <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Header + add button */}
+                <div style={{ display:'flex', justifyContent:'flex-end' }}>
+                  <button onClick={() => setPayModal(true)}
+                    style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
+                    <Plus size={14}/> Add Pay Entry
+                  </button>
+                </div>
+
+                {/* Pay table */}
+                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
+                  <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom:'1px solid #EEECE7', background:'#FAFAF9' }}>
+                        {['Date','Type','Amount','Status','Notes',''].map(h=>(
+                          <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase' as const,letterSpacing:'0.05em' }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pays.map((p: any) => {
+                        const typeStyle = PAY_TYPE_COLORS[p.type] || { bg:'#F3F4F6',color:'#6B7280' };
+                        const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.pending;
+                        const isDeduction = p.type === 'amount_owed';
+                        const isVoided = p.status === 'voided';
+                        return (
+                          <tr key={p.id} style={{ borderBottom:'1px solid #F3F4F6', opacity: isVoided ? 0.55 : 1 }}>
+                            <td style={{ padding:'11px 16px',fontSize:13,color:'#1A1917' }}>{new Date(p.created_at).toLocaleDateString()}</td>
+                            <td style={{ padding:'11px 16px' }}>
+                              <span style={{ background:typeStyle.bg,color:typeStyle.color,padding:'3px 9px',borderRadius:20,fontSize:11,fontWeight:600 }}>
+                                {PAY_LABELS[p.type] || p.type?.replace(/_/g,' ')}
+                              </span>
+                            </td>
+                            <td style={{ padding:'11px 16px',fontSize:13,fontWeight:700,color: isDeduction ? '#EF4444' : '#166534', textDecoration: isVoided ? 'line-through' : undefined }}>
+                              {isDeduction ? '-' : '+'} ${parseFloat(p.amount||0).toFixed(2)}
+                            </td>
+                            <td style={{ padding:'11px 16px' }}>
+                              <span style={{ background:statusStyle.bg,color:statusStyle.color,padding:'3px 8px',borderRadius:4,fontSize:11,fontWeight:700 }}>
+                                {statusStyle.label}
+                              </span>
+                            </td>
+                            <td style={{ padding:'11px 16px',fontSize:13,color:'#6B7280',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                              {p.notes || '—'}
+                            </td>
+                            <td style={{ padding:'11px 16px', textAlign:'right' as const }}>
+                              {!isVoided && (
+                                <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                                  {p.status === 'pending' && (
+                                    <>
+                                      <button
+                                        onClick={() => voidPay(p.id)}
+                                        disabled={voidingId === p.id}
+                                        title="Void"
+                                        style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#92400E',fontFamily:'inherit' }}>
+                                        <Ban size={11}/> Void
+                                      </button>
+                                      {(getTokenRole() === 'owner' || getTokenRole() === 'admin') && (
+                                        <button
+                                          onClick={() => deletePay(p.id)}
+                                          disabled={deletingId === p.id}
+                                          title="Delete"
+                                          style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #FECACA',borderRadius:6,fontSize:11,fontWeight:600,background:'#FEF2F2',cursor:'pointer',color:'#EF4444',fontFamily:'inherit' }}>
+                                          <Trash2 size={11}/>
+                                        </button>
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {!pays.length && (
+                        <tr><td colSpan={6} style={{ padding:'40px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No additional pay entries yet</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                      {['Date','Type','Amount','Job','Notes'].map(h=>(
-                        <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(additionalPayData?.data || []).map((p: any) => {
-                      const style = PAY_TYPE_COLORS[p.type] || { bg:'#F3F4F6',color:'#6B7280' };
-                      return (
-                        <tr key={p.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(p.created_at).toLocaleDateString()}</td>
-                          <td style={{ padding:'12px 16px' }}>
-                            <span style={{ background:style.bg,color:style.color,padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600 }}>
-                              {p.type?.replace(/_/g,' ').toUpperCase()}
+            );
+          })()}
+
+          {/* ── PAYROLL HISTORY TAB ── */}
+          {activeTab === 'Payroll History' && (() => {
+            const records: any[] = payrollHistoryData?.data || [];
+
+            const fmt = (v: any) => `$${parseFloat(v||0).toFixed(2)}`;
+            const fmtH = (v: any) => `${parseFloat(v||0).toFixed(1)} hrs`;
+
+            const PERIOD_LABELS: Record<string, string> = {
+              '2025-full': 'Full Year 2025',
+              '2026-ytd':  'YTD 2026',
+            };
+
+            const highlightRows = [
+              { key:'total_job_hours',   label:'Total Job Hours',     fmt: fmtH },
+              { key:'clock_hours',       label:'Clock Hours',         fmt: fmtH },
+              { key:'overtime_hours',    label:'Overtime Hours',      fmt: fmtH },
+              { key:'commission_pay',    label:'Commission Pay',      fmt },
+              { key:'hourly_pay',        label:'Hourly Pay',          fmt },
+              { key:'tips',              label:'Tips',                fmt },
+              { key:'bonus',             label:'Bonus',               fmt },
+              { key:'overtime',          label:'Overtime Pay',        fmt },
+              { key:'sick_pay',          label:'Sick Pay',            fmt },
+              { key:'holiday_pay',       label:'Holiday Pay',         fmt },
+              { key:'vacation_pay',      label:'Vacation Pay',        fmt },
+              { key:'reimbursements',    label:'Reimbursements',      fmt },
+              { key:'gross_wage',        label:'Gross Wage',          fmt },
+              { key:'avg_wage',          label:'Avg Wage/Hr',         fmt },
+            ];
+
+            if (!records.length) {
+              return (
+                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'60px 0', textAlign:'center', color:'#9E9B94', fontSize:14 }}>
+                  <TrendingUp size={32} style={{ marginBottom:12, color:'#E5E2DC' }}/>
+                  <p style={{ margin:'0 0 4px 0', fontWeight:600 }}>No payroll history</p>
+                  <p style={{ margin:0, fontSize:12 }}>Imported MaidCentral data will appear here</p>
+                </div>
+              );
+            }
+
+            return (
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {/* Source notice */}
+                <div style={{ background:'var(--brand-dim)', border:'1px solid rgba(0,201,160,0.2)', borderRadius:8, padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
+                  <TrendingUp size={14} style={{ color:'var(--brand)', flexShrink:0 }}/>
+                  <span style={{ fontSize:12, color:'var(--brand)', fontWeight:600 }}>
+                    Payroll data imported from MaidCentral — {records.length} period{records.length!==1?'s':''} on file
+                  </span>
+                </div>
+
+                {/* Period cards */}
+                {records.map((r: any) => {
+                  const isExpanded = expandedPeriod === r.id?.toString();
+                  const periodName = PERIOD_LABELS[r.period_label] || r.period_label;
+                  const start = new Date(r.period_start + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+                  const end   = new Date(r.period_end   + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+
+                  return (
+                    <div key={r.id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, overflow:'hidden' }}>
+                      {/* Card header */}
+                      <div
+                        onClick={() => setExpandedPeriod(isExpanded ? null : r.id?.toString())}
+                        style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px', cursor:'pointer', userSelect:'none' as const }}
+                      >
+                        <div>
+                          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
+                            <span style={{ fontSize:15, fontWeight:700, color:'#1A1917' }}>{periodName}</span>
+                            <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'var(--brand-dim)', color:'var(--brand)' }}>
+                              {r.migration_source === 'mc_import' ? 'MaidCentral' : r.migration_source}
                             </span>
-                          </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,fontWeight:600,color:p.type==='deduction'?'#EF4444':'#166534' }}>
-                            {p.type==='deduction'?'-':'+'} ${parseFloat(p.amount).toFixed(2)}
-                          </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{p.job_id ? `#${p.job_id}` : '—'}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{p.notes || '—'}</td>
-                        </tr>
-                      );
-                    })}
-                    {!(additionalPayData?.data||[]).length && (
-                      <tr><td colSpan={5} style={{ padding:'32px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No additional pay entries</td></tr>
-                    )}
-                  </tbody>
-                </table>
+                          </div>
+                          <span style={{ fontSize:12, color:'#9E9B94' }}>{start} — {end}</span>
+                        </div>
+                        <div style={{ display:'flex', alignItems:'center', gap:24 }}>
+                          {/* Quick stats */}
+                          <div style={{ textAlign:'right' as const }}>
+                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Gross Wage</div>
+                            <div style={{ fontSize:18, fontWeight:800, color:'#1A1917' }}>{fmt(r.gross_wage)}</div>
+                          </div>
+                          <div style={{ textAlign:'right' as const }}>
+                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Job Hours</div>
+                            <div style={{ fontSize:18, fontWeight:800, color:'var(--brand)' }}>{fmtH(r.total_job_hours)}</div>
+                          </div>
+                          {isExpanded
+                            ? <ChevronUp size={18} style={{ color:'#9E9B94' }}/>
+                            : <ChevronDown size={18} style={{ color:'#9E9B94' }}/>
+                          }
+                        </div>
+                      </div>
+
+                      {/* Expanded detail */}
+                      {isExpanded && (
+                        <div style={{ borderTop:'1px solid #EEECE7', padding:'20px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 40px' }}>
+                          {highlightRows.map((row, idx) => {
+                            const val = r[row.key];
+                            const isZero = !val || parseFloat(val) === 0;
+                            return (
+                              <div key={row.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #F3F4F6', gridColumn: idx === highlightRows.length - 1 && highlightRows.length % 2 !== 0 ? '1 / -1' : undefined }}>
+                                <span style={{ fontSize:12, color: isZero ? '#C4C0B8' : '#6B7280' }}>{row.label}</span>
+                                <span style={{ fontSize:13, fontWeight:700, color: isZero ? '#C4C0B8' : (row.key === 'gross_wage' ? 'var(--brand)' : '#1A1917') }}>
+                                  {row.fmt(val)}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── CONTACT TICKETS TAB ── */}
           {activeTab === 'Contact Tickets' && (
@@ -1449,22 +1682,36 @@ export default function EmployeeProfilePage() {
 
         {payModal && (
           <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-            <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-              <h3 style={{ margin:'0 0 16px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Add Pay Entry</h3>
+            <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:460,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+              <h3 style={{ margin:'0 0 4px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Add Pay Entry</h3>
+              <p style={{ margin:'0 0 18px 0', fontSize:12, color:'#9E9B94' }}>Entry will be marked <span style={{ fontWeight:700, color:'#92400E' }}>Pending</span> until the next day is closed.</p>
               <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:16 }}>
-                <Field label="Type">
+                <Field label="Pay Type">
                   <select value={newPay.type} onChange={e=>setNewPay(p=>({...p,type:e.target.value}))}
-                    style={{ height:36,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%' }}>
-                    {Object.keys(PAY_TYPE_COLORS).map(k=><option key={k} value={k}>{k.replace(/_/g,' ').toUpperCase()}</option>)}
+                    style={{ height:38,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%' }}>
+                    {PAY_GROUPS.map(g => (
+                      <optgroup key={g.label} label={g.label}>
+                        {g.types.map(t => (
+                          <option key={t} value={t}>{PAY_LABELS[t]}</option>
+                        ))}
+                      </optgroup>
+                    ))}
                   </select>
                 </Field>
-                <Field label="Amount ($)"><Input type="number" value={newPay.amount} onChange={v=>setNewPay(p=>({...p,amount:v}))}/></Field>
-                <Field label="Notes"><Input value={newPay.notes} onChange={v=>setNewPay(p=>({...p,notes:v}))}/></Field>
+                <Field label="Amount ($)">
+                  <Input type="number" value={newPay.amount} onChange={v=>setNewPay(p=>({...p,amount:v}))} placeholder="0.00"/>
+                </Field>
+                <Field label="Notes (optional)">
+                  <Input value={newPay.notes} onChange={v=>setNewPay(p=>({...p,notes:v}))} placeholder="Reason or reference…"/>
+                </Field>
               </div>
               <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-                <button onClick={() => setPayModal(false)}
+                <button onClick={() => { setPayModal(false); setNewPay({ type:'bonus', amount:'', notes:'' }); }}
                   style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-                <button onClick={addPay} style={{ padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>Add Entry</button>
+                <button onClick={addPay} disabled={!newPay.amount}
+                  style={{ padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:!newPay.amount?0.5:1 }}>
+                  Add Entry
+                </button>
               </div>
             </div>
           </div>

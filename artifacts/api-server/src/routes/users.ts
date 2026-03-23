@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable } from "@workspace/db/schema";
-import { eq, and, sql, avg, count, desc } from "drizzle-orm";
+import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable } from "@workspace/db/schema";
+import { eq, and, sql, avg, count, desc, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
@@ -291,6 +291,7 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
         type,
         notes,
         job_id,
+        status: "pending",
       })
       .returning();
 
@@ -298,6 +299,76 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
   } catch (err) {
     console.error("Create additional pay error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to create additional pay" });
+  }
+});
+
+router.patch("/:id/additional-pay/:payId/void", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const payId = parseInt(req.params.payId);
+
+    const updated = await db
+      .update(additionalPayTable)
+      .set({
+        status: "voided",
+        voided_at: new Date(),
+        voided_by: req.auth!.userId,
+      })
+      .where(and(
+        eq(additionalPayTable.id, payId),
+        eq(additionalPayTable.user_id, userId),
+        eq(additionalPayTable.company_id, req.auth!.companyId)
+      ))
+      .returning();
+
+    if (!updated.length) return res.status(404).json({ error: "Not Found" });
+    return res.json(updated[0]);
+  } catch (err) {
+    console.error("Void additional pay error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to void pay entry" });
+  }
+});
+
+router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const payId = parseInt(req.params.payId);
+
+    const deleted = await db
+      .delete(additionalPayTable)
+      .where(and(
+        eq(additionalPayTable.id, payId),
+        eq(additionalPayTable.user_id, userId),
+        eq(additionalPayTable.company_id, req.auth!.companyId),
+        eq(additionalPayTable.status, "pending")
+      ))
+      .returning();
+
+    if (!deleted.length) return res.status(404).json({ error: "Not Found or not deletable (must be pending)" });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete additional pay error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete pay entry" });
+  }
+});
+
+router.get("/:id/payroll-history", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const employeeId = parseInt(req.params.id);
+
+    const records = await db
+      .select()
+      .from(employeePayrollHistoryTable)
+      .where(and(
+        eq(employeePayrollHistoryTable.employee_id, employeeId),
+        eq(employeePayrollHistoryTable.company_id, req.auth!.companyId)
+      ))
+      .orderBy(desc(employeePayrollHistoryTable.period_start));
+
+    return res.json({ data: records });
+  } catch (err) {
+    console.error("Get payroll history error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to get payroll history" });
   }
 });
 

@@ -1,0 +1,46 @@
+import { pgTable, serial, integer, numeric, text, date, timestamp } from "drizzle-orm/pg-core";
+import { companiesTable } from "./companies";
+import { usersTable } from "./users";
+
+export const employeePayrollHistoryTable = pgTable("employee_payroll_history", {
+  id: serial("id").primaryKey(),
+  company_id: integer("company_id").references(() => companiesTable.id).notNull(),
+  employee_id: integer("employee_id").references(() => usersTable.id).notNull(),
+  mc_employee_id: text("mc_employee_id"),
+  period_label: text("period_label").notNull(),
+  period_start: date("period_start").notNull(),
+  period_end: date("period_end").notNull(),
+  total_job_hours: numeric("total_job_hours", { precision: 10, scale: 2 }).default("0"),
+  paid_job_hours: numeric("paid_job_hours", { precision: 10, scale: 2 }).default("0"),
+  total_allowed_hours: numeric("total_allowed_hours", { precision: 10, scale: 2 }).default("0"),
+  paid_allowed_hours: numeric("paid_allowed_hours", { precision: 10, scale: 2 }).default("0"),
+  drive_office_hours: numeric("drive_office_hours", { precision: 10, scale: 2 }).default("0"),
+  clock_hours: numeric("clock_hours", { precision: 10, scale: 2 }).default("0"),
+  commission_pay: numeric("commission_pay", { precision: 12, scale: 2 }).default("0"),
+  team_hourly_travel_pay: numeric("team_hourly_travel_pay", { precision: 12, scale: 2 }).default("0"),
+  hourly_pay: numeric("hourly_pay", { precision: 12, scale: 2 }).default("0"),
+  additional_pay: numeric("additional_pay", { precision: 12, scale: 2 }).default("0"),
+  gross_wages_before_sp_ot: numeric("gross_wages_before_sp_ot", { precision: 12, scale: 2 }).default("0"),
+  avg_wages_before_sp_ot: numeric("avg_wages_before_sp_ot", { precision: 10, scale: 4 }).default("0"),
+  bonus: numeric("bonus", { precision: 12, scale: 2 }).default("0"),
+  supplemental_pay: numeric("supplemental_pay", { precision: 12, scale: 2 }).default("0"),
+  gross_wage_before_ot: numeric("gross_wage_before_ot", { precision: 12, scale: 2 }).default("0"),
+  avg_wage_before_ot: numeric("avg_wage_before_ot", { precision: 10, scale: 4 }).default("0"),
+  overtime: numeric("overtime", { precision: 12, scale: 2 }).default("0"),
+  overtime_hours: numeric("overtime_hours", { precision: 10, scale: 2 }).default("0"),
+  gross_wage_with_ot: numeric("gross_wage_with_ot", { precision: 12, scale: 2 }).default("0"),
+  avg_wage_with_ot: numeric("avg_wage_with_ot", { precision: 10, scale: 4 }).default("0"),
+  tips: numeric("tips", { precision: 12, scale: 2 }).default("0"),
+  sick_pay: numeric("sick_pay", { precision: 12, scale: 2 }).default("0"),
+  sick_hours: numeric("sick_hours", { precision: 10, scale: 2 }).default("0"),
+  holiday_pay: numeric("holiday_pay", { precision: 12, scale: 2 }).default("0"),
+  vacation_pay: numeric("vacation_pay", { precision: 12, scale: 2 }).default("0"),
+  vacation_hours: numeric("vacation_hours", { precision: 10, scale: 2 }).default("0"),
+  gross_wage: numeric("gross_wage", { precision: 12, scale: 2 }).default("0"),
+  avg_wage: numeric("avg_wage", { precision: 10, scale: 4 }).default("0"),
+  reimbursements: numeric("reimbursements", { precision: 12, scale: 2 }).default("0"),
+  migration_source: text("migration_source").default("mc_import"),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export type EmployeePayrollHistory = typeof employeePayrollHistoryTable.$inferSelect;

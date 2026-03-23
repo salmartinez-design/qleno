@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   jobsTable, invoicesTable, paymentsTable, timeclockTable,
-  clientsTable, usersTable, dailySummariesTable, notificationLogTable
+  clientsTable, usersTable, dailySummariesTable, notificationLogTable, additionalPayTable
 } from "@workspace/db/schema";
 import { eq, and, sql, isNull, count, sum, lt, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -197,7 +197,17 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       metadata: { date: todayStr, revenue: summaryData.revenue_collected } as any,
     });
 
-    return res.json({ ok: true, date: todayStr });
+    const markedPaid = await db
+      .update(additionalPayTable)
+      .set({ status: "paid", paid_at: new Date() })
+      .where(and(
+        eq(additionalPayTable.company_id, companyId),
+        eq(additionalPayTable.status, "pending"),
+        sql`date(${additionalPayTable.created_at}) <= ${todayStr}`
+      ))
+      .returning({ id: additionalPayTable.id });
+
+    return res.json({ ok: true, date: todayStr, pay_marked_paid: markedPaid.length });
   } catch (err) {
     console.error("Close day post error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to mark day complete" });
