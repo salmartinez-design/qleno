@@ -1,0 +1,81 @@
+Smart decision. Keeping all client communication inside Qleno means you have a full audit trail, your techs never build personal relationships with clients outside the system, and you can see every message if there is ever a dispute.
+Here is what this means architecturally:
+What you want:
+	∙	Techs and office can send SMS to clients from inside Qleno
+	∙	The message comes from your PHES business number — not from anyone’s personal phone
+	∙	All messages are logged in the client communication log
+	∙	Nobody needs to share their personal number
+What you need for this:
+Your current MaidCentral SMS number — this is a Twilio number that MC provisioned for you. When you cancel MC, that number goes away unless you port it to your own Twilio account first.
+Action required before April 5:
+Contact MaidCentral support and ask them:
+	1.	What is the phone number currently used for SMS notifications sent from our account
+	2.	Can we port that number out to our own Twilio account before cancellation
+If MC will not release the number — which is possible — you get a new Twilio number and send a one-time message to all clients from the old MC system before you cancel: “PHES Cleaning now sends messages from [new number]. Please save this number.”
+
+Here is the addition to the job panel prompt:
+
+ADDITION — SMS from job panel
+
+Add an SMS button to Section 2 of the job panel 
+next to the phone number.
+
+Two buttons side by side:
+- Phone icon button — taps to call (tel: link)
+- SMS icon button — taps to open SMS compose 
+  within Qleno (not the device native SMS app)
+
+The SMS button opens a small compose sheet 
+from the bottom of the screen with:
+- "To: [Client Name] ([phone number])" — read only
+- Message text area with placeholder: 
+  "Type a message..."
+- Quick message chips above the keyboard 
+  for common messages:
+  "On my way" 
+  "Running 15 minutes late"
+  "Outside your home"
+  "Job complete — thank you"
+  Tapping a chip fills the message area
+- Send button
+
+On send:
+- POST /api/communications/sms with 
+  customer_id, job_id, message, direction='outbound'
+- Message is sent via Twilio from the 
+  company's configured FROM number 
+  (TWILIO_FROM_NUMBER in company settings)
+- Message is logged to communicationsTable 
+  with type='sms', direction='outbound', 
+  sent_by=current user id, job_id
+- Success confirmation: "Message sent"
+
+The client receives the SMS from the PHES 
+business number — never from a personal phone.
+
+Inbound replies from clients also log to 
+communicationsTable via Twilio webhook at 
+POST /api/communications/sms/webhook.
+
+The full SMS thread for each client is 
+visible in the customer profile 
+Communications tab.
+
+IMPORTANT: Twilio is not yet configured. 
+If TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN 
+or TWILIO_FROM_NUMBER are not in Replit 
+Secrets, the SMS button should show but 
+display a tooltip on tap: 
+"SMS not configured — add Twilio keys 
+in Company Settings to enable messaging."
+This way the UI is ready the moment 
+the keys are added.
+
+
+On the number itself — do this today:
+Log into MaidCentral, go to Company Settings or Notifications, and find the phone number listed as your SMS sender. Write it down. Then call Twilio directly at 1-888-589-9810 or go to twilio.com and create a free account. When you have the Twilio account, you can either port the MC number over or get a new local Chicago number for about $1/month.
+Once you have the Twilio account you will have three values to add to Replit Secrets:
+	∙	TWILIO_ACCOUNT_SID
+	∙	TWILIO_AUTH_TOKEN
+	∙	TWILIO_FROM_NUMBER
+Add those and the SMS button activates immediately across the entire app — job panel, customer profile communications tab, and the notification triggers already built in Sprint 1.​​​​​​​​​​​​​​​​

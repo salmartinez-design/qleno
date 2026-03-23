@@ -11,7 +11,7 @@ import {
 import {
   ChevronLeft, ChevronRight, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar, Package,
-  Building2, AlertTriangle, Repeat,
+  Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send,
 } from "lucide-react";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ const TIMES = Array.from({ length: TOTAL_SLOTS }, (_, i) => {
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
-interface DispatchJob { id: number; client_id: number; client_name: string; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -103,7 +103,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [rescheduleSuccess, setRescheduleSuccess] = useState("");
   const [rescheduleCount, setRescheduleCount] = useState<number | null>(null);
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsMessage, setSmsMessage] = useState("");
+  const [smsBusy, setSmsBusy] = useState(false);
+  const [smsTwilioOk, setSmsTwilioOk] = useState<boolean | null>(null);
   const _API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  useEffect(() => {
+    if (!smsOpen || smsTwilioOk !== null) return;
+    fetch(`${_API2}/api/communications/sms/status`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json()).then(d => setSmsTwilioOk(d.configured === true)).catch(() => setSmsTwilioOk(false));
+  }, [smsOpen]);
 
   useEffect(() => {
     if (!rescheduleOpen) return;
@@ -250,6 +260,18 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             <IR icon={<Clock size={14} />} label={`${fmtTime(job.scheduled_time)} – ${fmtTime(minsToStr(endMins))}`} />
             {job.address && <IR icon={<MapPin size={14} />} label={job.address} />}
+            {job.client_phone && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Phone size={14} color="#9E9B94" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: 13, color: "#4B4A47", flex: 1 }}>{job.client_phone}</span>
+                <a href={`tel:${job.client_phone}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, backgroundColor: "#EBF4FF", border: "1px solid #BFDBFE", textDecoration: "none" }} title="Call client">
+                  <Phone size={13} color="#1D4ED8" />
+                </a>
+                <button onClick={() => { setSmsOpen(true); setSmsMessage(""); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, backgroundColor: "#ECFDF5", border: "1px solid #6EE7B7", cursor: "pointer" }} title="Send SMS">
+                  <MessageSquare size={13} color="#059669" />
+                </button>
+              </div>
+            )}
             {(assignedEmp || job.assigned_user_name) && <IR icon={<User size={14} />} label={assignedEmp?.name || job.assigned_user_name || ""} />}
             {job.billing_method === "hourly" && job.hourly_rate
               ? <IR icon={<DollarSign size={14} />} label={`$${job.hourly_rate.toFixed(2)}/hr · Hourly${job.billed_hours ? ` · ${job.billed_hours}h billed` : job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}`} bold />
@@ -592,6 +614,88 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </button>
                 </div>
               )}
+            </div>
+          </>
+        );
+      })()}
+
+      {/* SMS Compose Sheet */}
+      {smsOpen && (() => {
+        const CHIPS = ["On my way", "Running 15 minutes late", "Outside your home", "Job complete — thank you"];
+        const handleSend = async () => {
+          if (!smsMessage.trim() || smsBusy) return;
+          setSmsBusy(true);
+          try {
+            const r = await fetch(`${_API2}/api/communications/sms`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ customer_id: job.client_id, job_id: job.id, message: smsMessage.trim() }),
+            });
+            const d = await r.json();
+            if (!r.ok) {
+              if (d.error === "sms_unconfigured") {
+                toast({ title: "SMS not configured", description: d.message, variant: "destructive" });
+              } else {
+                toast({ title: "Send failed", description: d.message || "Could not send message", variant: "destructive" });
+              }
+            } else {
+              toast({ title: "Message sent" });
+              setSmsOpen(false);
+            }
+          } catch {
+            toast({ title: "Network error", description: "Could not send message", variant: "destructive" });
+          } finally {
+            setSmsBusy(false);
+          }
+        };
+        return (
+          <>
+            <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 399 }} onClick={() => !smsBusy && setSmsOpen(false)} />
+            <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 400, backgroundColor: "#FFFFFF", borderRadius: "20px 20px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)", fontFamily: FF, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+              <div style={{ width: 40, height: 4, backgroundColor: "#E5E2DC", borderRadius: 2, margin: "12px auto 0", flexShrink: 0 }} />
+              <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #EEECE7", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Send SMS</span>
+                <button onClick={() => setSmsOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+                {smsTwilioOk === false && (
+                  <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8 }}>
+                    <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                      SMS not configured — add Twilio keys in Company Settings to enable messaging.
+                    </p>
+                  </div>
+                )}
+                <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#F9F8F7", borderRadius: 8, border: "1px solid #E5E2DC" }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>To</span>
+                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{job.client_name} <span style={{ fontWeight: 400, color: "#6B7280" }}>({job.client_phone})</span></p>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Quick Messages</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {CHIPS.map(chip => (
+                      <button key={chip} onClick={() => setSmsMessage(chip)}
+                        style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #E5E2DC", backgroundColor: smsMessage === chip ? "#ECFDF5" : "#F9F8F7", color: smsMessage === chip ? "#059669" : "#4B4A47", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 16 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Message</span>
+                  <textarea value={smsMessage} onChange={e => setSmsMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    rows={4}
+                    style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 10, fontSize: 14, fontFamily: FF, resize: "vertical", outline: "none", boxSizing: "border-box", color: "#1A1917", lineHeight: 1.5 }} />
+                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9E9B94", textAlign: "right" }}>{smsMessage.length}/160</p>
+                </div>
+              </div>
+              <div style={{ padding: "12px 20px 28px", borderTop: "1px solid #EEECE7", flexShrink: 0 }}>
+                <button onClick={handleSend} disabled={smsBusy || !smsMessage.trim()}
+                  style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: smsMessage.trim() && !smsBusy ? "#059669" : "#E5E2DC", color: smsMessage.trim() && !smsBusy ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: smsMessage.trim() && !smsBusy ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 0.15s" }}>
+                  <Send size={16} />
+                  {smsBusy ? "Sending..." : "Send Message"}
+                </button>
+              </div>
             </div>
           </>
         );
