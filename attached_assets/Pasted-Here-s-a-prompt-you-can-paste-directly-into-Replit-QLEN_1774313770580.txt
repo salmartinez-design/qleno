@@ -1,0 +1,20 @@
+Here’s a prompt you can paste directly into Replit:
+
+QLENO — POST-DEPLOY AUDIT: MISSING DATA AND FEATURES
+After today’s deployment, the following are not showing up in the live app. Diagnose and fix each one.
+1. Migrated PHES client data is missing
+The migration imported 1,231 clients (210 active, 1,021 historical) tagged with migration_source = mc_import. On the live app, no real clients appear — only dummy/placeholder records. Check that the migration SQL actually committed to the production Supabase instance and not a local or sandbox database. Verify the customers table row count. If the data is missing, identify why and re-run the migration inserts against the correct database.
+2. Real employees not appearing on mobile
+12 employees were imported — 10 technicians plus Francisco Estevez and Maribel Castillo. On the mobile My Jobs view, real employees are not showing. Confirm employee records exist in the employees table in production Supabase. Check that the mobile My Jobs view is querying the correct tenant ID and that RLS policies are not filtering out migrated records.
+3. New features not appearing after deploy
+The following features were built today and should be live: pricing engine (6 tables), iFrame booking widget at /book/phes-cleaning, QuickBooks integration UI in Company Settings, payroll history tab on employee profiles, additional pay overhaul, bulk pay modal, and updated service zones (18 real PHES zones). If any of these are missing, check whether the latest code was actually pushed and deployed — run git log --oneline -10 to confirm recent commits are present. Also check whether any new database tables or migrations need to be applied to the production Supabase instance.
+4. Diagnostic steps to run
+	∙	Confirm DATABASE_URL in Replit Secrets points to the production Supabase instance, not a dev or test database
+	∙	Run SELECT COUNT(*) FROM customers WHERE migration_source = 'mc_import'; — should return 1,231
+	∙	Run SELECT COUNT(*) FROM employees; — should return 12
+	∙	Run SELECT COUNT(*) FROM service_zones; — should return 18
+	∙	Confirm the pricing engine tables exist: pricing_scopes, pricing_tiers, pricing_addons, pricing_fee_rules, pricing_discounts
+	∙	Check the server logs for any startup errors or failed database connections
+Report back with the row counts and any errors found.
+
+That will tell you within minutes whether it’s a database connection issue, a missing migration, or a deploy that didn’t take.​​​​​​​​​​​​​​​​
