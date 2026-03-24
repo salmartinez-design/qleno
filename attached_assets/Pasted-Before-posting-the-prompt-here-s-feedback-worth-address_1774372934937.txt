@@ -1,0 +1,266 @@
+Before posting the prompt, here's feedback worth addressing first:
+
+---
+
+**Issues spotted in the MC data:**
+
+1. **Duplicate Promo Discount on Hourly Standard** — one at -10% and one at -15%. Which is correct? Decide before seeding or you'll have the same problem in Qleno.
+
+2. **$0.00 extras on all hourly scopes** — Oven, Refrigerator, Kitchen Cabinets, Windows, Basement are all $0.00 on hourly scopes. This is intentional in MC because hourly billing already captures the time — but it looks broken in a UI. Better pattern: hide $0.00 price extras from the client-facing quote and label them "Time add-on only" internally.
+
+3. **Windows pricing inconsistency across scopes** — 15% sqft on Deep Clean, 12% each on Standard, 12% sqft on Recurring. These are different calculation methods for the same service. Confirm these are intentional before seeding.
+
+4. **Loyalty Discount duplicated at two tiers ($100 / $50)** across nearly every scope — this is MC's workaround for not having tiered loyalty. Qleno should handle this cleaner with a single loyalty discount tied to the client's loyalty tier from the loyalty system already built.
+
+5. **Adjustment +/- at $1.00 each** — this is a manual override tool. $1.00 increments are tedious. Better pattern: a free-form dollar input field labeled "Manual Adjustment" with +/- toggle.
+
+---
+
+**Structural improvement for Qleno vs MC:**
+
+MC duplicates the same add-ons across every scope (Oven $50, Refrigerator $50, Parking $20 appear 5+ times each). This creates maintenance overhead — if you raise the oven fee you have to update it in 5 places.
+
+Qleno should use a **shared add-on library** with scope assignment flags instead.
+
+---
+
+**Full prompt:**
+
+```
+Seed all Rate Modifications from MaidCentral into the 
+pricing_addons table with scope assignments. Improve 
+the data structure and UI significantly over MC.
+
+=== SCHEMA REQUIREMENT ===
+
+The pricing_addons table must support these columns
+(add any missing ones via migration):
+  id, company_id, name, addon_type, scope_ids (jsonb array),
+  price_type (flat, percentage, sqft_percentage, time_only),
+  price_value (numeric), time_minutes, time_unit (each, sqft),
+  is_itemized, is_taxed, show_office, show_online, show_portal,
+  is_active, sort_order, created_at
+
+price_type values:
+  flat         → fixed dollar amount (e.g. $50.00)
+  percentage   → % of base price (e.g. 12%)
+  sqft_pct     → % based on sqft (e.g. 15% sq.ft.)
+  time_only    → adds time to job, no price impact ($0.00 cases)
+  manual_adj   → free-form adjustment (replaces $1 increments)
+
+=== SEED ALL ADD-ONS (idempotent by company_id + name + scope) ===
+
+Use a shared library approach — one record per unique add-on,
+assigned to multiple scopes via scope_ids array.
+Do NOT create duplicates for the same add-on across scopes.
+
+--- CLEANING EXTRAS ---
+
+Oven Cleaning
+  price_type: flat | price_value: 50.00 | time: 45 mins each
+  scopes: deep-clean, one-time-standard, recurring-cleaning,
+          hourly-deep-clean*, hourly-standard-cleaning*
+  (* time_only: true for hourly scopes — no price, just time)
+  show: office, online, portal
+
+Refrigerator Cleaning
+  price_type: flat | price_value: 50.00 | time: 45 mins each
+  scopes: deep-clean, one-time-standard, recurring-cleaning,
+          hourly-deep-clean*, hourly-standard-cleaning*
+  show: office, online, portal
+
+Kitchen Cabinets (must be empty upon arrival)
+  price_type: flat | price_value: 50.00 | time: 45 mins each
+  scopes: deep-clean, one-time-standard,
+          hourly-deep-clean*, hourly-standard-cleaning*
+  show: office, online, portal
+
+Baseboards
+  price_type: flat | price_value: 50.00 | time: 45 mins each
+  scopes: one-time-standard, hourly-deep-clean (sqft_pct 12%)
+  show: office, online, portal
+
+Windows (inside window panes only)
+  Create THREE variants — different calc methods per scope:
+  
+  Windows — Deep Clean
+    price_type: sqft_pct | price_value: 15 | time: 45 mins sqft
+    scopes: deep-clean-move-in-out
+    
+  Windows — Standard / Recurring
+    price_type: percentage | price_value: 12 | time: 45 mins each
+    scopes: one-time-standard, recurring-cleaning
+    
+  Windows — Hourly
+    price_type: time_only | price_value: 0 | time: 45 mins each
+    scopes: hourly-deep-clean, hourly-standard-cleaning
+
+Clean Basement
+  Deep Clean / Standard:
+    price_type: sqft_pct | price_value: 15 | time: 45 mins sqft
+    scopes: deep-clean, one-time-standard
+  Recurring:
+    price_type: sqft_pct | price_value: 12 | time: 45 mins sqft
+    scopes: recurring-cleaning
+  Hourly:
+    price_type: time_only | price_value: 0 | time: 0 mins
+    scopes: hourly-deep-clean, hourly-standard-cleaning
+
+Parking Fee
+  price_type: flat | price_value: 20.00 | time: 0 mins
+  scopes: deep-clean, one-time-standard, recurring-cleaning,
+          hourly-deep-clean, hourly-standard-cleaning,
+          commercial-cleaning, ppm-turnover
+  show: office, online, portal
+
+--- DISCOUNTS ---
+
+Loyalty Discount — $100
+  price_type: flat | price_value: -100.00 | time: 0
+  addon_type: other
+  scopes: deep-clean, one-time-standard, recurring-cleaning,
+          hourly-standard-cleaning, ppm-turnover
+  show: office, online, portal
+
+Loyalty Discount — $50
+  price_type: flat | price_value: -50.00 | time: 0
+  addon_type: other
+  scopes: deep-clean, one-time-standard, recurring-cleaning,
+          hourly-deep-clean, hourly-standard-cleaning,
+          ppm-turnover
+  show: office, online, portal
+
+Loyalty Discount — 20% Off
+  price_type: percentage | price_value: -20 | time: 0
+  addon_type: other
+  scopes: hourly-deep-clean
+  show: office, online, portal
+
+Promo Discount — 10% Off
+  price_type: percentage | price_value: -10 | time: 0
+  addon_type: other
+  scopes: one-time-standard, recurring-cleaning,
+          hourly-deep-clean, hourly-standard-cleaning,
+          ppm-turnover
+  show: office, online, portal
+
+Promo Discount — 15% Off
+  price_type: percentage | price_value: -15 | time: 0
+  addon_type: other
+  scopes: one-time-standard, hourly-deep-clean
+  show: office, online, portal
+  NOTE: This is a separate entry from 10% — both valid,
+  office staff selects which applies per job.
+
+Second Appointment Discount — 15% Off
+  price_type: percentage | price_value: -15 | time: 0
+  addon_type: other
+  scopes: one-time-standard, hourly-deep-clean
+  show: office, online, portal
+
+Second Appointment Discount — +15% (markup variant)
+  price_type: percentage | price_value: 15 | time: 0
+  addon_type: other
+  scopes: hourly-standard-cleaning
+  show: office, online, portal
+
+--- COMMERCIAL ---
+
+Commercial Adjustment
+  price_type: percentage | price_value: -100 | time: 0
+  addon_type: other
+  scopes: commercial-cleaning
+  show: office, online, portal
+
+--- MANUAL ADJUSTMENT (replaces MC $1 increment hack) ---
+
+Manual Adjustment
+  price_type: manual_adj
+  price_value: 0 (user enters amount at quote time)
+  addon_type: cleaning_extras
+  scopes: deep-clean, one-time-standard, recurring-cleaning
+  show: office only (never online or portal)
+  NOTE: Renders as a free-form +/- currency input in the 
+  quote builder, not a fixed line item. No need to seed 
+  separate +$1 and -$1 records — one field handles both.
+
+=== RATE MODIFICATIONS SETTINGS PAGE (/settings/rates) ===
+
+Build a full management UI at /settings/rates.
+
+Layout:
+  Left panel: scope list (same sidebar as /settings/quoting)
+  Right panel: add-ons table for selected scope
+
+Table columns:
+  Name | Type | Price | Time | Itemized | Taxed | 
+  Displayed For | Actions
+
+Group rows by addon_type with section headers:
+  "Cleaning Extras" and "Other / Discounts"
+
+Price display formatting:
+  flat positive  → $50.00 each
+  flat negative  → ($50.00) each  ← parentheses for discounts
+  percentage     → 12% each
+  sqft_pct       → 15% sq.ft.
+  time_only      → Time only — show badge instead of $0.00
+  manual_adj     → Manual entry
+
+"Displayed For" column shows pill badges:
+  Office | Online | Portal
+  Active pills filled with var(--brand), inactive = outline
+
+"Create" button top right opens a drawer with fields:
+  - Name (text)
+  - Type (dropdown: Cleaning Extras, Other)
+  - Price Type (dropdown: Flat, Percentage, Sq.Ft.%, 
+    Time Only, Manual Adjustment)
+  - Price Value (currency or % input, hidden for time_only)
+  - Positive / Negative toggle for discounts
+  - Time (number input + "mins" + unit toggle: each / sqft)
+  - Itemized (checkbox)
+  - Taxed (checkbox)
+  - Display: Office / Online / Portal (checkboxes)
+  - Scopes (multi-select — assign to one or more scopes)
+
+Edit button per row opens same drawer pre-filled.
+Delete with confirmation dialog.
+
+All changes via:
+  POST   /api/pricing/addons
+  PATCH  /api/pricing/addons/:id
+  DELETE /api/pricing/addons/:id
+
+=== WIRE INTO QUOTE BUILDER ===
+
+When a scope is selected in the quote builder:
+  - Fetch add-ons for that scope filtered to show_office: true
+  - Group under "Cleaning Extras" and "Discounts / Other"
+  - Each extra = checkbox with name + price preview
+  - Discounts shown separately below extras
+  - Manual Adjustment shows inline +/- currency input
+  - All checked items update the running total live
+  - Itemized add-ons appear as separate line items on invoice
+  - Time add-ons (time_only) show as "included in schedule"
+    note, no price impact on total
+
+=== WIRE INTO iFRAME BOOKING WIDGET ===
+
+At /book/phes-cleaning step 3 (frequency/add-ons):
+  - Show only add-ons where show_online: true
+  - Same grouping and live price update behavior
+  - time_only add-ons show as checkboxes with 
+    "No additional charge" label
+  - Discounts NOT shown to clients online 
+    (show_online is false for all discount types)
+
+=== DESIGN ===
+#F7F6F3 background, #FFFFFF cards, Plus Jakarta Sans only,
+no emojis, borders #E5E2DC, brand accent var(--brand).
+Negative price values display in parentheses, never with 
+a minus sign — matches accounting convention.
+Percentage discounts display as "-10%" not "($10)".
+All seeds idempotent, run in startup migration.
+Confirm clean build before publishing.
+```

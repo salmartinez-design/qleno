@@ -6,8 +6,10 @@ export const pricingScopesTable = pgTable("pricing_scopes", {
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   name: text("name").notNull(),
   scope_group: text("scope_group").notNull().default("Residential"),
+  pricing_method: text("pricing_method").notNull().default("sqft"),
   hourly_rate: numeric("hourly_rate", { precision: 10, scale: 2 }).notNull().default("0"),
   minimum_bill: numeric("minimum_bill", { precision: 10, scale: 2 }).notNull().default("0"),
+  displayed_for_office: boolean("displayed_for_office").notNull().default(true),
   is_active: boolean("is_active").notNull().default(true),
   sort_order: integer("sort_order").notNull().default(0),
   created_at: timestamp("created_at").notNull().defaultNow(),
@@ -32,6 +34,7 @@ export const pricingFrequenciesTable = pgTable("pricing_frequencies", {
   rate_override: numeric("rate_override", { precision: 10, scale: 2 }),
   multiplier: numeric("multiplier", { precision: 6, scale: 4 }).notNull().default("1.0000"),
   label: text("label").notNull(),
+  show_office: boolean("show_office").notNull().default(true),
   sort_order: integer("sort_order").notNull().default(0),
 });
 

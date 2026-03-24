@@ -16,20 +16,27 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
-import { ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown, User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
+  User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2,
+  Clock, Ruler,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-// Stable references — must live outside the component so useEffect deps never spuriously change
 const EMPTY_SCOPES: PricingScope[] = [];
 const EMPTY_FREQUENCIES: PricingFrequency[] = [];
 const EMPTY_ADDONS: PricingAddon[] = [];
 
 async function apiFetch(path: string, opts: { method?: string; body?: any; headers?: any } = {}) {
   const { body, headers: extraHeaders, ...rest } = opts;
-  const r = await fetch(`${API}${path}`, { headers: { ...getAuthHeaders(), "Content-Type": "application/json", ...extraHeaders }, ...rest, ...(body !== undefined && { body: JSON.stringify(body) }) });
+  const r = await fetch(`${API}${path}`, {
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json", ...extraHeaders },
+    ...rest,
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -47,8 +54,10 @@ interface PricingScope {
   id: number;
   name: string;
   scope_group: string;
+  pricing_method: string;
   hourly_rate: string;
   minimum_bill: string;
+  displayed_for_office: boolean;
   is_active: boolean;
   sort_order: number;
 }
@@ -60,6 +69,7 @@ interface PricingFrequency {
   label: string;
   multiplier: string;
   rate_override: string | null;
+  show_office: boolean;
   sort_order: number;
 }
 
@@ -76,13 +86,14 @@ interface PricingAddon {
 
 interface CalcResult {
   scope_id: number;
-  scope_name: string;
-  sqft: number;
-  frequency: string;
+  pricing_method: string;
+  sqft: number | null;
+  frequency: string | null;
   base_hours: number;
   hourly_rate: number;
   base_price: number;
   minimum_applied: boolean;
+  minimum_bill: number;
   addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number }>;
   subtotal: number;
@@ -97,8 +108,6 @@ const DIRT_LEVELS = [
   { value: "heavy", label: "Heavy — needs deep attention" },
 ];
 
-const DIRT_MULTIPLIERS: Record<string, number> = { pristine: 0.9, standard: 1.0, heavy: 1.15 };
-
 const SECTION_ICONS = [User, Home, Calculator, PlusSquare];
 const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes"];
 
@@ -111,6 +120,7 @@ export default function QuoteBuilderPage() {
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // Section 0 — Customer
   const [clientOpen, setClientOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [leadName, setLeadName] = useState("");
@@ -121,14 +131,20 @@ export default function QuoteBuilderPage() {
   const [zipZone, setZipZone] = useState<{ name: string; color: string } | null | "uncovered">("uncovered" as const);
   const [checkingZip, setCheckingZip] = useState(false);
 
-  const [scopeId, setScopeId] = useState<number | null>(null);
-  const [frequencyStr, setFrequencyStr] = useState<string>("");
+  // Section 1 — Property
   const [sqft, setSqft] = useState<number>(0);
   const [bedrooms, setBedrooms] = useState<number>(2);
   const [bathrooms, setBathrooms] = useState<number>(1);
   const [halfBaths, setHalfBaths] = useState<number>(0);
   const [pets, setPets] = useState<number>(0);
   const [dirtLevel, setDirtLevel] = useState("standard");
+
+  // Section 2 — Service & Pricing
+  const [scopeId, setScopeId] = useState<number | null>(null);
+  const [frequencyStr, setFrequencyStr] = useState<string>("");
+  const [hoursInput, setHoursInput] = useState<number>(0);
+
+  // Section 3 — Add-ons & Notes
   const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
   const [discountCode, setDiscountCode] = useState("");
   const [discountInput, setDiscountInput] = useState("");
@@ -148,21 +164,26 @@ export default function QuoteBuilderPage() {
     queryFn: () => apiFetch("/api/clients?limit=200").then((r: any) => r.data ?? r),
   });
 
+  // Only fetch office-visible active scopes — staleTime:0 ensures fresh on every open
   const { data: scopes = EMPTY_SCOPES } = useQuery<PricingScope[]>({
-    queryKey: ["pricing-scopes"],
-    queryFn: () => apiFetch("/api/pricing/scopes"),
+    queryKey: ["pricing-scopes-office"],
+    queryFn: () => apiFetch("/api/pricing/scopes?office=true"),
+    staleTime: 0,
   });
 
+  // Only fetch office-visible frequencies for selected scope
   const { data: frequencies = EMPTY_FREQUENCIES } = useQuery<PricingFrequency[]>({
-    queryKey: ["pricing-frequencies", scopeId],
-    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/frequencies`),
+    queryKey: ["pricing-frequencies-office", scopeId],
+    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/frequencies?office=true`),
     enabled: Boolean(scopeId),
+    staleTime: 0,
   });
 
   const { data: scopeAddons = EMPTY_ADDONS } = useQuery<PricingAddon[]>({
     queryKey: ["pricing-addons", scopeId],
     queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/addons`),
     enabled: Boolean(scopeId),
+    staleTime: 0,
   });
 
   const { data: existingQuote } = useQuery({
@@ -192,46 +213,67 @@ export default function QuoteBuilderPage() {
       setNotes(existingQuote.notes || "");
       setInternalMemo(existingQuote.internal_memo || "");
       setFrequencyStr(existingQuote.frequency || "");
+      setHoursInput(existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0);
       if (Array.isArray(existingQuote.addons)) {
-        const ids = existingQuote.addons.map((a: any) => a.id).filter(Boolean);
-        setSelectedAddonIds(ids);
+        setSelectedAddonIds(existingQuote.addons.map((a: any) => a.id).filter(Boolean));
       }
     }
   }, [existingQuote]);
 
-  // ── Reset add-ons when scope changes (isolated so frequencies ref changes don't re-trigger)
+  // Reset add-ons and frequency when scope changes
   useEffect(() => {
-    if (scopeId !== null) setSelectedAddonIds([]);
+    if (scopeId !== null) {
+      setSelectedAddonIds([]);
+      setFrequencyStr("");
+      setHoursInput(0);
+    }
   }, [scopeId]);
 
-  // ── Auto-default frequency once frequencies load for this scope ──────────────
+  // Auto-default frequency once frequencies load
   useEffect(() => {
     if (scopeId && frequencies.length > 0 && !frequencyStr) {
-      const oneTime = frequencies.find(f => f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single"));
+      const oneTime = frequencies.find(f =>
+        f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single")
+      );
       setFrequencyStr(oneTime?.frequency ?? frequencies[0].frequency);
     }
   }, [scopeId, frequencies, frequencyStr]);
 
-  // ── Live price calculation (debounced 200ms) ─────────────────────────────────
+  const selectedScope = scopes.find(s => s.id === scopeId);
+  const pricingMethod = selectedScope?.pricing_method ?? "sqft";
+
+  // ── Live price calculation (debounced 300ms) ─────────────────────────────────
 
   const runCalculate = useCallback(async (opts?: { withCode?: string }) => {
-    if (!scopeId || !sqft || !frequencyStr) {
-      setCalcResult(null);
-      return;
+    if (!scopeId) { setCalcResult(null); return; }
+
+    const method = selectedScope?.pricing_method ?? "sqft";
+
+    // Need sqft for sqft method
+    if (method === "sqft" && (!sqft || sqft === 0)) { setCalcResult(null); return; }
+    // Need hours for hourly/simplified
+    if ((method === "hourly" || method === "simplified") && (!hoursInput || hoursInput <= 0)) {
+      setCalcResult(null); return;
     }
+
     setCalcLoading(true);
     try {
-      const result = await apiFetch("/api/pricing/calculate", {
-        method: "POST",
-        body: {
-          scope_id: scopeId,
-          sqft,
-          frequency: frequencyStr,
-          addon_ids: selectedAddonIds,
-          discount_code: opts?.withCode ?? discountCode,
-        },
-      });
+      const body: Record<string, unknown> = {
+        scope_id: scopeId,
+        frequency: frequencyStr || undefined,
+        addon_ids: selectedAddonIds,
+        discount_code: opts?.withCode ?? discountCode,
+      };
+      if (method === "sqft") {
+        body.sqft = sqft;
+      } else {
+        body.hours = hoursInput;
+        if (sqft > 0) body.sqft = sqft;
+      }
+
+      const result = await apiFetch("/api/pricing/calculate", { method: "POST", body });
       setCalcResult(result);
+
       if (opts?.withCode !== undefined) {
         if (result.discount_valid === false) {
           setDiscountError("Code not found or inactive");
@@ -241,15 +283,33 @@ export default function QuoteBuilderPage() {
           setDiscountCode(opts.withCode);
         }
       }
-    } catch { /* ignore */ }
+    } catch { /* ignore transient errors */ }
     finally { setCalcLoading(false); }
-  }, [scopeId, sqft, frequencyStr, selectedAddonIds, discountCode]);
+  }, [scopeId, sqft, hoursInput, frequencyStr, selectedAddonIds, discountCode, selectedScope]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { runCalculate(); }, 200);
+    debounceRef.current = setTimeout(() => { runCalculate(); }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [scopeId, sqft, frequencyStr, selectedAddonIds]);
+  }, [scopeId, sqft, hoursInput, frequencyStr, selectedAddonIds]);
+
+  // ── Section completion ────────────────────────────────────────────────────────
+
+  const sectionComplete = [
+    Boolean(selectedClientId || leadName || leadEmail),
+    Boolean(sqft > 0 || pricingMethod !== "sqft"),
+    Boolean(scopeId && frequencyStr && (pricingMethod === "sqft" ? sqft > 0 : hoursInput > 0)),
+    true,
+  ];
+
+  // ── Scope groups (office-visible, active only) ────────────────────────────────
+
+  const scopeGroups = scopes.reduce<Record<string, PricingScope[]>>((acc, s) => {
+    const g = s.scope_group || "Other";
+    if (!acc[g]) acc[g] = [];
+    acc[g].push(s);
+    return acc;
+  }, {});
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -276,7 +336,7 @@ export default function QuoteBuilderPage() {
       addons_total: cr ? String(cr.addons_total) : null,
       discount_amount: cr ? String(cr.discount_amount) : "0",
       total_price: cr ? String(cr.final_total) : null,
-      estimated_hours: cr ? String(cr.base_hours) : null,
+      estimated_hours: cr ? String(cr.base_hours) : (hoursInput > 0 ? String(hoursInput) : null),
       hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,
@@ -314,7 +374,7 @@ export default function QuoteBuilderPage() {
         toast.success("Quote converted to job. Go to Jobs to complete setup.");
         navigate("/jobs");
       } else if (status === "sent") {
-        toast.success(isEdit ? "Quote sent" : "Quote created and marked as sent. Configure Resend API to enable email.");
+        toast.success(isEdit ? "Quote sent" : "Quote created and marked as sent.");
         navigate(`/quotes/${savedId}`);
       } else {
         toast.success("Quote saved as draft");
@@ -328,11 +388,10 @@ export default function QuoteBuilderPage() {
   }
 
   const selectedClient = clients.find(c => c.id === selectedClientId);
-  const selectedScope = scopes.find(s => s.id === scopeId);
 
-  function toggleAddon(id: number) {
+  function toggleAddon(addonId: number) {
     setSelectedAddonIds(prev =>
-      prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id]
+      prev.includes(addonId) ? prev.filter(a => a !== addonId) : [...prev, addonId]
     );
   }
 
@@ -346,23 +405,26 @@ export default function QuoteBuilderPage() {
     return "";
   }
 
-  const sectionComplete = [
-    Boolean(selectedClientId || leadName || leadEmail),
-    Boolean(sqft > 0),
-    Boolean(scopeId && frequencyStr),
-    true,
-  ];
+  // ── Pricing method helpers ───────────────────────────────────────────────────
 
-  // ── Group scopes by scope_group ──────────────────────────────────────────────
-  const scopeGroups = scopes.filter(s => s.is_active).reduce<Record<string, PricingScope[]>>((acc, s) => {
-    const g = s.scope_group || "Other";
-    if (!acc[g]) acc[g] = [];
-    acc[g].push(s);
-    return acc;
-  }, {});
+  function pricingMethodLabel(method: string): string {
+    if (method === "hourly") return "Hourly";
+    if (method === "simplified") return "Simplified";
+    return "Sq Ft Based";
+  }
+
+  function effectiveHourlyRate(): number {
+    if (!selectedScope) return 0;
+    const base = parseFloat(selectedScope.hourly_rate);
+    const freq = frequencies.find(f => f.frequency === frequencyStr);
+    if (freq?.rate_override) return parseFloat(freq.rate_override);
+    if (freq) return base * parseFloat(freq.multiplier);
+    return base;
+  }
 
   return (
     <div className="min-h-screen bg-[#F7F6F3]">
+      {/* Header */}
       <div className="border-b border-[#E5E2DC] bg-white px-6 py-4 flex items-center gap-4">
         <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B7280]">
           <ArrowLeft className="w-4 h-4" />
@@ -383,7 +445,9 @@ export default function QuoteBuilderPage() {
       </div>
 
       <div className="max-w-6xl mx-auto p-6 flex gap-6">
+        {/* ── Main Wizard ─────────────────────────────────────────────────────── */}
         <div className="flex-1 min-w-0 space-y-4">
+          {/* Section tabs */}
           <div className="flex gap-2 mb-2">
             {SECTION_LABELS.map((label, i) => {
               const Icon = SECTION_ICONS[i];
@@ -408,6 +472,7 @@ export default function QuoteBuilderPage() {
             })}
           </div>
 
+          {/* ── Section 0: Customer Info ───────────────────────────────────── */}
           {activeSection === 0 && (
             <SectionCard title="Customer Info">
               <div className="space-y-4">
@@ -415,11 +480,7 @@ export default function QuoteBuilderPage() {
                   <Label className="text-xs text-[#9E9B94] mb-1 block">Existing Client</Label>
                   <Popover open={clientOpen} onOpenChange={setClientOpen}>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="outline"
-                        role="combobox"
-                        className="w-full justify-between text-sm font-normal"
-                      >
+                      <Button variant="outline" role="combobox" className="w-full justify-between text-sm font-normal">
                         {selectedClient
                           ? `${selectedClient.first_name} ${selectedClient.last_name}`
                           : "Search clients..."}
@@ -466,7 +527,7 @@ export default function QuoteBuilderPage() {
                     </div>
                     <div>
                       <Label className="text-xs">Email</Label>
-                      <Input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@example.com" className="mt-1" type="email" />
+                      <Input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@example.com" type="email" className="mt-1" />
                     </div>
                     <div>
                       <Label className="text-xs">Phone</Label>
@@ -486,9 +547,7 @@ export default function QuoteBuilderPage() {
                   </div>
                 </div>
 
-                {checkingZip && (
-                  <div className="text-xs text-[#9E9B94] px-1">Checking service area...</div>
-                )}
+                {checkingZip && <div className="text-xs text-[#9E9B94] px-1">Checking service area...</div>}
                 {!checkingZip && zipZone && zipZone !== "uncovered" && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: `${zipZone.color}14`, border: `1px solid ${zipZone.color}44`, fontSize: 12, fontWeight: 600, color: zipZone.color }}>
                     <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: zipZone.color, flexShrink: 0 }} />
@@ -510,12 +569,22 @@ export default function QuoteBuilderPage() {
             </SectionCard>
           )}
 
+          {/* ── Section 1: Property Details ────────────────────────────────── */}
           {activeSection === 1 && (
             <SectionCard title="Property Details">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-xs">Square Footage</Label>
-                  <Input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" className="mt-1" />
+                  <p className="text-[10px] text-[#9E9B94] mb-1">
+                    {pricingMethod === "sqft" ? "Required for pricing" : "Optional for reference"}
+                  </p>
+                  <Input
+                    type="number"
+                    value={sqft || ""}
+                    onChange={e => setSqft(parseInt(e.target.value) || 0)}
+                    placeholder="e.g. 1800"
+                    className="mt-1"
+                  />
                 </div>
                 <div>
                   <Label className="text-xs">Bedrooms</Label>
@@ -561,9 +630,7 @@ export default function QuoteBuilderPage() {
                       {DIRT_LEVELS.map(d => <SelectItem key={d.value} value={d.value}>{d.label.split(" — ")[0]}</SelectItem>)}
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-[#9E9B94] mt-1">
-                    {DIRT_LEVELS.find(d => d.value === dirtLevel)?.label.split(" — ")[1]}
-                  </p>
+                  <p className="text-xs text-[#9E9B94] mt-1">{DIRT_LEVELS.find(d => d.value === dirtLevel)?.label.split(" — ")[1]}</p>
                 </div>
               </div>
               <div className="flex justify-between mt-4">
@@ -575,14 +642,22 @@ export default function QuoteBuilderPage() {
             </SectionCard>
           )}
 
+          {/* ── Section 2: Service & Pricing ──────────────────────────────── */}
           {activeSection === 2 && (
             <SectionCard title="Service & Pricing">
               <div className="space-y-5">
+
+                {/* Scope selector */}
                 <div>
                   <Label className="text-xs">Service Scope</Label>
                   <Select
                     value={scopeId ? String(scopeId) : ""}
-                    onValueChange={v => { setScopeId(parseInt(v)); setFrequencyStr(""); setSelectedAddonIds([]); }}
+                    onValueChange={v => {
+                      setScopeId(parseInt(v));
+                      setFrequencyStr("");
+                      setSelectedAddonIds([]);
+                      setHoursInput(0);
+                    }}
                   >
                     <SelectTrigger className="mt-1">
                       <SelectValue placeholder="Select a service..." />
@@ -596,7 +671,7 @@ export default function QuoteBuilderPage() {
                               <div className="flex items-center gap-2">
                                 <span className="font-medium">{s.name}</span>
                                 <span className="text-[#9E9B94] text-xs">
-                                  ${parseFloat(s.hourly_rate).toFixed(0)}/hr · min ${parseFloat(s.minimum_bill).toFixed(0)}
+                                  ${parseFloat(s.hourly_rate).toFixed(0)}/hr · min ${parseFloat(s.minimum_bill).toFixed(0)} · {pricingMethodLabel(s.pricing_method)}
                                 </span>
                               </div>
                             </SelectItem>
@@ -607,36 +682,92 @@ export default function QuoteBuilderPage() {
                   </Select>
                 </div>
 
-                {scopeId && sqft === 0 && (
-                  <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-4 py-3 text-sm text-[#92400E]">
+                {/* Pricing method context */}
+                {selectedScope && (
+                  <div className="flex items-center gap-2 text-xs text-[#6B7280]">
+                    {pricingMethod === "sqft" && <Ruler className="w-3.5 h-3.5" />}
+                    {(pricingMethod === "hourly" || pricingMethod === "simplified") && <Clock className="w-3.5 h-3.5" />}
+                    <span>
+                      {pricingMethod === "sqft" && "Sq ft-based pricing — hours looked up from tier table"}
+                      {pricingMethod === "hourly" && "Hourly pricing — enter hours below"}
+                      {pricingMethod === "simplified" && "Simplified hourly pricing — enter hours below"}
+                    </span>
+                  </div>
+                )}
+
+                {/* Sqft scope: remind user to enter sqft */}
+                {scopeId && pricingMethod === "sqft" && sqft === 0 && (
+                  <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-4 py-3 text-sm text-[#92400E] flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
                     Enter square footage in Property Details to calculate pricing.
                   </div>
                 )}
 
+                {/* Hourly / Simplified: hours input */}
+                {scopeId && (pricingMethod === "hourly" || pricingMethod === "simplified") && (
+                  <div>
+                    <Label className="text-xs">Estimated Hours</Label>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Input
+                        type="number"
+                        min="0.5"
+                        step="0.5"
+                        value={hoursInput || ""}
+                        onChange={e => setHoursInput(parseFloat(e.target.value) || 0)}
+                        placeholder="e.g. 3.0"
+                        className="w-32"
+                      />
+                      <span className="text-sm text-[#6B7280]">hrs</span>
+                      {hoursInput > 0 && frequencyStr && (
+                        <span className="text-xs text-[#9E9B94]">
+                          × ${effectiveHourlyRate().toFixed(2)}/hr
+                        </span>
+                      )}
+                    </div>
+                    {selectedScope && (
+                      <p className="text-xs text-[#9E9B94] mt-1">
+                        Minimum bill: ${parseFloat(selectedScope.minimum_bill).toFixed(2)}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Frequency selector */}
                 {frequencies.length > 0 && (
                   <div>
                     <Label className="text-xs mb-2 block">Frequency</Label>
                     <div className="grid grid-cols-2 gap-2">
-                      {frequencies.map(freq => (
-                        <button
-                          key={freq.id}
-                          onClick={() => setFrequencyStr(freq.frequency)}
-                          className={cn(
-                            "px-3 py-2.5 rounded-lg border text-left transition-colors",
-                            frequencyStr === freq.frequency
-                              ? "bg-[#00C9A0]/10 border-[#00C9A0] text-[#00C9A0]"
-                              : "bg-white border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
-                          )}
-                        >
-                          <p className="font-semibold text-sm">{freq.label || freq.frequency}</p>
-                          {freq.rate_override ? (
-                            <p className="text-xs text-[#9E9B94]">${parseFloat(freq.rate_override).toFixed(0)}/hr</p>
-                          ) : (
-                            <p className="text-xs text-[#9E9B94]">×{parseFloat(freq.multiplier).toFixed(2)}</p>
-                          )}
-                        </button>
-                      ))}
+                      {frequencies.map(freq => {
+                        const rate = freq.rate_override
+                          ? parseFloat(freq.rate_override)
+                          : selectedScope
+                            ? parseFloat(selectedScope.hourly_rate) * parseFloat(freq.multiplier)
+                            : null;
+                        return (
+                          <button
+                            key={freq.id}
+                            onClick={() => setFrequencyStr(freq.frequency)}
+                            className={cn(
+                              "px-3 py-2.5 rounded-lg border text-left transition-colors",
+                              frequencyStr === freq.frequency
+                                ? "bg-[#00C9A0]/10 border-[#00C9A0] text-[#00C9A0]"
+                                : "bg-white border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
+                            )}
+                          >
+                            <p className="font-semibold text-sm">{freq.label || freq.frequency}</p>
+                            {rate !== null && (
+                              <p className="text-xs text-[#9E9B94]">${rate.toFixed(2)}/hr</p>
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
+                  </div>
+                )}
+
+                {frequencies.length === 0 && scopeId && (
+                  <div className="text-xs text-[#9E9B94] italic">
+                    No frequencies configured for this scope. Pricing will use the base hourly rate.
                   </div>
                 )}
 
@@ -650,6 +781,7 @@ export default function QuoteBuilderPage() {
             </SectionCard>
           )}
 
+          {/* ── Section 3: Add-ons & Notes ─────────────────────────────────── */}
           {activeSection === 3 && (
             <SectionCard title="Add-ons & Notes">
               <div className="space-y-4">
@@ -668,11 +800,7 @@ export default function QuoteBuilderPage() {
                               isSelected ? "bg-[#00C9A0]/10 border-[#00C9A0]" : "bg-white border-[#E5E2DC] hover:bg-[#F7F6F3]"
                             )}
                           >
-                            <Checkbox
-                              checked={isSelected}
-                              onCheckedChange={() => toggleAddon(addon.id)}
-                              className="mt-0.5"
-                            />
+                            <Checkbox checked={isSelected} onCheckedChange={() => toggleAddon(addon.id)} className="mt-0.5" />
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-[#1A1917]">{addon.name}</p>
                               <p className="text-xs text-[#9E9B94]">
@@ -687,6 +815,7 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
 
+                {/* Discount code */}
                 <div>
                   <Label className="text-xs mb-1 block">Discount Code</Label>
                   <div className="flex gap-2">
@@ -719,24 +848,13 @@ export default function QuoteBuilderPage() {
 
                 <div>
                   <Label className="text-xs">Client-Facing Notes</Label>
-                  <Textarea
-                    value={notes}
-                    onChange={e => setNotes(e.target.value)}
-                    placeholder="Notes visible to the client..."
-                    rows={3}
-                    className="mt-1 text-sm"
-                  />
+                  <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible to the client..." rows={3} className="mt-1 text-sm" />
                 </div>
                 <div>
                   <Label className="text-xs">Internal Memo</Label>
-                  <Textarea
-                    value={internalMemo}
-                    onChange={e => setInternalMemo(e.target.value)}
-                    placeholder="Internal notes not visible to the client..."
-                    rows={2}
-                    className="mt-1 text-sm"
-                  />
+                  <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Internal notes not visible to the client..." rows={2} className="mt-1 text-sm" />
                 </div>
+
                 <div className="flex justify-between mt-2">
                   <Button size="sm" variant="ghost" onClick={() => setActiveSection(2)}>Back</Button>
                   <div className="flex gap-2">
@@ -753,7 +871,7 @@ export default function QuoteBuilderPage() {
           )}
         </div>
 
-        {/* ── Live Price Panel ──────────────────────────────────────────────── */}
+        {/* ── Live Price Panel ─────────────────────────────────────────────── */}
         <div className="w-72 shrink-0">
           <div className="bg-white border border-[#E5E2DC] rounded-lg p-4 space-y-4 sticky top-6">
             <h3 className="font-semibold text-[#1A1917] text-sm border-b border-[#E5E2DC] pb-3">Price Preview</h3>
@@ -764,36 +882,56 @@ export default function QuoteBuilderPage() {
 
             {!calcLoading && calcResult ? (
               <>
+                {/* Scope + frequency summary */}
                 <div className="space-y-1.5 text-sm">
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Scope</span>
-                    <span className="text-right text-[#1A1917] font-medium text-xs max-w-[140px] truncate">{calcResult.scope_name}</span>
+                    <span className="text-right text-[#1A1917] font-medium text-xs max-w-[140px] truncate">{selectedScope?.name}</span>
                   </div>
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Frequency</span>
-                    <span className="text-[#1A1917]">{calcResult.frequency}</span>
-                  </div>
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Sq Ft</span>
-                    <span className="text-[#1A1917]">{calcResult.sqft.toLocaleString()}</span>
-                  </div>
+                  {calcResult.frequency && (
+                    <div className="flex justify-between text-[#6B7280]">
+                      <span>Frequency</span>
+                      <span className="text-[#1A1917]">{calcResult.frequency}</span>
+                    </div>
+                  )}
+
+                  {/* Sqft method: show sqft → hours line */}
+                  {calcResult.pricing_method === "sqft" && calcResult.sqft && (
+                    <div className="flex justify-between text-[#6B7280]">
+                      <span>Sq Ft</span>
+                      <span className="text-[#1A1917]">{calcResult.sqft.toLocaleString()}</span>
+                    </div>
+                  )}
+
+                  {/* Hours line (all methods) */}
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Est. Hours</span>
                     <span className="text-[#1A1917]">{calcResult.base_hours.toFixed(1)}h</span>
                   </div>
+
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Hourly Rate</span>
-                    <span className="text-[#1A1917]">${calcResult.hourly_rate.toFixed(0)}/hr</span>
+                    <span className="text-[#1A1917]">${calcResult.hourly_rate.toFixed(2)}/hr</span>
+                  </div>
+
+                  {/* Calculation line */}
+                  <div className="bg-[#F7F6F3] rounded px-2 py-1.5 text-xs text-[#6B7280] font-mono">
+                    {calcResult.base_hours.toFixed(1)}h × ${calcResult.hourly_rate.toFixed(2)}/hr = ${(calcResult.base_hours * calcResult.hourly_rate).toFixed(2)}
                   </div>
                 </div>
 
+                {/* Price breakdown */}
                 <div className="border-t border-[#E5E2DC] pt-3 space-y-1.5 text-sm">
                   <div className="flex justify-between text-[#6B7280]">
                     <span>Base Price</span>
                     <span className="text-[#1A1917]">${calcResult.base_price.toFixed(2)}</span>
                   </div>
+
                   {calcResult.minimum_applied && (
-                    <p className="text-xs text-amber-600">Minimum bill rate applied</p>
+                    <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      Minimum bill of ${calcResult.minimum_bill.toFixed(2)} applied
+                    </div>
                   )}
 
                   {calcResult.addon_breakdown.map(a => (
@@ -823,12 +961,11 @@ export default function QuoteBuilderPage() {
                   )}
                 </div>
 
+                {/* Total */}
                 <div className="border-t border-[#E5E2DC] pt-3">
                   <div className="flex justify-between items-baseline">
                     <span className="text-[#6B7280] text-sm">Total</span>
-                    <span className="text-2xl font-bold text-[#1A1917]">
-                      ${calcResult.final_total.toFixed(2)}
-                    </span>
+                    <span className="text-2xl font-bold text-[#1A1917]">${calcResult.final_total.toFixed(2)}</span>
                   </div>
                 </div>
               </>
@@ -836,12 +973,17 @@ export default function QuoteBuilderPage() {
               <div className="py-6 text-center text-[#9E9B94] text-sm">
                 Select a scope to see pricing.
               </div>
-            ) : !calcLoading && (!sqft || sqft === 0) ? (
+            ) : !calcLoading && pricingMethod === "sqft" && (!sqft || sqft === 0) ? (
               <div className="py-6 text-center text-[#9E9B94] text-sm">
                 Enter square footage to calculate price.
               </div>
+            ) : !calcLoading && (pricingMethod === "hourly" || pricingMethod === "simplified") && (!hoursInput || hoursInput <= 0) ? (
+              <div className="py-6 text-center text-[#9E9B94] text-sm">
+                Enter estimated hours to calculate price.
+              </div>
             ) : null}
 
+            {/* Action buttons */}
             <div className="border-t border-[#E5E2DC] pt-3 space-y-2">
               <Button
                 className="w-full bg-[#00C9A0] hover:bg-[#00b890] text-white gap-1.5"
@@ -861,13 +1003,7 @@ export default function QuoteBuilderPage() {
                 <ArrowRight className="w-3.5 h-3.5" />
                 Save & Convert to Job
               </Button>
-              <Button
-                className="w-full"
-                variant="outline"
-                size="sm"
-                onClick={() => save("draft")}
-                disabled={saving}
-              >
+              <Button className="w-full" variant="outline" size="sm" onClick={() => save("draft")} disabled={saving}>
                 <Save className="w-3.5 h-3.5 mr-1.5" />
                 Save Draft
               </Button>

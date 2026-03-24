@@ -1,0 +1,63 @@
+=== UPDATE 7 — Wire all scope settings into the office quote builder ===
+
+The quote builder at /quotes/new (and the quote detail/edit view)
+must read ALL pricing values dynamically from the API.
+No hardcoded rates, hours, or rules anywhere in the frontend.
+
+SCOPE SELECTION:
+  - Scope dropdown populates from GET /api/pricing/scopes
+    filtered to displayed_for_office: true
+  - When scope changes, immediately fetch that scope's full
+    config: pricing method, frequencies, tiers, fee rules
+  - Hourly scopes show hours input, not sqft
+  - Sqft scopes show sqft input + frequency selector
+  - Simplified scopes show hours input + optional sqft
+
+PRICE CALCULATION (must recalculate on every field change):
+  For sqft-based scopes:
+    1. Take sqft input
+    2. Look up labor hours from tier table for that sqft range
+       and selected frequency
+    3. Multiply by that frequency's hourly rate
+    4. Apply minimum bill floor if result is below threshold
+    5. Show line: "{X} hrs × ${rate}/hr = ${total}"
+
+  For hourly scopes:
+    1. Take hours input
+    2. Multiply by base_hourly_rate from scope config
+    3. Apply minimum bill floor
+    4. Show line: "{X} hrs × ${rate}/hr = ${total}"
+    5. If minimum applies, show: "Minimum bill of ${min} applies"
+
+FREQUENCY SELECTOR:
+  - Populates only frequencies where show_office: true
+    for the selected scope
+  - Changing frequency updates the hourly rate and
+    recalculates price immediately
+
+SKIP FEE AND LOCKOUT FEE display in quote/job detail:
+  - If a skip or lockout fee is triggered, calculate using
+    the scope's configured method (percentage or flat)
+  - Show tech split amount alongside total fee
+  - Both values read from scope fee rules, never hardcoded
+
+ADD-ONS:
+  - Add-on list populates from pricing_addons for the scope
+  - Each add-on checked adds its value to the base price
+  - Total updates live
+
+DISCOUNT CODES:
+  - Validated against pricing_discounts table
+  - Applied after add-ons, before display
+
+FINAL PRICE DISPLAY in quote builder:
+  Base price
+  + Add-ons (itemized)
+  - Discount (if applied)
+  = Total (bold, large)
+  Minimum bill note if applicable
+
+If any scope config value changes in /settings/quoting,
+the quote builder reflects it immediately on next load —
+no cache, no redeploy needed. All values fetched fresh
+from the API on quote form open.

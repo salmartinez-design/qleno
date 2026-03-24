@@ -18,14 +18,36 @@ const router = Router();
 router.get("/scopes", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const scopes = await db
+    const officeOnly = req.query.office === "true";
+    let query = db
       .select()
       .from(pricingScopesTable)
       .where(eq(pricingScopesTable.company_id, companyId))
       .orderBy(pricingScopesTable.sort_order, pricingScopesTable.id);
-    return res.json(scopes);
+
+    const scopes = await query;
+    const filtered = officeOnly
+      ? scopes.filter(s => s.displayed_for_office && s.is_active)
+      : scopes;
+    return res.json(filtered);
   } catch (err) {
     console.error("GET /pricing/scopes:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/scopes/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    const [scope] = await db
+      .select()
+      .from(pricingScopesTable)
+      .where(and(eq(pricingScopesTable.id, id), eq(pricingScopesTable.company_id, companyId)));
+    if (!scope) return res.status(404).json({ error: "Not found" });
+    return res.json(scope);
+  } catch (err) {
+    console.error("GET /pricing/scopes/:id:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -33,10 +55,19 @@ router.get("/scopes", requireAuth, async (req, res) => {
 router.post("/scopes", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { name, scope_group, hourly_rate, minimum_bill, sort_order } = req.body;
+    const { name, scope_group, pricing_method, hourly_rate, minimum_bill, displayed_for_office, sort_order } = req.body;
     const [scope] = await db
       .insert(pricingScopesTable)
-      .values({ company_id: companyId, name, scope_group: scope_group || "Residential", hourly_rate: hourly_rate || "0", minimum_bill: minimum_bill || "0", sort_order: sort_order ?? 0 })
+      .values({
+        company_id: companyId,
+        name,
+        scope_group: scope_group || "Residential",
+        pricing_method: pricing_method || "sqft",
+        hourly_rate: hourly_rate || "0",
+        minimum_bill: minimum_bill || "0",
+        displayed_for_office: displayed_for_office !== false,
+        sort_order: sort_order ?? 0,
+      })
       .returning();
     return res.status(201).json(scope);
   } catch (err) {
@@ -49,12 +80,14 @@ router.put("/scopes/:id", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id);
-    const { name, scope_group, hourly_rate, minimum_bill, is_active, sort_order } = req.body;
+    const { name, scope_group, pricing_method, hourly_rate, minimum_bill, displayed_for_office, is_active, sort_order } = req.body;
     const updates: Record<string, unknown> = { updated_at: new Date() };
     if (name !== undefined) updates.name = name;
     if (scope_group !== undefined) updates.scope_group = scope_group;
+    if (pricing_method !== undefined) updates.pricing_method = pricing_method;
     if (hourly_rate !== undefined) updates.hourly_rate = hourly_rate;
     if (minimum_bill !== undefined) updates.minimum_bill = minimum_bill;
+    if (displayed_for_office !== undefined) updates.displayed_for_office = displayed_for_office;
     if (is_active !== undefined) updates.is_active = is_active;
     if (sort_order !== undefined) updates.sort_order = sort_order;
     const [scope] = await db
@@ -129,12 +162,13 @@ router.get("/scopes/:id/frequencies", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const scopeId = parseInt(req.params.id);
+    const officeOnly = req.query.office === "true";
     const freqs = await db
       .select()
       .from(pricingFrequenciesTable)
       .where(and(eq(pricingFrequenciesTable.scope_id, scopeId), eq(pricingFrequenciesTable.company_id, companyId)))
       .orderBy(pricingFrequenciesTable.sort_order);
-    return res.json(freqs);
+    return res.json(officeOnly ? freqs.filter(f => f.show_office) : freqs);
   } catch (err) {
     console.error("GET /pricing/scopes/:id/frequencies:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -145,7 +179,7 @@ router.post("/scopes/:id/frequencies", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const scopeId = parseInt(req.params.id);
-    const freqs: Array<{ frequency: string; label: string; rate_override?: string | null; multiplier?: string | number; sort_order?: number }> = req.body;
+    const freqs: Array<{ frequency: string; label: string; rate_override?: string | null; multiplier?: string | number; show_office?: boolean; sort_order?: number }> = req.body;
     if (!Array.isArray(freqs)) return res.status(400).json({ error: "Body must be an array" });
     await db.delete(pricingFrequenciesTable).where(and(eq(pricingFrequenciesTable.scope_id, scopeId), eq(pricingFrequenciesTable.company_id, companyId)));
     if (freqs.length > 0) {
@@ -157,6 +191,7 @@ router.post("/scopes/:id/frequencies", requireAuth, async (req, res) => {
           label: f.label,
           rate_override: f.rate_override ? String(f.rate_override) : null,
           multiplier: String(f.multiplier ?? "1.0000"),
+          show_office: f.show_office !== false,
           sort_order: f.sort_order ?? i,
         }))
       );
@@ -393,14 +428,18 @@ router.delete("/fees/:id", requireAuth, async (req, res) => {
 });
 
 // ── Calculate ─────────────────────────────────────────────────────────────────
+// Supports three pricing_method values:
+//   "sqft"       — sqft + frequency required; looks up hours from tier table
+//   "hourly"     — hours input required; multiplied by scope/frequency rate
+//   "simplified" — hours input required (sqft optional); same rate logic as hourly
 
 router.post("/calculate", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { scope_id, sqft, frequency, addon_ids, discount_code } = req.body;
+    const { scope_id, sqft, hours, frequency, addon_ids, discount_code } = req.body;
 
-    if (!scope_id || !sqft || !frequency) {
-      return res.status(400).json({ error: "scope_id, sqft, and frequency are required" });
+    if (!scope_id) {
+      return res.status(400).json({ error: "scope_id is required" });
     }
 
     const [scope] = await db
@@ -409,25 +448,15 @@ router.post("/calculate", requireAuth, async (req, res) => {
       .where(and(eq(pricingScopesTable.id, scope_id), eq(pricingScopesTable.company_id, companyId)));
     if (!scope) return res.status(404).json({ error: "Scope not found" });
 
-    const tiers = await db
-      .select()
-      .from(pricingTiersTable)
-      .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, companyId)));
+    const method = scope.pricing_method || "sqft";
 
-    const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
-    const tier = sortedTiers.find(t => sqft >= t.min_sqft && sqft <= t.max_sqft)
-      ?? (sqft < Number(sortedTiers[0]?.min_sqft) ? sortedTiers[0] : sortedTiers[sortedTiers.length - 1]);
-
-    if (!tier) return res.status(422).json({ error: "No tier found for the given sqft" });
-
-    const base_hours = parseFloat(String(tier.hours));
-
+    // ── Resolve hourly rate from frequency ────────────────────────────────────
     const freqs = await db
       .select()
       .from(pricingFrequenciesTable)
       .where(and(eq(pricingFrequenciesTable.scope_id, scope_id), eq(pricingFrequenciesTable.company_id, companyId)));
-    const freqFactor = freqs.find(f => f.frequency === frequency);
 
+    const freqFactor = frequency ? freqs.find(f => f.frequency === frequency) : null;
     const scope_hourly = parseFloat(String(scope.hourly_rate));
     let hourly_rate: number;
     if (freqFactor?.rate_override != null && freqFactor.rate_override !== "") {
@@ -437,14 +466,46 @@ router.post("/calculate", requireAuth, async (req, res) => {
       hourly_rate = scope_hourly * mult;
     }
 
+    // ── Compute base hours and price based on method ──────────────────────────
+    let base_hours: number;
+    let tier_id: number | null = null;
+    let used_sqft: number | null = null;
+
+    if (method === "sqft") {
+      if (!sqft || !frequency) {
+        return res.status(400).json({ error: "sqft and frequency are required for sqft-based scopes" });
+      }
+      const tiers = await db
+        .select()
+        .from(pricingTiersTable)
+        .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, companyId)));
+
+      const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
+      const tier = sortedTiers.find(t => sqft >= t.min_sqft && sqft <= t.max_sqft)
+        ?? (sqft < Number(sortedTiers[0]?.min_sqft) ? sortedTiers[0] : sortedTiers[sortedTiers.length - 1]);
+
+      if (!tier) return res.status(422).json({ error: "No tier found for the given sqft" });
+      base_hours = parseFloat(String(tier.hours));
+      tier_id = tier.id;
+      used_sqft = sqft;
+    } else {
+      // hourly or simplified
+      if (!hours || Number(hours) <= 0) {
+        return res.status(400).json({ error: "hours is required for hourly/simplified scopes" });
+      }
+      base_hours = parseFloat(String(hours));
+      used_sqft = sqft ?? null;
+    }
+
     let base_price = base_hours * hourly_rate;
     const minimum_bill = parseFloat(String(scope.minimum_bill));
     let minimum_applied = false;
-    if (base_price < minimum_bill) {
+    if (minimum_bill > 0 && base_price < minimum_bill) {
       base_price = minimum_bill;
       minimum_applied = true;
     }
 
+    // ── Add-ons ───────────────────────────────────────────────────────────────
     let addons_total = 0;
     const addon_breakdown: Array<{ id: number; name: string; amount: number }> = [];
     if (Array.isArray(addon_ids) && addon_ids.length > 0) {
@@ -467,11 +528,13 @@ router.post("/calculate", requireAuth, async (req, res) => {
     let subtotal = base_price + addons_total;
     let discount_amount = 0;
     let final_total = subtotal;
+    let discount_valid = false;
 
     if (discount_code) {
       const allDiscounts = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, companyId));
       const match = allDiscounts.find(d => d.code.toUpperCase() === discount_code.toUpperCase() && d.is_active);
       if (match) {
+        discount_valid = true;
         if (match.discount_type === "flat") {
           discount_amount = parseFloat(String(match.discount_value));
         } else {
@@ -483,17 +546,21 @@ router.post("/calculate", requireAuth, async (req, res) => {
 
     return res.json({
       scope_id,
-      sqft,
-      frequency,
-      tier_id: tier.id,
+      pricing_method: method,
+      sqft: used_sqft,
+      hours: base_hours,
+      frequency: frequency ?? null,
+      tier_id,
       base_hours,
       hourly_rate: Math.round(hourly_rate * 100) / 100,
       base_price: Math.round(base_price * 100) / 100,
       minimum_applied,
+      minimum_bill: Math.round(minimum_bill * 100) / 100,
       addons_total: Math.round(addons_total * 100) / 100,
       addon_breakdown,
       subtotal: Math.round(subtotal * 100) / 100,
       discount_amount: Math.round(discount_amount * 100) / 100,
+      discount_valid: discount_code ? discount_valid : undefined,
       final_total: Math.round(final_total * 100) / 100,
     });
   } catch (err) {
