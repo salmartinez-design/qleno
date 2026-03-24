@@ -14,8 +14,10 @@ function getConnectionConfig(): pg.PoolConfig {
   const pgPort = process.env.PGPORT ? parseInt(process.env.PGPORT) : 5432;
 
   if (pgHost && pgDatabase && pgUser && pgPassword) {
-    // Use individual PG vars — these always point to the Replit Helium DB
-    return { host: pgHost, database: pgDatabase, user: pgUser, password: pgPassword, port: pgPort, ssl: false };
+    // Use individual PG vars — these always point to the Replit Helium DB.
+    // Production requires SSL; development (internal network) does not.
+    const ssl = process.env.NODE_ENV === "production" ? { rejectUnauthorized: false } : false;
+    return { host: pgHost, database: pgDatabase, user: pgUser, password: pgPassword, port: pgPort, ssl };
   }
 
   // Fallback to DATABASE_URL
