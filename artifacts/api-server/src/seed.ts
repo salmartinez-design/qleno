@@ -1,10 +1,84 @@
 import { db } from "@workspace/db";
-import { companiesTable, usersTable, branchesTable, jobsTable, clientsTable, invoicesTable } from "@workspace/db/schema";
-import { eq, sql, isNull, and, gt, count } from "drizzle-orm";
+import { companiesTable, usersTable, branchesTable, jobsTable, clientsTable, invoicesTable, scorecardsTable, timeclockTable, contactTicketsTable } from "@workspace/db/schema";
+import { eq, sql, isNull, and, gt, count, inArray, or } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { seedDemoData } from "./seed-demo.js";
 import phesClientsData from "./phes-clients-seed.json";
 import phesEmployeesData from "./phes-employees-seed.json";
+
+const DEMO_EMPLOYEE_EMAILS = [
+  "maria.gonzalez@phes.io", "james.okafor@phes.io", "sofia.reyes@phes.io",
+  "darius.williams@phes.io", "anika.patel@phes.io", "carlos.mendoza@phes.io",
+  "tanya.brooks@phes.io", "kevin.osei@phes.io", "rachel.kim@phes.io",
+  "linda.torres@phes.io",
+  "admin@phescleaning.com", "jessica@phescleaning.com",
+  "carlos@phescleaning.com", "amber@phescleaning.com",
+];
+
+async function cleanupDemoData(companyId: number) {
+  // Identify demo employees by known seed emails
+  const demoEmps = await db.select({ id: usersTable.id }).from(usersTable)
+    .where(and(eq(usersTable.company_id, companyId), inArray(usersTable.email, DEMO_EMPLOYEE_EMAILS)));
+  const demoEmpIds = demoEmps.map(e => e.id);
+
+  // Identify demo clients by 555 phone numbers (all seeded demo clients use these)
+  const demoClients = await db.select({ id: clientsTable.id }).from(clientsTable)
+    .where(and(eq(clientsTable.company_id, companyId), sql`phone LIKE '%(555)%'`));
+  const demoClientIds = demoClients.map(c => c.id);
+
+  let d = { emps: 0, clients: 0, jobs: 0, inv: 0, sc: 0, tc: 0, ct: 0 };
+
+  // Delete jobs referencing demo clients or assigned to demo employees
+  if (demoClientIds.length > 0 || demoEmpIds.length > 0) {
+    const jobConds: any[] = [];
+    if (demoClientIds.length > 0) jobConds.push(inArray(jobsTable.client_id, demoClientIds));
+    if (demoEmpIds.length > 0)    jobConds.push(inArray(jobsTable.assigned_user_id, demoEmpIds));
+    const demoJobs = await db.select({ id: jobsTable.id }).from(jobsTable)
+      .where(and(eq(jobsTable.company_id, companyId), or(...jobConds)));
+    const demoJobIds = demoJobs.map(j => j.id);
+    if (demoJobIds.length > 0) {
+      const ri = await db.delete(invoicesTable).where(inArray(invoicesTable.job_id, demoJobIds)).returning({ id: invoicesTable.id });
+      const rj = await db.delete(jobsTable).where(inArray(jobsTable.id, demoJobIds)).returning({ id: jobsTable.id });
+      d.inv += ri.length; d.jobs += rj.length;
+    }
+  }
+  // Delete any remaining invoices for demo clients
+  if (demoClientIds.length > 0) {
+    const ri = await db.delete(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.client_id, demoClientIds))).returning({ id: invoicesTable.id });
+    d.inv += ri.length;
+  }
+  // Delete scorecards
+  if (demoEmpIds.length > 0) {
+    const rs = await db.delete(scorecardsTable).where(and(eq(scorecardsTable.company_id, companyId), inArray(scorecardsTable.user_id, demoEmpIds))).returning({ id: scorecardsTable.id });
+    d.sc += rs.length;
+  }
+  if (demoClientIds.length > 0) {
+    const rs = await db.delete(scorecardsTable).where(and(eq(scorecardsTable.company_id, companyId), inArray(scorecardsTable.client_id, demoClientIds))).returning({ id: scorecardsTable.id });
+    d.sc += rs.length;
+  }
+  // Delete timeclock entries for demo employees
+  if (demoEmpIds.length > 0) {
+    const rt = await db.delete(timeclockTable).where(inArray(timeclockTable.user_id, demoEmpIds)).returning({ id: timeclockTable.id });
+    d.tc += rt.length;
+  }
+  // Delete contact tickets for demo clients
+  if (demoClientIds.length > 0) {
+    const rc = await db.delete(contactTicketsTable).where(inArray(contactTicketsTable.client_id, demoClientIds)).returning({ id: contactTicketsTable.id });
+    d.ct += rc.length;
+  }
+  // Delete demo clients
+  if (demoClientIds.length > 0) {
+    const rc = await db.delete(clientsTable).where(inArray(clientsTable.id, demoClientIds)).returning({ id: clientsTable.id });
+    d.clients += rc.length;
+  }
+  // Delete demo employees
+  if (demoEmpIds.length > 0) {
+    const re = await db.delete(usersTable).where(inArray(usersTable.id, demoEmpIds)).returning({ id: usersTable.id });
+    d.emps += re.length;
+  }
+  console.log(`[seed] Demo cleanup done — removed: ${d.emps} employees, ${d.clients} clients, ${d.jobs} jobs, ${d.inv} invoices, ${d.sc} scorecards, ${d.tc} clock entries, ${d.ct} contact tickets`);
+}
 
 const SUPER_ADMINS = [
   { email: "sal@cleanopspro.com",   password: "SalCleanOps2026!",   first_name: "Sal",   last_name: "CleanOps" },
@@ -188,11 +262,22 @@ export async function seedIfNeeded() {
       .where(eq(usersTable.email, "linda.torres@phes.io"))
       .limit(1);
 
-    if (demoCheck.length === 0) {
-      console.log("[seed] Demo data missing — seeding employees, clients, jobs...");
-      await seedDemoData(companyId, ownerId);
+    if (process.env.NODE_ENV === "production") {
+      // In production: never seed demo data; remove any that exist
+      if (demoCheck.length > 0) {
+        console.log("[seed] Production: cleaning up demo data...");
+        await cleanupDemoData(companyId);
+      } else {
+        console.log("[seed] Production: no demo data present — clean");
+      }
     } else {
-      console.log("[seed] Demo data already present — skipping");
+      // In development: seed demo data if not yet present
+      if (demoCheck.length === 0) {
+        console.log("[seed] Demo data missing — seeding employees, clients, jobs...");
+        await seedDemoData(companyId, ownerId);
+      } else {
+        console.log("[seed] Demo data already present — skipping");
+      }
     }
 
     // ── Real PHES clients import ─────────────────────────────────────────────

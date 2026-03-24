@@ -1,0 +1,34 @@
+CUSTOMER LIST — FULL FIX AND UI IMPROVEMENT
+1. Update company name
+sqlUPDATE companies SET name = 'Phes' WHERE id = 1;
+Confirm every place the company name renders pulls from companies.name and is not hardcoded anywhere — sidebar, page header, mobile branch pill, login redirect, and email templates. All should show Phes exactly, no truncation, no casing changes.
+2. Remove At Risk status until parameters are configured
+At Risk should not display on any client until the owner has set churn risk thresholds in Company Settings. Until those parameters are saved, treat every client as having no risk status. Remove the At Risk badge and orange left border from all customer cards and rows where no risk rules have been configured for the tenant. Replace with no badge — just show the loyalty tier.
+3. Fix default sort order
+Sort the customer list by last_name ASC by default. Add a secondary sort of first_name ASC for ties. This is standard practice for service business client lists.
+4. Fix pagination — show all clients
+The list is capping at 12 records. Set default page size to 50 with a load-more or paginator at the bottom. The count header should show the real total — "1,231 total clients" not "12 total clients."
+5. Search bar
+Search should query across: full name, phone (normalized, ignore formatting), email, address, and client ID (CL-XXXX). Debounce at 300ms. On mobile, tapping search expands to full width with a clear button. Results should highlight the matched term.
+6. Fix logo rendering
+The QlenoMark component is rendering as "leno" on desktop — the Q mark image is failing to load. Check that the QlenoMark.jsx src path resolves correctly after the last deploy. Should show the full mint circle Q mark followed by "leno" in the wordmark.
+7. Mobile customer card improvements
+Each card should show:
+
+Full name in bold, 16px
+Frequency badge in brand color — Weekly, Bi-weekly, Monthly, On Demand
+City only, not full address
+Loyalty tier badge only if Gold, Silver, or VIP — hide Standard to reduce noise
+Status badge only if Inactive — Active is the default, no badge needed
+Remove At Risk badge entirely until risk parameters are configured
+
+8. Desktop customer row improvements
+Reorder columns: Client name + ID | Phone + Email | City | Frequency | Last / Next | Loyalty | Status
+Remove the Portal column from the default view — move it behind a column toggle.
+After all changes confirm:
+
+Total count header shows 1,231
+No At Risk badges visible
+Default sort is alphabetical by last name
+Logo shows full Q mark in sidebar
+Company name shows as Phes everywhere
