@@ -296,13 +296,11 @@ export async function seedIfNeeded() {
       .limit(1);
 
     if (process.env.NODE_ENV === "production") {
-      // In production: never seed demo data; remove any that exist
-      if (demoCheck.length > 0) {
-        console.log("[seed] Production: cleaning up demo data...");
-        await cleanupDemoData(companyId);
-      } else {
-        console.log("[seed] Production: no demo data present — clean");
-      }
+      // In production: always run cleanup — it's fully idempotent (no-op if nothing to remove)
+      // Do NOT gate on the sentinel; some demo employees may survive if the sentinel was
+      // already deleted but the FK cascade failed on a previous startup.
+      console.log("[seed] Production: running demo data cleanup (idempotent)...");
+      await cleanupDemoData(companyId);
 
       // Always clean up known test/demo records (idempotent — safe to run every startup)
       // 1. Remove seeded mileage request (Jennifer Williams → Robert Johnson, 8.50 mi)
@@ -384,13 +382,15 @@ export async function seedIfNeeded() {
     }
 
     // ── Real PHES employees import ───────────────────────────────────────────
-    // Real employees have IDs >= 32 in dev. Import if missing from production.
-    const [empCountRow] = await db
-      .select({ n: count() })
+    // Guard by email: check if sentinel real employee (Norma Puga) exists.
+    // This is ID-agnostic — works correctly in production regardless of auto-increment state.
+    const REAL_EMP_EMAILS = (phesEmployeesData as any[]).map((e: any) => e.email).filter(Boolean);
+    const existingRealEmps = await db
+      .select({ email: usersTable.email })
       .from(usersTable)
-      .where(and(eq(usersTable.company_id, companyId), gt(usersTable.id, 31)));
+      .where(and(eq(usersTable.company_id, companyId), inArray(usersTable.email, REAL_EMP_EMAILS)));
 
-    const realEmpCount = Number(empCountRow?.n ?? 0);
+    const realEmpCount = existingRealEmps.length;
     if (realEmpCount < phesEmployeesData.length) {
       console.log(`[seed] Only ${realEmpCount} real PHES employees found — importing ${phesEmployeesData.length} from bundle...`);
       const placeholder = await bcrypt.hash("ChangeMe2026!", 10);
