@@ -45,14 +45,24 @@ router.get("/", requireAuth, async (req, res) => {
 
     const conditions = [eq(clientsTable.company_id, req.auth!.companyId)];
     if (search) {
-      conditions.push(
-        or(
-          ilike(clientsTable.first_name, `%${search}%`),
-          ilike(clientsTable.last_name, `%${search}%`),
-          ilike(clientsTable.email, `%${search}%`),
-          ilike(clientsTable.phone, `%${search}%`)
-        ) as any
-      );
+      const s = search as string;
+      const clMatch = s.match(/^cl-?(\d+)$/i);
+      if (clMatch) {
+        // Search by client ID (CL-XXXX format)
+        conditions.push(eq(clientsTable.id, parseInt(clMatch[1])));
+      } else {
+        conditions.push(
+          or(
+            ilike(clientsTable.first_name, `%${s}%`),
+            ilike(clientsTable.last_name, `%${s}%`),
+            ilike(clientsTable.email, `%${s}%`),
+            ilike(clientsTable.phone, `%${s}%`),
+            ilike(clientsTable.address, `%${s}%`),
+            ilike(clientsTable.city, `%${s}%`),
+            ilike(clientsTable.company_name, `%${s}%`)
+          ) as any
+        );
+      }
     }
     if (status === "active") conditions.push(eq(clientsTable.is_active, true));
     if (status === "inactive") conditions.push(eq(clientsTable.is_active, false));
@@ -115,12 +125,11 @@ router.get("/", requireAuth, async (req, res) => {
       const daysSinceLast = last
         ? Math.floor((Date.now() - new Date(last).getTime()) / 86400000)
         : 999;
-      const at_risk = daysSinceLast > 30;
       return {
         ...c,
         last_service_date: last || null,
         next_service_date: nextJobMap[c.id] || null,
-        at_risk,
+        at_risk: false, // disabled until churn thresholds configured in company settings
         days_since_last: daysSinceLast,
       };
     });
