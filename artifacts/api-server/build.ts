@@ -58,6 +58,20 @@ async function buildAll() {
     }
   }
 
+  // Build frontend — output lands at artifacts/cleanops-pro/dist/public
+  // The Express server serves it as static files in production (see app.ts)
+  console.log("building frontend...");
+  try {
+    execSync("pnpm --filter @workspace/cleanops-pro run build", {
+      stdio: "inherit",
+      cwd: path.resolve(__dirname, "../.."),
+    });
+    console.log("frontend build complete");
+  } catch (e) {
+    console.error("frontend build failed:", e);
+    process.exit(1);
+  }
+
   console.log("building server...");
   const pkgPath = path.resolve(__dirname, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
