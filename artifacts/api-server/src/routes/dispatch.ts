@@ -29,11 +29,8 @@ router.get("/", requireAuth, async (req, res) => {
         eq(usersTable.company_id, companyId),
         eq(usersTable.is_active, true),
         sql`(
-          ${usersTable.role} IN ('technician', 'team_lead')
-          OR (
-            ${usersTable.role} IN ('admin', 'owner', 'office')
-            AND ${usersTable.tags} && ARRAY['field','technician']::text[]
-          )
+          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin')
+          OR (COALESCE(${usersTable.tags}, '{}') && ARRAY['field','technician']::text[])
         )`
       ))
       .orderBy(usersTable.first_name);

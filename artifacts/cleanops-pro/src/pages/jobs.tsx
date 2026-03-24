@@ -9,7 +9,7 @@ import {
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  ChevronLeft, ChevronRight, Plus, Clock, Camera, X, MapPin, User,
+  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar, Package,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send,
 } from "lucide-react";
@@ -1011,6 +1011,8 @@ export default function JobsPage() {
   const refreshRef = useRef(0);
   const [zones, setZones] = useState<{ id: number; name: string; color: string }[]>([]);
   const [selectedZoneFilter, setSelectedZoneFilter] = useState<number | null>(null);
+  const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
+  const zoneDropdownRef = useRef<HTMLDivElement>(null);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -1049,6 +1051,18 @@ export default function JobsPage() {
     const scrollTo9am = (9 * 60 - DAY_START) / 30 * SLOT_W; // (540-420)/30*80 = 320px
     timelineRef.current.scrollLeft = scrollTo9am;
   }, [selectedDate, loading]);
+
+  // Close zone dropdown on outside click
+  useEffect(() => {
+    if (!zoneDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (zoneDropdownRef.current && !zoneDropdownRef.current.contains(e.target as Node)) {
+        setZoneDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [zoneDropdownOpen]);
 
   // Now-line calculation
   const nowLine = (() => {
@@ -1191,20 +1205,31 @@ export default function JobsPage() {
             })}
           </div>
 
-          {/* Zone filter dots — mobile */}
+          {/* Zone filter — mobile dropdown */}
           {zones.length > 0 && (
-            <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "8px 14px", display: "flex", gap: 6, overflowX: "auto", alignItems: "center" }}>
-              <button onClick={() => setSelectedZoneFilter(null)}
-                style={{ fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, border: selectedZoneFilter === null ? "1.5px solid var(--brand)" : "1.5px solid #E5E2DC", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#6B7280", cursor: "pointer", flexShrink: 0 }}>
-                All
-              </button>
-              {zones.map(z => (
-                <button key={z.id} onClick={() => setSelectedZoneFilter(selectedZoneFilter === z.id ? null : z.id)}
-                  style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 10px", borderRadius: 20, border: `1.5px solid ${selectedZoneFilter === z.id ? z.color : "#E5E2DC"}`, backgroundColor: selectedZoneFilter === z.id ? `${z.color}22` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#6B7280", cursor: "pointer", flexShrink: 0 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
-                  {z.name}
+            <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "6px 14px", display: "flex", alignItems: "center" }}>
+              <div ref={zoneDropdownRef} style={{ position: "relative" }}>
+                <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#FAFAF9", color: "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                  {selectedZoneFilter !== null ? (
+                    <>
+                      <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: zones.find(z => z.id === selectedZoneFilter)?.color, flexShrink: 0 }} />
+                      {zones.find(z => z.id === selectedZoneFilter)?.name}
+                    </>
+                  ) : "All Zones"}
+                  <ChevronDown size={11} />
                 </button>
-              ))}
+                {zoneDropdownOpen && (
+                  <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 160, overflow: "hidden" }}>
+                    <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
+                    {zones.map(z => (
+                      <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
+                        {z.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -1293,21 +1318,32 @@ export default function JobsPage() {
                 <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>
               ))}
 
-              {/* Zone filter */}
+              {/* Zone filter — dropdown */}
               {zones.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <div style={{ width: 1, height: 18, backgroundColor: "#E5E2DC" }} />
-                  <button onClick={() => setSelectedZoneFilter(null)}
-                    style={{ fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 20, border: selectedZoneFilter === null ? "1.5px solid var(--brand)" : "1.5px solid #E5E2DC", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "#FAFAF9", color: selectedZoneFilter === null ? "var(--brand)" : "#6B7280", cursor: "pointer" }}>
-                    All Zones
-                  </button>
-                  {zones.map(z => (
-                    <button key={z.id} onClick={() => setSelectedZoneFilter(selectedZoneFilter === z.id ? null : z.id)}
-                      style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 20, border: `1.5px solid ${selectedZoneFilter === z.id ? z.color : "#E5E2DC"}`, backgroundColor: selectedZoneFilter === z.id ? `${z.color}22` : "#FAFAF9", color: selectedZoneFilter === z.id ? z.color : "#6B7280", cursor: "pointer" }}>
-                      <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: z.color }} />
-                      {z.name}
+                  <div ref={zoneDropdownRef} style={{ position: "relative" }}>
+                    <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#FAFAF9", color: "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                      {selectedZoneFilter !== null ? (
+                        <>
+                          <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: zones.find(z => z.id === selectedZoneFilter)?.color, flexShrink: 0 }} />
+                          {zones.find(z => z.id === selectedZoneFilter)?.name}
+                        </>
+                      ) : "All Zones"}
+                      <ChevronDown size={11} />
                     </button>
-                  ))}
+                    {zoneDropdownOpen && (
+                      <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 160, overflow: "hidden" }}>
+                        <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
+                        {zones.map(z => (
+                          <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
+                            {z.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
