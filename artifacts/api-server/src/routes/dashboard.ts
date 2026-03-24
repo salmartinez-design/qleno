@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
@@ -357,9 +357,8 @@ router.get("/kpis", requireAuth, async (req, res) => {
       completeNotInvoiced,
       // HouseCall Pro KPI bar
       hcpRevBookedToday,
-      hcpJobsCompletedToday,
-      hcpAvgJobSize30d,
       hcpNewJobsThisWeek,
+      hcpQuotesToday,
       hcpBookedOnlineMonth,
     ] = await Promise.all([
       // Week revenue from job_history
@@ -464,28 +463,18 @@ router.get("/kpis", requireAuth, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
-      // HCP: Jobs Completed Today
-      db.select({ c: count() }).from(jobsTable)
-        .where(and(
-          eq(jobsTable.company_id, companyId),
-          eq(jobsTable.scheduled_date, todayStr),
-          eq(jobsTable.status, "complete"),
-        )),
-
-      // HCP: Avg Job Size — avg bill_rate from job_history last 30 days
-      db.execute(sql`
-        SELECT COALESCE(AVG(bill_rate), 0)::numeric AS avg_size
-        FROM job_history
-        WHERE company_id = ${companyId}
-          AND scheduled_date >= ${thirtyDaysAgoStr}
-          AND scheduled_date <= ${todayStr}
-      `),
-
       // HCP: New Jobs Booked This Week — jobs created_at >= weekStart
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),
           gte(jobsTable.created_at, weekStart),
+        )),
+
+      // HCP: Quotes Given Today
+      db.select({ c: count() }).from(quotesTable)
+        .where(and(
+          eq(quotesTable.company_id, companyId),
+          gte(quotesTable.created_at, new Date(todayStr)),
         )),
 
       // HCP: Booked Online This Month (source = 'online_booking' in job_history)
@@ -519,9 +508,8 @@ router.get("/kpis", requireAuth, async (req, res) => {
 
     // HCP values
     const revBookedToday = parseFloat((hcpRevBookedToday[0] as any)?.total || "0");
-    const jobsCompletedToday = Number((hcpJobsCompletedToday[0] as any)?.c || 0);
-    const avgJobSize30d = parseFloat((hcpAvgJobSize30d.rows[0] as any)?.avg_size || "0");
     const newJobsThisWeek = Number((hcpNewJobsThisWeek[0] as any)?.c || 0);
+    const quotesGivenToday = Number((hcpQuotesToday[0] as any)?.c || 0);
     const bookedOnlineMonth = Number((hcpBookedOnlineMonth.rows[0] as any)?.booked_online || 0);
 
     type ActionItem = { level: 'red' | 'amber' | 'blue'; text: string; action: string };
@@ -546,9 +534,8 @@ router.get("/kpis", requireAuth, async (req, res) => {
       // HouseCall Pro KPI bar
       hcp: {
         rev_booked_today: revBookedToday,
-        jobs_completed_today: jobsCompletedToday,
-        avg_job_size_30d: avgJobSize30d,
         new_jobs_this_week: newJobsThisWeek,
+        quotes_given_today: quotesGivenToday,
         booked_online_month: bookedOnlineMonth,
       },
     });
