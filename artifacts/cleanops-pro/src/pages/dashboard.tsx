@@ -147,6 +147,36 @@ export default function Dashboard() {
     { key: 'unassigned',  label: 'Unassigned',   bg: null,      color: '#92400E', href: '/jobs', valueFn: () => kpis?.action_items?.filter((a: any) => a.text?.includes('unassigned'))[0] ? parseInt(kpis.action_items.find((a: any) => a.text?.includes('unassigned')).text) : 0 },
   ];
 
+  const hcp = kpis?.hcp;
+
+  const HCP_TILES = [
+    {
+      label: 'Revenue Booked Today',
+      value: hcp == null ? '—' : fmt$(hcp.rev_booked_today),
+      sub: 'jobs on schedule today',
+    },
+    {
+      label: 'Jobs Completed',
+      value: hcp == null ? '—' : String(hcp.jobs_completed_today),
+      sub: 'completed today',
+    },
+    {
+      label: 'Avg Job Size',
+      value: hcp == null ? '—' : (hcp.avg_job_size_30d > 0 ? `$${hcp.avg_job_size_30d.toFixed(0)}` : '—'),
+      sub: 'last 30 days',
+    },
+    {
+      label: 'New Jobs Booked',
+      value: hcp == null ? '—' : String(hcp.new_jobs_this_week),
+      sub: 'this week',
+    },
+    {
+      label: 'Booked Online',
+      value: hcp == null ? '—' : String(hcp.booked_online_month),
+      sub: 'this month',
+    },
+  ];
+
   const KPI_ROWS = [
     [
       {
@@ -257,6 +287,38 @@ export default function Dashboard() {
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* ── SECTION 2B: HCP KPI BAR ─────────────────────── */}
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>At a Glance</p>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(5, 1fr)',
+            gap: 10,
+          }}>
+            {HCP_TILES.map((tile, i) => (
+              <div
+                key={i}
+                style={{
+                  backgroundColor: '#F7F6F3',
+                  border: '1px solid #E5E2DC',
+                  borderRadius: 10,
+                  padding: isMobile ? '14px 14px' : '16px 18px',
+                }}
+              >
+                <p style={{ fontSize: isMobile ? 9 : 10, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 6px', fontFamily: FF }}>
+                  {tile.label}
+                </p>
+                <p style={{ fontSize: isMobile ? 22 : 26, fontWeight: 700, color: '#1A1917', margin: '0 0 3px', lineHeight: 1, fontFamily: FF }}>
+                  {tile.value}
+                </p>
+                <p style={{ fontSize: 10, color: '#B0ADA6', margin: 0, fontFamily: FF }}>
+                  {tile.sub}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
 

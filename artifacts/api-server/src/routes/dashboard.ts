@@ -160,7 +160,6 @@ router.get("/today", requireAuth, async (req, res) => {
     const { branch_id } = req.query;
     const todayBranchCond = branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id as string))] : [];
 
-    // Today's job counts by status
     const [todayJobs, inProgress, complete, cancelled, scheduled] = await Promise.all([
       db.select({
         id: jobsTable.id,
@@ -179,10 +178,8 @@ router.get("/today", requireAuth, async (req, res) => {
       db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
     ]);
 
-    // Today's revenue (complete jobs' base_fee sum)
     const todayRevenue = todayJobs.filter(j => j.status === 'complete').reduce((s, j) => s + parseFloat(j.base_fee || '0'), 0);
 
-    // Flagged clocks (unresolved)
     const flagged = await db
       .select({
         id: timeclockTable.id,
@@ -195,7 +192,6 @@ router.get("/today", requireAuth, async (req, res) => {
       .where(and(eq(timeclockTable.company_id, companyId), eq(timeclockTable.flagged, true), gte(timeclockTable.clock_in_at, new Date(todayStr))))
       .limit(5);
 
-    // Overdue invoices
     const overdueInvoices = await db
       .select({
         id: invoicesTable.id,
@@ -208,7 +204,6 @@ router.get("/today", requireAuth, async (req, res) => {
       .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "overdue")))
       .limit(5);
 
-    // Employees with jobs today — check active timeclock
     const allEmployees = await db
       .select({
         id: usersTable.id,
@@ -273,9 +268,7 @@ router.get("/today", requireAuth, async (req, res) => {
       return { ...emp, status, detail, job_count: empJobs.length };
     });
 
-    // Auto-generate alerts
     const alerts: { type: string; message: string; action: string; id?: number }[] = [];
-
     const now15min = new Date(nowMs + 15 * 60 * 1000);
     for (const emp of employeeBoard) {
       if (emp.status === 'SCHEDULED') {
@@ -294,24 +287,12 @@ router.get("/today", requireAuth, async (req, res) => {
         }
       }
     }
-
     for (const inv of overdueInvoices) {
       const daysAgo = Math.floor((nowMs - new Date(inv.created_at).getTime()) / (1000 * 60 * 60 * 24));
-      alerts.push({
-        type: 'warning',
-        message: `Invoice #${inv.id} overdue by ${daysAgo} days — ${inv.client_name}`,
-        action: 'send_invoice',
-        id: inv.id,
-      });
+      alerts.push({ type: 'warning', message: `Invoice #${inv.id} overdue by ${daysAgo} days — ${inv.client_name}`, action: 'send_invoice', id: inv.id });
     }
-
     for (const flag of flagged) {
-      alerts.push({
-        type: 'warning',
-        message: `Clock-in flagged — ${flag.user_name} was ${flag.distance_ft}ft from job site`,
-        action: 'review_clock',
-        id: flag.id,
-      });
+      alerts.push({ type: 'warning', message: `Clock-in flagged — ${flag.user_name} was ${flag.distance_ft}ft from job site`, action: 'review_clock', id: flag.id });
     }
 
     const enRouteCount = employeeBoard.filter(e => e.status === 'EN ROUTE').length;
@@ -347,8 +328,7 @@ router.get("/kpis", requireAuth, async (req, res) => {
     const lastMonthStartStr = lastMonthStart.toISOString().split("T")[0];
     const lastMonthEndStr = lastMonthEnd.toISOString().split("T")[0];
 
-    // Current week = Mon–Sun containing today
-    const dayOfWeek = now.getDay(); // 0=Sun
+    const dayOfWeek = now.getDay();
     const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
     const weekStartStr = weekStart.toISOString().split("T")[0];
@@ -361,7 +341,7 @@ router.get("/kpis", requireAuth, async (req, res) => {
     const fortyFiveDaysAgoStr = new Date(now.getTime() - 45 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
 
-    // All revenue KPIs read from job_history (real MC data — columns: revenue, job_date, customer_id)
+    // job_history columns: bill_rate (amount), scheduled_date (date)
     const [
       jhWeekRev,
       jhPrevWeekRev,
@@ -375,59 +355,64 @@ router.get("/kpis", requireAuth, async (req, res) => {
       flaggedToday,
       overdueInvoices,
       completeNotInvoiced,
+      // HouseCall Pro KPI bar
+      hcpRevBookedToday,
+      hcpJobsCompletedToday,
+      hcpAvgJobSize30d,
+      hcpNewJobsThisWeek,
+      hcpBookedOnlineMonth,
     ] = await Promise.all([
-      // Week revenue from job_history (Mon–today)
+      // Week revenue from job_history
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
         FROM job_history
         WHERE company_id = ${companyId}
-          AND job_date >= ${weekStartStr}
-          AND job_date <= ${todayStr}
+          AND scheduled_date >= ${weekStartStr}
+          AND scheduled_date <= ${todayStr}
       `),
       // Previous week revenue
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
         FROM job_history
         WHERE company_id = ${companyId}
-          AND job_date >= ${prevWeekStartStr}
-          AND job_date <= ${prevWeekEndStr}
+          AND scheduled_date >= ${prevWeekStartStr}
+          AND scheduled_date <= ${prevWeekEndStr}
       `),
       // This month revenue
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
         FROM job_history
         WHERE company_id = ${companyId}
-          AND job_date >= ${monthStartStr}
-          AND job_date <= ${todayStr}
+          AND scheduled_date >= ${monthStartStr}
+          AND scheduled_date <= ${todayStr}
       `),
       // Last month revenue
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
         FROM job_history
         WHERE company_id = ${companyId}
-          AND job_date >= ${lastMonthStartStr}
-          AND job_date <= ${lastMonthEndStr}
+          AND scheduled_date >= ${lastMonthStartStr}
+          AND scheduled_date <= ${lastMonthEndStr}
       `),
       // Avg bill — last 30 days from job_history
       db.execute(sql`
-        SELECT COALESCE(AVG(revenue), 0)::numeric AS avg_bill
+        SELECT COALESCE(AVG(bill_rate), 0)::numeric AS avg_bill
         FROM job_history
         WHERE company_id = ${companyId}
-          AND job_date >= ${thirtyDaysAgoStr}
-          AND job_date <= ${todayStr}
+          AND scheduled_date >= ${thirtyDaysAgoStr}
+          AND scheduled_date <= ${todayStr}
       `),
-      // Avg quality score (last 90 days) — raw SQL per spec
+      // Avg quality score (last 90 days)
       db.execute(sql`
         SELECT AVG(score)::numeric AS avg_score
         FROM scorecards
         WHERE company_id = ${companyId}
           AND created_at >= ${ninetyDaysAgo}
       `),
-      // Active clients count — only active clients
+      // Active clients count
       db.select({ count: count() }).from(clientsTable)
         .where(and(eq(clientsTable.company_id, companyId), eq(clientsTable.is_active, true))),
       // At-risk: active clients with job_history but no service in last 45 days
-      // Excludes clients with no job_history (migration grace) and recently migrated clients
       db.execute(sql`
         SELECT COUNT(DISTINCT c.id)::int AS at_risk
         FROM clients c
@@ -441,7 +426,7 @@ router.get("/kpis", requireAuth, async (req, res) => {
             SELECT 1 FROM job_history jh2
             WHERE jh2.customer_id = c.id
               AND jh2.company_id = ${companyId}
-              AND jh2.job_date >= ${fortyFiveDaysAgoStr}
+              AND jh2.scheduled_date >= ${fortyFiveDaysAgoStr}
           )
           AND NOT EXISTS (
             SELECT 1 FROM jobs j
@@ -470,6 +455,48 @@ router.get("/kpis", requireAuth, async (req, res) => {
           const invoicedSet = new Set(invoicedJobIds.map(i => i.job_id));
           return [{ count: completedJobs.filter(j => !invoicedSet.has(j.id)).length }];
         }),
+
+      // HCP: Revenue Booked Today (jobs scheduled today, sum base_fee, excluding cancelled)
+      db.select({ total: sum(jobsTable.base_fee) }).from(jobsTable)
+        .where(and(
+          eq(jobsTable.company_id, companyId),
+          eq(jobsTable.scheduled_date, todayStr),
+          sql`${jobsTable.status} != 'cancelled'`,
+        )),
+
+      // HCP: Jobs Completed Today
+      db.select({ c: count() }).from(jobsTable)
+        .where(and(
+          eq(jobsTable.company_id, companyId),
+          eq(jobsTable.scheduled_date, todayStr),
+          eq(jobsTable.status, "complete"),
+        )),
+
+      // HCP: Avg Job Size — avg bill_rate from job_history last 30 days
+      db.execute(sql`
+        SELECT COALESCE(AVG(bill_rate), 0)::numeric AS avg_size
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${thirtyDaysAgoStr}
+          AND scheduled_date <= ${todayStr}
+      `),
+
+      // HCP: New Jobs Booked This Week — jobs created_at >= weekStart
+      db.select({ c: count() }).from(jobsTable)
+        .where(and(
+          eq(jobsTable.company_id, companyId),
+          gte(jobsTable.created_at, weekStart),
+        )),
+
+      // HCP: Booked Online This Month (source = 'online_booking' in job_history)
+      db.execute(sql`
+        SELECT COUNT(*)::int AS booked_online
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND source = 'online_booking'
+          AND scheduled_date >= ${monthStartStr}
+          AND scheduled_date <= ${todayStr}
+      `),
     ]);
 
     const weekRevNum = parseFloat((jhWeekRev.rows[0] as any)?.total || "0");
@@ -481,19 +508,21 @@ router.get("/kpis", requireAuth, async (req, res) => {
     const monthDelta = lastMonthRevNum > 0 ? Math.round(((monthRevNum - lastMonthRevNum) / lastMonthRevNum) * 100) : null;
 
     const avgBill = parseFloat((jhAvgBill.rows[0] as any)?.avg_bill || "0");
-
     const qualityScoreRaw = (avgScore as any).rows?.[0]?.avg_score;
     const qualityScore = qualityScoreRaw != null ? Math.round(parseFloat(qualityScoreRaw)) : null;
-
     const atRiskRaw = Number((atRiskResult.rows[0] as any)?.at_risk || 0);
     const unassigned = Number(unassignedToday[0]?.count || 0);
     const flagged = Number(flaggedToday[0]?.count || 0);
     const overdue = Number(overdueInvoices[0]?.count || 0);
     const notInvoiced = Number((completeNotInvoiced as any)[0]?.count || 0);
-
-    // Churn risk enabled — but only for clients with actual job_history records
-    const churnConfigured = true;
     const clientsAtRisk = atRiskRaw;
+
+    // HCP values
+    const revBookedToday = parseFloat((hcpRevBookedToday[0] as any)?.total || "0");
+    const jobsCompletedToday = Number((hcpJobsCompletedToday[0] as any)?.c || 0);
+    const avgJobSize30d = parseFloat((hcpAvgJobSize30d.rows[0] as any)?.avg_size || "0");
+    const newJobsThisWeek = Number((hcpNewJobsThisWeek[0] as any)?.c || 0);
+    const bookedOnlineMonth = Number((hcpBookedOnlineMonth.rows[0] as any)?.booked_online || 0);
 
     type ActionItem = { level: 'red' | 'amber' | 'blue'; text: string; action: string };
     const actions: ActionItem[] = [];
@@ -512,8 +541,16 @@ router.get("/kpis", requireAuth, async (req, res) => {
       active_clients: Number(activeClients[0]?.count || 0),
       quality_score: qualityScore,
       clients_at_risk: clientsAtRisk,
-      churn_configured: churnConfigured,
+      churn_configured: true,
       action_items: actions.slice(0, 5),
+      // HouseCall Pro KPI bar
+      hcp: {
+        rev_booked_today: revBookedToday,
+        jobs_completed_today: jobsCompletedToday,
+        avg_job_size_30d: avgJobSize30d,
+        new_jobs_this_week: newJobsThisWeek,
+        booked_online_month: bookedOnlineMonth,
+      },
     });
   } catch (err) {
     console.error("Dashboard kpis error:", err);
@@ -525,17 +562,18 @@ router.get("/revenue-chart", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
 
+    // job_history columns: bill_rate (amount), scheduled_date (date)
     const rows = await db.execute(sql`
       SELECT
-        TO_CHAR(DATE_TRUNC('month', job_date), 'Mon ''YY') AS month,
-        DATE_TRUNC('month', job_date) AS month_date,
-        COALESCE(SUM(revenue), 0)::numeric AS revenue,
+        TO_CHAR(DATE_TRUNC('month', scheduled_date), 'Mon ''YY') AS month,
+        DATE_TRUNC('month', scheduled_date) AS month_date,
+        COALESCE(SUM(bill_rate), 0)::numeric AS revenue,
         COUNT(*)::int AS jobs
       FROM job_history
       WHERE company_id = ${companyId}
-        AND job_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-        AND job_date <= NOW()
-      GROUP BY DATE_TRUNC('month', job_date)
+        AND scheduled_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+        AND scheduled_date <= NOW()
+      GROUP BY DATE_TRUNC('month', scheduled_date)
       ORDER BY month_date ASC
     `);
 
@@ -558,7 +596,6 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
     const todayStr = new Date().toISOString().split("T")[0];
 
     const [chargeFailedJobs, noCardAccounts, hoursVarianceJobs] = await Promise.all([
-      // Alert 1: Charge failed jobs
       db.select({
         id: jobsTable.id,
         account_id: jobsTable.account_id,
@@ -578,7 +615,6 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
       ))
       .limit(5),
 
-      // Alert 2: Accounts without payment method
       db.select({
         id: accountsTable.id,
         account_name: accountsTable.account_name,
@@ -593,7 +629,6 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
       ))
       .limit(5),
 
-      // Alert 3: Jobs with hours variance > 20%
       db.select({
         id: jobsTable.id,
         account_id: jobsTable.account_id,
@@ -624,15 +659,9 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
         account_id: job.account_id || undefined,
       });
     }
-
     for (const acct of noCardAccounts) {
-      alerts.push({
-        level: "amber",
-        text: `No payment method on file — ${acct.account_name}`,
-        account_id: acct.id,
-      });
+      alerts.push({ level: "amber", text: `No payment method on file — ${acct.account_name}`, account_id: acct.id });
     }
-
     for (const job of hoursVarianceJobs) {
       const allowed = parseFloat(job.allowed_hours || "0");
       const actual = parseFloat(job.actual_hours || "0");
