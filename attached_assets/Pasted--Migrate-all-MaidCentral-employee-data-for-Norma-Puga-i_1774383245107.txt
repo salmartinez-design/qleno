@@ -1,0 +1,288 @@
+```
+Migrate all MaidCentral employee data for Norma Puga into her 
+existing Qleno employee record. Find her by name 'Norma Puga' 
+under company slug 'phes-cleaning'. All operations are UPSERTs.
+Check before inserting — nothing gets duplicated.
+
+=== SECTION 1 — CORE EMPLOYEE INFO ===
+
+UPDATE employees SET
+  mc_employee_id = '26443',
+  date_of_birth = '1985-03-28',
+  hire_date = '2023-05-11',
+  email = 'Normalpuga@gmail.com',
+  phone = '317-400-9136',
+  employment_type = 'hourly',
+  status = 'active',
+  scorecard_score = 97
+WHERE name = 'Norma Puga'
+AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+
+Note: No driver's license number visible in MC export.
+Leave drivers_license_number and drivers_license_state NULL.
+
+=== SECTION 2 — TAGS AND SKILLS ===
+
+Skills: Maintenance Cleaning
+
+Tags:
+  - Scheduled
+  - Hourly  (pay tag — employee pay shows in office column 
+    of payroll summary reports)
+
+Note: Full Time and Part Time tags NOT set for Norma.
+Only Scheduled and Hourly.
+
+=== SECTION 3 — USER ACCOUNT ===
+
+email: Normalpuga@gmail.com
+role: technician
+two_factor_enabled: false
+is_active: true
+Do not reset password if account already exists.
+
+=== SECTION 4 — PAY STRUCTURE ===
+
+Same structure as other residential techs.
+Upsert by employee_id + scope_slug:
+
+COMMERCIAL — flat $20:
+  commercial-cleaning, ppm-common-areas, 
+  ppm-turnover, multi-unit-common-areas
+  solo: $20.00 | captain: $0.00 | teammate: $20.00 | travel: $0.00
+
+HOUSE CLEANING — 35%:
+  recurring-cleaning, deep-clean-move-in-out,
+  one-time-standard, hourly-deep-clean,
+  hourly-standard-cleaning
+  solo: 35% | captain: 0% | teammate: 35% | travel: $0.00
+
+=== SECTION 5 — PTO / SICK BALANCES ===
+
+Current balances:
+  pto_hours_available: 48
+  sick_hours_available: 32
+
+=== SECTION 6 — PTO HISTORY (42 entries) ===
+
+Upsert by employee_id + date_changed before inserting.
+
+date_changed             | pto_adj | pto_bal | sick_adj | sick_bal | notes
+2026-03-10 16:29:00      |  -8     |  48     |   0      |  32      | Approved
+2026-03-03 17:29:00      |   8     |  56     |   0      |  32      | Cancelled
+2026-02-27 11:41:00      |  -8     |  48     |   0      |  32      | Approved
+2026-01-26 17:51:00      |  -8     |  56     |   0      |  32      | Approved
+2026-01-17 09:04:00      |  -8     |  64     |   0      |  32      | Approved
+2026-01-02 17:28:00      |  68.25  |  72     |  19      |  32      | Update after PTO Audit
+2025-12-13 17:19:00      |  -8     |   3.75  |   0      |  13      | Approved
+2025-12-13 10:41:00      |   0     |  11.75  |  -6      |  13      | Approved
+2025-10-01 16:12:00      |  -6     |  11.75  |   0      |  19      | Approved
+2025-09-02 13:19:00      |  -8     |  17.75  |   0      |  19      | Approved
+2025-07-19 08:57:00      |  -8     |  25.75  |   0      |  19      | Approved
+2025-07-03 13:21:00      |   0     |  33.75  |  -5      |  19      | Approved
+2025-06-07 11:55:00      |  -8     |  33.75  |   0      |  24      | Approved
+2025-05-27 10:59:00      |   0     |  41.75  | -32      |  24      | (blank)
+2025-05-27 10:58:00      |   0     |  41.75  |  -8      |  56      | SICK day taken 5/21. Attendance not updated in time.
+2025-05-22 13:11:00      |   0     |  41.75  |  -8      |  64      | Approved
+2025-05-12 14:39:00      | -76     |  41.75  |   0      |  72      | Error
+2025-05-10 21:00:00      |  80     | 117.75  |  40      |  72      | 608: Default Policy
+2025-05-10 21:00:00      |   0     |  37.75  |   0      |  32      | 608: Default Policy - Carry Over Reset
+2025-05-10 09:32:00      |  -4     |  37.75  |   0      |  32      | Approved
+2025-05-09 18:38:00      |  40     |  41.75  |   0      |  32      | Employee will complete 2 years of service in 2 days
+2025-05-03 12:52:00      |  -5     |   1.75  |   0      |  32      | Approved
+2025-04-05 10:13:00      |  -5     |   6.75  |   0      |  32      | Approved
+2025-03-22 09:17:00      |  -5     |  11.75  |   0      |  32      | Approved
+2025-03-15 10:45:00      |  -5     |  16.75  |   0      |  32      | Approved
+2025-02-17 09:57:00      |  -8     |  21.75  |   0      |  32      | Approved
+2025-01-31 17:06:00      |  -4     |  29.75  |   0      |  32      | Approved
+2025-01-17 16:47:00      |   0     |  33.75  |  -8      |  32      | Approved
+2025-01-07 17:29:00      |  -6.25  |  33.75  |   0      |  40      | Approved
+2025-01-07 17:20:00      |  40     |  40     |  16      |  40      | (blank)
+2024-11-16 09:26:00      |   0     |   0     |  -8      |  24      | Approved
+2024-09-12 20:42:00      |   0     |   0     |  -8      |  32      | Approved
+2024-06-06 10:16:00      |  -8     |  32     |   0      |  40      | Approved
+2024-06-06 10:16:00      |  -8     |  24     |   0      |  40      | Approved
+2024-06-06 10:16:00      |  -8     |  16     |   0      |  40      | Approved
+2024-06-06 10:16:00      |  -8     |   8     |   0      |  40      | Approved
+2024-06-06 10:16:00      |  -8     |   0     |   0      |  40      | Approved
+2024-06-06 10:15:00      |  40     |  40     |   0      |  40      | Fix on payroll report
+2024-06-05 17:44:00      | -40     |   0     |   0      |  40      | Norma wanted to get paid for all her hours
+2024-05-29 12:33:00      |   0     |  40     |  40      |  40      | (blank)
+2024-05-10 21:00:00      |  40     |  40     |   0      |   0      | 608: Default Policy
+2024-05-10 21:00:00      |   0     |   0     |   0      |   0      | 608: Default Policy - Carry Over Reset
+
+=== SECTION 7 — ATTENDANCE STATS ===
+
+period_start: 2025-09-25
+period_end: 2026-03-24
+scheduled: 151
+worked: 147
+absent: 3
+time_off: 3
+excused: 0
+unexcused: 0
+paid_time_off: 7
+sick: 2
+late: 14
+score: 93
+
+=== SECTION 8 — PRODUCTIVITY METRICS ===
+
+period_start: 2025-09-27
+period_end: 2026-03-14
+
+scope_slug                 | productivity_pct
+deep-clean-move-in-out     | 107
+commercial-cleaning        | 127
+hourly-deep-clean          | 105
+hourly-standard-cleaning   | 105
+hourly-tasks               | 116
+multi-unit-common-areas    | 0
+one-time-standard          | 134
+ppm-common-areas           | 110
+ppm-turnover               | 103
+recurring-cleaning         | 113
+
+NOTE: 'hourly-tasks' is a new scope not seen in 
+Alejandra's record. Insert into employee_productivity 
+with slug 'hourly-tasks'. If the scope does not exist 
+in pricing_scopes, create a placeholder scope record:
+  name: 'Hourly Tasks'
+  slug: 'hourly-tasks'
+  scope_group: 'House Cleaning'
+  is_active: true
+  displayed_for_office: true
+  displayed_for_online: false
+
+=== SECTION 9 — ADDITIONAL PAY (80 records) ===
+
+Upsert by employee_id + date + amount + type.
+
+date        | amount    | hrs  | type                      | notes                                                                          | job_id
+2026-03-20  |  19.57    |  0   | bonus_other               | FE - Joe Cusimano/Claudia Mosier/Dylan Azadi to Daniel Walter etc - 27mi       |
+2026-03-14  | 160.00    |  8   | vacation_pay              | PTO Approved by MC                                                             |
+2026-03-13  |  18.34    |  0   | other_additional          | FE - Matt Handel/Robert Stortz/Jim Schultz/Walter Nunchuck to Daniel Walter etc|
+2026-03-04  |  90.00    |  4.5 | vacation_pay              | Approved by MC                                                                 |
+2026-03-02  | 100.00    |  0   | attendance_performance    | Feb 2026 Employee of the Month - MC                                            |
+2026-02-28  |  35.74    |  0   | amount_owed               | FE - Joe Cusimano/Claudia Mosier etc to Greg Ward/Adam Coppelman etc - 49.3mi  |
+2026-02-23  |  10.00    |  0   | tips                      | Tip - Recurring Standard Clean                                                 | 57554325
+2026-02-20  |  12.32    |  0   | amount_owed               | 0.8+0.2+13+3×0.725=12.325                                                      |
+2026-02-20  |  18.85    |  0   | amount_owed               | 9.8+5.2+11×0.725=18.85                                                         |
+2026-02-20  | -210.00   |  0   | amount_employee_owes      | Marina Clark cash - Norma kept cash, deducted from pay. Check date 2/27 SM     |
+2026-02-16  |  12.60    |  0   | other_additional          | Event - Junta (0.63 hrs x $20.00)                                              |
+2026-02-15  | 160.00    |  8   | sick_pay                  | Norma texted Maribel Sat 2/14 sick - Approved SM - Paid Via Zelle 2/20         |
+2026-02-13  |  12.32    |  0   | amount_owed               | FE - Joe Cusimano/Daniel Walter/Claudia Mosier/Dylan Azadi to Silas Hundt etc - 17mi |
+2026-02-06  |  13.92    |  0   | amount_owed_non_taxed     | 19.2×0.725=13.92                                                               |
+2026-02-04  | 100.00    |  0   | attendance_performance    | Jan 2026 Employee of the Month                                                 |
+2026-02-02  | 160.00    |  8   | vacation_pay              | PTO Requested 1/26/26 - Approved by MC                                         |
+2026-01-30  |  21.02    |  0   | amount_owed               | 26+3=29×0.725=21.025 Mileage Reimbursement                                     |
+2026-01-23  |  35.00    |  0   | amount_owed               | 35x$0.725=$25.37                                                               |
+2026-01-21  | 160.00    |  8   | vacation_pay              | PTO requested 1/16/26 - Approved by MC                                         |
+2026-01-16  |  15.15    |  0   | amount_owed               | 13+4.7+3.2=$15.15                                                              |
+2026-01-12  |  10.00    |  0   | compliment                | Yvette Coleman 5 Star Google Review                                            |
+2026-01-09  |  30.00    |  1.5 | other_additional          | Meeting at the Office 01/09/26                                                 |
+2026-01-05  | 120.00    |  6   | vacation_pay              | Unpaid time off changed to PTO - MC                                            |
+2026-01-02  | 160.00    |  0   | holiday_pay               | Holiday Pay                                                                    |
+2025-12-25  | 144.00    |  0   | holiday_pay               | Christmas Day                                                                  |
+2025-12-02  |  36.00    |  0   | tips                      | Tip - Hourly Standard Service                                                  | 57168723
+2025-11-27  | 144.00    |  8   | holiday_pay               | Thanksgiving                                                                   |
+2025-10-07  |  40.00    |  0   | tips                      | Tip - Flat Rate Standard                                                       | 14876327
+2025-10-05  |  10.00    |  0   | tips                      | Tip - Hourly Deep Cleaning                                                     | 54992155
+2025-08-22  |  40.00    |  0   | tips                      | Tip - Chen Home - Job Date: 8/22/2025                                          | 53552269
+2025-08-20  |  30.00    |  0   | tips                      | Tip - Hourly Recurrent Service                                                 | 52778999
+2025-08-03  |  30.00    |  0   | tips                      | Tip - Hourly Deep Cleaning                                                     | 52589742
+2025-07-25  | 144.00    |  0   | vacation_pay              | June 25th                                                                      |
+2025-07-14  |  10.00    |  0   | compliment                | Google Review from Caitlin Loney - Service from 7/1                            |
+2025-07-14  |   9.84    |  0   | tips                      | Tip - Hourly Standard Service                                                  | 50981812
+2025-07-04  | 144.00    |  0   | holiday_pay               | 4th of July paid holiday                                                       |
+2025-07-01  |  29.25    |  0   | tips                      | Tip - Hourly Standard Cleaning                                                 | 49607584
+2025-06-09  | 250.00    |  0   | employee_referral         | Referred Delia Martinez hired 12/9/2024                                        |
+2025-05-22  | 144.00    |  0   | sick_pay                  |                                                                                |
+2025-05-21  | 144.00    |  0   | sick_pay                  |                                                                                |
+2025-05-05  |  90.00    |  5   | vacation_pay              | 5 hours of PTO on 5/5                                                          |
+2025-04-25  |  27.00    |  0   | amount_owed               | Meeting 4/25/25 7:00am-8:30am                                                  |
+2025-04-23  |  30.00    |  0   | tips                      | Tip - Recurring Standard Cleaning                                              | 15945622
+2025-04-18  |  19.83    |  0   | tips                      | Tip - Flat Rate Move In                                                        | 47681520
+2025-04-11  |  66.00    |  0   | amount_owed               | Lockout: 4/11/2025 - Derik Jardine / Flat Rate Standard / General Clean        | 13182490
+2025-04-07  |  90.00    |  5   | vacation_pay              | Paid time off request                                                          |
+2025-04-01  |  36.00    |  0   | tips                      | Tip - Standard Clean Hourly                                                    | 47951465
+2025-03-28  | 144.00    |  0   | bonus_other               | Birthday 03/28                                                                 |
+2025-03-18  |  90.00    |  5   | vacation_pay              | PTO 3/18 5 hours 1:00pm-6:00pm                                                 |
+2025-03-13  |  36.00    |  0   | bonus_other               | Bed making for Jim Schultz 03/12                                               |
+2025-03-04  |  10.00    |  0   | compliment                | Google Review Alexandra Gavin (Alexandra Gross) 02/27/25                       |
+2025-02-28  | 100.00    |  0   | amount_owed               | $100.00 for February Employee of the Month                                     |
+2025-02-25  |  10.00    |  0   | other_additional          | Google Review from Jessica Thompson                                            |
+2025-02-22  | 144.00    |  8   | vacation_pay              | PTO                                                                            |
+2025-02-19  |  66.00    |  0   | tips                      | Tip - Flat Rate Standard                                                       | 27590550
+2025-02-14  |  27.00    |  1.5 | amount_owed               | Team Meeting 7:30am-9:00am                                                     |
+2025-02-02  |  29.25    |  0   | tips                      | Tip - Hourly Deep Cleaning                                                     | 19452423
+2025-01-27  |  35.20    |  0   | tips                      | Tip - Flat Rate Standard                                                       | 16178857
+2024-12-25  | 144.00    |  8   | holiday_pay               | Christmas Pay                                                                  |
+2024-12-20  |  85.30    |  0   | tips                      | Tip - Flat rate move in/out                                                    | 16393942
+2024-12-13  |  20.00    |  0   | tips                      | Tip - Flat Deep Clean                                                          | 16382806
+2024-11-28  | 144.00    |  8   | holiday_pay               | Thanksgiving                                                                   |
+2024-11-19  | 144.00    |  8   | sick_pay                  |                                                                                |
+2024-11-12  |  33.27    |  0   | tips                      | Tip - Flat Rate Deep Clean                                                     | 15870393
+2024-10-15  |  30.00    |  0   | tips                      | Tip - Hourly Deep Clean                                                        | 15471217
+2024-10-04  |  27.00    |  0   | tips                      | Tip - Devitt Home                                                              | 15178321
+2024-10-02  |  20.05    |  0   | tips                      | Tip - Standard                                                                 | 15166732
+2024-09-25  |  38.88    |  0   | tips                      | Tip - Standard                                                                 | 15089229
+2024-09-24  |  27.00    |  0   | tips                      | Tip - Noiles Home                                                              | 13007351
+2024-09-21  |  35.95    |  0   | tips                      | Tip - Devitt Home                                                              | 15004766
+2024-09-17  | 144.00    |  8   | sick_pay                  | Norma requested sick pay on 9/12 for 9/17                                      |
+2024-09-07  |  40.50    |  0   | amount_owed               | Zoom team meeting 9/7                                                          |
+2024-08-12  |  13.50    |  0   | tips                      | Tip - Fields Home - Job Date: 8/12/2024                                        | 14506050
+2024-07-04  | 144.00    |  8   | holiday_pay               | 4th of July                                                                    |
+2024-07-03  |  49.50    |  0   | tips                      | Tip - Kane Home                                                                | 13943729
+2024-05-31  | 144.00    |  0   | vacation_pay              | PTO - 8 hours                                                                  |
+2024-05-30  | 144.00    |  0   | vacation_pay              | PTO - 8 hours                                                                  |
+2024-05-29  | 144.00    |  0   | vacation_pay              | PTO - 8 hours                                                                  |
+2024-05-28  | 144.00    |  0   | vacation_pay              | PTO - 8 hours                                                                  |
+2024-05-27  | 144.00    |  0   | vacation_pay              | PTO - 8 hours                                                                  |
+
+=== SECTION 10 — CONTACT TICKETS (11 records) ===
+
+Upsert by employee_id + job_date + ticket_type.
+
+created_date | type                  | job_date   | notes
+2026-01-18   | complaint_poor_clean  | 2026-01-17 | Client complained about missed areas and was not satisfied. Attached pictures.
+2025-03-21   | complaint_poor_clean  | 2025-03-21 | Crumbs and stuff left on floor. Doesn't look like house was thoroughly vacuumed or swept. Below usual quality level.
+2025-02-07   | complaint_poor_clean  | 2025-02-06 | Two ladies showed up two hours early with no communication. Glass on kitchen lights still dusty despite multiple requests to clean them.
+2024-12-13   | complaint_poor_clean  | 2024-12-12 | Client upset about missed areas. Floors by trash can. Things not put back as they were at arrival.
+2024-10-05   | breakage              | 2024-10-05 | Norma was dusting with corner duster and accidentally hit an item. It fell and broke off.
+2024-09-17   | complaint_poor_clean  | 2024-09-16 | Some baseboards missed, a window sill, side of oven tray, sides of appliances.
+2024-09-11   | complaint_poor_clean  | 2024-09-09 | Unit 1106 - Toilet, bathroom and kitchen floor were not done or not done correctly.
+2024-08-17   | complaint_poor_clean  | 2024-08-17 | Client said they don't know what a deep clean consists of. Floors sticky, bathrooms dirty despite time spent. Basement said to be complete but was not.
+2024-08-14   | complaint_poor_clean  | 2024-08-05 | Walter complained about grease in the stove. Mercedes had to return 8/13 to redo it.
+2024-07-31   | complaint_poor_clean  | 2024-07-31 | One door wasn't cleaned.
+2024-07-25   | compliment            | 2024-07-25 | (no notes provided)
+
+=== DESIGN VERIFICATION ===
+
+After migration confirm these display correctly
+on Norma's employee profile:
+
+1. Snapshot: hire date 5/11/2023, skills Maintenance Cleaning,
+   tag Scheduled only, scorecard 97%
+
+2. Productivity panel: 10 scope rows including 
+   Hourly Tasks 116%
+
+3. Attendance stats: 151 scheduled, 147 worked, score 93,
+   14 late (10%)
+
+4. PTO balance cards: 48 PTO hours, 32 Sick hours
+
+5. PTO History: 42 rows in correct order
+
+6. Additional Pay: 80 records sorted date descending
+
+7. Contact Tickets: 11 records — 9 complaints, 
+   1 breakage, 1 compliment
+
+8. Tags & Skills: Maintenance Cleaning checked,
+   Hourly tag active, Scheduled tag active,
+   Full Time NOT checked
+
+All seeds idempotent. Confirm clean build and publish.
+```
