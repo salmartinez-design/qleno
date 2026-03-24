@@ -252,7 +252,6 @@ router.get("/today", requireAuth, async (req, res) => {
       } else if (empJobs.every(j => j.status === 'complete')) {
         status = 'COMPLETE';
       } else {
-        // Check if next job starts within 30 min
         const nextJob = empJobs.find(j => j.status === 'scheduled' && j.scheduled_time);
         if (nextJob?.scheduled_time) {
           const [h, m] = nextJob.scheduled_time.split(':').map(Number);
@@ -277,7 +276,6 @@ router.get("/today", requireAuth, async (req, res) => {
     // Auto-generate alerts
     const alerts: { type: string; message: string; action: string; id?: number }[] = [];
 
-    // Employees not clocked in with imminent jobs
     const now15min = new Date(nowMs + 15 * 60 * 1000);
     for (const emp of employeeBoard) {
       if (emp.status === 'SCHEDULED') {
@@ -316,7 +314,6 @@ router.get("/today", requireAuth, async (req, res) => {
       });
     }
 
-    // En route count
     const enRouteCount = employeeBoard.filter(e => e.status === 'EN ROUTE').length;
 
     return res.json({
@@ -350,64 +347,101 @@ router.get("/kpis", requireAuth, async (req, res) => {
     const lastMonthStartStr = lastMonthStart.toISOString().split("T")[0];
     const lastMonthEndStr = lastMonthEnd.toISOString().split("T")[0];
 
-    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Current week = Mon–Sun containing today
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
     const weekStartStr = weekStart.toISOString().split("T")[0];
     const prevWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
     const prevWeekStartStr = prevWeekStart.toISOString().split("T")[0];
+    const prevWeekEndStr = new Date(weekStart.getTime() - 1).toISOString().split("T")[0];
 
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
 
+    // All revenue KPIs now read from job_history (real MC data)
     const [
-      weekRev, prevWeekRev,
-      monthRev, lastMonthRev,
-      monthJobs,
+      jhWeekRev,
+      jhPrevWeekRev,
+      jhMonthRev,
+      jhLastMonthRev,
+      jhAvgBill,
       avgScore,
       activeClients,
-      atRiskClients,
+      atRiskResult,
       unassignedToday,
       flaggedToday,
       overdueInvoices,
       completeNotInvoiced,
     ] = await Promise.all([
-      // Week revenue
-      db.select({ total: sum(invoicesTable.total) }).from(invoicesTable)
-        .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "paid"), gte(invoicesTable.created_at, weekStart))),
+      // Week revenue from job_history (Mon–today)
+      db.execute(sql`
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${weekStartStr}
+          AND scheduled_date <= ${todayStr}
+      `),
       // Previous week revenue
-      db.select({ total: sum(invoicesTable.total) }).from(invoicesTable)
-        .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "paid"), gte(invoicesTable.created_at, prevWeekStart), lt(invoicesTable.created_at, weekStart))),
-      // Month revenue
-      db.select({ total: sum(invoicesTable.total) }).from(invoicesTable)
-        .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "paid"), gte(invoicesTable.created_at, monthStart))),
+      db.execute(sql`
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${prevWeekStartStr}
+          AND scheduled_date <= ${prevWeekEndStr}
+      `),
+      // This month revenue
+      db.execute(sql`
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${monthStartStr}
+          AND scheduled_date <= ${todayStr}
+      `),
       // Last month revenue
-      db.select({ total: sum(invoicesTable.total) }).from(invoicesTable)
-        .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "paid"), gte(invoicesTable.created_at, lastMonthStart), lte(invoicesTable.created_at, lastMonthEnd))),
-      // Month jobs (for avg bill)
-      db.select({ count: count(), fee_sum: sum(jobsTable.base_fee) }).from(jobsTable)
-        .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, monthStartStr))),
-      // Avg quality score (last 30 days)
+      db.execute(sql`
+        SELECT COALESCE(SUM(bill_rate), 0)::numeric AS total
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${lastMonthStartStr}
+          AND scheduled_date <= ${lastMonthEndStr}
+      `),
+      // Avg bill rate — last 30 days from job_history
+      db.execute(sql`
+        SELECT COALESCE(AVG(bill_rate), 0)::numeric AS avg_bill
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${thirtyDaysAgoStr}
+          AND scheduled_date <= ${todayStr}
+      `),
+      // Avg quality score (last 30 days) — keep from scorecards
       db.select({ avg: avg(scorecardsTable.score) }).from(scorecardsTable)
         .where(and(eq(scorecardsTable.company_id, companyId), eq(scorecardsTable.excluded, false), gte(scorecardsTable.created_at, thirtyDaysAgo))),
-      // Active clients
+      // Active clients count — from clients table
       db.select({ count: count() }).from(clientsTable).where(eq(clientsTable.company_id, companyId)),
-      // Clients at risk: has Qleno job history AND no job in last 30 days
-      // Clients with zero Qleno history are excluded (migration grace period — newly imported clients)
-      db.select({ count: count() }).from(clientsTable)
-        .where(eq(clientsTable.company_id, companyId))
-        .then(async () => {
-          const [clientsWithHistory, clientsWithRecentJob] = await Promise.all([
-            db.select({ client_id: jobsTable.client_id }).from(jobsTable)
-              .where(eq(jobsTable.company_id, companyId))
-              .groupBy(jobsTable.client_id),
-            db.select({ client_id: jobsTable.client_id }).from(jobsTable)
-              .where(and(eq(jobsTable.company_id, companyId), gte(jobsTable.scheduled_date, thirtyDaysAgoStr))),
-          ]);
-          const historySet = new Set(clientsWithHistory.map(j => j.client_id));
-          const recentSet  = new Set(clientsWithRecentJob.map(j => j.client_id));
-          // Only count clients who have at least one Qleno job but none in last 30 days
-          const atRiskCount = [...historySet].filter(id => !recentSet.has(id)).length;
-          return [{ count: atRiskCount }];
-        }),
+      // At-risk: clients with job_history records but no booking in last 30 days
+      // Excludes clients who have never appeared in job_history (migration grace)
+      db.execute(sql`
+        SELECT COUNT(DISTINCT c.id)::int AS at_risk
+        FROM clients c
+        WHERE c.company_id = ${companyId}
+          AND EXISTS (
+            SELECT 1 FROM job_history jh
+            WHERE jh.customer_id = c.id AND jh.company_id = ${companyId}
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM job_history jh2
+            WHERE jh2.customer_id = c.id
+              AND jh2.company_id = ${companyId}
+              AND jh2.scheduled_date >= ${thirtyDaysAgoStr}
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM jobs j
+            WHERE j.client_id = c.id
+              AND j.company_id = ${companyId}
+              AND j.scheduled_date >= ${thirtyDaysAgoStr}
+          )
+      `),
       // Unassigned jobs today
       db.select({ count: count() }).from(jobsTable)
         .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.scheduled_date, todayStr), isNull(jobsTable.assigned_user_id))),
@@ -417,53 +451,47 @@ router.get("/kpis", requireAuth, async (req, res) => {
       // Overdue invoices
       db.select({ count: count() }).from(invoicesTable)
         .where(and(eq(invoicesTable.company_id, companyId), eq(invoicesTable.status, "overdue"))),
-      // Jobs complete but not invoiced
-      db.select({ count: count() }).from(jobsTable)
-        .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete")))
-        .then(async () => {
-          const completedJobIds = await db.select({ id: jobsTable.id }).from(jobsTable)
-            .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, monthStartStr)));
+      // Jobs complete but not invoiced (this month)
+      db.select({ id: jobsTable.id }).from(jobsTable)
+        .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, monthStartStr)))
+        .then(async (completedJobs) => {
+          if (completedJobs.length === 0) return [{ count: 0 }];
           const invoicedJobIds = await db.select({ job_id: invoicesTable.job_id }).from(invoicesTable)
             .where(and(eq(invoicesTable.company_id, companyId), isNotNull(invoicesTable.job_id)));
           const invoicedSet = new Set(invoicedJobIds.map(i => i.job_id));
-          return [{ count: completedJobIds.filter(j => !invoicedSet.has(j.id)).length }];
+          return [{ count: completedJobs.filter(j => !invoicedSet.has(j.id)).length }];
         }),
     ]);
 
-    const weekRevNum = parseFloat(weekRev[0]?.total || "0");
-    const prevWeekRevNum = parseFloat(prevWeekRev[0]?.total || "0");
+    const weekRevNum = parseFloat((jhWeekRev.rows[0] as any)?.total || "0");
+    const prevWeekRevNum = parseFloat((jhPrevWeekRev.rows[0] as any)?.total || "0");
     const weekDelta = prevWeekRevNum > 0 ? Math.round(((weekRevNum - prevWeekRevNum) / prevWeekRevNum) * 100) : null;
 
-    const monthRevNum = parseFloat(monthRev[0]?.total || "0");
-    const lastMonthRevNum = parseFloat(lastMonthRev[0]?.total || "0");
+    const monthRevNum = parseFloat((jhMonthRev.rows[0] as any)?.total || "0");
+    const lastMonthRevNum = parseFloat((jhLastMonthRev.rows[0] as any)?.total || "0");
     const monthDelta = lastMonthRevNum > 0 ? Math.round(((monthRevNum - lastMonthRevNum) / lastMonthRevNum) * 100) : null;
 
-    const jobCount = Number(monthJobs[0]?.count || 0);
-    const feeSum = parseFloat(monthJobs[0]?.fee_sum || "0");
-    const avgBill = jobCount > 0 ? feeSum / jobCount : 0;
+    const avgBill = parseFloat((jhAvgBill.rows[0] as any)?.avg_bill || "0");
 
     const qualityScore = avgScore[0]?.avg ? Math.round(parseFloat(avgScore[0].avg) * 25) : null;
 
-    const atRiskRaw = Number((atRiskClients as any)[0]?.count || 0);
+    const atRiskRaw = Number((atRiskResult.rows[0] as any)?.at_risk || 0);
     const unassigned = Number(unassignedToday[0]?.count || 0);
     const flagged = Number(flaggedToday[0]?.count || 0);
     const overdue = Number(overdueInvoices[0]?.count || 0);
     const notInvoiced = Number((completeNotInvoiced as any)[0]?.count || 0);
 
-    // Churn risk is suppressed until thresholds are configured in Company Settings
-    // When false, at-risk counts show "—" in the UI and no alert fires
-    const churnConfigured = false;
-    const clientsAtRisk = churnConfigured ? atRiskRaw : null;
+    // Churn risk enabled — but only for clients with actual job_history records
+    const churnConfigured = true;
+    const clientsAtRisk = atRiskRaw;
 
-    // Build action items
     type ActionItem = { level: 'red' | 'amber' | 'blue'; text: string; action: string };
     const actions: ActionItem[] = [];
     if (flagged > 0) actions.push({ level: 'red', text: `${flagged} flagged clock-in${flagged > 1 ? 's' : ''} need review`, action: '/employees/clocks' });
     if (unassigned > 0) actions.push({ level: 'red', text: `${unassigned} job${unassigned > 1 ? 's' : ''} today ${unassigned > 1 ? 'are' : 'is'} unassigned`, action: '/jobs' });
     if (overdue > 0) actions.push({ level: 'red', text: `${overdue} invoice${overdue > 1 ? 's' : ''} overdue — review immediately`, action: '/invoices' });
     if (notInvoiced > 0) actions.push({ level: 'amber', text: `${notInvoiced} completed job${notInvoiced > 1 ? 's' : ''} this month not yet invoiced`, action: '/invoices' });
-    // At-risk booking alert only fires when churn is configured AND there are real at-risk clients
-    if (churnConfigured && atRiskRaw > 0) actions.push({ level: 'amber', text: `${atRiskRaw} client${atRiskRaw > 1 ? 's' : ''} with no booking in 30+ days`, action: '/customers' });
+    if (atRiskRaw > 0) actions.push({ level: 'amber', text: `${atRiskRaw} client${atRiskRaw > 1 ? 's' : ''} with no booking in 30+ days`, action: '/customers' });
 
     return res.json({
       week_revenue: weekRevNum,
@@ -479,6 +507,37 @@ router.get("/kpis", requireAuth, async (req, res) => {
     });
   } catch (err) {
     console.error("Dashboard kpis error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/revenue-chart", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+
+    const rows = await db.execute(sql`
+      SELECT
+        TO_CHAR(DATE_TRUNC('month', scheduled_date), 'Mon ''YY') AS month,
+        DATE_TRUNC('month', scheduled_date) AS month_date,
+        COALESCE(SUM(bill_rate), 0)::numeric AS revenue,
+        COUNT(*)::int AS jobs
+      FROM job_history
+      WHERE company_id = ${companyId}
+        AND scheduled_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+        AND scheduled_date <= NOW()
+      GROUP BY DATE_TRUNC('month', scheduled_date)
+      ORDER BY month_date ASC
+    `);
+
+    return res.json({
+      data: rows.rows.map((r: any) => ({
+        month: r.month,
+        revenue: parseFloat(r.revenue),
+        jobs: Number(r.jobs),
+      })),
+    });
+  } catch (err) {
+    console.error("Revenue chart error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -505,96 +564,83 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
       .where(and(
         eq(jobsTable.company_id, companyId),
         isNotNull(jobsTable.charge_failed_at),
-        isNull(jobsTable.charge_succeeded_at),
-        isNotNull(jobsTable.account_id),
-      )),
+        eq(jobsTable.status, "complete"),
+      ))
+      .limit(5),
 
-      // Alert 2: Accounts expecting auto-charge but no card on file
+      // Alert 2: Accounts without payment method
       db.select({
         id: accountsTable.id,
         account_name: accountsTable.account_name,
+        billing_type: accountsTable.billing_type,
       })
       .from(accountsTable)
       .where(and(
         eq(accountsTable.company_id, companyId),
         eq(accountsTable.is_active, true),
-        sql`${accountsTable.payment_method} = 'card_on_file'`,
         isNull(accountsTable.stripe_customer_id),
-      )),
+        eq(accountsTable.billing_type, "invoice"),
+      ))
+      .limit(5),
 
-      // Alert 3: Today's completed commercial jobs with hours overrun > 0.5
+      // Alert 3: Jobs with hours variance > 20%
       db.select({
         id: jobsTable.id,
         account_id: jobsTable.account_id,
         account_name: accountsTable.account_name,
-        estimated_hours: jobsTable.estimated_hours,
-        billed_hours: jobsTable.billed_hours,
-        hourly_rate: jobsTable.hourly_rate,
-        property_address: accountPropertiesTable.address,
-        assigned_user_name: sql<string>`concat(${usersTable.first_name}, ' ', ${usersTable.last_name})`,
-        charge_attempted_at: jobsTable.charge_attempted_at,
+        allowed_hours: jobsTable.allowed_hours,
+        actual_hours: jobsTable.actual_hours,
+        scheduled_date: jobsTable.scheduled_date,
       })
       .from(jobsTable)
       .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
-      .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
-      .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
       .where(and(
         eq(jobsTable.company_id, companyId),
-        eq(jobsTable.status, "complete"),
         eq(jobsTable.scheduled_date, todayStr),
-        isNotNull(jobsTable.account_id),
-        isNotNull(jobsTable.billed_hours),
-        isNotNull(jobsTable.estimated_hours),
-        isNull(jobsTable.charge_attempted_at),
-        sql`${jobsTable.billing_method} = 'hourly'`,
-        sql`${jobsTable.billed_hours}::numeric > ${jobsTable.estimated_hours}::numeric + 0.5`,
-      )),
+        isNotNull(jobsTable.actual_hours),
+        isNotNull(jobsTable.allowed_hours),
+      ))
+      .limit(10),
     ]);
 
-    const alerts: { level: string; type: string; text: string; job_id?: number; account_id?: number }[] = [];
+    type Alert = { level: string; text: string; job_id?: number; account_id?: number };
+    const alerts: Alert[] = [];
 
-    for (const j of chargeFailedJobs) {
-      const amt = j.billed_amount ? `$${parseFloat(j.billed_amount).toFixed(2)}` : "unknown amount";
-      const date = j.charge_failed_at ? new Date(j.charge_failed_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-      const addr = j.property_address ? `${j.property_address}${j.property_city ? `, ${j.property_city}` : ""}` : "";
+    for (const job of chargeFailedJobs) {
       alerts.push({
         level: "red",
-        type: "charge_failed",
-        text: `${j.account_name} — ${amt} charge failed on ${date}${addr ? ` · ${addr}` : ""}`,
-        job_id: j.id,
-        account_id: j.account_id ?? undefined,
+        text: `Charge failed — ${job.account_name || 'Account'}: $${parseFloat(job.billed_amount || "0").toFixed(2)} at ${job.property_address || 'unknown address'}`,
+        job_id: job.id,
+        account_id: job.account_id || undefined,
       });
     }
 
-    for (const j of hoursVarianceJobs) {
-      const est = j.estimated_hours ? parseFloat(j.estimated_hours) : 0;
-      const billed = j.billed_hours ? parseFloat(j.billed_hours) : 0;
-      const rate = j.hourly_rate ? parseFloat(j.hourly_rate) : 0;
-      const extra = Math.max(0, billed - est);
-      const extraCost = extra * rate;
-      const addr = j.property_address || "";
+    for (const acct of noCardAccounts) {
       alerts.push({
         level: "amber",
-        type: "hours_variance",
-        text: `${j.assigned_user_name} ran ${extra.toFixed(1)}h over at ${addr} · $${extraCost.toFixed(2)} additional billed`,
-        job_id: j.id,
-        account_id: j.account_id ?? undefined,
+        text: `No payment method on file — ${acct.account_name}`,
+        account_id: acct.id,
       });
     }
 
-    for (const a of noCardAccounts) {
-      alerts.push({
-        level: "amber",
-        type: "no_card_on_file",
-        text: `${a.account_name} — no card on file. Account expects auto-charge.`,
-        account_id: a.id,
-      });
+    for (const job of hoursVarianceJobs) {
+      const allowed = parseFloat(job.allowed_hours || "0");
+      const actual = parseFloat(job.actual_hours || "0");
+      if (allowed > 0 && Math.abs(actual - allowed) / allowed > 0.2) {
+        const over = actual > allowed;
+        alerts.push({
+          level: over ? "amber" : "blue",
+          text: `Hours variance — ${job.account_name || 'Job'}: ${actual.toFixed(1)}h actual vs ${allowed.toFixed(1)}h allowed (${over ? '+' : ''}${Math.round(((actual - allowed) / allowed) * 100)}%)`,
+          job_id: job.id,
+          account_id: job.account_id || undefined,
+        });
+      }
     }
 
     return res.json({ alerts });
   } catch (err) {
     console.error("Commercial alerts error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ alerts: [] });
   }
 });
 

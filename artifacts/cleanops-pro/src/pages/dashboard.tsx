@@ -6,6 +6,7 @@ import { useLocation } from "wouter";
 import { ChevronRight, Calendar, ShieldAlert, Building2, Car, Check, X } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -68,6 +69,23 @@ function useKpis() {
   return data;
 }
 
+function useRevenueChart() {
+  const [data, setData] = useState<{ month: string; revenue: number; jobs: number }[]>([]);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await apiFetch('/api/dashboard/revenue-chart');
+        if (r.ok) {
+          const json = await r.json();
+          setData(json.data || []);
+        }
+      } catch {}
+    };
+    load();
+  }, []);
+  return data;
+}
+
 function useGreeting(firstName: string) {
   const hour = new Date().getHours();
   if (hour < 12) return `Good morning, ${firstName}.`;
@@ -84,6 +102,7 @@ export default function Dashboard() {
 
   const today = useToday(activeBranchId);
   const kpis = useKpis();
+  const revenueChart = useRevenueChart();
 
   const token = useAuthStore(state => state.token) || '';
   let firstName = 'there';
@@ -249,7 +268,62 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* ── SECTION 3B: INTELLIGENCE STRIP ───────────────── */}
+        {/* ── SECTION 3B: REVENUE TREND CHART ─────────────── */}
+        {revenueChart.length > 0 && (
+          <div style={{ ...CARD, padding: '18px 20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 14 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontFamily: FF }}>
+                Revenue — Last 12 Months
+              </p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0, fontFamily: FF }}>
+                {revenueChart.reduce((s, r) => s + r.revenue, 0) >= 1_000_000
+                  ? `$${(revenueChart.reduce((s, r) => s + r.revenue, 0) / 1_000_000).toFixed(2)}M total`
+                  : `$${(revenueChart.reduce((s, r) => s + r.revenue, 0) / 1000).toFixed(1)}k total`}
+              </p>
+            </div>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={revenueChart} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00C9A0" stopOpacity={0.18} />
+                    <stop offset="95%" stopColor="#00C9A0" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fontSize: 10, fill: '#9E9B94', fontFamily: FF }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={isMobile ? 2 : 0}
+                />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#9E9B94', fontFamily: FF }}
+                  axisLine={false}
+                  tickLine={false}
+                  tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`}
+                  width={44}
+                />
+                <Tooltip
+                  contentStyle={{ fontFamily: FF, fontSize: 12, borderRadius: 8, border: '1px solid #E5E2DC', boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}
+                  formatter={(value: number) => [`$${value.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, 'Revenue']}
+                  labelStyle={{ fontWeight: 600, color: '#1A1917' }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#00C9A0"
+                  strokeWidth={2}
+                  fill="url(#revGrad)"
+                  dot={false}
+                  activeDot={{ r: 4, fill: '#00C9A0', strokeWidth: 0 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {/* ── SECTION 3C: INTELLIGENCE STRIP ───────────────── */}
         {kpis && (
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: 10 }}>
             {[
