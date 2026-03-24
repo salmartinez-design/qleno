@@ -467,6 +467,17 @@ export async function seedIfNeeded() {
     } else {
       console.log(`[seed] Real PHES employees OK (${realEmpCount} found) — skipping import`);
     }
+
+    // ── Ensure office user credentials (always runs) ──────────────────────────
+    const officeHash = await bcrypt.hash("phes1234", 10);
+    await db.update(usersTable)
+      .set({ password_hash: officeHash, role: "admin" } as any)
+      .where(eq(usersTable.email, "info@phes.io"));
+    await db.update(usersTable)
+      .set({ password_hash: officeHash } as any)
+      .where(eq(usersTable.email, "franciscojestevezs@gmail.com"));
+    console.log("[seed] Office user credentials ensured (info@phes.io → admin, phes1234)");
+
   } catch (err) {
     console.error("[seed] Seed error (non-fatal):", err);
   }
