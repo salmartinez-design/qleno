@@ -1,0 +1,291 @@
+I've read all 99 clients from the PDF. I can't query Supabase directly, but here's what I'll do: give you a clean SQL audit query to run in Supabase's SQL editor that compares everything — existence, cadence, and monthly value — against the PDF source of truth. I also spotted one data issue in the PDF itself.
+
+**Issue flagged in the PDF:** Tom and Carol Butler's city field shows corrupted characters (`"†–ç6F ÆP`) — that's a PDF encoding artifact. Their city is likely Oak Lawn or Chicago — you'll want to verify and correct in Qleno.
+
+---
+
+Paste this into the Supabase SQL editor:
+
+```sql
+-- ============================================================
+-- QLENO ACTIVE CLIENT AUDIT — vs. MC Active Clients Report
+-- March 24, 2026
+-- Run in Supabase SQL Editor
+-- ============================================================
+
+-- STEP 1: Check which PDF clients are MISSING from Qleno entirely
+-- (No match on name, status = active)
+WITH pdf_clients (name) AS (
+  VALUES
+    ('Anthony Saguto'),
+    ('Erickson Property Management 4001 W 93rd Pl'),
+    ('Adam Scholz'),
+    ('Marco Useche'),
+    ('9708 South Nottingham Corporation.'),
+    ('Tricia Kalchbrenner'),
+    ('Nathaniel Pomeroy'),
+    ('PPM | 3510 N Pine Grove Ave'),
+    ('Sarah Boersma'),
+    ('Technology Resource Experts LLC'),
+    ('Yates Rubio'),
+    ('Emma Weissler'),
+    ('Peggy Hanlon'),
+    ('Tom and Carol Butler'),
+    ('Amee Noethe'),
+    ('Amy Mieding'),
+    ('Gloria Blanchard'),
+    ('Bernardo Carvalho'),
+    ('10308 Circle Drive'),
+    ('Rone Tempest'),
+    ('Kathryn Galley'),
+    ('Crystal Sánchez'),
+    ('Adam Coppelman'),
+    ('Dylan Azadi'),
+    ('Cucci Property Management - 10410 Moody Avenue'),
+    ('Bill Azzarello 9620 S Komensky'),
+    ('Shellie Ehrenstrom'),
+    ('Jalinia Logan'),
+    ('Aaron Decker'),
+    ('5641 Circle Drive'),
+    ('Robert Campbell'),
+    ('Matt St Peter'),
+    ('Vanessa Radtke'),
+    ('Ciana Lesley'),
+    ('Kristen Ivy'),
+    ('Jami Helland'),
+    ('KMA 4846 W North Offices'),
+    ('Cucci Realty Palos Hills'),
+    ('Amber Swanson'),
+    ('Bryan Hopkinson'),
+    ('Matt Handel'),
+    ('Chris Schultz'),
+    ('Kassandra Harris'),
+    ('City Light Church'),
+    ('Heritage Condominium'),
+    ('Molly Leonard'),
+    ('Cucci Realty 11901-05 South Lawndale'),
+    ('Ashley Wedge'),
+    ('Stanley Kuba'),
+    ('Jim Schultz'),
+    ('Michael Baffoe'),
+    ('Walter Nunchuck'),
+    ('John Piscopo'),
+    ('Karen Fergle'),
+    ('Angelica Rangel'),
+    ('Christine Doherty'),
+    ('Hickory Hills Condominium'),
+    ('KMA Eggleston'),
+    ('WR ASSET ADMIN, INC'),
+    ('Bill Garlanger'),
+    ('4128 W Cullom Condominium Assoc.'),
+    ('Richard Davis'),
+    ('Joe Cusimano'),
+    ('Dawn Jacobs'),
+    ('Heather Kelly'),
+    ('Cucci Realty 10418 S Keating'),
+    ('David De Arruda'),
+    ('Damian Ehrlicher'),
+    ('Julie Mitros'),
+    ('Terry Biddle'),
+    ('Todd Tue'),
+    ('Joshua Hillian'),
+    ('Robert Stortz'),
+    ('KMA Ashland'),
+    ('KMA Lamon'),
+    ('KMA North Ave'),
+    ('Marija Brankov'),
+    ('KMA Tracy'),
+    ('Caravel Health'),
+    ('Anthony Cooke'),
+    ('Alejandro Cancel'),
+    ('Claudia Mosier'),
+    ('Tamara Ditter'),
+    ('Cucci Realty Chicago Ridge'),
+    ('Edie Crowley'),
+    ('KMA 63rd'),
+    ('Derik Jardine'),
+    ('Sally Ozinga'),
+    ('Diana Cade'),
+    ('Ashley Doss'),
+    ('Daveco 18440 Torrence Lansing'),
+    ('Daveco 18428 Torrence Lansing'),
+    ('Lauren Schultz'),
+    ('Jordan Szczepanski'),
+    ('Greg Ward'),
+    ('Daryll Golladay'),
+    ('Nicholas Cooper'),
+    ('413 N Noble St Condominium Association'),
+    ('Faye Windhorst')
+)
+SELECT
+  p.name AS pdf_name,
+  c.id AS qleno_id,
+  c.name AS qleno_name,
+  c.status AS qleno_status
+FROM pdf_clients p
+LEFT JOIN clients c
+  ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.name))
+WHERE c.id IS NULL
+   OR c.status != 'active'
+ORDER BY p.name;
+```
+
+```sql
+-- ============================================================
+-- STEP 2: Cadence + Monthly Value mismatch check
+-- Compares recurring_schedules against PDF values
+-- ============================================================
+
+WITH pdf_data (client_name, cadence, monthly_value, rpv) AS (
+  VALUES
+    ('Anthony Saguto',                                'monthly',       170.00,   170.00),
+    ('Erickson Property Management 4001 W 93rd Pl',  'weekly',        524.58,   121.15),
+    ('Adam Scholz',                                  'monthly',       200.00,   200.00),
+    ('Marco Useche',                                 'monthly',       175.00,   175.00),
+    ('9708 South Nottingham Corporation.',            'monthly',       150.00,   150.00),
+    ('Tricia Kalchbrenner',                          'monthly',       195.00,   195.00),
+    ('Nathaniel Pomeroy',                            'every_3_weeks', 345.60,   240.00),
+    ('PPM | 3510 N Pine Grove Ave',                  'weekly',       1169.10,   270.00),
+    ('Sarah Boersma',                                'monthly',       271.70,   271.70),
+    ('Technology Resource Experts LLC',              'biweekly',      325.50,   150.00),
+    ('Yates Rubio',                                  'weekly',        374.67,    86.53),
+    ('Emma Weissler',                                'biweekly',      130.20,    60.00),
+    ('Peggy Hanlon',                                 'biweekly',      390.60,   180.00),
+    ('Tom and Carol Butler',                         'weekly',       1039.20,   240.00),
+    ('Amee Noethe',                                  'monthly',       180.00,   180.00),
+    ('Amy Mieding',                                  'monthly',       180.00,   180.00),
+    ('Gloria Blanchard',                             'monthly',       195.00,   195.00),
+    ('Bernardo Carvalho',                            'biweekly',      423.15,   195.00),
+    ('10308 Circle Drive',                           'semi-monthly',  300.00,   150.00),
+    ('Rone Tempest',                                 'biweekly',      564.20,   260.00),
+    ('Kathryn Galley',                               'biweekly',      325.50,   150.00),
+    ('Crystal Sánchez',                              'monthly',       349.80,   349.80),
+    ('Adam Coppelman',                               'biweekly',      477.40,   220.00),
+    ('Dylan Azadi',                                  'biweekly',      520.80,   240.00),
+    ('Cucci Property Management - 10410 Moody Avenue','biweekly',     276.68,   127.50),
+    ('Bill Azzarello 9620 S Komensky',               'weekly',        761.21,   175.80),
+    ('Shellie Ehrenstrom',                           'biweekly',      477.40,   220.00),
+    ('Jalinia Logan',                                'monthly',       170.00,   170.00),
+    ('Aaron Decker',                                 'monthly',       220.00,   220.00),
+    ('5641 Circle Drive',                            'semi-monthly',  300.00,   150.00),
+    ('Robert Campbell',                              'weekly',        692.80,   160.00),
+    ('Matt St Peter',                                'every_5_weeks', 206.19,   237.00),
+    ('Vanessa Radtke',                               'monthly',       170.72,   170.72),
+    ('Ciana Lesley',                                 'monthly',       317.40,   317.40),
+    ('Kristen Ivy',                                  'monthly',       208.00,   208.00),
+    ('Jami Helland',                                 'monthly',       217.10,   217.10),
+    ('KMA 4846 W North Offices',                     'monthly',       175.00,   175.00),
+    ('Cucci Realty Palos Hills',                     'monthly',       150.00,   150.00),
+    ('Amber Swanson',                                'monthly',       251.89,   251.89),
+    ('Bryan Hopkinson',                              'monthly',       140.00,   140.00),
+    ('Matt Handel',                                  'monthly',       195.00,   195.00),
+    ('Chris Schultz',                                'biweekly',      520.80,   240.00),
+    ('Kassandra Harris',                             'monthly',       360.00,   360.00),
+    ('City Light Church',                            'weekly',        757.75,   175.00),
+    ('Heritage Condominium',                         'weekly',        432.65,    99.92),
+    ('Molly Leonard',                                'monthly',       230.10,   230.10),
+    ('Cucci Realty 11901-05 South Lawndale',         'monthly',       175.00,   175.00),
+    ('Ashley Wedge',                                 'monthly',       195.00,   195.00),
+    ('Stanley Kuba',                                 'biweekly',      412.30,   190.00),
+    ('Jim Schultz',                                  'weekly',        952.60,   220.00),
+    ('Michael Baffoe',                               'biweekly',      390.60,   180.00),
+    ('Walter Nunchuck',                              'monthly',       195.00,   195.00),
+    ('John Piscopo',                                 'monthly',       180.00,   180.00),
+    ('Karen Fergle',                                 'biweekly',      368.90,   170.00),
+    ('Angelica Rangel',                              'monthly',       210.00,   210.00),
+    ('Christine Doherty',                            'monthly',       176.00,   176.00),
+    ('Hickory Hills Condominium',                    'biweekly',      325.50,   150.00),
+    ('KMA Eggleston',                                'monthly',       150.00,   150.00),
+    ('WR ASSET ADMIN, INC',                          'semi-monthly',  350.00,   175.00),
+    ('Bill Garlanger',                               'weekly',        416.72,    96.24),
+    ('4128 W Cullom Condominium Assoc.',              'semi-monthly',  225.00,   112.50),
+    ('Richard Davis',                                'every_3_weeks', 259.20,   180.00),
+    ('Joe Cusimano',                                 'biweekly',     1367.10,   630.00),
+    ('Dawn Jacobs',                                  'monthly',       180.00,   180.00),
+    ('Heather Kelly',                                'weekly',        519.60,   120.00),
+    ('Cucci Realty 10418 S Keating',                 'weekly',        562.90,   130.00),
+    ('David De Arruda',                              'biweekly',      423.15,   195.00),
+    ('Damian Ehrlicher',                             'monthly',       285.60,   285.60),
+    ('Julie Mitros',                                 'monthly',       235.20,   235.20),
+    ('Terry Biddle',                                 'monthly',       300.00,   300.00),
+    ('Todd Tue',                                     'monthly',       220.00,   220.00),
+    ('Joshua Hillian',                               'biweekly',      530.02,   244.25),
+    ('Robert Stortz',                                'biweekly',      390.60,   180.00),
+    ('KMA Ashland',                                  'biweekly',      596.75,   275.00),
+    ('KMA Lamon',                                    'monthly',       150.00,   150.00),
+    ('KMA North Ave',                                'monthly',       150.00,   150.00),
+    ('Marija Brankov',                               'monthly',       175.00,   175.00),
+    ('KMA Tracy',                                    'monthly',       150.00,   150.00),
+    ('Caravel Health',                               'weekly',        692.80,   160.00),
+    ('Anthony Cooke',                                'biweekly',      423.15,   195.00),
+    ('Alejandro Cancel',                             'monthly',       195.00,   195.00),
+    ('Claudia Mosier',                               'biweekly',      390.60,   180.00),
+    ('Tamara Ditter',                                'monthly',       150.00,   150.00),
+    ('Cucci Realty Chicago Ridge',                   'biweekly',      318.12,   146.60),
+    ('Edie Crowley',                                 'biweekly',      455.70,   210.00),
+    ('KMA 63rd',                                     'monthly',       150.00,   150.00),
+    ('Derik Jardine',                                'biweekly',      423.15,   195.00),
+    ('Sally Ozinga',                                 'monthly',       195.00,   195.00),
+    ('Diana Cade',                                   'monthly',       200.85,   200.85),
+    ('Ashley Doss',                                  'monthly',       195.00,   195.00),
+    ('Daveco 18440 Torrence Lansing',                'monthly',        99.00,    99.00),
+    ('Daveco 18428 Torrence Lansing',                'monthly',        99.00,    99.00),
+    ('Lauren Schultz',                               'biweekly',      520.80,   240.00),
+    ('Jordan Szczepanski',                           'monthly',       224.25,   224.25),
+    ('Greg Ward',                                    'biweekly',      425.32,   196.00),
+    ('Daryll Golladay',                              'monthly',       260.00,   260.00),
+    ('Nicholas Cooper',                              'biweekly',      390.60,   180.00),
+    ('413 N Noble St Condominium Association',       'every_8_weeks',  99.90,   185.00),
+    ('Faye Windhorst',                               'every_6_weeks', 172.80,   240.00)
+)
+SELECT
+  p.client_name                                    AS pdf_name,
+  c.name                                           AS qleno_name,
+  p.cadence                                        AS pdf_cadence,
+  rs.frequency                                     AS qleno_cadence,
+  CASE WHEN p.cadence != rs.frequency
+       THEN 'CADENCE MISMATCH' ELSE 'ok' END       AS cadence_check,
+  p.monthly_value                                  AS pdf_monthly,
+  rs.monthly_value                                 AS qleno_monthly,
+  CASE WHEN ABS(p.monthly_value - COALESCE(rs.monthly_value,0)) > 0.01
+       THEN 'MONTHLY MISMATCH' ELSE 'ok' END       AS monthly_check,
+  p.rpv                                            AS pdf_rpv,
+  rs.price                                         AS qleno_price,
+  CASE WHEN ABS(p.rpv - COALESCE(rs.price,0)) > 0.01
+       THEN 'RPV MISMATCH' ELSE 'ok' END           AS rpv_check
+FROM pdf_data p
+LEFT JOIN clients c
+  ON LOWER(TRIM(c.name)) = LOWER(TRIM(p.client_name))
+LEFT JOIN recurring_schedules rs
+  ON rs.client_id = c.id
+  AND rs.status = 'active'
+WHERE
+  p.cadence != COALESCE(rs.frequency, '')
+  OR ABS(p.monthly_value - COALESCE(rs.monthly_value, 0)) > 0.01
+  OR ABS(p.rpv - COALESCE(rs.price, 0)) > 0.01
+  OR c.id IS NULL
+ORDER BY p.client_name;
+```
+
+```sql
+-- STEP 3: Quick summary — count active clients in Qleno
+-- Should return 99. If not, delta tells you what's off.
+SELECT
+  COUNT(*) FILTER (WHERE c.status = 'active') AS active_client_count,
+  COUNT(rs.id)                                 AS active_schedules_count
+FROM clients c
+LEFT JOIN recurring_schedules rs
+  ON rs.client_id = c.id
+  AND rs.status = 'active'
+WHERE c.company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+```
+
+---
+
+**What to do with the results:**
+
+- **Step 1 output** — any rows here are clients missing from Qleno or incorrectly marked inactive. These need to be added or status-corrected before April 12.
+- **Step 2 output** — any rows here have a cadence or dollar amount that doesn't match MC. Spot-check each one — could be a migration rounding issue or a genuine discrepancy.
+- **Step 3 output** — if active client count is not 99, the delta is your missing/extra client count to reconcile.
+
+If the `recurring_schedules` column names differ from `monthly_value` / `price` / `frequency` in your schema, let me know and I'll adjust the query. Run Step 1 first — that's the most critical one before April 12.

@@ -1,6 +1,7 @@
 import app from "./app";
 import { seedIfNeeded } from "./seed";
 import { runRecurringJobGeneration, startRecurringJobCron } from "./lib/recurring-jobs";
+import { runPhesDataMigration } from "./phes-data-migration";
 
 const rawPort = process.env["PORT"];
 
@@ -51,6 +52,7 @@ if (criticalMissing) {
 app.listen(port, () => {
   console.log(`Server listening on port ${port}`);
   seedIfNeeded()
+    .then(() => runPhesDataMigration())
     .then(() => runRecurringJobGeneration())
     .catch((err) => {
       console.error("[startup] Background init error:", err);
