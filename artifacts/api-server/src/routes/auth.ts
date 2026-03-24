@@ -88,6 +88,45 @@ router.post("/refresh", requireAuth, (req, res) => {
   }
 });
 
+router.post("/change-password", requireAuth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: "Bad Request", message: "Current and new password required" });
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
+      return res.status(400).json({ error: "Bad Request", message: "New password must be at least 6 characters" });
+    }
+
+    const user = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, req.auth!.userId))
+      .limit(1);
+
+    if (!user[0]) {
+      return res.status(404).json({ error: "Not Found", message: "User not found" });
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user[0].password_hash);
+    if (!valid) {
+      return res.status(401).json({ error: "Unauthorized", message: "Current password is incorrect" });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+    await db
+      .update(usersTable)
+      .set({ password_hash: newHash } as any)
+      .where(eq(usersTable.id, req.auth!.userId));
+
+    await logAudit(req, "password_changed", "user", req.auth!.userId);
+    return res.json({ success: true, message: "Password updated successfully" });
+  } catch (err) {
+    console.error("Change password error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to change password" });
+  }
+});
+
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const user = await db

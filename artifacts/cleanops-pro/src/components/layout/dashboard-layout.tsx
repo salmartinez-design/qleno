@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useCallback, useRef } from "react";
+import { ReactNode, useEffect, useState, useCallback, useRef, FormEvent } from "react";
 import { AppSidebar } from "./app-sidebar";
 import { useAuthStore } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
@@ -15,7 +15,7 @@ import {
   UserCheck, FileText, DollarSign, BarChart2, TrendingUp,
   BookOpen, Star, Settings, Clock,
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
-  ChevronDown, Eye, LogOut, CircleHelp,
+  ChevronDown, Eye, LogOut, CircleHelp, Lock, KeyRound,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -89,7 +89,7 @@ const MORE_CARDS = [
   { title: 'Clock Monitor',  href: '/employees/clocks',  icon: Clock       },
 ];
 
-function MoreSheet({ open, onClose, navigate }: { open: boolean; onClose: () => void; navigate: (path: string) => void }) {
+function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void }) {
   const logout = useAuthStore(state => state.logout);
 
   useEffect(() => {
@@ -151,8 +151,22 @@ function MoreSheet({ open, onClose, navigate }: { open: boolean; onClose: () => 
             })}
           </div>
 
-          {/* Logout */}
-          <div style={{ borderTop: '1px solid #EEECE7', marginTop: 16, paddingTop: 12, paddingBottom: 24 }}>
+          {/* Account actions */}
+          <div style={{ borderTop: '1px solid #EEECE7', marginTop: 16, paddingTop: 12, paddingBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {onChangePw && (
+              <button
+                onClick={onChangePw}
+                style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                  background: 'none', border: '1px solid #EEECE7', borderRadius: 12,
+                  padding: '14px 16px', cursor: 'pointer', color: '#1A1917',
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}
+              >
+                <KeyRound size={20} style={{ color: '#6B7280' }} />
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Change Password</span>
+              </button>
+            )}
             <button
               onClick={() => { onClose(); logout(); }}
               style={{
@@ -169,6 +183,106 @@ function MoreSheet({ open, onClose, navigate }: { open: boolean; onClose: () => 
         </div>
       </div>
     </>
+  );
+}
+
+function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const token = useAuthStore(state => state.token);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const FF = "'Plus Jakarta Sans', sans-serif";
+
+  useEffect(() => {
+    if (!open) { setCurrent(''); setNext(''); setConfirm(''); setError(''); setSuccess(false); }
+  }, [open]);
+
+  if (!open) return null;
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    if (next.length < 6) { setError('New password must be at least 6 characters.'); return; }
+    if (next !== confirm) { setError('Passwords do not match.'); return; }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API}/api/auth/change-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ currentPassword: current, newPassword: next }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.message || 'Failed to update password.'); return; }
+      setSuccess(true);
+    } catch {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 14, fontFamily: FF, outline: 'none', boxSizing: 'border-box', color: '#1A1917',
+    backgroundColor: '#FAFAF9',
+  };
+  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6B7280', fontFamily: FF, marginBottom: 4, display: 'block' };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' }}
+      onClick={onClose}>
+      <div style={{ background: '#fff', borderRadius: 16, width: 380, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}
+        onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <KeyRound size={18} style={{ color: 'var(--brand)' }} />
+            </div>
+            <div>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1A1917', fontFamily: FF }}>Change Password</p>
+              <p style={{ margin: 0, fontSize: 12, color: '#9E9B94', fontFamily: FF }}>Update your login credentials</p>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 4 }}><X size={18} /></button>
+        </div>
+
+        {success ? (
+          <div style={{ textAlign: 'center', padding: '20px 0' }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
+              <Lock size={22} style={{ color: '#059669' }} />
+            </div>
+            <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#1A1917', fontFamily: FF }}>Password Updated</p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#6B7280', fontFamily: FF }}>Your new password is active.</p>
+            <button onClick={onClose} style={{ padding: '10px 24px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>Done</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Current Password</label>
+              <input type="password" value={current} onChange={e => setCurrent(e.target.value)} style={inputStyle} required autoComplete="current-password" />
+            </div>
+            <div>
+              <label style={labelStyle}>New Password</label>
+              <input type="password" value={next} onChange={e => setNext(e.target.value)} style={inputStyle} required autoComplete="new-password" />
+            </div>
+            <div>
+              <label style={labelStyle}>Confirm New Password</label>
+              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} style={inputStyle} required autoComplete="new-password" />
+            </div>
+            {error && <p style={{ margin: 0, fontSize: 13, color: '#DC2626', fontFamily: FF }}>{error}</p>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+              <button type="button" onClick={onClose} style={{ flex: 1, padding: '10px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#6B7280', fontFamily: FF }}>Cancel</button>
+              <button type="submit" disabled={loading} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: 'var(--brand)', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#fff', fontFamily: FF, opacity: loading ? 0.7 : 1 }}>
+                {loading ? 'Saving...' : 'Save Password'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -271,6 +385,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
+  const logout = useAuthStore(state => state.logout);
   const [location, setLocation] = useLocation();
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -278,6 +393,18 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const [chatOpen, setChatOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [userDropOpen, setUserDropOpen] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const userDropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!userDropOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (userDropRef.current && !userDropRef.current.contains(e.target as Node)) setUserDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [userDropOpen]);
 
   useEffect(() => {
     if (!token) setLocation("/login");
@@ -349,7 +476,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
         {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
-        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} />
+        <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
+        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} />
 
         {/* Top header */}
         <header style={{
@@ -453,6 +581,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
       {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
       {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+      <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <header style={{ height: 56, backgroundColor: '#FFFFFF', borderBottom: '1px solid #EEECE7', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
@@ -489,12 +618,44 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             {user && (
               <>
                 <div style={{ width: 1, height: 24, background: '#E5E2DC' }} />
-                <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0 }}>{user.first_name} {user.last_name}</p>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--brand)', backgroundColor: 'var(--brand-dim)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
-                  {user.role}
-                </span>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
-                  {initials}
+                <div ref={userDropRef} style={{ position: 'relative' }}>
+                  <button
+                    onClick={() => setUserDropOpen(p => !p)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: 8 }}
+                  >
+                    <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0 }}>{user.first_name} {user.last_name}</p>
+                    <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--brand)', backgroundColor: 'var(--brand-dim)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
+                      {user.role}
+                    </span>
+                    <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
+                      {initials}
+                    </div>
+                    <ChevronDown size={14} style={{ color: '#9E9B94', transform: userDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
+                  </button>
+                  {userDropOpen && (
+                    <div style={{
+                      position: 'absolute', top: '100%', right: 0, marginTop: 6,
+                      background: '#fff', borderRadius: 10, border: '1px solid #E5E2DC',
+                      boxShadow: '0 8px 24px rgba(0,0,0,0.10)', minWidth: 180, zIndex: 100,
+                      padding: 6, display: 'flex', flexDirection: 'column', gap: 2,
+                    }}>
+                      <button
+                        onClick={() => { setUserDropOpen(false); setChangePwOpen(true); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#1A1917' }}
+                      >
+                        <KeyRound size={15} style={{ color: '#6B7280' }} />
+                        Change Password
+                      </button>
+                      <div style={{ height: 1, background: '#F0EDEA', margin: '2px 0' }} />
+                      <button
+                        onClick={() => { setUserDropOpen(false); logout(); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#DC2626' }}
+                      >
+                        <LogOut size={15} />
+                        Sign Out
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
