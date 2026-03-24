@@ -1,8 +1,9 @@
 import { db } from "@workspace/db";
 import { companiesTable, usersTable, branchesTable, jobsTable, clientsTable, invoicesTable } from "@workspace/db/schema";
-import { eq, sql, isNull, and } from "drizzle-orm";
+import { eq, sql, isNull, and, gt, count } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { seedDemoData } from "./seed-demo.js";
+import phesClientsData from "./phes-clients-seed.json";
 
 const SUPER_ADMINS = [
   { email: "sal@cleanopspro.com",   password: "SalCleanOps2026!",   first_name: "Sal",   last_name: "CleanOps" },
@@ -191,6 +192,56 @@ export async function seedIfNeeded() {
       await seedDemoData(companyId, ownerId);
     } else {
       console.log("[seed] Demo data already present — skipping");
+    }
+
+    // ── Real PHES clients import ─────────────────────────────────────────────
+    // If fewer than 100 real PHES clients exist, import from bundled JSON.
+    // This handles fresh production Helium DB instances automatically.
+    const [clientCountRow] = await db
+      .select({ n: count() })
+      .from(clientsTable)
+      .where(and(eq(clientsTable.company_id, companyId), gt(clientsTable.id, 18)));
+
+    const realCount = Number(clientCountRow?.n ?? 0);
+    if (realCount < 100) {
+      console.log(`[seed] Only ${realCount} real PHES clients found — importing ${phesClientsData.length} from bundle...`);
+      const BATCH = 100;
+      let inserted = 0;
+      for (let i = 0; i < phesClientsData.length; i += BATCH) {
+        const batch = phesClientsData.slice(i, i + BATCH).map((c: any) => ({
+          id: c.id,
+          company_id: companyId,
+          first_name: c.first_name,
+          last_name: c.last_name,
+          email: c.email ?? null,
+          phone: c.phone ?? null,
+          address: c.address ?? null,
+          city: c.city ?? null,
+          state: c.state ?? null,
+          zip: c.zip ?? null,
+          notes: c.notes ?? null,
+          company_name: c.company_name ?? null,
+          is_active: c.is_active ?? true,
+          frequency: c.frequency ?? null,
+          service_type: c.service_type ?? null,
+          base_fee: c.base_fee ?? null,
+          allowed_hours: c.allowed_hours ?? null,
+          home_access_notes: c.home_access_notes ?? null,
+          alarm_code: c.alarm_code ?? null,
+          pets: c.pets ?? null,
+          loyalty_tier: c.loyalty_tier ?? null,
+          client_since: c.client_since ?? null,
+          scorecard_avg: c.scorecard_avg ?? null,
+          branch_id: oakLawnBranchId,
+        }));
+        await db.insert(clientsTable).values(batch).onConflictDoNothing();
+        inserted += batch.length;
+      }
+      // Advance the sequence past our imported IDs so future inserts don't collide
+      await db.execute(sql`SELECT setval(pg_get_serial_sequence('clients', 'id'), GREATEST(nextval(pg_get_serial_sequence('clients', 'id')), 1250))`);
+      console.log(`[seed] Real PHES clients imported: ${inserted}`);
+    } else {
+      console.log(`[seed] Real PHES clients OK (${realCount} found) — skipping import`);
     }
   } catch (err) {
     console.error("[seed] Seed error (non-fatal):", err);
