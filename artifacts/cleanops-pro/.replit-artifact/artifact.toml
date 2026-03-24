@@ -23,7 +23,7 @@ BASE_PATH = "/"
 
 [services.production]
 build = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
-run = ["node", "artifacts/api-server/dist/index.mjs"]
+run = ["pnpm", "--filter", "@workspace/api-server", "run", "start"]
 
 [services.production.health.startup]
 path = "/api/healthz"
