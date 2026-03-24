@@ -23,22 +23,31 @@ export default function Login() {
 
   useEffect(() => {
     document.title = "Login — Qleno";
+    // Clear any stale impersonation state when the user visits /login directly
+    localStorage.removeItem('cleanops_admin_token');
   }, []);
 
   useEffect(() => {
     if (token) {
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
+        // Only auto-redirect if the token is still valid (not expired)
+        const now = Math.floor(Date.now() / 1000);
+        if (payload.exp && payload.exp < now) {
+          // Expired — clear it and stay on login
+          setToken(null);
+          return;
+        }
         if (payload.role === 'super_admin') {
           setLocation("/admin");
         } else {
           setLocation("/dashboard");
         }
       } catch {
-        setLocation("/dashboard");
+        setToken(null);
       }
     }
-  }, [token, setLocation]);
+  }, [token, setLocation, setToken]);
 
   const { register, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
