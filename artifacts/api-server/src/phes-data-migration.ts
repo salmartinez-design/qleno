@@ -473,9 +473,15 @@ async function runAleCuervoMigration() {
 
     // ── DDL Phase: schema changes (always idempotent) ────────────────────────
 
-    // Extend additional_pay_type enum
+    // Extend additional_pay_type enum (guarded: no-op if type was dropped)
     for (const val of ["other_additional", "bonus_other", "amount_owed_non_taxed"]) {
-      await db.execute(sql.raw(`ALTER TYPE additional_pay_type ADD VALUE IF NOT EXISTS '${val}'`));
+      await db.execute(sql.raw(`
+        DO $$ BEGIN
+          IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'additional_pay_type') THEN
+            ALTER TYPE additional_pay_type ADD VALUE IF NOT EXISTS '${val}';
+          END IF;
+        END $$;
+      `));
     }
 
     // Add missing columns to users

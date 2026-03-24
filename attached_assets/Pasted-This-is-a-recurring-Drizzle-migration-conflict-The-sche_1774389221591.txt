@@ -1,0 +1,88 @@
+This is a recurring Drizzle migration conflict. The schema changes keep trying to DROP TYPE additional_pay_type but production columns depend on it. Send this to the agent:
+
+The deployment is failing every time with this error:
+  DROP TYPE "public"."additional_pay_type";
+  cannot drop type additional_pay_type because 
+  other objects depend on it
+
+This is a Drizzle migration conflict between dev 
+and production schema. Fix it permanently so this 
+never blocks deployment again.
+
+=== THE PROBLEM ===
+
+Drizzle is generating a migration that tries to 
+DROP and recreate the additional_pay_type enum.
+Production has columns using this type so the 
+DROP fails. This happens because dev schema 
+diverged from production.
+
+=== THE FIX ===
+
+STEP 1 — Check what values are in production:
+  SELECT enum_range(NULL::additional_pay_type);
+
+STEP 2 — Check what values Drizzle wants in dev.
+  Look at the enum definition in schema.ts for 
+  additional_pay_type.
+
+STEP 3 — Instead of DROP + recreate, use ALTER:
+  If production is missing values that dev has, 
+  add them with:
+    ALTER TYPE additional_pay_type 
+    ADD VALUE IF NOT EXISTS 'new_value';
+  
+  Never DROP an enum type that has dependent columns.
+
+STEP 4 — Fix the migration file directly:
+  Find the failing migration file in /drizzle/ 
+  or /migrations/ folder.
+  
+  Remove or comment out the DROP TYPE statement.
+  Replace with ALTER TYPE ADD VALUE statements 
+  for any new enum values needed.
+  
+  If the migration is trying to rename values 
+  (not just add), use this pattern instead:
+    -- Add new value
+    ALTER TYPE additional_pay_type 
+    ADD VALUE IF NOT EXISTS 'new_value';
+    -- Update existing rows to use new value
+    UPDATE additional_pay 
+    SET type = 'new_value' 
+    WHERE type = 'old_value';
+    -- Do NOT drop the old value — 
+    -- Postgres cannot remove enum values
+
+STEP 5 — Prevent this from recurring:
+  In drizzle.config.ts, confirm migrations are 
+  set to generate ALTER statements not DROP/recreate.
+  
+  Add this comment to the additional_pay_type 
+  enum in schema.ts:
+  -- NEVER use DROP TYPE on this enum in migrations
+  -- Always use ALTER TYPE ADD VALUE IF NOT EXISTS
+
+STEP 6 — Mark the broken migration as applied 
+  without running it, then create a clean 
+  corrected migration:
+  
+  If using drizzle-kit:
+    npx drizzle-kit push 
+    (use push for production fixes, not migrate)
+  
+  Or manually insert into drizzle migrations 
+  journal to skip the bad migration and apply 
+  only the corrected version.
+
+STEP 7 — Verify by running a dry-run against 
+  production schema before deploying.
+
+Do not use "Copy dev database to production" —
+that would wipe all real PHES data.
+Always select "Cancel deployment and fix conflicts."
+
+Confirm the migration runs cleanly, then publish.
+
+
+Important: Every time the agent adds a new pay type to the additional_pay_type enum (which happened multiple times during the employee migrations), it regenerates this conflict. The permanent fix is Step 4 and 5 — stop using DROP/recreate and only ever ADD values to the existing enum.​​​​​​​​​​​​​​​​

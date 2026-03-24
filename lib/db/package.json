@@ -10,6 +10,7 @@
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
     "push-force": "drizzle-kit push --force --config ./drizzle.config.ts",
+    "pre-push-fix": "tsx src/pre-push-fix.ts",
     "seed-accounts": "tsx src/seed-accounts.ts"
   },
   "dependencies": {

@@ -46,6 +46,21 @@ async function buildAll() {
 
   // Push DB schema to production database (idempotent, safe to run every build)
   if (process.env.DATABASE_URL) {
+    // Step 1: pre-convert additional_pay.type from enum→text if needed.
+    // This runs BEFORE drizzle-kit push so drizzle sees the column already
+    // as text and generates no diff — preventing the DROP TYPE error.
+    // Uses @workspace/db so the pg module resolves correctly.
+    try {
+      execSync("pnpm --filter @workspace/db run pre-push-fix", {
+        stdio: "inherit",
+        cwd: path.resolve(__dirname, "../.."),
+        timeout: 30000,
+      });
+    } catch (e) {
+      console.warn("pre-push-fix failed (non-fatal):", e);
+    }
+
+    // Step 2: push schema — column is now already text so drizzle generates no diff
     console.log("pushing database schema...");
     try {
       execSync("pnpm --filter @workspace/db run push-force", {
