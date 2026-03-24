@@ -16,7 +16,7 @@ run = "pnpm --filter @workspace/api-server run dev"
 build = "pnpm --filter @workspace/api-server run build"
 
 [services.production.run]
-args = ["node", "artifacts/api-server/dist/index.cjs"]
+args = ["node", "artifacts/api-server/dist/index.mjs"]
 
 [services.production.run.env]
 PORT = "8080"
