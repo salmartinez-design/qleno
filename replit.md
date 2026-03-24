@@ -117,6 +117,17 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 - New `additional_pay_type` enum values: `other_additional`, `bonus_other`, `amount_owed_non_taxed`
 - All 8 sections migrated: core profile, employment history (2), PTO history (6), pay structure (9 scopes), additional pay (31 records), contact tickets (5), productivity (8 scopes), attendance stats
 
+**Employee data migration — Norma Puga (user_id=32):**
+- New `additional_pay_type` enum values: `attendance_performance`, `amount_employee_owes`, `employee_referral`
+- All sections migrated: core profile, pay structure (9 scopes), PTO history (42 rows), attendance stats, productivity (10 scopes incl. `hourly-tasks`), additional pay (80 records), contact tickets (11 records)
+
+**Employee data migration — Juliana Loredo (user_id=42):**
+- New table: `employee_scorecards` (columns: `id, company_id, employee_id, job_date, scored_at, customer_name, service_set, scope_slug, score 1-4, comments, created_at`) — UNIQUE on `employee_id+job_date+customer_name`; no FK to jobs/clients (MC historical data)
+- New `contact_ticket_type` enum value: `technician_note`
+- Profile photo stored at `artifacts/uploads/avatars/juliana-42.jpg`, served at `/api/uploads/avatars/juliana-42.jpg`
+- All sections migrated: core profile (address, tags, skills, avatar), pay structure (9 scopes), attendance stats, productivity (8 scopes, commercial 400% stored as-is), additional pay (2 records), scorecards (14 records), contact tickets (2 technician_note records)
+- Score display map: 4=Thrilled, 3=Happy, 2=Concerned, 1=Disappointed
+
 ## Recent Bug Fixes (March 24, 2026)
 - **Demo employees purged** — 14 seeded demo users (IDs 2–18) removed from users table. Dev and production now show exactly 13 real PHES staff: Sal Martinez (owner) + 12 real employees (IDs 32–43).
 - **seed.ts cascade deletion** — `cleanupDemoData()` updated to properly cascade-delete all FK-dependent rows (messages, availability, additional_pay, contact_tickets, employee_notes, attendance_log, discipline_log, leave_usage, payroll_history, incentive_earned, clock_in_attempts, document_requests, document_signatures, mileage_requests, service_zone_employees, audit_log) and NULL-ify nullable FK references before deleting demo users.

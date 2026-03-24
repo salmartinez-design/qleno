@@ -1,0 +1,175 @@
+```
+Migrate all MaidCentral employee data for Juliana Loredo into her 
+existing Qleno employee record. Find her by name 'Juliana Loredo' 
+under company slug 'phes-cleaning'. All operations are UPSERTs.
+Check before inserting — nothing gets duplicated.
+
+=== SECTION 1 — CORE EMPLOYEE INFO ===
+
+UPDATE employees SET
+  mc_employee_id = '47897',
+  date_of_birth = '1994-07-15',
+  hire_date = '2026-01-26',
+  email = 'Loredo_juliana@yahoo.com',
+  phone = '312-785-9699',
+  employment_type = 'full_time',
+  status = 'active',
+  scorecard_score = 95
+WHERE name = 'Juliana Loredo'
+AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+
+No driver's license number visible in MC export — leave NULL.
+
+=== SECTION 2 — ADDRESS ===
+
+mailing_address_1: '6123 South Honore Street'
+mailing_city: 'Chicago'
+mailing_state: 'IL'
+mailing_zip: '60636'
+physical_address_1: '6123 South Honore Street'
+physical_city: 'Chicago'
+physical_state: 'IL'
+physical_zip: '60636'
+
+=== SECTION 3 — TAGS AND SKILLS ===
+
+Skills: Maintenance Cleaning
+Tags: Scheduled, Full Time
+
+=== SECTION 4 — USER ACCOUNT ===
+
+email: Loredo_juliana@yahoo.com
+role: technician
+two_factor_enabled: false
+is_active: true
+Do not reset password if account already exists.
+
+=== SECTION 5 — PTO / SICK BALANCES ===
+
+pto_hours_available: 0
+sick_hours_available: 0
+
+NOTE: Juliana is a new hire (1/26/2026). Zero balances 
+are correct — no PTO history to migrate.
+
+=== SECTION 6 — ATTENDANCE STATS ===
+
+period_start: 2025-09-25
+period_end: 2026-03-24
+scheduled: 44
+worked: 38
+absent: 3
+time_off: 3
+excused: 0
+unexcused: 0
+paid_time_off: 0
+sick: 0
+late: 2
+score: 89
+
+=== SECTION 7 — PRODUCTIVITY METRICS ===
+
+period_start: 2025-09-27
+period_end: 2026-03-14
+
+scope_slug                 | productivity_pct
+deep-clean-move-in-out     | 98
+commercial-cleaning        | 400
+hourly-deep-clean          | 93
+hourly-standard-cleaning   | 105
+one-time-standard          | 102
+ppm-common-areas           | 130
+ppm-turnover               | 103
+recurring-cleaning         | 100
+
+NOTE: Commercial Cleaning at 400% is not a data error —
+this is a valid MC productivity score for a new employee
+with very few commercial jobs. Store as-is.
+
+=== SECTION 8 — PAY STRUCTURE ===
+
+Same structure as other residential techs.
+Upsert by employee_id + scope_slug:
+
+COMMERCIAL — flat $20:
+  commercial-cleaning, ppm-common-areas,
+  ppm-turnover, multi-unit-common-areas
+  solo: $20.00 | captain: $0.00 | teammate: $20.00 | travel: $0.00
+
+HOUSE CLEANING — 35%:
+  recurring-cleaning, deep-clean-move-in-out,
+  one-time-standard, hourly-deep-clean,
+  hourly-standard-cleaning
+  solo: 35% | captain: 0% | teammate: 35% | travel: $0.00
+
+=== SECTION 9 — ADDITIONAL PAY (2 records) ===
+
+Upsert by employee_id + date + amount + type:
+
+date        | amount  | hrs | type         | notes                                              | job_id
+2026-03-20  | 35.00   |  0  | tips         | Tip - Flat Rate Deep Clean                         | 60512410
+2026-02-20  | 49.30   |  0  | amount_owed  | FE - 02/15/2026 - from one service to other - 4 Sites - 68mi |
+
+=== SECTION 10 — SCORECARDS (14 records) ===
+
+Upsert into employee_scorecards table
+(check by employee_id + job_date + customer_name):
+
+job_date    | scored_at                | customer              | service_set                        | scope                          | score | comments
+2026-03-21  | 2026-03-21 12:12:00     | Ranit Sengupita       | Hourly Deep Cleaning               | hourly-deep-clean              | 4     | Text Response: 4
+2026-03-20  | 2026-03-21 16:07:00     | Bernardo Carvalho     | Flat Rate Standard Cleaning        | one-time-standard              | 4     |
+2026-03-19  | 2026-03-19 17:05:00     | Amanda Nolen          | Flat Rate Move In/Out              | deep-clean-move-in-out         | 4     | Text Response: 4
+2026-03-13  | 2026-03-13 14:05:00     | Kathleen Wing         | Hourly Deep Clean                  | hourly-deep-clean              | 3     | Text Response: 3
+2026-03-09  | 2026-03-09 13:13:00     | Sally Ozinga          | Hourly Standard                    | hourly-standard-cleaning       | 4     | Text Response: 4
+2026-03-06  | 2026-03-08 09:38:00     | Bernardo Carvalho     | Flat Rate Standard Cleaning        | one-time-standard              | 4     |
+2026-02-28  | 2026-02-28 12:59:00     | Samantha Berglind     | Flat Standard Service              | one-time-standard              | 4     | She did an amazing job and was super sweet! Will definitely request her again in the future.
+2026-02-24  | 2026-02-24 12:38:00     | Ashley Lalich         | Hourly Standard Clean              | hourly-standard-cleaning       | 3     | great job
+2026-02-21  | 2026-02-21 12:34:00     | Janee O'Neal          | Flat Rate Deep Clean               | deep-clean-move-in-out         | 4     | Text Response: 4
+2026-02-11  | 2026-02-11 11:39:00     | Faye Windhorst        | Hourly Standard                    | hourly-standard-cleaning       | 4     | Text Response: 4
+2026-02-07  | 2026-02-07 14:13:00     | Echo Pang             | Hourly Move In/Out                 | hourly-deep-clean              | 4     | Friendly and communicate timely
+2026-02-06  | 2026-02-06 18:39:00     | Nathaniel Pomeroy     | Recurrent Standard Service         | recurring-cleaning             | 3     | thank you! The hour is very clean. I have one question for the cleaners.
+2026-02-05  | 2026-02-05 13:41:00     | Daryll Golladay       | Hourly Standard Cleaning           | hourly-standard-cleaning       | 4     | please send her back
+2026-02-05  | 2026-02-05 10:13:00     | Diana Cade            | Flat Standard Recurring            | recurring-cleaning             | 4     | Text Response: 4
+
+Scorecard score display: store raw score (1-4).
+For UI display map as:
+  4 = "We're Thrilled - Great Work"
+  3 = "We're Happy - Good Work"
+  2 = "We're Concerned - Needs Improvement"
+  1 = "We're Disappointed - Poor Work"
+
+=== SECTION 11 — OPEN CONTACT TICKETS ===
+
+Two open technician notes visible in MC.
+Insert as contact_ticket records with status 'open':
+
+created_date | type              | notes
+2026-03-24   | technician_note   | Chris Cucci - Technician Note
+2026-03-24   | technician_note   | Chicago Straford Memorial 7th-day Adventist Church
+
+Link to Juliana's employee_id. No job_id available.
+
+=== DESIGN VERIFICATION ===
+
+After migration confirm on Juliana's profile:
+
+1. Snapshot: hire date 1/26/2026, skills Maintenance Cleaning,
+   tags Scheduled + Full Time, scorecard 95%
+
+2. Productivity panel: 8 scope rows, Commercial 400% displays
+   correctly without being capped or flagged as error
+
+3. Attendance: 44 scheduled, 38 worked, score 89, 2 late (5%)
+
+4. PTO balance cards: 0 PTO hours, 0 Sick hours — correct
+   for new hire, not a missing data issue
+
+5. Additional Pay: 2 records
+
+6. Scorecards tab: 14 records sorted by job_date descending,
+   score displayed as number + label, comments visible
+
+7. Open Tickets: 2 technician notes showing as open
+
+All seeds idempotent. Confirm clean build and publish.
+```
