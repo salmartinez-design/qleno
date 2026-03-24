@@ -1,0 +1,99 @@
+The same error keeps recurring because the root cause hasn’t been fixed — it keeps getting patched around rather than solved permanently. Here’s exactly why it keeps happening:
+
+Root cause:
+Every time the agent adds a new pay type (sick_pay, holiday_pay, amount_owed_non_taxed, etc. during the employee migrations), it modifies the additional_pay_type enum in the Drizzle schema file. When Drizzle detects the enum changed, it auto-generates a migration that does:
+
+DROP TYPE additional_pay_type
+CREATE TYPE additional_pay_type (with new values)
+
+
+Postgres refuses the DROP because real columns in production use that type. This will keep happening on every future deploy until the migration strategy is permanently changed.
+
+Send this exact prompt — do not modify it:
+
+The DROP TYPE additional_pay_type error is blocking 
+every deployment. This is a permanent architecture fix —
+not a one-time patch.
+
+STEP 1 — Find and delete all pending migration files
+that contain DROP TYPE additional_pay_type.
+These are in the /drizzle/ or /migrations/ folder.
+Delete any migration file that has this statement.
+
+STEP 2 — Find the additional_pay_type enum definition
+in schema.ts. It currently uses pgEnum().
+
+Change the strategy: instead of using a pgEnum 
+for additional_pay_type, change it to a plain 
+VARCHAR or TEXT column with a CHECK constraint,
+OR keep the enum but never let Drizzle manage 
+its changes via migrations.
+
+The simplest permanent fix:
+
+In schema.ts, change:
+  export const additionalPayTypeEnum = pgEnum(
+    'additional_pay_type', 
+    ['sick_pay', 'holiday_pay', ...]
+  );
+
+To use the existing production enum without 
+Drizzle trying to recreate it:
+  Remove the pgEnum definition entirely.
+  Replace column references with:
+    type: text('type').notNull()
+  
+  This lets the column continue using the 
+  existing production enum as a text value
+  without Drizzle ever touching the enum type.
+
+STEP 3 — If changing to text is too disruptive,
+use this alternative:
+
+  Keep the pgEnum in schema.ts BUT add all 
+  current production enum values to it so 
+  there is zero diff between dev and production.
+  
+  First run this against production to see 
+  current values:
+    SELECT enumlabel 
+    FROM pg_enum 
+    JOIN pg_type ON pg_enum.enumtypid = pg_type.oid
+    WHERE pg_type.typname = 'additional_pay_type'
+    ORDER BY enumsortorder;
+  
+  Then update schema.ts pgEnum to include 
+  every single one of those values exactly.
+  
+  Then run: npx drizzle-kit generate
+  
+  The new migration should show NO changes to 
+  additional_pay_type. If it still tries to DROP, 
+  switch to the text column approach in Step 2.
+
+STEP 4 — Add a rule to prevent recurrence:
+
+  In schema.ts add this comment above the 
+  additional_pay table:
+  
+  // IMPORTANT: Never add new values to 
+  // additionalPayTypeEnum via schema changes.
+  // New pay types are added via startup migration
+  // using ALTER TYPE ADD VALUE IF NOT EXISTS.
+  // Drizzle cannot safely manage enum changes
+  // on a live production database.
+
+STEP 5 — After fixing the schema, generate 
+a clean migration, verify it contains NO 
+DROP TYPE statements, then publish.
+
+Run: grep -r "DROP TYPE" ./drizzle/
+If any results come back, do not deploy.
+Remove those lines before deploying.
+
+This fix must survive future deploys permanently.
+Confirm clean migration with no DROP TYPE 
+statements before publishing.
+
+
+Bottom line: Until the enum is either converted to text or perfectly synced between dev and production, this error will appear on every single deploy. The agent keeps adding new pay type values during employee migrations which widens the gap each time.​​​​​​​​​​​​​​​​
