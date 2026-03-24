@@ -46,13 +46,10 @@ if (criticalMissing) {
 }
 
 // ── Startup ──────────────────────────────────────────────────────────────────
-seedIfNeeded().then(() => {
-  app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
-  });
-}).catch((err) => {
-  console.error("Fatal startup error:", err);
-  app.listen(port, () => {
-    console.log(`Server listening on port ${port} (seed skipped)`);
+// Start listening immediately so health checks pass, then seed in the background
+app.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+  seedIfNeeded().catch((err) => {
+    console.error("[seed] Background seed error:", err);
   });
 });
