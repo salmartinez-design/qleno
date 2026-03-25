@@ -1,0 +1,87 @@
+Let me read the CSV first so I know exactly what columns MC exports.Good. I have everything I need. Here's the full picture:
+
+**The CSV has 17 job records for Damian (CL-0075).** Columns are: Client ID, Date, Base Rate, Tech 1, Tech 2, Service Type, Address, Frequency, Duration, Add-ons, Basement Price.
+
+**One MC data artifact to flag:** The address increments by 1 on every row (7251, 7252, 7253...). That's a MC export bug — the real address is 7251 W Fitch Ave. I'll lock all rows to the correct address in the import.
+
+**Total bill per job = Base Rate + Basement Price** (e.g. $255 + $30.60 = $285.60 — which matches what you see in the screenshots).
+
+---
+
+**Here's the import SQL — paste this to the agent to run against production:**
+
+```sql
+-- Damian Ehrlicher job history import
+-- MC Client ID: CL-0075
+-- Find his client_id in Qleno first
+DO $$
+DECLARE
+  v_client_id uuid;
+  v_company_id uuid;
+BEGIN
+  -- Get PHES company_id
+  SELECT id INTO v_company_id FROM companies WHERE slug = 'phes-cleaning' LIMIT 1;
+  
+  -- Get Damian's client_id
+  SELECT id INTO v_client_id FROM clients 
+  WHERE company_id = v_company_id 
+  AND (full_name ILIKE '%Damian%Ehrlicher%' OR full_name ILIKE '%Ehrlicher%')
+  LIMIT 1;
+
+  IF v_client_id IS NULL THEN
+    RAISE NOTICE 'Damian Ehrlicher not found — check client name in DB';
+    RETURN;
+  END IF;
+
+  RAISE NOTICE 'Found client_id: %', v_client_id;
+
+  INSERT INTO job_history (
+    company_id, client_id, completed_date, bill_rate,
+    technician_name, technician_2_name, scope, frequency,
+    duration_hours, add_ons, service_address,
+    migration_source, created_at
+  ) VALUES
+    (v_company_id, v_client_id, '2026-03-18', 285.60, 'Generic Cleaner', null, 'Flat Rate Standard', 'Monthly', 3.98, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-12-23', 285.60, 'Guadalupe Mejia', null, 'Flat Rate Standard', 'Monthly', 3.33, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-11-26', 285.60, 'Evelyna Resendez', null, 'Flat Rate Standard', 'Monthly', 3.70, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-10-01', 285.60, 'Evelyna Resendez', null, 'Flat Rate Standard', 'Monthly', 4.25, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-09-03', 285.60, 'Guadalupe Mejia', null, 'Flat Rate Standard', 'Monthly', 3.75, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-08-06', 285.60, 'Norma Puga', null, 'Flat Rate Standard', 'Monthly', 4.73, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-06-11', 285.60, 'Norma Puga', null, 'Flat Rate Standard', 'Monthly', 4.03, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-05-14', 285.60, 'Yohana Velasquez', null, 'Flat Rate Standard', 'Monthly', 5.83, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-03-18', 285.60, 'Monica Ruiz', null, 'Flat Rate Standard', 'Monthly', 4.70, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-02-19', 285.60, 'Monica Ruiz', null, 'Flat Rate Standard', 'Monthly', 4.23, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2025-01-22', 285.60, 'Liz Hernandez', null, 'Flat Rate Standard', 'Monthly', 5.20, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-12-24', 285.60, 'Monica Ruiz', null, 'Flat Rate Standard', 'Monthly', 4.88, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-11-27', 285.60, 'Monica Ruiz', null, 'Flat Rate Standard', 'Monthly', 4.38, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-10-30', 285.60, 'Monica Ruiz', null, 'Flat Rate Standard', 'Monthly', 4.77, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-09-25', 285.60, 'Mercedes Chinchilla', null, 'Flat Rate Standard', 'Monthly', 3.88, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-07-10', 285.60, 'Erika Guevara', null, 'Flat Rate Standard', 'Monthly', 4.75, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-06-12', 285.60, 'Erika Guevara', null, 'Flat Rate Standard', 'Monthly', 2.77, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW()),
+    (v_company_id, v_client_id, '2024-05-15', 580.60, 'Erika Guevara', 'Ana Valdez', 'Hourly Deep Clean or Move In/Out', 'On Demand', 5.50, 'Basement', '7251 W Fitch Ave Chicago, IL 60631', 'mc_import', NOW())
+  ON CONFLICT DO NOTHING;
+
+  RAISE NOTICE 'Damian Ehrlicher — 18 job records imported';
+END $$;
+```
+
+---
+
+**On the client profile design — how to beat MC:**
+
+MC's profile is cluttered with tabs everywhere and no clear visual hierarchy. For Qleno, the client profile should be structured as:
+
+**Hero section** — Name, LTV badge, last cleaning, next cleaning, status tag (recurring/active), quick action buttons (Schedule Job, Send Message, Create Invoice). All above the fold.
+
+**Three-column layout below:**
+- Left: Contact info, home address, entry instructions (lockbox/alarm) — always visible, no tab required
+- Center: Job history timeline — chronological, shows tech name, amount, duration, add-ons per visit. Color coded by status. This is what MC buries in a Jobs tab.
+- Right: Key stats — Total LTV, Last 12 months revenue, Average bill, Frequency, Skips, Bumps, Technician consistency score
+
+**What MC does wrong that you should fix:**
+- Hides job history behind a tab — in Qleno it should be the centerpiece
+- No LTV prominently displayed — Damian is worth $5,027 all-time, that should be the first thing you see
+- No technician consistency metric — knowing Damian has had 8 different techs in 17 visits is a churn risk signal
+- Contact tickets buried — should surface as a badge on the profile
+
+Want me to write the client profile redesign prompt for the agent after the import runs?
