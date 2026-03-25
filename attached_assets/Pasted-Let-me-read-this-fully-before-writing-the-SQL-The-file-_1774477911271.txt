@@ -1,0 +1,133 @@
+Let me read this fully before writing the SQL.​​​​​​​​​​​​​​​​
+
+The file isn’t in uploads but I have the full content from the document. I have everything I need. Here’s the complete analysis and import SQL:
+What’s in this file:
+	∙	CL-0030 — 50 rows, 47 unique visits (3 two-tech jobs on same date split into two rows by MC), bi-weekly $220, 1151 S Cuyler Ave Oak Park IL 60304, 13 unique techs
+	∙	CL-0300 — 5 rows, 5 visits, monthly $140, 3027 W Logan Unit 202 Chicago IL 60614
+	∙	CL-0151 — 9 rows, 9 visits, mostly $195 (one Deep Clean at $210), 1600 South Indiana Avenue Unit 1107 Chicago IL 60616
+Two-tech jobs in CL-0030 (MC logged as two rows — merged into one):
+	∙	11/20/2024 — Norma Puga + Ana Valdez
+	∙	07/31/2024 — Erika Guevara + Veronica Segoviano
+	∙	06/19/2024 — Erika Guevara + Diana Vasquez
+Paste this SQL to the agent to run against production:
+
+DO $$
+DECLARE
+  v_company_id uuid;
+  v_cl0030 uuid;
+  v_cl0300 uuid;
+  v_cl0151 uuid;
+BEGIN
+  SELECT id INTO v_company_id FROM companies WHERE slug = 'phes-cleaning' LIMIT 1;
+
+  SELECT id INTO v_cl0030 FROM clients 
+  WHERE company_id = v_company_id AND external_id = 'CL-0030' LIMIT 1;
+
+  SELECT id INTO v_cl0300 FROM clients 
+  WHERE company_id = v_company_id AND external_id = 'CL-0300' LIMIT 1;
+
+  SELECT id INTO v_cl0151 FROM clients 
+  WHERE company_id = v_company_id AND external_id = 'CL-0151' LIMIT 1;
+
+  IF v_cl0030 IS NULL THEN RAISE NOTICE 'CL-0030 not found'; END IF;
+  IF v_cl0300 IS NULL THEN RAISE NOTICE 'CL-0300 not found'; END IF;
+  IF v_cl0151 IS NULL THEN RAISE NOTICE 'CL-0151 not found'; END IF;
+
+  -- CL-0030: 47 unique visits (3 two-tech merged)
+  INSERT INTO job_history (
+    company_id, client_id, completed_date, bill_rate,
+    technician_name, technician_2_name, scope, frequency,
+    duration_hours, service_address, migration_source, created_at
+  ) VALUES
+  (v_company_id, v_cl0030, '2026-03-25', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 3.60, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2026-03-11', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 4.10, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2026-02-25', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 3.62, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2026-02-11', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 3.85, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2026-01-28', 220.00, 'Norma Puga', 'Ana Valdez', 'Flat Rate Standard', 'Bi-Weekly', 2.73, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2026-01-14', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 3.92, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-12-31', 220.00, 'Guadalupe Mejia', null, 'Flat Rate Standard', 'Bi-Weekly', 2.70, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-12-17', 220.00, 'Alejandra Cuervo', null, 'Flat Rate Standard', 'Bi-Weekly', 2.95, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-12-03', 220.00, 'Alejandra Cuervo', null, 'Flat Rate Standard', 'Bi-Weekly', 1.95, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-11-19', 220.00, 'Alejandra Cuervo', null, 'Flat Rate Standard', 'Bi-Weekly', 2.38, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-11-05', 220.00, 'Liz Hernandez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.70, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-10-22', 220.00, 'Ana Valdez', null, 'Flat Rate Standard', 'Bi-Weekly', 2.85, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-10-08', 220.00, 'Evelyna Resendez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.25, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-09-24', 220.00, 'Norma Puga', null, 'Flat Rate Standard', 'Bi-Weekly', 4.15, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-09-10', 220.00, 'Evelyna Resendez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.67, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-08-27', 220.00, 'Alejandra Cuervo', null, 'Flat Rate Standard', 'Bi-Weekly', 3.10, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-08-13', 220.00, 'Delia Martinez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.10, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-07-30', 220.00, 'Delia Martinez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.02, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-07-16', 220.00, 'Delia Martinez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.93, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-06-18', 220.00, 'Denise Gonzalez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.75, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-06-04', 220.00, 'Delia Martinez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.77, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-05-21', 220.00, 'Denise Gonzalez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.77, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-05-07', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.70, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-04-23', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.18, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-04-09', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.08, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-03-25', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.22, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-03-12', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.08, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-02-26', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 5.37, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-02-12', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.45, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-01-29', 220.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Bi-Weekly', 4.82, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2025-01-15', 220.00, 'Evelyn Toledo', null, 'Flat Rate Standard', 'Bi-Weekly', 3.80, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-12-31', 220.00, 'Evelyn Toledo', null, 'Flat Rate Standard', 'Bi-Weekly', 3.62, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-12-18', 220.00, 'Evelyn Toledo', null, 'Flat Rate Standard', 'Bi-Weekly', 4.10, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-12-04', 220.00, 'Ana Valdez', null, 'Flat Rate Standard', 'Bi-Weekly', 3.60, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-11-20', 220.00, 'Norma Puga', 'Ana Valdez', 'Flat Rate Standard', 'Bi-Weekly', 2.27, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-11-06', 220.00, 'Monica Ruiz', null, 'Flat Rate Standard', 'Bi-Weekly', 4.02, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-10-23', 220.00, 'Tatiana Merchan', null, 'Flat Rate Standard', 'Bi-Weekly', 4.15, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-10-09', 220.00, 'Monica Ruiz', null, 'Flat Rate Standard', 'Bi-Weekly', 3.13, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-09-11', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 4.25, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-08-28', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 4.10, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-08-14', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 3.83, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-07-31', 220.00, 'Erika Guevara', 'Veronica Segoviano', 'Flat Rate Standard', 'Bi-Weekly', 2.33, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-07-17', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 4.28, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-07-03', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 3.53, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-06-19', 220.00, 'Erika Guevara', 'Diana Vasquez', 'Flat Rate Standard', 'Bi-Weekly', 3.27, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-06-05', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 4.18, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+  (v_company_id, v_cl0030, '2024-05-22', 220.00, 'Erika Guevara', null, 'Flat Rate Standard', 'Bi-Weekly', 4.20, '1151 S Cuyler Ave Oak Park, IL 60304', 'mc_import', NOW()),
+
+  -- CL-0300: 5 visits, monthly $140
+  (v_company_id, v_cl0300, '2026-02-26', 140.00, 'Alejandra Cuervo', null, 'Hourly Standard Cleaning', 'Monthly', 1.18, '3027 W Logan Unit 202 Chicago, IL 60614', 'mc_import', NOW()),
+  (v_company_id, v_cl0300, '2026-01-29', 140.00, 'Diana Vasquez', null, 'Hourly Standard Cleaning', 'Monthly', 1.95, '3027 W Logan Unit 202 Chicago, IL 60614', 'mc_import', NOW()),
+  (v_company_id, v_cl0300, '2025-11-24', 140.00, 'Diana Vasquez', null, 'Hourly Standard Cleaning', 'Monthly', 1.63, '3027 W Logan Unit 202 Chicago, IL 60614', 'mc_import', NOW()),
+  (v_company_id, v_cl0300, '2025-10-30', 140.00, 'Diana Vasquez', null, 'Hourly Standard Cleaning', 'Monthly', 1.97, '3027 W Logan Unit 202 Chicago, IL 60614', 'mc_import', NOW()),
+  (v_company_id, v_cl0300, '2025-09-24', 140.00, 'Guadalupe Mejia', null, 'Hourly Standard Cleaning', 'Monthly', 1.65, '3027 W Logan Unit 202 Chicago, IL 60614', 'mc_import', NOW()),
+
+  -- CL-0151: 9 visits
+  (v_company_id, v_cl0151, '2026-02-26', 195.00, 'Alejandra Cuervo', null, 'Flat Rate Standard', 'Monthly', 2.02, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2026-01-29', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 3.40, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-12-23', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 2.72, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-11-24', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 2.82, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-10-30', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 2.87, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-10-02', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 3.23, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-08-21', 195.00, 'Diana Vasquez', null, 'Flat Rate Standard', 'Monthly', 3.68, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-07-28', 210.00, 'Diana Vasquez', null, 'Hourly Deep Clean or Move In/Out', 'On Demand', 3.52, '1600 South Indiana Avenue Unit 1107 Chicago, IL 60616', 'mc_import', NOW()),
+  (v_company_id, v_cl0151, '2025-07-30', 195.00, 'Diana Vasquez', null, 'Hourly Standard Cleaning', 'On Demand', 2.80, '1845 South Michigan Avenue Chicago, IL 60616', 'mc_import', NOW())
+
+  ON CONFLICT DO NOTHING;
+
+  RAISE NOTICE 'Import complete: CL-0030 (47 visits), CL-0300 (5 visits), CL-0151 (9 visits)';
+END $$;
+
+
+After running, verify with this query:
+
+SELECT 
+  c.external_id,
+  COUNT(*) as visits,
+  SUM(jh.bill_rate) as total_revenue,
+  MIN(jh.completed_date) as first_visit,
+  MAX(jh.completed_date) as last_visit
+FROM job_history jh
+JOIN clients c ON c.id = jh.client_id
+WHERE c.external_id IN ('CL-0030', 'CL-0300', 'CL-0151')
+AND jh.migration_source = 'mc_import'
+GROUP BY c.external_id
+ORDER BY c.external_id;
+
+
+Expected results:
+	∙	CL-0030: 47 visits / $10,340 / May 2024 — Mar 2026
+	∙	CL-0300: 5 visits / $700 / Sep 2025 — Feb 2026
+	∙	CL-0151: 9 visits / $1,770 / Jul 2025 — Feb 2026​​​​​​​​​​​​​​​​
