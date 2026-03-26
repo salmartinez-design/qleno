@@ -1,0 +1,49 @@
+Send this to the agent:
+
+---
+
+The client profile page needs a UI and layout overhaul ONLY. Do not remove, change, or move any data, features, or functionality. Every section and every field that exists today must remain. This is purely a visual reorganization.
+
+**PROBLEMS TO FIX:**
+
+**1. Remove duplicate blocks — data only, not the sections:**
+- Inside Service Details there is a leftover "Client Info / Service Summary" card showing First Name, Last Name, Email, Phone, Company Name, Notes, Address, Frequency, Service Type, Current Rate, Allowed Hours, QBO Status — all showing "Not set". This is a duplicate of data already in the hero and other sections. Remove this specific card only. Keep everything else in Service Details exactly as is.
+- Quick Actions bar (Send SMS, Send Email, Add Note, Create Job, View Portal) appears twice — once in the hero area and once inside Service Details. Remove the duplicate inside Service Details only. Keep the one in the hero.
+
+**2. Add sticky section jump navigation:**
+Directly below the three-column grid and above the first collapsible section, add a horizontal pill navigation bar. Pills: Service Details / Billing & Payments / Quotes / Agreements / Scorecards / Contacts & Notifications / Client Portal / Technician Preferences / Contact Tickets / Inspections / Attachments / Home Images. Clicking any pill smooth-scrolls to that section instantly. This nav bar sticks to the top of the viewport when the user scrolls past it. Active pill shows in var(--brand) color. Inactive pills in secondary text color (#6B6860). Small compact size — not full buttons.
+
+**3. Section headers — consistent design across all sections:**
+Every collapsible section header should follow this exact pattern:
+- Section title: small caps, letter-spacing 0.08em, secondary text color (#6B6860), font-weight 600
+- Record count badge on the right of the title: small gray rounded pill showing count (e.g. "18" for job history, "0" for empty sections)
+- Expand/collapse chevron on the far right
+- When expanded: 3px left border in var(--brand) color on the section container
+- Header background: #F7F6F3
+- Bottom border: #E5E2DC 1px
+- Smooth 200ms open/close animation
+
+**4. Empty state design — compact only:**
+When a section has no data, show a single line of secondary text (e.g. "No scorecards yet") aligned left with a small action button on the right. Remove all large illustrated empty states with icons and large placeholder boxes. The section should take minimal vertical space when empty.
+
+**5. Billing & Payments — compact summary header:**
+At the top of the Billing & Payments section, before the existing invoice table, add a compact two-column summary row: left side shows payment method on file (or "None on file"), right side shows total paid all-time. Keep the full invoice table, payments table, and QuickBooks block exactly as they are below this summary row. Just add the summary — remove nothing.
+
+**6. Intelligence panel — tighten row spacing:**
+Each metric row: label in secondary text (#6B6860) on the left, value bold primary text (#1A1917) right-aligned. Reduce padding between rows to 8px. Tech Consistency card stays at the top as the hero element — do not change it. Keep all existing metrics.
+
+**7. Three-column grid — fix Client Details column:**
+The Client Details column is nearly empty for Damian because phone, email, and address are null in the DB. That is a data issue to fix separately. For now, ensure the column renders cleanly without large empty gaps — hide null fields entirely, show only what exists.
+
+**WHAT NOT TO TOUCH:**
+- All data queries and API calls — do not change
+- All existing features and buttons — do not remove
+- All collapsible sections — keep all of them, just restyle the headers
+- Job history pagination — do not change
+- Intelligence panel metrics — do not change values or queries
+- Hero section — do not change layout or data
+- Any form or modal — do not change
+
+Plus Jakarta Sans only. No emojis. No dark mode. Background #F7F6F3. Cards #FFFFFF. Borders #E5E2DC.
+
+---

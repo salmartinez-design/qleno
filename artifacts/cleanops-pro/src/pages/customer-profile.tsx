@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -310,9 +310,6 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
     </div>
   );
 
-  const cardStyle: React.CSSProperties = { backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" };
-  const gridStyle: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" };
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -328,75 +325,14 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
         )}
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-        <div style={cardStyle}>
-          <h3 style={{ margin: "0 0 16px", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>Client Info</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <div style={gridStyle}>
-              <Field label="First Name" value={form.first_name} field="first_name" />
-              <Field label="Last Name" value={form.last_name} field="last_name" />
-            </div>
-            <Field label="Email" value={form.email} field="email" type="email" />
-            <Field label="Phone" value={form.phone} field="phone" type="tel" />
-            <Field label="Company Name" value={form.company_name} field="company_name" />
-            <div>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>Notes</label>
-              {editing ? (
-                <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #D1D5DB", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical" }} />
-              ) : (
-                <p style={{ margin: 0, fontSize: "13px", color: form.notes ? "#1A1917" : "#9E9B94" }}>{form.notes || "No notes"}</p>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div style={cardStyle}>
-          <h3 style={{ margin: "0 0 16px", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>Service Summary</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-            <Field label="Address" value={[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ")} field="address" />
-            <div style={gridStyle}>
-              <SelectField label="Frequency" value={form.frequency} field="frequency" opts={[["weekly","Weekly"],["biweekly","Bi-weekly"],["monthly","Monthly"],["on_demand","On Demand"]]} />
-              <SelectField label="Service Type" value={form.service_type} field="service_type" opts={[["recurring","Recurring"],["one_time","One-Time"]]} />
-            </div>
-            <div style={gridStyle}>
-              <Field label="Current Rate" value={form.base_fee ? `$${form.base_fee}` : ""} field="base_fee" type="number" />
-              <Field label="Allowed Hours" value={form.allowed_hours ? `${form.allowed_hours} hrs` : ""} field="allowed_hours" type="number" />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>QBO Status</label>
-              <p style={{ margin: 0, fontSize: "13px", color: client.qbo_customer_id ? "#16A34A" : "#9E9B94" }}>
-                {client.qbo_customer_id ? `Connected (ID: ${client.qbo_customer_id})` : "Not connected"}
-              </p>
-            </div>
-            {client.referral_source && (
-              <div>
-                <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>Referral Source</label>
-                <p style={{ margin: 0, fontSize: "13px", color: "#1A1917", textTransform: "capitalize" }}>
-                  {client.referral_source.replace(/_/g, " ")}
-                  {client.referral_by_customer_name && <span style={{ color: "#6B7280" }}> — {client.referral_by_customer_name}</span>}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Intelligence Badges */}
-      {(client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined) ? (
+      {/* Intelligence Badges (NPS / Churn) */}
+      {((client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined)) && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
           {client.latest_nps_score !== null && client.latest_nps_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>NPS Score</span>
-              <span style={{
-                fontSize: 16, fontWeight: 800,
-                color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B"
-              }}>{client.latest_nps_score}</span>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                background: client.latest_nps_score >= 9 ? "#DCFCE7" : client.latest_nps_score >= 7 ? "#FEF3C7" : "#FEE2E2",
-                color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B",
-              }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B" }}>{client.latest_nps_score}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.latest_nps_score >= 9 ? "#DCFCE7" : client.latest_nps_score >= 7 ? "#FEF3C7" : "#FEE2E2", color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B" }}>
                 {client.latest_nps_score >= 9 ? "Promoter" : client.latest_nps_score >= 7 ? "Passive" : "Detractor"}
               </span>
             </div>
@@ -404,41 +340,14 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
           {client.churn_risk_score !== null && client.churn_risk_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Churn Risk</span>
-              <span style={{
-                fontSize: 16, fontWeight: 800,
-                color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534"
-              }}>{client.churn_risk_score}%</span>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4,
-                background: client.churn_risk_score >= 70 ? "#FEE2E2" : client.churn_risk_score >= 40 ? "#FEF3C7" : "#DCFCE7",
-                color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534",
-              }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534" }}>{client.churn_risk_score}%</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.churn_risk_score >= 70 ? "#FEE2E2" : client.churn_risk_score >= 40 ? "#FEF3C7" : "#DCFCE7", color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534" }}>
                 {client.churn_risk_score >= 70 ? "High" : client.churn_risk_score >= 40 ? "Medium" : "Low"}
               </span>
             </div>
           )}
         </div>
-      ) : null}
-
-      {/* Quick Actions */}
-      <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "16px" }}>
-        <h3 style={{ margin: "0 0 12px", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>Quick Actions</h3>
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          {[{ icon: MessageSquare, label: "Send SMS" }, { icon: Mail, label: "Send Email" }, { icon: StickyNote, label: "Add Note" }, { icon: Plus, label: "Create Job" }].map(({ icon: Icon, label }) => (
-            <button key={label} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer" }}>
-              <Icon size={13} strokeWidth={1.5} /> {label}
-            </button>
-          ))}
-          <a
-            href={`${API}/portal/${companySlug}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: "flex", alignItems: "center", gap: "6px", padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "8px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer", textDecoration: "none" }}
-          >
-            <Globe size={13} strokeWidth={1.5} /> View Portal
-          </a>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -712,7 +621,7 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
           </tr></thead>
           <tbody>
             {allDocs.length === 0 ? (
-              <tr><td colSpan={5} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No agreements sent yet</td></tr>
+              <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left", color: "#9E9B94", fontSize: "13px" }}>No agreements sent yet</td></tr>
             ) : allDocs.map((a: any) => {
               const isSigned = a._src === "new" ? a.status === "signed" : !!a.accepted_at;
               const isPending = a._src === "new" ? a.status === "pending" : !a.accepted_at;
@@ -860,7 +769,7 @@ function ScorecardsTab({ scorecards }: { scorecards: any[] }) {
         </tr></thead>
         <tbody>
           {scorecards.length === 0 ? (
-            <tr><td colSpan={5} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No scorecards yet</td></tr>
+            <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left", color: "#9E9B94", fontSize: "13px" }}>No scorecards yet</td></tr>
           ) : scorecards.map(sc => {
             const info = scoreInfo[sc.score] || scoreInfo[0];
             return (
@@ -971,7 +880,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
           </tr></thead>
           <tbody>
             {prefs.length === 0 ? (
-              <tr><td colSpan={4} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No preferences set</td></tr>
+              <tr><td colSpan={4} style={{ padding: "14px 16px", textAlign: "left", color: "#9E9B94", fontSize: "13px" }}>No preferences set</td></tr>
             ) : prefs.map(p => (
               <tr key={p.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{p.first_name} {p.last_name}</td>
@@ -1724,21 +1633,104 @@ function DL({ label, value }: { label: string; value?: string | number | null })
   );
 }
 
+// ─── Section Jump Nav ─────────────────────────────────────────────────────────
+const NAV_PILLS = [
+  { id: "sec-service",     label: "Service Details" },
+  { id: "sec-billing",     label: "Billing & Payments" },
+  { id: "sec-quotes",      label: "Quotes" },
+  { id: "sec-agreements",  label: "Agreements" },
+  { id: "sec-scorecards",  label: "Scorecards" },
+  { id: "sec-contacts",    label: "Contacts & Notifications" },
+  { id: "sec-portal",      label: "Client Portal" },
+  { id: "sec-tech",        label: "Technician Preferences" },
+  { id: "sec-tickets",     label: "Contact Tickets" },
+  { id: "sec-inspections", label: "Inspections" },
+  { id: "sec-attachments", label: "Attachments" },
+  { id: "sec-homeimages",  label: "Home Images" },
+] as const;
+
+function SectionNav() {
+  const [active, setActive] = useState<string>("sec-service");
+  const navRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) setActive(entry.target.id);
+        });
+      },
+      { rootMargin: "-20% 0px -70% 0px", threshold: 0 }
+    );
+    NAV_PILLS.forEach(({ id }) => {
+      const el = document.getElementById(id);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, []);
+
+  const scrollTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    setActive(id);
+  };
+
+  return (
+    <div
+      ref={navRef}
+      style={{
+        position: "sticky", top: 0, zIndex: 40, background: "#F7F6F3",
+        borderBottom: "1px solid #E5E2DC", marginBottom: 12,
+        marginLeft: -24, marginRight: -24, paddingLeft: 24, paddingRight: 24,
+      }}
+    >
+      <div style={{ display: "flex", gap: 4, overflowX: "auto" as const, padding: "10px 0", scrollbarWidth: "none" as any }}>
+        {NAV_PILLS.map(({ id, label }) => (
+          <button
+            key={id}
+            onClick={() => scrollTo(id)}
+            style={{
+              flexShrink: 0, padding: "5px 12px", borderRadius: 20, border: "none", cursor: "pointer",
+              fontSize: 11, fontWeight: active === id ? 700 : 500, fontFamily: FF,
+              background: active === id ? "var(--brand)" : "#EEECE8",
+              color: active === id ? "#FFFFFF" : "#6B6860",
+              transition: "background 150ms, color 150ms",
+              whiteSpace: "nowrap" as const,
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Collapsible Section ───────────────────────────────────────────────────────
-function CollapsibleSection({ title, children, defaultOpen = false }: {
-  title: string; children: React.ReactNode; defaultOpen?: boolean;
+function CollapsibleSection({ title, sectionId, count, children, defaultOpen = false }: {
+  title: string; sectionId?: string; count?: number; children: React.ReactNode; defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ borderRadius: 10, border: "1px solid #E5E2DC", overflow: "hidden", marginBottom: 10 }}>
+    <div
+      id={sectionId}
+      style={{ borderRadius: 10, border: "1px solid #E5E2DC", overflow: "hidden", marginBottom: 8, borderLeft: open ? "3px solid var(--brand)" : "1px solid #E5E2DC", transition: "border-left 200ms ease" }}
+    >
       <button
         onClick={() => setOpen(v => !v)}
-        style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 20px", background: "#F7F6F3", border: "none", borderBottom: open ? "1px solid #E5E2DC" : "none", cursor: "pointer", fontFamily: FF }}
+        style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 18px", background: "#F7F6F3", border: "none", borderBottom: open ? "1px solid #E5E2DC" : "none", cursor: "pointer", fontFamily: FF }}
       >
-        <span style={{ fontSize: 12, fontWeight: 800, color: "#0A0E1A", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>{title}</span>
-        {open ? <ChevronUp size={15} style={{ color: "#6B7280" }} /> : <ChevronDown size={15} style={{ color: "#6B7280" }} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>{title}</span>
+          {count !== undefined && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", background: "#EEECE8", borderRadius: 10, padding: "1px 7px", lineHeight: "16px" }}>{count}</span>
+          )}
+        </div>
+        <ChevronDown size={14} style={{ color: "#9E9B94", transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 200ms ease", flexShrink: 0 }} />
       </button>
-      {open && <div style={{ padding: "20px", background: "#FFFFFF" }}>{children}</div>}
+      <div style={{ overflow: "hidden", maxHeight: open ? "10000px" : "0px", transition: "max-height 200ms ease", background: "#FFFFFF" }}>
+        <div style={{ padding: "20px" }}>{children}</div>
+      </div>
     </div>
   );
 }
@@ -2004,7 +1996,7 @@ function ClientIntelligencePanel({ jhStats, profile }: { jhStats: any; profile: 
           {total_visits > 0 && unique_techs > 0 && ` · ${((unique_techs / total_visits) * 100).toFixed(0)}% rotation`}
         </div>
       </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <SR label="Lifetime Revenue" value={`$${total_revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
         <SR label="Last 12 Months" value={`$${revenue_last_12mo.toLocaleString("en-US", { maximumFractionDigits: 0 })}`} />
         <SR label="Avg Bill (12mo)" value={`$${avg_bill.toFixed(2)}`} />
@@ -2074,9 +2066,22 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule }:
 // ─── Billing Section ──────────────────────────────────────────────────────────
 function BillingSection({ client, invoices, refetch }: { client: any; invoices: any[]; refetch: () => void }) {
   const outstanding = invoices.filter(i => !i.paid_at && i.status !== "draft").reduce((s: number, i: any) => s + parseFloat(i.total || "0"), 0);
+  const totalPaid = invoices.filter(i => i.paid_at).reduce((s: number, i: any) => s + parseFloat(i.total || "0"), 0);
+  const cardOnFile = client.card_last_four ? `•••• ${client.card_last_four}` : (client.default_card_last_4 ? `•••• ${client.default_card_last_4}` : null);
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {(client.card_last_four || client.default_card_last_4) && outstanding > 0 && (
+      {/* Compact summary row */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>Payment Method</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: cardOnFile ? "#1A1917" : "#9E9B94" }}>{cardOnFile || "None on file"}</div>
+        </div>
+        <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "10px 14px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>Total Paid (All Time)</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fmtCurrency(totalPaid)}</div>
+        </div>
+      </div>
+      {outstanding > 0 && (
         <div style={{ padding: "10px 14px", background: "#FEF3C7", borderRadius: 8, fontSize: 12, color: "#92400E", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
           <CreditCard size={14} />
           Outstanding balance: ${outstanding.toFixed(2)}
@@ -2164,7 +2169,7 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
             </thead>
             <tbody>
               {tickets.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: "40px", textAlign: "center" as const, color: "#9E9B94", fontSize: 13 }}>No tickets yet</td></tr>
+                <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left" as const, color: "#9E9B94", fontSize: 13 }}>No tickets yet</td></tr>
               ) : tickets.map((t: any) => {
                 const tc = TICKET_COLORS[t.ticket_type] || { background: "#F3F4F6", color: "#6B7280" };
                 return (
@@ -2206,7 +2211,7 @@ function InspectionsSection() {
             </tr>
           </thead>
           <tbody>
-            <tr><td colSpan={5} style={{ padding: "40px", textAlign: "center" as const, color: "#9E9B94", fontSize: 13 }}>No inspections on record</td></tr>
+            <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left" as const, color: "#9E9B94", fontSize: 13 }}>No inspections on record</td></tr>
           </tbody>
         </table>
       </div>
@@ -2239,10 +2244,7 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
       {isLoading ? (
         <div style={{ textAlign: "center" as const, color: "#9E9B94", fontSize: 13, padding: 24 }}>Loading...</div>
       ) : photos.length === 0 ? (
-        <div style={{ textAlign: "center" as const, color: "#9E9B94", fontSize: 13, padding: 40, border: "1px dashed #E5E2DC", borderRadius: 10 }}>
-          <Image size={28} style={{ color: "#D0CEC9", display: "block", margin: "0 auto 8px" }} />
-          No home images uploaded yet
-        </div>
+        <div style={{ fontSize: 13, color: "#9E9B94", padding: "6px 0" }}>No home images uploaded yet</div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
           {photos.map((p: any) => (
@@ -2330,47 +2332,50 @@ export default function CustomerProfilePage() {
         />
 
         {/* 3-column grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 20, alignItems: "start", marginBottom: 24 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
           <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} />
           <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} />
           <ClientIntelligencePanel jhStats={jhStats} profile={profile} />
         </div>
 
+        {/* Sticky section jump nav */}
+        <SectionNav />
+
         {/* Collapsible sections */}
-        <CollapsibleSection title="Service Details" defaultOpen>
+        <CollapsibleSection title="Service Details" sectionId="sec-service" count={(jhData?.rows?.length) ?? undefined} defaultOpen>
           <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} />
         </CollapsibleSection>
-        <CollapsibleSection title="Billing & Payments">
+        <CollapsibleSection title="Billing & Payments" sectionId="sec-billing" count={(profile.invoices || []).length}>
           <BillingSection client={profile} invoices={profile.invoices || []} refetch={refetchProfile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Quotes">
+        <CollapsibleSection title="Quotes" sectionId="sec-quotes">
           <QuotesTab clientId={clientId} client={profile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Agreements">
+        <CollapsibleSection title="Agreements" sectionId="sec-agreements" count={(profile.agreements || []).length}>
           <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Scorecards">
+        <CollapsibleSection title="Scorecards" sectionId="sec-scorecards" count={(profile.scorecards || []).length}>
           <ScorecardsTab scorecards={profile.scorecards || []} />
         </CollapsibleSection>
-        <CollapsibleSection title="Contacts & Notifications">
+        <CollapsibleSection title="Contacts & Notifications" sectionId="sec-contacts" count={(profile.notification_settings || []).length}>
           <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Client Portal">
+        <CollapsibleSection title="Client Portal" sectionId="sec-portal">
           <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Technician Preferences">
+        <CollapsibleSection title="Technician Preferences" sectionId="sec-tech" count={(profile.tech_preferences || []).length}>
           <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
         </CollapsibleSection>
-        <CollapsibleSection title="Contact Tickets">
+        <CollapsibleSection title="Contact Tickets" sectionId="sec-tickets">
           <ContactTicketsSection clientId={clientId} />
         </CollapsibleSection>
-        <CollapsibleSection title="Inspections">
+        <CollapsibleSection title="Inspections" sectionId="sec-inspections" count={0}>
           <InspectionsSection />
         </CollapsibleSection>
-        <CollapsibleSection title="Attachments">
+        <CollapsibleSection title="Attachments" sectionId="sec-attachments">
           <AttachmentsSection clientId={clientId} />
         </CollapsibleSection>
-        <CollapsibleSection title="Home Images">
+        <CollapsibleSection title="Home Images" sectionId="sec-homeimages">
           <HomeImagesSection clientId={clientId} />
         </CollapsibleSection>
       </div>
