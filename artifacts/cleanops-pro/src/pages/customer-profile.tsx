@@ -1681,13 +1681,15 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
 
 
 // ─── Job History helpers ───────────────────────────────────────────────────────
-function parseJobNotes(notes: string | null): { duration: string | null; addOn: string | null } {
-  if (!notes) return { duration: null, addOn: null };
+function parseJobNotes(notes: string | null): { duration: string | null; addOn: string | null; tech2: string | null } {
+  if (!notes) return { duration: null, addOn: null, tech2: null };
   const durMatch = notes.match(/^(\d+\.?\d*)h/);
   const addOnMatch = notes.match(/add-on:\s*([^·]+)/);
+  const tech2Match = notes.match(/tech 2:\s*([^·]+)/);
   return {
     duration: durMatch ? durMatch[1] : null,
     addOn: addOnMatch ? addOnMatch[1].trim() : null,
+    tech2: tech2Match ? tech2Match[1].trim() : null,
   };
 }
 
@@ -1927,7 +1929,8 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading }: { clientId:
               </thead>
               <tbody>
                 {pageRows.map((row: any) => {
-                  const { duration, addOn } = parseJobNotes(row.notes);
+                  const { duration, addOn, tech2 } = parseJobNotes(row.notes);
+                  const techDisplay = tech2 ? `${row.technician} + ${tech2}` : (row.technician || "—");
                   return (
                     <tr key={row.id}>
                       <td style={TD_STYLE}>
@@ -1935,8 +1938,8 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading }: { clientId:
                           {new Date(row.job_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
                         </span>
                       </td>
-                      <td style={{ ...TD_STYLE, maxWidth: 140 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{row.technician || "—"}</div>
+                      <td style={{ ...TD_STYLE, maxWidth: 160 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={techDisplay}>{techDisplay}</div>
                       </td>
                       <td style={{ ...TD_STYLE, fontSize: 12, color: "#6B7280" }}>{row.service_type || "—"}</td>
                       <td style={{ ...TD_STYLE, fontSize: 11, color: addOn ? "#6B7280" : "#D0CEC9" }}>{addOn || "—"}</td>
