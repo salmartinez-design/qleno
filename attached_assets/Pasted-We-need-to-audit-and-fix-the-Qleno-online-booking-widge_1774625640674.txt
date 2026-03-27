@@ -1,0 +1,124 @@
+We need to audit and fix the Qleno online booking widget pricing engine at /book/phes-cleaning to match MaidCentral exactly. Do not change any UI layout or design. Only touch pricing logic, add-on definitions, discount codes, booking submission behavior, and add one new Company Setting. Work through each section in order.
+
+---
+
+SECTION 1 — VERIFY SQFT TIER TABLES
+
+The pricing engine uses hours × hourly rate to calculate price. Confirm the following tier tables are loaded exactly in the database (pricing_tiers or equivalent table). If any value differs, update it.
+
+DEEP CLEAN (scope_id = deep_clean, hourly_rate = 70.00, min_bill = 210.00):
+0-749: 3.0h | 750-999: 3.2h | 1000-1249: 5.2h | 1250-1499: 6.0h | 1500-1749: 6.2h | 1750-1999: 6.5h | 2000-2249: 7.6h | 2250-2499: 8.0h | 2500-2749: 8.0h | 2750-2999: 8.4h | 3000-3249: 9.5h | 3250-3499: 10.0h | 3500-3749: 10.5h | 3750-3999: 11.0h | 4000-4249: 13.0h | 4250-4499: 14.0h | 4500-4749: 16.0h | 4750-5000: 18.0h | 5001-5500: 20.0h | 5501-6000: 29.0h
+
+STANDARD CLEANING (scope_id = standard, hourly_rate = 65.00, min_bill = 195.00):
+0-749: 2.5h | 750-999: 3.0h | 1000-1249: 3.3h | 1250-1499: 3.5h | 1500-1749: 3.7h | 1750-1999: 3.8h | 2000-2249: 4.2h | 2250-2499: 4.5h | 2500-2749: 5.0h | 2750-2999: 5.5h | 3000-3249: 7.0h | 3250-3499: 7.6h | 3500-3749: 8.0h | 3750-3999: 8.5h | 4000-4249: 9.2h | 4250-4499: 9.8h | 4500-4749: 10.0h | 4750-4999: 10.5h | 5000-5249: 11.0h | 5250-5499: 11.5h
+
+RECURRING CLEANING (scope_id = recurring):
+Three frequency columns — hourly rates: Weekly $55/hr, Every Two Weeks $60/hr, Every Four Weeks $65/hr. Min bill $195.
+0-749: 2.9 / 3.0 / 3.09h | 750-999: 2.91 / 3.0 / 3.09h | 1000-1249: 3.0 / 3.1 / 3.2h | 1250-1499: 3.18 / 3.27 / 3.45h | 1500-1749: 3.3 / 3.45 / 3.54h | 1750-1999: 3.82 / 4.0 / 4.18h | 2000-2249: 4.0 / 4.09 / 4.54h | 2250-2499: 4.5 / 4.7 / 5.0h | 2500-2749: 5.0 / 5.27 / 5.45h | 2750-3499: 5.45 / 5.6 / 6.0h | 3500-3749: 5.45 / 6.2 / 6.6h | 3750-3999: 7.0 / 7.27 / 8.0h | 4000-4999: 9.5 / 10.0 / 10.5h | 5000-5499: 11.0 / 12.0 / 13.0h
+
+---
+
+SECTION 2 — FIX ADD-ON PRICING
+
+The following add-ons currently have wrong or missing prices in the iFrame. Fix them:
+
+DEEP CLEAN add-ons (shown online):
+- Oven: $50.00 flat — KEEP AS IS (correct)
+- Refrigerator: $50.00 flat — KEEP AS IS (correct)
+- Kitchen Cabinets: $50.00 flat — KEEP AS IS (correct)
+- Windows (inside window panes only): pricing_type = PERCENTAGE, value = 15, calculated against the base job price. Label: "Windows (inside window panes only)". Currently shows wrong flat rate — fix to percentage.
+- Clean Basement: pricing_type = PERCENTAGE, value = 15, calculated against base job price. Currently shows no price — fix to percentage.
+
+STANDARD CLEANING add-ons (shown online):
+- Oven: $50.00 flat
+- Refrigerator: $50.00 flat
+- Baseboards: $50.00 flat — ADD THIS if missing
+- Windows (inside window panes only): 12% of base price (percentage, not flat)
+- Clean Basement: 15% of base price (percentage, not flat)
+- Kitchen Cabinets (must be empty upon arrival): $50.00 flat
+
+RECURRING CLEANING add-ons (shown online):
+- Oven: $50.00 flat
+- Refrigerator: $50.00 flat
+- Windows: 12% of base price
+- Basement: 12% of base price
+
+Make sure percentage add-ons display as "calculated on total" with a note like "price varies by home size" in the iFrame rather than showing a dollar amount that would be misleading.
+
+---
+
+SECTION 3 — SYNC DISCOUNT CODES
+
+The pricing_discounts table needs the following codes. Check each by code name. Insert if missing, update amount if wrong. All are one-time frequency.
+
+FOR DEEP CLEAN scope (online = true unless noted):
+- Chamber: 15%, online = true
+- Compass: 15%, online = true
+- Compass2026: 18%, online = true
+- Education Discount: 12%, online = true
+- fbdeep15: 15%, online = true
+- ROA: 15%, online = true
+- Senior Citizen Discount: 12%, online = true (already exists as "Senior" — rename to match or add alias)
+- smartcity10: 10%, online = true
+- 6-Month Promo: 20%, online = false (office only)
+- Manager Discretion Discount 25: $25 flat, online = false
+- Manager Discretion Discount 50: $50 flat, online = false
+- Realtor Discount: 12%, online = false
+- Law Enforcement & First Responders: 12%, online = true (already exists as "Law Enforcement" — keep or add alias)
+
+FOR STANDARD CLEANING scope:
+- Chamber: 15%, online = true
+- fb15: 15%, online = true
+
+FOR RECURRING CLEANING scope:
+- fb15: 15%, online = true
+- PHES100OFF: 10%, online = true
+
+Do not delete any existing codes. Only add or update.
+
+---
+
+SECTION 4 — BOOKING SUBMISSION RULES
+
+Rule 1 — Unassigned jobs:
+When a booking is submitted via POST /api/booking/submit (or equivalent booking endpoint), the created job record must always have technician_id = null and status = 'unassigned'. It must appear on the dispatch board in the Unassigned row on the date the client selected. Never auto-assign to any technician. This applies to all online bookings regardless of scope or frequency.
+
+Rule 2 — Booking lead time buffer:
+Read a company setting called online_booking_lead_hours from the companies table (add this column if it does not exist, default value = 48). In the booking widget calendar step, block out all dates from today through today + online_booking_lead_hours. The earliest selectable date must be today + lead time. Dates before that threshold must be visually disabled and unclickable.
+
+---
+
+SECTION 5 — COMPANY SETTINGS: ONLINE BOOKING TAB
+
+Add or verify an "Online Booking" tab in Company Settings. It must contain:
+
+1. Booking Lead Time — dropdown with options:
+   - 24 hours (value: 24)
+   - 48 hours (value: 48) — default
+   - 72 hours (value: 72)
+   - 1 week (value: 168)
+   - 2 weeks (value: 336)
+   - 1 month (value: 720)
+   
+   Saves to companies.online_booking_lead_hours. The booking widget reads this value at load time and enforces it on the calendar.
+
+2. New Bookings Assign To — static display only, value: "Unassigned (required)". This is not editable. It exists to confirm the behavior to the admin.
+
+---
+
+SECTION 6 — VERIFICATION TEST
+
+After all changes, perform this calculation and log the result to console:
+
+Input: Deep Clean, single frequency, 1111 sq ft, no add-ons, no discount
+Expected output: $364.00 (1111 sqft → 1000-1249 tier → 5.2 hours × $70 = $364)
+
+Input: Deep Clean, single frequency, 1111 sq ft, + Oven add-on
+Expected output: $414.00 ($364 + $50)
+
+Input: Deep Clean, single frequency, 2000 sq ft, + Windows add-on
+Expected output: $532 base + 15% of $532 = $532 + $79.80 = $611.80
+
+If any calculation is wrong, fix the pricing logic before completing.
+
+Log: "PRICING AUDIT COMPLETE — all 3 test cases passed" when done.

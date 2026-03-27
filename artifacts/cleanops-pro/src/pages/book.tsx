@@ -28,6 +28,7 @@ interface CompanyData {
   zip: string | null;
   business_hours: string | null;
   booking_policies: string | null;
+  online_booking_lead_hours: number | null;
   active_scopes: Array<{ id: number; name: string; scope_group: string }>;
 }
 
@@ -85,15 +86,16 @@ function Stepper({ value, onChange, min = 0, max = 20 }: { value: number; onChan
 }
 
 // ── Simple calendar ──────────────────────────────────────────────────────────
-function SimpleCalendar({ selected, onSelect, brand }: { selected: string; onSelect: (d: string) => void; brand: string }) {
+function SimpleCalendar({ selected, onSelect, brand, leadHours }: { selected: string; onSelect: (d: string) => void; brand: string; leadHours?: number }) {
+  const effectiveLeadHours = leadHours ?? 48;
+  const minDate = new Date();
+  minDate.setTime(minDate.getTime() + effectiveLeadHours * 60 * 60 * 1000);
+  minDate.setHours(0, 0, 0, 0);
+
   const [viewDate, setViewDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
+    const d = new Date(minDate);
     return d;
   });
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -113,7 +115,7 @@ function SimpleCalendar({ selected, onSelect, brand }: { selected: string; onSel
   function isPast(day: number) {
     const d = new Date(year, month, day);
     d.setHours(0, 0, 0, 0);
-    return d <= today;
+    return d < minDate;
   }
 
   return (
@@ -701,15 +703,15 @@ export default function BookPage() {
                       const sel = selectedAddonIds.includes(a.id);
                       const fromResult = calcResult?.addon_breakdown.find(b => b.id === a.id);
                       const pv = parseFloat(String((a as any).price_value ?? a.price ?? 0));
+                      const isPct = a.price_type === "percentage" || a.price_type === "percent";
                       const displayPrice = fromResult
-                        ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `$${fromResult.amount.toFixed(2)}`)
+                        ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `+$${fromResult.amount.toFixed(2)}`)
                         : a.price_type === "time_only"
                         ? "No additional charge"
                         : a.price_type === "flat" && pv !== 0
-                        ? (pv < 0 ? `-$${Math.abs(pv).toFixed(2)}` : `$${pv.toFixed(2)}`)
-                        : a.price_type === "percentage"
-                        ? (pv < 0 ? `${pv.toFixed(1)}% off` : `+${pv.toFixed(1)}%`)
-                        : a.price_type === "percent" && a.percent_of_base ? `${a.percent_of_base}% of base`
+                        ? (pv < 0 ? `-$${Math.abs(pv).toFixed(2)}` : `+$${pv.toFixed(2)}`)
+                        : isPct
+                        ? (pv < 0 ? `${Math.abs(pv).toFixed(0)}% off — calculated on estimate` : `${pv.toFixed(0)}% of estimate — price varies by home size`)
                         : "";
                       return (
                         <div key={a.id} style={s.addonCard(sel)} onClick={() => setSelectedAddonIds(prev => sel ? prev.filter(x => x !== a.id) : [...prev, a.id])}>
@@ -770,7 +772,7 @@ export default function BookPage() {
               <p style={s.h2}>When would you like your first cleaning?</p>
               <p style={s.sub}>All available dates are shown below. Select your preferred date.</p>
 
-              <SimpleCalendar selected={selectedDate} onSelect={setSelectedDate} brand={brand} />
+              <SimpleCalendar selected={selectedDate} onSelect={setSelectedDate} brand={brand} leadHours={company.online_booking_lead_hours ?? 48} />
 
               {selectedDate && (
                 <div style={{ marginTop: 16, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>

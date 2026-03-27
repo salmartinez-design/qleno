@@ -9,12 +9,13 @@ import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
 import { PricingTab } from "./company/pricing";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'online-booking';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
   { id: 'branding', label: 'Branding' },
   { id: 'pricing', label: 'Pricing & Scopes' },
+  { id: 'online-booking', label: 'Online Booking' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'clock-inout', label: 'Clock In/Out' },
   { id: 'invoicing', label: 'Invoicing' },
@@ -71,6 +72,7 @@ export default function CompanyPage() {
         {activeTab === 'integrations' && <IntegrationsTab />}
         {activeTab === 'payroll' && <PayrollOptionsTab />}
         {activeTab === 'pricing' && <PricingTab />}
+        {activeTab === 'online-booking' && <OnlineBookingTab />}
         {activeTab === 'hr-policies' && <HRPoliciesTab />}
         {activeTab === 'documents' && <DocumentsTab />}
       </div>
@@ -1402,6 +1404,98 @@ function InvoicingTab() {
         }}
       >
         {saving ? 'Saving…' : 'Save Invoicing Settings'}
+      </button>
+    </div>
+  );
+}
+
+// ── Online Booking Tab ────────────────────────────────────────────────────────
+function OnlineBookingTab() {
+  const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
+  const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
+  const { toast } = useToast();
+
+  const [leadHours, setLeadHours] = useState(48);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (company) {
+      setLeadHours((company as any).online_booking_lead_hours ?? 48);
+    }
+  }, [company]);
+
+  const LEAD_OPTIONS = [
+    { value: 24,  label: '24 hours' },
+    { value: 48,  label: '48 hours (default)' },
+    { value: 72,  label: '72 hours' },
+    { value: 168, label: '1 week' },
+    { value: 336, label: '2 weeks' },
+    { value: 720, label: '1 month' },
+  ];
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await updateCompany.mutateAsync({ body: { online_booking_lead_hours: leadHours } } as any);
+      toast({ title: 'Saved', description: 'Online booking settings updated.' });
+    } catch {
+      toast({ title: 'Error', description: 'Could not save settings.', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const cardStyle = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6, fontFamily: FF };
+  const selectStyle: React.CSSProperties = {
+    width: '100%', maxWidth: 280, padding: '10px 14px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 14, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF,
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 20, fontFamily: FF }}>Booking Lead Time</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Minimum notice required before a client can book</label>
+            <select style={selectStyle} value={leadHours} onChange={e => setLeadHours(parseInt(e.target.value))}>
+              {LEAD_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <p style={{ fontSize: 12, color: '#9E9B94', marginTop: 8, fontFamily: FF }}>
+              Dates within this window are blocked on the booking calendar. Currently set to <strong>{LEAD_OPTIONS.find(o => o.value === leadHours)?.label}</strong>.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 20, fontFamily: FF }}>New Booking Assignment</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>New Bookings Assign To</div>
+            <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>
+              All bookings submitted through the widget are placed in the Unassigned queue for manual dispatch. This cannot be changed.
+            </div>
+          </div>
+          <div style={{ padding: '6px 14px', background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#1A1917', fontFamily: FF, flexShrink: 0 }}>
+            Unassigned (required)
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        style={{
+          padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+          border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, alignSelf: 'flex-start',
+          cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: FF,
+        }}
+      >
+        {saving ? 'Saving…' : 'Save Online Booking Settings'}
       </button>
     </div>
   );

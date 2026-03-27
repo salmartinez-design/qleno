@@ -123,6 +123,8 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (default_invoice_notes_commercial !== undefined) patch.default_invoice_notes_commercial = default_invoice_notes_commercial;
     if (auto_send_invoices !== undefined) patch.auto_send_invoices = auto_send_invoices;
     if (auto_charge_on_invoice !== undefined) patch.auto_charge_on_invoice = auto_charge_on_invoice;
+    const { online_booking_lead_hours } = req.body;
+    if (online_booking_lead_hours !== undefined) patch.online_booking_lead_hours = online_booking_lead_hours;
 
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 

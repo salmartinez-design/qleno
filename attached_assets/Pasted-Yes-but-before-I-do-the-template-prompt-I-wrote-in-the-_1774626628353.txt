@@ -1,0 +1,494 @@
+Yes — but before I do, the template prompt I wrote in the previous message has "PHES Cleaning" and "{{company_name}}" scattered throughout. Since `{{company_name}}` pulls from the database and that's already stored as "Phes" in your companies table, the merge variable is fine. The only thing to fix is any hardcoded references.
+
+Here's the corrected Replit prompt — paste this as one shot:
+
+---
+
+```
+Build the complete Qleno email and SMS notification template system. 
+Use Resend (RESEND_API_KEY) for all emails. Use Twilio 
+(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER) for all 
+SMS. Send all emails from info@phes.io with reply-to info@phes.io.
+
+IMPORTANT BRAND RULE: The company name is "Phes" — never 
+"Phes Cleaning" or "PHES Cleaning". Anywhere {{company_name}} is 
+used it will resolve to "Phes" from the database. Any hardcoded 
+references in copy must say "Phes" only.
+
+Store all templates in a notification_templates table in Supabase 
+with columns: id, tenant_id, template_key, channel (email/sms), 
+subject, body_html, body_text, is_active. Seed the PHES tenant 
+with all templates below on first run if they do not already exist.
+
+Build a notification service at 
+server/services/notificationService.ts with a function 
+sendNotification(templateKey, channel, recipientEmail, 
+recipientPhone, mergeVars) that fetches the template by key + 
+channel + tenant_id, substitutes all {{variable}} merge tags, and 
+sends via the appropriate provider. Log all sends and failures to 
+an audit_log table with columns: id, tenant_id, template_key, 
+channel, recipient, status, error_message, sent_at.
+
+---
+
+GLOBAL EMAIL RULES:
+- Inline CSS only
+- Max width 600px centered
+- Font: Arial, Helvetica, sans-serif
+- Email body background: #F7F6F3
+- Content card background: #FFFFFF
+- Header accent: #5B9BD5
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- No emojis in code — use Unicode escape sequences
+- Every email footer: company phone, company email, phes.io
+
+GLOBAL SMS RULES:
+- 160 chars max per segment, stay under 320
+- No emojis
+- Always end with company phone number
+- Plain text only
+
+MERGE VARIABLES:
+{{first_name}}, {{last_name}}, {{appointment_date}}, 
+{{appointment_time}}, {{appointment_window}}, {{service_address}}, 
+{{scope}}, {{frequency}}, {{technician_name}}, {{technician_phone}},
+{{invoice_number}}, {{invoice_amount}}, {{invoice_due_date}}, 
+{{invoice_link}}, {{payment_amount}}, {{payment_date}}, 
+{{quote_number}}, {{quote_total}}, {{quote_link}}, {{quote_expires}},
+{{review_link}}, {{reset_link}}, {{reset_expiry}},
+{{company_name}}, {{company_phone}}, {{company_email}}
+
+---
+
+TEMPLATE 1 — APPOINTMENT REMINDER 3 DAYS BEFORE
+Template key: reminder_3day
+Trigger: cron daily 9:00 AM CT — jobs where 
+appointment_date = today + 3 days and status != cancelled
+
+EMAIL subject: Your cleaning appointment is coming up — 
+{{appointment_date}}
+
+Hi {{first_name}},
+
+Just a heads-up that your cleaning is scheduled for 
+{{appointment_date}}. Here is everything you need to know before 
+we arrive.
+
+[DETAILS CARD — border #E5E2DC, background #FFFFFF, padding 20px]
+Date: {{appointment_date}}
+Arrival Window: {{appointment_window}}
+Service: {{scope}}
+Address: {{service_address}}
+
+[SECTION] A few things to have ready
+
+- Countertops and surfaces cleared
+- Running water and electricity available
+- Pets secured before arrival
+- Confirm your entry method is current (key, code, or be home)
+
+[SECTION] Need to reschedule?
+
+We require 48 business hours notice to avoid a cancellation fee. 
+Sundays do not count toward that window. Call or text us at 
+{{company_phone}} or reply to this email.
+
+We look forward to seeing you.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (reminder_3day):
+Hi {{first_name}}, your cleaning with {{company_name}} is confirmed 
+for {{appointment_date}}, {{appointment_window}}. Need to 
+reschedule? Call/text {{company_phone}} (48hr notice required).
+
+---
+
+TEMPLATE 2 — APPOINTMENT REMINDER 1 DAY BEFORE
+Template key: reminder_1day
+Trigger: cron daily 4:00 PM CT — jobs where 
+appointment_date = tomorrow and status != cancelled
+
+EMAIL subject: Your cleaning is tomorrow — {{appointment_date}}
+
+Hi {{first_name}},
+
+Your appointment is tomorrow. Here are your details one more time.
+
+[DETAILS CARD]
+Date: {{appointment_date}}
+Arrival Window: {{appointment_window}}
+Service: {{scope}}
+Address: {{service_address}}
+
+[SECTION] Last-minute checklist
+
+- Countertops and surfaces cleared
+- Dishes out of the sink
+- Pets secured
+- Entry method confirmed
+- Special instructions on file — if anything changed, call us 
+  tonight at {{company_phone}}
+
+[NOTICE BOX — border-left 4px solid #5B9BD5, background #F0F6FC, 
+padding 16px]
+Cancellations made less than 48 business hours before your 
+appointment result in a full service charge. Call us as soon as 
+possible if you need to cancel: {{company_phone}}.
+
+We will see you tomorrow.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (reminder_1day):
+Hi {{first_name}}, reminder: your cleaning with {{company_name}} 
+is TOMORROW {{appointment_date}}, arrival {{appointment_window}} 
+at {{service_address}}. Questions? {{company_phone}}.
+
+---
+
+TEMPLATE 3 — ON MY WAY
+Template key: on_my_way
+Trigger: manual from job detail page OR auto on GPS clock-in 
+within service zone
+
+EMAIL subject: Your cleaner is on the way
+
+Hi {{first_name}},
+
+{{technician_name}} is on the way and will arrive during your 
+scheduled window.
+
+[DETAILS CARD]
+Cleaner: {{technician_name}}
+Arriving: {{appointment_window}}
+Address: {{service_address}}
+
+Need to reach us before arrival? Call or text {{company_phone}}.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}}
+
+---
+
+SMS (on_my_way):
+Hi {{first_name}}, {{technician_name}} from {{company_name}} is on 
+the way — arriving during your {{appointment_window}} window. 
+Questions? {{company_phone}}.
+
+---
+
+TEMPLATE 4 — JOB COMPLETED
+Template key: job_completed
+Trigger: fires when job.status is updated to 'completed'
+
+EMAIL subject: Your cleaning is complete — thank you, {{first_name}}
+
+Hi {{first_name}},
+
+Your home has been cleaned. Thank you for trusting {{company_name}}.
+
+[DETAILS CARD]
+Completed: {{appointment_date}}
+Service: {{scope}}
+Address: {{service_address}}
+
+[SECTION] Our 24-Hour Guarantee
+
+If we missed anything, contact us within 24 hours and we will 
+return to re-clean that area at no charge. No questions asked.
+
+Reach us at {{company_phone}} or {{company_email}}.
+
+[SECTION] Your invoice
+
+If you have an open invoice, you will receive a separate email 
+shortly. Your card on file will be charged according to your 
+payment terms.
+
+We look forward to your next visit.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (job_completed):
+Hi {{first_name}}, your cleaning is complete! If we missed 
+anything contact us within 24 hours and we will make it right. 
+Thank you — {{company_name}} {{company_phone}}.
+
+---
+
+TEMPLATE 5 — REVIEW REQUEST
+Template key: review_request
+Trigger: 24 hours after job_completed. Check survey_last_sent on 
+client record — skip if less than 30 days ago. Update 
+survey_last_sent on send.
+
+EMAIL subject: How did we do, {{first_name}}?
+
+Hi {{first_name}},
+
+We hope your home is feeling great. We would love to hear about 
+your experience.
+
+[CTA BUTTON — background #5B9BD5, white text, border-radius 6px, 
+padding 14px 28px, centered, link: {{review_link}}]
+Leave Us a Review
+
+Your feedback helps our team improve and helps other families in 
+the Chicagoland area find a service they can trust. It takes less 
+than two minutes.
+
+If anything fell short of your expectations, please reach out 
+before posting — we want the chance to make it right. Call or 
+text {{company_phone}}.
+
+Thank you for choosing {{company_name}}.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (review_request):
+Hi {{first_name}}, thank you for your recent cleaning with 
+{{company_name}}. Would you mind leaving a quick review? 
+{{review_link}} — means a lot to our team.
+
+---
+
+TEMPLATE 6 — INVOICE SENT
+Template key: invoice_sent
+Trigger: fires when invoice.status is updated to 'sent'
+
+EMAIL subject: Invoice #{{invoice_number}} from {{company_name}} 
+— ${{invoice_amount}} due {{invoice_due_date}}
+
+Hi {{first_name}},
+
+Your invoice is ready. Payment is due by {{invoice_due_date}}.
+
+[DETAILS CARD]
+Invoice: #{{invoice_number}}
+Amount Due: ${{invoice_amount}}
+Due Date: {{invoice_due_date}}
+Address: {{service_address}}
+
+[CTA BUTTON — background #5B9BD5, white text, 
+link: {{invoice_link}}]
+View and Pay Invoice
+
+If your card on file is set to auto-charge, no action is needed. 
+Payment will process automatically on or before the due date.
+
+Questions? {{company_phone}} or {{company_email}}.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (invoice_sent):
+Hi {{first_name}}, invoice #{{invoice_number}} for 
+${{invoice_amount}} from {{company_name}} is ready. Due 
+{{invoice_due_date}}. Pay: {{invoice_link}} or call 
+{{company_phone}}.
+
+---
+
+TEMPLATE 7 — PAYMENT RECEIVED
+Template key: payment_received
+Trigger: fires when a payment record is created against an invoice
+
+EMAIL subject: Payment confirmed — thank you, {{first_name}}
+
+Hi {{first_name}},
+
+We have received your payment. Thank you.
+
+[DETAILS CARD]
+Amount Paid: ${{payment_amount}}
+Date: {{payment_date}}
+Invoice: #{{invoice_number}}
+
+Please save this email as your receipt. Questions? 
+{{company_phone}} or {{company_email}}.
+
+We look forward to your next appointment.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (payment_received):
+Hi {{first_name}}, payment of ${{payment_amount}} received for 
+invoice #{{invoice_number}}. Thank you! {{company_name}} 
+{{company_phone}}.
+
+---
+
+TEMPLATE 8 — NEW CLIENT WELCOME
+Template key: new_client_welcome
+Trigger: fires on new client creation when send_welcome = true
+
+EMAIL subject: Welcome to {{company_name}}, {{first_name}}
+
+Hi {{first_name}},
+
+Welcome to {{company_name}}. We are glad to have you.
+
+[SECTION] What to expect
+
+Our team arrives within your scheduled window fully equipped. 
+We bring all supplies — you do not need to provide anything 
+unless noted in your service instructions.
+
+After every cleaning you will receive a completion confirmation. 
+If anything is ever less than excellent, contact us within 24 
+hours and we will return to make it right at no charge.
+
+[SECTION] Service policies at a glance
+
+- 48-hour cancellation notice required (Sundays do not count)
+- Monday appointments: notify us by Friday at 6:00 PM CT
+- Tuesday appointments: notify us by Saturday at 12:00 PM CT
+- Late cancellations and no-shows are charged at 100% of the 
+  service fee
+- One reschedule per appointment — additional reschedules are 
+  treated as cancellations
+
+[SECTION] How to reach us
+
+Call or text: {{company_phone}}
+Email: {{company_email}}
+Website: phes.io
+Hours: Monday through Saturday, 8:00 AM to 6:00 PM CT
+
+Thank you for choosing {{company_name}}.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (new_client_welcome):
+Hi {{first_name}}, welcome to {{company_name}}! We look forward 
+to your first cleaning. Questions anytime: {{company_phone}}. 
+See you soon.
+
+---
+
+TEMPLATE 9 — QUOTE SENT
+Template key: quote_sent
+Trigger: fires when quote.status is updated to 'sent'
+
+EMAIL subject: Your quote from {{company_name}} — #{{quote_number}}
+
+Hi {{first_name}},
+
+Thank you for reaching out. Your quote is ready.
+
+[DETAILS CARD]
+Quote: #{{quote_number}}
+Estimate: ${{quote_total}}
+Valid Until: {{quote_expires}}
+Address: {{service_address}}
+
+[CTA BUTTON — background #5B9BD5, white text, 
+link: {{quote_link}}]
+Review Your Quote
+
+This estimate is based on the information provided. If your 
+home's condition differs significantly, we may revise it before 
+or at the start of service. Additional time is billed at $65 
+per hour per cleaner.
+
+To book, approve the quote online or call us at {{company_phone}}.
+
+[FOOTER]
+{{company_name}} | {{company_phone}} | {{company_email}} | phes.io
+
+---
+
+SMS (quote_sent):
+Hi {{first_name}}, your quote #{{quote_number}} from 
+{{company_name}} is ready — ${{quote_total}} estimated. 
+Review: {{quote_link}} or call {{company_phone}} to book.
+
+---
+
+TEMPLATE 10 — PASSWORD RESET (EMPLOYEES)
+Template key: password_reset
+Trigger: employee clicks Forgot Password on login screen, or 
+admin triggers reset from employee profile. Email only — no SMS.
+
+EMAIL subject: Reset your Qleno password
+
+Hi {{first_name}},
+
+We received a request to reset the password for your Qleno 
+account. Use the button below to set a new password.
+
+[CTA BUTTON — background #5B9BD5, white text, 
+link: {{reset_link}}]
+Reset My Password
+
+This link expires in {{reset_expiry}} (default: 2 hours). If you 
+did not request this, ignore this email — your password will not 
+change.
+
+Trouble accessing your account? Contact your administrator or 
+email {{company_email}}.
+
+[FOOTER]
+Qleno | {{company_email}}
+This is an automated security email. Do not reply.
+
+---
+
+AUTOMATED TRIGGER WIRING:
+
+1. reminder_3day — cron 9:00 AM CT daily, 
+   jobs where date = today+3, status != cancelled
+2. reminder_1day — cron 4:00 PM CT daily, 
+   jobs where date = tomorrow, status != cancelled
+3. on_my_way — manual from job detail OR auto on GPS clock-in
+4. job_completed — on job.status = 'completed'
+5. review_request — 24h after job_completed, 
+   check survey_last_sent >= 30 days, update on send
+6. invoice_sent — on invoice.status = 'sent'
+7. payment_received — on payment record created
+8. new_client_welcome — on client created with 
+   send_welcome = true
+9. quote_sent — on quote.status = 'sent'
+10. password_reset — on reset request, email only
+
+All triggers: verify valid email/phone before sending. Log 
+skipped sends as status = 'skipped' with reason in audit_log.
+
+---
+
+VERIFICATION:
+
+After seeding, log to console:
+"TEMPLATE SYSTEM READY — 10 templates seeded 
+(email + SMS), 10 triggers wired"
+
+Query notification_templates and log count: 
+X email templates, X SMS templates active for PHES tenant.
+```
+
+---
+
+That's the full prompt, brand-corrected throughout. Paste it into Replit after the pricing prompt and the confirmation email prompt and all three will run cleanly in sequence.

@@ -97,27 +97,47 @@ export async function runPhesDataMigration(): Promise<void> {
     console.log("[phes-migration] Client data migration complete.");
 
     // ── 4. Ensure PHES pricing scopes exist ────────────────────────────────
+    // NOTE: "Recurring Cleaning" kept for backward-compat with scope 11 (inactive)
+    // Active recurring scopes are: Recurring Cleaning - Weekly/Every 2 Weeks/Every 4 Weeks
     const scopeDefs = [
-      { name: "Deep Clean or Move In/Out",  method: "sqft",   rate: "70.00", min: "210.00" },
-      { name: "One-Time Standard Clean",    method: "sqft",   rate: "60.00", min: "150.00" },
-      { name: "Recurring Cleaning",         method: "sqft",   rate: "55.00", min: "120.00" },
-      { name: "Hourly Deep Clean",          method: "hourly", rate: "70.00", min: "210.00" },
-      { name: "Hourly Standard Cleaning",   method: "hourly", rate: "60.00", min: "150.00" },
-      { name: "Commercial Cleaning",        method: "hourly", rate: "65.00", min: "200.00" },
-      { name: "PPM Turnover",              method: "sqft",   rate: "65.00", min: "250.00" },
-    ];
+      { name: "Deep Clean or Move In/Out",          method: "sqft",   rate: "70.00", min: "210.00" },
+      { name: "One-Time Standard Clean",             method: "sqft",   rate: "60.00", min: "150.00" },
+      { name: "Recurring Cleaning",                  method: "sqft",   rate: "55.00", min: "120.00" },
+      { name: "Hourly Deep Clean",                   method: "hourly", rate: "70.00", min: "210.00" },
+      { name: "Hourly Standard Cleaning",            method: "hourly", rate: "60.00", min: "150.00" },
+      { name: "Commercial Cleaning",                 method: "hourly", rate: "65.00", min: "200.00" },
+      { name: "PPM Turnover",                       method: "sqft",   rate: "65.00", min: "250.00" },
+      // Recurring variants — each with a single frequency (handled in separate block below)
+      { name: "Recurring Cleaning - Weekly",         method: "sqft",   rate: "55.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
+      { name: "Recurring Cleaning - Every 2 Weeks",  method: "sqft",   rate: "60.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
+      { name: "Recurring Cleaning - Every 4 Weeks",  method: "sqft",   rate: "65.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
+    ] as Array<{ name: string; method: string; rate: string; min: string; noDefaultFreqs?: boolean; scopeGroup?: string }>;
 
     for (const s of scopeDefs) {
-      await db.execute(sql`
-        INSERT INTO pricing_scopes
-          (company_id, name, pricing_method, hourly_rate, minimum_bill,
-           displayed_for_office, is_active, sort_order)
-        SELECT ${PHES}, ${s.name}, ${s.method}, ${s.rate}, ${s.min}, true, true,
-               (SELECT COALESCE(MAX(sort_order),0)+1 FROM pricing_scopes WHERE company_id=${PHES})
-        WHERE NOT EXISTS (
-          SELECT 1 FROM pricing_scopes WHERE company_id=${PHES} AND name=${s.name}
-        )
-      `);
+      if (s.scopeGroup) {
+        await db.execute(sql`
+          INSERT INTO pricing_scopes
+            (company_id, name, pricing_method, hourly_rate, minimum_bill,
+             displayed_for_office, is_active, scope_group, sort_order)
+          SELECT ${PHES}, ${s.name}, ${s.method}, ${s.rate}, ${s.min}, true, true,
+                 ${s.scopeGroup},
+                 (SELECT COALESCE(MAX(sort_order),0)+1 FROM pricing_scopes WHERE company_id=${PHES})
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pricing_scopes WHERE company_id=${PHES} AND name=${s.name}
+          )
+        `);
+      } else {
+        await db.execute(sql`
+          INSERT INTO pricing_scopes
+            (company_id, name, pricing_method, hourly_rate, minimum_bill,
+             displayed_for_office, is_active, sort_order)
+          SELECT ${PHES}, ${s.name}, ${s.method}, ${s.rate}, ${s.min}, true, true,
+                 (SELECT COALESCE(MAX(sort_order),0)+1 FROM pricing_scopes WHERE company_id=${PHES})
+          WHERE NOT EXISTS (
+            SELECT 1 FROM pricing_scopes WHERE company_id=${PHES} AND name=${s.name}
+          )
+        `);
+      }
     }
 
     // Build scope name → id map
@@ -150,10 +170,11 @@ export async function runPhesDataMigration(): Promise<void> {
       ((existingFreqResult as any).rows ?? []).map((r: any) => `${r.scope_id}:${r.frequency}`)
     );
 
-    for (const [name, method] of Object.entries({ ...Object.fromEntries(scopeDefs.map(s => [s.name, s.method])) })) {
-      const sid = scopeMap[name];
+    for (const s of scopeDefs) {
+      if (s.noDefaultFreqs) continue; // recurring variants handled separately
+      const sid = scopeMap[s.name];
       if (!sid) continue;
-      const freqList = method === "sqft" ? sqftFreqs : hourlyFreqs;
+      const freqList = s.method === "sqft" ? sqftFreqs : hourlyFreqs;
       for (const f of freqList) {
         if (existingFreqSet.has(`${sid}:${f.freq}`)) continue;
         await db.execute(sql`
@@ -182,6 +203,24 @@ export async function runPhesDataMigration(): Promise<void> {
           ON CONFLICT DO NOTHING
         `);
       }
+    }
+    // Seed exactly one frequency per recurring variant scope
+    const recurringVariants = [
+      { name: "Recurring Cleaning - Weekly",        freq: "weekly",   label: "Weekly",        mult: "1.0" },
+      { name: "Recurring Cleaning - Every 2 Weeks", freq: "biweekly", label: "Every 2 Weeks",  mult: "1.0" },
+      { name: "Recurring Cleaning - Every 4 Weeks", freq: "monthly",  label: "Every 4 Weeks",  mult: "1.0" },
+    ];
+    for (const rv of recurringVariants) {
+      const sid = scopeMap[rv.name];
+      if (!sid) continue;
+      if (existingFreqSet.has(`${sid}:${rv.freq}`)) continue;
+      await db.execute(sql`
+        INSERT INTO pricing_frequencies
+          (company_id, scope_id, frequency, multiplier, rate_override, label, show_office, sort_order)
+        VALUES
+          (${PHES}, ${sid}, ${rv.freq}, ${rv.mult}, NULL, ${rv.label}, true, 1)
+        ON CONFLICT DO NOTHING
+      `);
     }
     console.log("[phes-migration] Frequencies ensured for all scopes");
 

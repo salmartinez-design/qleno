@@ -48,6 +48,7 @@ router.get("/company/:slug", rateLimit, async (req, res) => {
         zip: companiesTable.zip,
         business_hours: companiesTable.business_hours,
         booking_policies: companiesTable.booking_policies,
+        online_booking_lead_hours: companiesTable.online_booking_lead_hours,
       })
       .from(companiesTable)
       .where(eq(companiesTable.slug, slug));
@@ -136,8 +137,9 @@ export async function runCalculate(params: {
   addon_ids?: number[];
   discount_code?: string;
   company_id: number;
+  public_only?: boolean;
 }) {
-  const { scope_id, sqft, frequency, addon_ids, discount_code, company_id } = params;
+  const { scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only } = params;
 
   const [scope] = await db
     .select()
@@ -226,7 +228,11 @@ export async function runCalculate(params: {
       .select()
       .from(pricingDiscountsTable)
       .where(eq(pricingDiscountsTable.company_id, company_id));
-    const match = allDiscounts.find(d => d.code.toUpperCase() === discount_code.toUpperCase() && d.is_active);
+    const match = allDiscounts.find(d =>
+      d.code.toUpperCase() === discount_code.toUpperCase() &&
+      d.is_active &&
+      (!public_only || (d as any).is_online !== false)
+    );
     if (match) {
       discount_valid = true;
       if (match.discount_type === "flat") {
@@ -264,7 +270,7 @@ router.post("/calculate", rateLimit, async (req, res) => {
     if (!scope_id || !sqft || !frequency || !company_id) {
       return res.status(400).json({ error: "scope_id, sqft, frequency, and company_id are required" });
     }
-    const result = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id });
+    const result = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
     return res.json(result);
   } catch (err: any) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -291,7 +297,7 @@ router.post("/book", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id });
+    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
 
     const { sql: drizzleSql } = await import("drizzle-orm");
 
@@ -370,7 +376,7 @@ router.post("/book", rateLimit, async (req, res) => {
           base_fee, estimated_hours, hourly_rate,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, ${scopeName}, 'scheduled',
+          ${company_id}, ${clientId}, ${scopeName}, 'unassigned',
           ${preferred_date ? preferred_date : null}, ${frequency},
           ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
           ${jobNotes},

@@ -70,6 +70,7 @@ export const pricingDiscountsTable = pgTable("pricing_discounts", {
   discount_type: text("discount_type").notNull().default("flat"),
   discount_value: numeric("discount_value", { precision: 10, scale: 2 }).notNull(),
   is_active: boolean("is_active").notNull().default(true),
+  is_online: boolean("is_online").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
