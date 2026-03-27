@@ -398,6 +398,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       bedrooms, bathrooms, half_baths, floors, people, pets, cleanliness,
       home_condition_rating, condition_multiplier,
       applied_bundle_id, bundle_discount_total,
+      last_cleaned_response, last_cleaned_flag,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
     } = req.body;
@@ -501,6 +502,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const bundleId = applied_bundle_id ? parseInt(String(applied_bundle_id)) : null;
     const bundleDiscount = bundle_discount_total ? parseFloat(String(bundle_discount_total)) : null;
 
+    const lastCleanedResp = last_cleaned_response || null;
+    const lastCleanedFl = last_cleaned_flag || null;
+
     const jobResult = await db.execute(
       drizzleSql`
         INSERT INTO jobs (
@@ -508,6 +512,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
           home_condition_rating, condition_multiplier,
           applied_bundle_id, bundle_discount_total,
+          last_cleaned_response, last_cleaned_flag,
           notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
@@ -515,6 +520,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${adjustedTotal}, ${pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
+          ${lastCleanedResp}, ${lastCleanedFl},
           ${jobNotes}, NOW()
         ) RETURNING id
       `

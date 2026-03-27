@@ -206,6 +206,8 @@ export default function BookPage() {
   const [people, setPeople] = useState(2);
   const [pets, setPets] = useState(0);
   const [cleanliness, setCleanliness] = useState(0);
+  const [lastCleanedResponse, setLastCleanedResponse] = useState("");
+  const [lastCleanedOverride, setLastCleanedOverride] = useState(false);
 
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
@@ -273,6 +275,8 @@ export default function BookPage() {
     setAddons([]);
     setFrequencyStr("");
     setSelectedAddonIds([]);
+    setLastCleanedResponse("");
+    setLastCleanedOverride(false);
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
       pubFetch(`/api/public/addons/${scopeId}`),
@@ -434,6 +438,8 @@ export default function BookPage() {
             condition_multiplier: showCleanlinessQ ? conditionMultiplier : null,
             applied_bundle_id: activeBundleId,
             bundle_discount_total: bundleSavings > 0 ? bundleSavings : null,
+            last_cleaned_response: scopeId === 11 ? (lastCleanedResponse || null) : null,
+            last_cleaned_flag: scopeId === 11 ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -884,8 +890,86 @@ export default function BookPage() {
                 ));
               })()}
 
+              {/* ── Last-Cleaned Question (Recurring only) ──────────────────── */}
+              {scopeId === 11 && !isCommercial && (() => {
+                const LAST_CLEANED_OPTS = [
+                  { value: "within_2_weeks", label: "Within the last 2 weeks" },
+                  { value: "2_4_weeks",      label: "2–4 weeks ago" },
+                  { value: "1_3_months",     label: "1–3 months ago" },
+                  { value: "over_3_months",  label: "Over 3 months ago — or never" },
+                ];
+                const isOverdue = ["1_3_months", "over_3_months"].includes(lastCleanedResponse);
+                const showDCRec = isOverdue && !lastCleanedOverride;
+                return (
+                  <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8, marginBottom: 0 }}>
+                    <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", marginBottom: 4 }}>
+                      When was your home last professionally cleaned?
+                    </p>
+                    <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 14px" }}>
+                      This helps us send the right team prepared for your home.
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 0 }}>
+                      {LAST_CLEANED_OPTS.map(opt => {
+                        const sel = lastCleanedResponse === opt.value;
+                        return (
+                          <div
+                            key={opt.value}
+                            onClick={() => { setLastCleanedResponse(opt.value); setLastCleanedOverride(false); }}
+                            style={{
+                              padding: "12px 14px",
+                              border: `2px solid ${sel ? brand : "#E5E2DC"}`,
+                              borderRadius: 10,
+                              background: sel ? `${brand}12` : "#fff",
+                              cursor: "pointer",
+                              fontSize: 13,
+                              fontWeight: sel ? 700 : 500,
+                              color: sel ? brand : "#1A1917",
+                              transition: "all 0.15s",
+                            }}
+                          >
+                            {opt.label}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {showDCRec && (
+                      <div style={{
+                        marginTop: 16,
+                        background: "#fff",
+                        border: "1px solid #E5E2DC",
+                        borderLeft: `3px solid ${brand}`,
+                        borderRadius: 10,
+                        padding: 16,
+                      }}>
+                        <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>
+                          We recommend starting with a Deep Clean
+                        </p>
+                        <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B6860", lineHeight: 1.55 }}>
+                          When a home hasn't been professionally cleaned in over 30 days, a Deep Clean ensures the best results — and sets the foundation for a great recurring service. Most customers who start with a Deep Clean stay recurring long-term.
+                        </p>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          <button
+                            onClick={() => { setScopeId(1); setLastCleanedResponse(""); setLastCleanedOverride(false); }}
+                            style={{ padding: "10px 18px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                          >
+                            Book a Deep Clean Instead
+                          </button>
+                          <button
+                            onClick={() => setLastCleanedOverride(true)}
+                            style={{ padding: "10px 18px", background: "#fff", color: brand, border: `1.5px solid ${brand}`, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                          >
+                            Continue with Recurring Anyway
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {scopeId && !isCommercial && (
-                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8 }}>
+                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: scopeId === 11 ? 16 : 8 }}>
                   <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", marginBottom: 16 }}>Home Details</p>
 
                   <FieldWrap label="Square Footage">
@@ -1000,8 +1084,8 @@ export default function BookPage() {
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft)) ? 0.5 : 1 }}
-                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft)}
+                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (scopeId === 11 && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride))))) ? 0.5 : 1 }}
+                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (scopeId === 11 && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride))))}
                   onClick={() => isCommercial ? setStep(3) : setStep(2)}
                 >
                   Continue
