@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
@@ -19,7 +20,7 @@ import {
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2,
-  Clock, Ruler,
+  Clock, Ruler, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -162,6 +163,12 @@ export default function QuoteBuilderPage() {
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
   const [calcLoading, setCalcLoading] = useState(false);
   const [discountError, setDiscountError] = useState("");
+
+  // Mobile-specific state
+  const isMobile = useIsMobile();
+  const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
+  const [mobileClientSearch, setMobileClientSearch] = useState("");
+  const [mobileClientDropdown, setMobileClientDropdown] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -443,6 +450,304 @@ export default function QuoteBuilderPage() {
     if (freq?.rate_override) return parseFloat(freq.rate_override);
     if (freq) return base * parseFloat(freq.multiplier);
     return base;
+  }
+
+  // ── Mobile variables ─────────────────────────────────────────────────────
+  const MFF = "'Plus Jakarta Sans', sans-serif";
+  const mobileActiveAddons = scopeAddons.filter(a => a.is_active && a.show_office !== false);
+  const mobileFilteredClients = mobileClientSearch.trim().length > 0
+    ? clients.filter(c => `${c.first_name} ${c.last_name} ${c.email}`.toLowerCase().includes(mobileClientSearch.toLowerCase())).slice(0, 30)
+    : clients.slice(0, 30);
+
+  // ── Mobile layout ─────────────────────────────────────────────────────────
+  if (isMobile) {
+    const secHead = (label: string) => (
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 10, fontFamily: MFF }}>
+        {label}
+      </div>
+    );
+    const fieldLbl = (t: string) => <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: MFF, marginBottom: 6 }}>{t}</div>;
+    const inp: React.CSSProperties = { width: "100%", boxSizing: "border-box" as const, height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: MFF, color: "#1A1917", outline: "none", background: "#FFF" };
+
+    return (
+      <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: MFF, paddingBottom: 90 }}>
+
+        {/* Sticky header */}
+        <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#FFF", borderBottom: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+          <button onClick={() => navigate("/quotes")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#6B6860", fontSize: 14, fontFamily: MFF, padding: 0 }}>
+            <ArrowLeft size={18} /> Back
+          </button>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: MFF }}>{isEdit ? "Edit Quote" : "New Quote"}</span>
+        </div>
+
+        <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 24 }}>
+
+          {/* ── Client ─────────────────────────────────────────────────── */}
+          <div>
+            {secHead("Client")}
+
+            {/* Selected client summary */}
+            {selectedClient ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFF6FF" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: MFF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
+                  {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: MFF }}>{selectedClient.email}</div>}
+                </div>
+                <button onClick={() => { setSelectedClientId(null); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4 }}>
+                  <X size={18} />
+                </button>
+              </div>
+            ) : (
+              <div style={{ position: "relative" }}>
+                <input
+                  value={mobileClientSearch}
+                  onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }}
+                  onFocus={() => setMobileClientDropdown(true)}
+                  placeholder="Search clients by name or email..."
+                  style={inp}
+                />
+                {mobileClientDropdown && (
+                  <div style={{ position: "absolute", top: 50, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 20, maxHeight: 260, overflowY: "auto" }}>
+                    <div
+                      onClick={() => { setSelectedClientId(null); setMobileClientDropdown(false); setMobileClientSearch(""); }}
+                      style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860", fontFamily: MFF }}
+                    >
+                      — Enter lead info instead
+                    </div>
+                    {mobileFilteredClients.map(c => (
+                      <div
+                        key={c.id}
+                        onClick={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setMobileClientDropdown(false); setMobileClientSearch(""); }}
+                        style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
+                      >
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: MFF }}>{c.first_name} {c.last_name}</div>
+                        <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: MFF }}>{c.email}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Lead fields when no client selected */}
+            {!selectedClientId && (
+              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                <div>
+                  {fieldLbl("Lead Name")}
+                  <input value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Jane Doe" style={inp} />
+                </div>
+                <div>
+                  {fieldLbl("Email")}
+                  <input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@example.com" type="email" style={inp} />
+                </div>
+                <div>
+                  {fieldLbl("Phone")}
+                  <input value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="(555) 000-0000" type="tel" style={inp} />
+                </div>
+                <div>
+                  {fieldLbl("Service Address")}
+                  <input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, City, State" style={inp} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── Service (scope pill cards) ──────────────────────────────── */}
+          <div>
+            {secHead("Service")}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {scopes.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => { setScopeId(s.id); setFrequencyStr(""); setSelectedAddonIds([]); setHoursInput(0); }}
+                  style={{
+                    padding: "14px 10px", border: `2px solid ${scopeId === s.id ? "var(--brand)" : "#E5E2DC"}`,
+                    borderRadius: 10, background: scopeId === s.id ? "#EFF6FF" : "#FFF",
+                    textAlign: "center" as const, cursor: "pointer", fontFamily: MFF, minHeight: 60,
+                  }}
+                >
+                  <div style={{ fontSize: 13, fontWeight: 700, color: scopeId === s.id ? "var(--brand)" : "#1A1917", fontFamily: MFF, lineHeight: 1.3 }}>{s.name}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── Home Details (steppers) — appears after scope selected ─── */}
+          {scopeId && (
+            <div>
+              {secHead("Home Details")}
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                {/* Square footage */}
+                <div>
+                  {fieldLbl(pricingMethod === "sqft" ? "Square Footage (required)" : "Square Footage")}
+                  <input
+                    type="number"
+                    value={sqft || ""}
+                    onChange={e => setSqft(parseInt(e.target.value) || 0)}
+                    placeholder="e.g. 2000"
+                    style={inp}
+                  />
+                </div>
+
+                {/* Hours input for hourly/simplified scopes */}
+                {(pricingMethod === "hourly" || pricingMethod === "simplified") && (
+                  <div>
+                    {fieldLbl("Estimated Hours")}
+                    <input
+                      type="number"
+                      min="0.5"
+                      step="0.5"
+                      value={hoursInput || ""}
+                      onChange={e => setHoursInput(parseFloat(e.target.value) || 0)}
+                      placeholder="e.g. 3.0"
+                      style={inp}
+                    />
+                  </div>
+                )}
+
+                <div>
+                  {fieldLbl("Bedrooms")}
+                  <Stepper value={bedrooms} onChange={setBedrooms} min={1} max={10} />
+                </div>
+                <div>
+                  {fieldLbl("Full Bathrooms")}
+                  <Stepper value={bathrooms} onChange={setBathrooms} min={1} max={8} />
+                </div>
+                <div>
+                  {fieldLbl("Half Bathrooms")}
+                  <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Frequency (pill row) — only if scope has frequencies ─── */}
+          {scopeId && frequencies.length > 0 && (
+            <div>
+              {secHead("Frequency")}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {frequencies.map(freq => (
+                  <button
+                    key={freq.id}
+                    onClick={() => setFrequencyStr(freq.frequency)}
+                    style={{
+                      height: 48, border: `2px solid ${frequencyStr === freq.frequency ? "var(--brand)" : "#E5E2DC"}`,
+                      borderRadius: 10, background: frequencyStr === freq.frequency ? "#EFF6FF" : "#FFF",
+                      color: frequencyStr === freq.frequency ? "var(--brand)" : "#1A1917",
+                      fontWeight: 600, fontSize: 14, cursor: "pointer", fontFamily: MFF,
+                    }}
+                  >
+                    {freq.label || freq.frequency}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Add-ons (full-width checkbox cards, 56px min height) ─── */}
+          {scopeId && mobileActiveAddons.length > 0 && (
+            <div>
+              {secHead("Add-ons")}
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {mobileActiveAddons.map(addon => {
+                  const isSelected = selectedAddonIds.includes(addon.id);
+                  const fromResult = calcResult?.addon_breakdown.find(b => b.id === addon.id);
+                  const priceText = fromResult
+                    ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `+$${fromResult.amount.toFixed(2)}`)
+                    : addonDisplayPrice(addon);
+                  return (
+                    <label
+                      key={addon.id}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 14, minHeight: 56,
+                        border: `2px solid ${isSelected ? "var(--brand)" : "#E5E2DC"}`,
+                        borderRadius: 10, padding: "10px 14px", cursor: "pointer",
+                        background: isSelected ? "#EFF6FF" : "#FFF",
+                      }}
+                    >
+                      <Checkbox checked={isSelected} onCheckedChange={() => toggleAddon(addon.id)} className="shrink-0" />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: MFF }}>{addon.name}</div>
+                        <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: MFF }}>{priceText}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Discount Code ───────────────────────────────────────────── */}
+          <div>
+            {secHead("Discount Code")}
+            <div style={{ display: "flex", gap: 10 }}>
+              <input
+                value={discountInput}
+                onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
+                placeholder="e.g. MANAGER50"
+                style={{ ...inp, flex: 1 }}
+              />
+              <button
+                onClick={() => runCalculate({ withCode: discountInput.trim() })}
+                disabled={!discountInput.trim() || calcLoading}
+                style={{ height: 48, padding: "0 20px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", fontSize: 14, fontWeight: 600, color: "#1A1917", cursor: "pointer", fontFamily: MFF, flexShrink: 0 }}
+              >
+                Apply
+              </button>
+            </div>
+            {discountError && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 6, fontFamily: MFF }}>{discountError}</div>}
+            {discountCode && calcResult && calcResult.discount_amount > 0 && (
+              <div style={{ fontSize: 12, color: "#16A34A", marginTop: 6, fontFamily: MFF }}>Code applied — -${calcResult.discount_amount.toFixed(2)}</div>
+            )}
+          </div>
+
+          {/* ── Internal Notes (collapsible) ────────────────────────────── */}
+          <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+            <button
+              onClick={() => setMobileNotesOpen(v => !v)}
+              style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: MFF }}
+            >
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Internal Notes</span>
+              {mobileNotesOpen ? <ChevronDown size={16} color="#6B6860" style={{ transform: "rotate(180deg)" }} /> : <ChevronDown size={16} color="#6B6860" />}
+            </button>
+            {mobileNotesOpen && (
+              <div style={{ padding: "0 16px 16px" }}>
+                <textarea
+                  value={internalMemo}
+                  onChange={e => setInternalMemo(e.target.value)}
+                  placeholder="Add notes for the office — not shown to client"
+                  rows={4}
+                  style={{ width: "100%", boxSizing: "border-box" as const, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: MFF, color: "#1A1917", resize: "vertical" as const, outline: "none" }}
+                />
+              </div>
+            )}
+          </div>
+
+        </div>
+
+        {/* ── Sticky bottom price bar ──────────────────────────────────── */}
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#FFF", borderTop: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, zIndex: 40, boxShadow: "0 -2px 12px rgba(0,0,0,0.07)" }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: "#6B6860", fontFamily: MFF }}>Estimated Total</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: MFF }}>
+              {calcLoading ? "..." : calcResult ? `$${calcResult.final_total.toFixed(2)}` : "—"}
+            </div>
+          </div>
+          <button
+            onClick={() => save("draft")}
+            disabled={saving || !scopeId}
+            style={{
+              height: 48, padding: "0 24px", background: saving || !scopeId ? "#D1D5DB" : "var(--brand)",
+              color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700,
+              cursor: saving || !scopeId ? "not-allowed" : "pointer", fontFamily: MFF, flexShrink: 0,
+            }}
+          >
+            {saving ? "Saving..." : "Save Quote"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -1111,6 +1416,24 @@ function SectionCard({ title, children }: { title: string; children: React.React
     <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">
       <h2 className="text-sm font-semibold text-[#1A1917] mb-4">{title}</h2>
       {children}
+    </div>
+  );
+}
+
+function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const btn = (disabled: boolean): React.CSSProperties => ({
+    width: 48, height: 48, border: "1px solid #E5E2DC", borderRadius: 0, background: disabled ? "#F7F6F3" : "#FFF",
+    color: disabled ? "#D1D5DB" : "#1A1917", fontSize: 20, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+    fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center",
+  });
+  return (
+    <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", height: 48 }}>
+      <button style={btn(value <= min)} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC" }}>
+        {value}
+      </div>
+      <button style={btn(value >= max)} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
     </div>
   );
 }

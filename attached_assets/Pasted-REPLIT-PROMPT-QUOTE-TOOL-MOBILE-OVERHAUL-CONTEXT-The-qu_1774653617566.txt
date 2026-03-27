@@ -1,0 +1,137 @@
+REPLIT PROMPT — QUOTE TOOL MOBILE OVERHAUL:
+
+CONTEXT
+The quote tool at /quotes and /quotes/new and /quotes/:id must be fully mobile-first. 80% of quotes are created on mobile. Every interaction — building a quote, selecting a scope, adding line items, reviewing pricing, sending to client — must work flawlessly on a phone screen with one thumb. Desktop remains fully functional but mobile is the primary target.
+
+PART 1 — QUOTE LIST PAGE (/quotes)
+Mobile layout (below 768px):
+Replace any table or multi-column layout with a stacked card list. One card per quote.
+Each card contains:
+	∙	Client name (#1A1917, 15px, semi-bold) — top left
+	∙	Quote total (var(--brand), 15px, semi-bold) — top right
+	∙	Scope label (#6B6860, 13px) — second row left
+	∙	Status pill (second row right) — “Draft” gray / “Sent” blue / “Accepted” green / “Expired” red
+	∙	Date created (#6B6860, 12px) — bottom row
+Card: #FFFFFF background, 1px solid #E5E2DC border, 16px padding, 8px border radius. Full width. Tap anywhere on card to open quote detail.
+Top bar (mobile):
+	∙	Left: “Quotes” heading (#1A1917, 18px, semi-bold)
+	∙	Right: “+ New Quote” button (var(--brand) background, white text, 14px) — full width on very small screens (below 380px)
+Search bar:
+Full width below the top bar. Placeholder: “Search by client name or quote number.” Filters list in real time.
+Filter chips:
+Horizontal scrollable row of pills below search: “All” / “Draft” / “Sent” / “Accepted” / “Expired”
+Active chip: var(--brand) background, white text. Inactive: #FFFFFF background, #E5E2DC border.
+
+PART 2 — QUOTE BUILDER (/quotes/new and /quotes/:id/edit)
+This is the most critical screen. Must be fully operable with one thumb on a 390px screen.
+Layout — mobile single column, full width:
+Remove any side-by-side columns. Stack everything vertically in this order:
+Section 1 — Client
+	∙	“Client” label
+	∙	Searchable dropdown — tap to open, type to filter, tap to select
+	∙	If no client: “Add new client” link below the field
+	∙	Selected client shows: name + address in a small summary row with an X to clear
+Section 2 — Scope of Work
+	∙	“Service” label
+	∙	Scope selector rendered as large tappable pill cards (not a dropdown)
+	∙	Cards in a 2-column grid on mobile: Deep Clean / One-Time Standard / Recurring / Commercial / Move In/Out
+	∙	Selected scope gets var(--brand) border and light tint
+	∙	Tap to select — deselects previous selection
+Section 3 — Home Details
+Appears after scope is selected. Fields rendered as large tap-friendly inputs:
+	∙	Square Footage: number input, full width, 48px height minimum
+	∙	Bedrooms: stepper (− / number / +) — 48px touch targets on buttons
+	∙	Full Bathrooms: stepper
+	∙	Half Bathrooms: stepper
+	∙	Floors: stepper
+	∙	All steppers use #1A1917 text, #E5E2DC borders, 40px wide buttons
+Section 4 — Frequency (show only for Recurring scope)
+	∙	Tappable pill row: “Weekly” / “Every 2 Weeks” / “Every 4 Weeks”
+	∙	Full width pills, 48px height, stacked if needed
+Section 5 — Add-ons
+	∙	Full width checkbox cards — same style as booking widget add-ons
+	∙	Each card: checkbox left, add-on name + price right
+	∙	56px minimum height per card for thumb tapping
+	∙	Show only add-ons relevant to selected scope
+Section 6 — Discount Code
+	∙	Text input + “Apply” button inline
+	∙	Full width
+	∙	Applied discount shows as a green removable chip below the input
+Section 7 — Live Price Summary
+Sticky bottom bar on mobile — always visible without scrolling:
+	∙	Left: “Estimated Total” label (#6B6860, 12px)
+	∙	Center: “$[calculated price]” (#1A1917, 20px, bold) — updates in real time
+	∙	Right: “Save Quote” button (var(--brand) background, white, 14px)
+This sticky bar replaces any floating price preview that requires scrolling to see. Never let the price be off screen on mobile.
+Section 8 — Notes
+Below the add-ons, collapsible section:
+	∙	Label: “Internal Notes”
+	∙	Textarea, full width, 4 rows
+	∙	#6B6860 placeholder text: “Add notes for the office — not shown to client”
+
+PART 3 — QUOTE DETAIL PAGE (/quotes/:id)
+Mobile layout:
+Header card (top):
+	∙	Quote # and status pill — same row
+	∙	Client name (large, #1A1917, 18px)
+	∙	Service address (#6B6860, 13px)
+	∙	Created date (#6B6860, 12px)
+Price card:
+	∙	Large total: “$[amount]” (#1A1917, 28px, bold) centered
+	∙	Scope + frequency below in secondary text
+	∙	If discount applied: show original price struck through above the total
+Line items section:
+	∙	Each add-on as a row: name left, price right
+	∙	Discount row if applicable: name left, “-$[amount]” right in green
+	∙	Divider line
+	∙	Total row: bold, larger font
+Action buttons — stacked full width:
+	∙	“Send to Client” — var(--brand) background, white, full width, 52px height
+	∙	“Edit Quote” — #FFFFFF background, var(--brand) border and text, full width, 52px height
+	∙	“Mark as Accepted” — #FFFFFF background, #2D6A4F border and text, full width, 52px height
+	∙	“Delete Quote” — text only link, #E53E3E, centered, 44px tap target — shown below the main buttons
+Notes section:
+Collapsible, below action buttons. Shows internal notes if any exist.
+
+PART 4 — SEND QUOTE FLOW (MOBILE)
+When “Send to Client” is tapped:
+Show a bottom sheet (slides up from bottom of screen — not a centered modal):
+	∙	Handle bar at top (decorative)
+	∙	Heading: “Send Quote to Client” (#1A1917, 16px, semi-bold)
+	∙	Client email pre-filled (editable)
+	∙	Client phone pre-filled (editable)
+	∙	Toggle: “Send via Email” (on by default)
+	∙	Toggle: “Send via SMS” (off by default — on if Twilio configured)
+	∙	“Preview” link — opens a read-only quote preview in a new tab
+	∙	“Send Now” button — var(--brand) background, white, full width, 52px
+On send success: bottom sheet closes, status pill on quote updates to “Sent”, success toast at top of screen.
+
+PART 5 — GENERAL MOBILE RULES
+Apply these rules globally across all quote tool pages:
+	∙	Minimum tap target size: 44px height on all interactive elements
+	∙	No horizontal scrolling anywhere
+	∙	No tables on mobile — use card lists instead
+	∙	All modals replaced with bottom sheets on mobile
+	∙	All dropdowns replaced with bottom sheet option pickers on mobile (not native select)
+	∙	Font sizes: never below 13px on mobile
+	∙	Input fields: minimum 48px height, 16px font size (prevents iOS auto-zoom)
+	∙	All padding: minimum 16px horizontal on mobile
+	∙	Sticky bottom action bar on builder and detail pages — primary action always reachable without scrolling
+	∙	Loading states: show skeleton cards not spinners
+
+PART 6 — DESKTOP PRESERVATION
+All desktop layouts (768px and above) remain exactly as currently built. This prompt only modifies behavior at mobile breakpoints. Use Tailwind responsive prefixes (sm:, md:) throughout — never break desktop to fix mobile.
+
+DESIGN — ALL ELEMENTS:
+	∙	Background: #F7F6F3
+	∙	Cards: #FFFFFF
+	∙	Primary text: #1A1917
+	∙	Secondary text: #6B6860
+	∙	Borders: #E5E2DC
+	∙	Accent: var(--brand)
+	∙	Font: Plus Jakarta Sans only
+	∙	No emojis
+	∙	No dark mode
+	∙	Light theme only
+
+Republish after complete. Test on a real iPhone — go to /quotes/new, build a Deep Clean quote for a 2,000 sqft home with Oven + Refrigerator add-ons, confirm the sticky price bar updates live and “Save Quote” is reachable without scrolling.​​​​​​​​​​​​​​​​
