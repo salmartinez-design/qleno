@@ -576,6 +576,86 @@ export default function InvoicesPage() {
             ))}
           </div>
 
+          {/* ── Ready to Charge ──────────────────────────────────────────────── */}
+          {canAdmin && readyJobs.length > 0 && (
+            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #6EE7B7", borderRadius: 10, overflow: "hidden" }}>
+              <button onClick={() => setReadyExpanded(e => !e)}
+                style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <DollarSign size={14} style={{ color: "#059669" }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>Ready to Charge ({readyJobs.length})</span>
+                  <span style={{ fontSize: 11, color: "#6B7280" }}>— completed Stripe jobs awaiting payment</span>
+                </div>
+                {readyExpanded ? <ChevronUp size={14} color="#6B7280" /> : <ChevronDown size={14} color="#6B7280" />}
+              </button>
+              {readyExpanded && (
+                <div style={{ borderTop: "1px solid #D1FAE5" }}>
+                  {readyJobs.map((job: any) => (
+                    <div key={job.id} style={{ padding: "12px 16px", borderBottom: "1px solid #F0FDF4", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{job.client_name}</div>
+                        <div style={{ fontSize: 11, color: "#6B7280", fontFamily: FF }}>
+                          {job.service_type} · {job.scheduled_date ? new Date(job.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
+                          {job.card_brand ? ` · ${job.card_brand.charAt(0).toUpperCase()}${job.card_brand.slice(1)} ••••${job.card_last_four}` : ""}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#065F46", fontFamily: FF }}>${Number(job.amount || 0).toFixed(2)}</div>
+                      <button
+                        onClick={() => chargeJob(job.id)}
+                        disabled={chargingJobId === job.id}
+                        style={{ padding: "7px 14px", border: "none", borderRadius: 7, backgroundColor: "#059669", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, opacity: chargingJobId === job.id ? 0.6 : 1 }}>
+                        {chargingJobId === job.id ? "Charging..." : "Charge Now"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Failed Payments ───────────────────────────────────────────────── */}
+          {canAdmin && failedPayments.length > 0 && (
+            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #FECACA", borderRadius: 10, overflow: "hidden" }}>
+              <button onClick={() => setFailedExpanded(e => !e)}
+                style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <AlertCircle size={14} style={{ color: "#DC2626" }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Failed Payments ({failedPayments.length})</span>
+                  <span style={{ fontSize: 11, color: "#6B7280" }}>— recent Stripe charge failures</span>
+                </div>
+                {failedExpanded ? <ChevronUp size={14} color="#6B7280" /> : <ChevronDown size={14} color="#6B7280" />}
+              </button>
+              {failedExpanded && (
+                <div style={{ borderTop: "1px solid #FECACA" }}>
+                  {failedPayments.map((p: any) => (
+                    <div key={p.id} style={{ padding: "12px 16px", borderBottom: "1px solid #FEF2F2", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, minWidth: 160 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{p.first_name} {p.last_name}</div>
+                        <div style={{ fontSize: 11, color: "#6B7280", fontFamily: FF }}>
+                          {p.service_type || ""}
+                          {p.attempted_at ? ` · ${new Date(p.attempted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                          {p.card_brand ? ` · ${p.card_brand.charAt(0).toUpperCase()}${p.card_brand.slice(1)} ••••${p.last_4}` : ""}
+                        </div>
+                        {p.stripe_error_message && (
+                          <div style={{ fontSize: 11, color: "#DC2626", marginTop: 2, fontFamily: FF }}>{p.stripe_error_message}</div>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#991B1B", fontFamily: FF }}>${Number(p.amount || 0).toFixed(2)}</div>
+                      {p.job_id && (
+                        <button
+                          onClick={() => chargeJob(p.job_id)}
+                          disabled={chargingJobId === p.job_id}
+                          style={{ padding: "7px 14px", border: "1px solid #FECACA", borderRadius: 7, backgroundColor: "#FEF2F2", color: "#991B1B", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5, opacity: chargingJobId === p.job_id ? 0.6 : 1 }}>
+                          <RotateCcw size={11} /> Retry
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
               <div style={{ display: "flex", gap: 4, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 4, overflowX: "auto" }}>
