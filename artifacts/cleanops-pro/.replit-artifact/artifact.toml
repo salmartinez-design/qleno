@@ -23,7 +23,5 @@ BASE_PATH = "/"
 
 [services.production]
 build = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
-run = "node artifacts/api-server/dist/index.mjs"
-
-[services.production.health.startup]
-path = "/api/healthz"
+serve = "static"
+publicDir = "artifacts/cleanops-pro/dist/public"
