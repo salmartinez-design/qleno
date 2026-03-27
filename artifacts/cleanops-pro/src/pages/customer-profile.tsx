@@ -1672,59 +1672,36 @@ const NAV_PILLS = [
   { id: "sec-homeimages",  label: "Home Images" },
 ] as const;
 
-function SectionNav() {
-  const [active, setActive] = useState<string>("sec-service");
-  const navRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) setActive(entry.target.id);
-        });
-      },
-      { rootMargin: "-20% 0px -70% 0px", threshold: 0 }
-    );
-    NAV_PILLS.forEach(({ id }) => {
-      const el = document.getElementById(id);
-      if (el) observer.observe(el);
-    });
-    return () => observer.disconnect();
-  }, []);
-
-  const scrollTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setActive(id);
-  };
-
+function VerticalSectionNav({ active, onNavigate, counts }: {
+  active: string;
+  onNavigate: (id: string) => void;
+  counts: Record<string, number | undefined>;
+}) {
   return (
-    <div
-      ref={navRef}
-      style={{
-        position: "sticky", top: 0, zIndex: 40, background: "#F7F6F3",
-        borderBottom: "1px solid #E5E2DC", marginBottom: 12,
-        marginLeft: -24, marginRight: -24, paddingLeft: 24, paddingRight: 24,
-      }}
-    >
-      <div style={{ display: "flex", gap: 4, overflowX: "auto" as const, padding: "10px 0", scrollbarWidth: "none" as any }}>
-        {NAV_PILLS.map(({ id, label }) => (
+    <div style={{ fontFamily: FF }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", padding: "10px 14px 6px" }}>Sections</div>
+      {NAV_PILLS.map(({ id, label }) => {
+        const isActive = active === id;
+        const count = counts[id];
+        return (
           <button
             key={id}
-            onClick={() => scrollTo(id)}
+            onClick={() => onNavigate(id)}
             style={{
-              flexShrink: 0, padding: "5px 12px", borderRadius: 20, border: "none", cursor: "pointer",
-              fontSize: 11, fontWeight: active === id ? 700 : 500, fontFamily: FF,
-              background: active === id ? "var(--brand)" : "#EEECE8",
-              color: active === id ? "#FFFFFF" : "#6B6860",
-              transition: "background 150ms, color 150ms",
-              whiteSpace: "nowrap" as const,
+              width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "8px 14px", border: "none", cursor: "pointer", fontFamily: FF, textAlign: "left" as const,
+              background: isActive ? "var(--brand-dim, #E8F5F1)" : "transparent",
+              borderLeft: isActive ? "3px solid var(--brand)" : "3px solid transparent",
+              transition: "background 120ms, border-color 120ms",
             }}
           >
-            {label}
+            <span style={{ fontSize: 12, fontWeight: isActive ? 700 : 500, color: isActive ? "var(--brand)" : "#6B6860" }}>{label}</span>
+            {count !== undefined && count > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? "var(--brand)" : "#9E9B94", background: isActive ? "var(--brand-dim, #E8F5F1)" : "#EEECE8", borderRadius: 10, padding: "1px 7px" }}>{count}</span>
+            )}
           </button>
-        ))}
-      </div>
+        );
+      })}
     </div>
   );
 }
@@ -1843,7 +1820,7 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { cl
   const preferredTech = (client.tech_preferences || []).find((p: any) => p.preference === "preferred");
 
   const outerStyle: React.CSSProperties = noCard
-    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 14, height: "100%", overflowY: "auto", padding: "16px" }
+    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 14, padding: "16px" }
     : { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 14 };
 
   return (
@@ -2169,7 +2146,7 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
 // ─── Client Intelligence Panel (right 25%) ────────────────────────────────────
 function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; profile: any; noCard?: boolean }) {
   const outerStyle: React.CSSProperties = noCard
-    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 16, height: "100%", overflowY: "auto", padding: "16px" }
+    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 16, padding: "16px" }
     : { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 16 };
 
   if (!jhStats) {
@@ -2503,9 +2480,44 @@ export default function CustomerProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["client-profile", clientId] }); refetchProfile(); },
   });
 
+  const [rightTab, setRightTab] = useState<"details" | "history">("details");
+  const [activeSection, setActiveSection] = useState("sec-service");
+  const rightScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (rightTab !== "details") return;
+    const container = rightScrollRef.current;
+    if (!container) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        });
+      },
+      { root: container, rootMargin: "0px 0px -60% 0px", threshold: 0 }
+    );
+    NAV_PILLS.forEach(({ id }) => {
+      const el = container.querySelector(`#${id}`);
+      if (el) observer.observe(el);
+    });
+    return () => observer.disconnect();
+  }, [rightTab, profile]);
+
+  const scrollToSection = (id: string) => {
+    if (rightTab !== "details") setRightTab("details");
+    setActiveSection(id);
+    setTimeout(() => {
+      const container = rightScrollRef.current;
+      const el = container?.querySelector<HTMLElement>(`#${id}`);
+      if (el && container) {
+        container.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" });
+      }
+    }, 50);
+  };
+
   if (isLoading || !profile) {
     return (
-      <DashboardLayout>
+      <DashboardLayout fullBleed>
         <div style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px", fontFamily: FF }}>
           Loading client profile...
         </div>
@@ -2515,92 +2527,151 @@ export default function CustomerProfilePage() {
 
   const jhStats = jhData?.stats || null;
 
+  const sectionCounts: Record<string, number | undefined> = {
+    "sec-service":     undefined,
+    "sec-billing":     (profile.invoices || []).length || undefined,
+    "sec-quotes":      undefined,
+    "sec-agreements":  (profile.agreements || []).length || undefined,
+    "sec-scorecards":  (profile.scorecards || []).length || undefined,
+    "sec-contacts":    (profile.notification_settings || []).length || undefined,
+    "sec-portal":      undefined,
+    "sec-tech":        (profile.tech_preferences || []).length || undefined,
+    "sec-tickets":     undefined,
+    "sec-inspections": undefined,
+    "sec-attachments": undefined,
+    "sec-homeimages":  undefined,
+  };
+
   return (
-    <DashboardLayout>
-      <div style={{ display: "flex", flexDirection: "column", gap: 0, fontFamily: FF }}>
-        {/* Breadcrumb */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: 20 }}>
-          <button onClick={() => navigate("/customers")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: "13px", padding: 0, fontFamily: FF }}>
-            <ArrowLeft size={14} /> Clients
-          </button>
-          <span style={{ color: "#C4C0BB", fontSize: "13px" }}>/</span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{profile.first_name} {profile.last_name}</span>
+    <DashboardLayout fullBleed>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF, background: "#F7F6F3" }}>
+
+        {/* ── Zone 1: Hero (fixed, doesn't scroll) ── */}
+        <div style={{ flexShrink: 0, padding: "16px 24px 0", background: "#F7F6F3" }}>
+          {/* Breadcrumb */}
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: 14 }}>
+            <button onClick={() => navigate("/customers")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: "13px", padding: 0, fontFamily: FF }}>
+              <ArrowLeft size={14} /> Clients
+            </button>
+            <span style={{ color: "#C4C0BB", fontSize: "13px" }}>/</span>
+            <span style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{profile.first_name} {profile.last_name}</span>
+          </div>
+          {/* Hero card */}
+          <ProfileHero
+            client={profile}
+            stats={profile.stats}
+            jhStats={jhStats}
+            recurringSchedule={recurringSchedule}
+            onSchedule={() => navigate("/dispatch")}
+            onMessage={() => navigate(`/clients/${clientId}/messages`)}
+            onInvoice={() => navigate(`/clients/${clientId}/invoices`)}
+            onEdit={() => navigate(`/customers/${clientId}/edit`)}
+          />
         </div>
 
-        {/* Hero */}
-        <ProfileHero
-          client={profile}
-          stats={profile.stats}
-          jhStats={jhStats}
-          recurringSchedule={recurringSchedule}
-          onSchedule={() => navigate("/dispatch")}
-          onMessage={() => navigate(`/clients/${clientId}/messages`)}
-          onInvoice={() => navigate(`/clients/${clientId}/invoices`)}
-          onEdit={() => navigate(`/customers/${clientId}/edit`)}
-        />
+        {/* ── Zone 2: Two-column layout (fills remaining height, no page scroll) ── */}
+        <div style={{ flex: 1, display: "flex", gap: 14, padding: "14px 24px 14px", overflow: "hidden", minHeight: 0 }}>
 
-        {/* Unified 3-column card */}
-        <div style={{
-          display: "grid", gridTemplateColumns: "220px 1fr 200px",
-          maxHeight: 520, height: 520,
-          border: "1px solid #E5E2DC", borderRadius: 12, overflow: "hidden",
-          boxShadow: "0 1px 6px rgba(10,14,26,0.06)",
-          background: "#FFFFFF", marginBottom: 20,
-        }}>
-          {/* Client Details — left column */}
-          <div style={{ borderRight: "1px solid #E5E2DC", overflow: "hidden" }}>
-            <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} noCard />
+          {/* Left column: 300px fixed */}
+          <div style={{ width: 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
+
+            {/* Top left card: Client Details + Intelligence — independently scrollable */}
+            <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, display: "flex", flexDirection: "column" }}>
+              <div style={{ flex: 1, overflowY: "auto" as const }}>
+                <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} noCard />
+                <div style={{ borderTop: "1px solid #E5E2DC", margin: "0 12px" }} />
+                <ClientIntelligencePanel jhStats={jhStats} profile={profile} noCard />
+              </div>
+            </div>
+
+            {/* Bottom left card: Vertical Section Navigator */}
+            <div style={{ flexShrink: 0, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+              <VerticalSectionNav active={rightTab === "history" ? "" : activeSection} onNavigate={scrollToSection} counts={sectionCounts} />
+            </div>
           </div>
-          {/* Job History — center column, fills height */}
-          <div style={{ borderRight: "1px solid #E5E2DC", overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
-          </div>
-          {/* Intelligence — right column */}
-          <div style={{ overflow: "hidden" }}>
-            <ClientIntelligencePanel jhStats={jhStats} profile={profile} noCard />
+
+          {/* Right column: fills remaining width, contains tabs + scrollable content */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+
+            {/* Tab bar */}
+            <div style={{ display: "flex", flexShrink: 0, background: "#FFFFFF", borderRadius: "10px 10px 0 0", border: "1px solid #E5E2DC", borderBottom: "none", padding: "0 4px" }}>
+              {(["details", "history"] as const).map((tab) => {
+                const label = tab === "details" ? "Details" : "Job History";
+                const isActive = rightTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setRightTab(tab)}
+                    style={{
+                      padding: "11px 18px", border: "none", cursor: "pointer", fontFamily: FF,
+                      fontSize: 13, fontWeight: isActive ? 700 : 500,
+                      color: isActive ? "var(--brand)" : "#6B6860",
+                      background: "transparent",
+                      borderBottom: isActive ? "2px solid var(--brand)" : "2px solid transparent",
+                      transition: "color 120ms, border-color 120ms",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tab content area */}
+            <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderTop: "none", borderRadius: "0 0 10px 10px", display: "flex", flexDirection: "column" }}>
+
+              {/* DETAILS TAB */}
+              {rightTab === "details" && (
+                <div ref={rightScrollRef} style={{ flex: 1, overflowY: "auto" as const, padding: "10px 12px 16px" }}>
+                  <CollapsibleSection title="Service Details" sectionId="sec-service" defaultOpen>
+                    <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Billing & Payments" sectionId="sec-billing" count={(profile.invoices || []).length}>
+                    <BillingSection client={profile} invoices={profile.invoices || []} refetch={refetchProfile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Quotes" sectionId="sec-quotes">
+                    <QuotesTab clientId={clientId} client={profile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Agreements" sectionId="sec-agreements" count={(profile.agreements || []).length}>
+                    <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Scorecards" sectionId="sec-scorecards" count={(profile.scorecards || []).length}>
+                    <ScorecardsTab scorecards={profile.scorecards || []} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Contacts & Notifications" sectionId="sec-contacts" count={(profile.notification_settings || []).length}>
+                    <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Client Portal" sectionId="sec-portal">
+                    <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Technician Preferences" sectionId="sec-tech" count={(profile.tech_preferences || []).length}>
+                    <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Contact Tickets" sectionId="sec-tickets">
+                    <ContactTicketsSection clientId={clientId} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Inspections" sectionId="sec-inspections">
+                    <InspectionsSection />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Attachments" sectionId="sec-attachments">
+                    <AttachmentsSection clientId={clientId} />
+                  </CollapsibleSection>
+                  <CollapsibleSection title="Home Images" sectionId="sec-homeimages">
+                    <HomeImagesSection clientId={clientId} />
+                  </CollapsibleSection>
+                </div>
+              )}
+
+              {/* JOB HISTORY TAB */}
+              {rightTab === "history" && (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
+                </div>
+              )}
+
+            </div>
           </div>
         </div>
-
-        {/* Sticky section jump nav */}
-        <SectionNav />
-
-        {/* Collapsible sections */}
-        <CollapsibleSection title="Service Details" sectionId="sec-service" count={(jhData?.rows?.length) ?? undefined} defaultOpen>
-          <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Billing & Payments" sectionId="sec-billing" count={(profile.invoices || []).length}>
-          <BillingSection client={profile} invoices={profile.invoices || []} refetch={refetchProfile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Quotes" sectionId="sec-quotes">
-          <QuotesTab clientId={clientId} client={profile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Agreements" sectionId="sec-agreements" count={(profile.agreements || []).length}>
-          <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Scorecards" sectionId="sec-scorecards" count={(profile.scorecards || []).length}>
-          <ScorecardsTab scorecards={profile.scorecards || []} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Contacts & Notifications" sectionId="sec-contacts" count={(profile.notification_settings || []).length}>
-          <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Client Portal" sectionId="sec-portal">
-          <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Technician Preferences" sectionId="sec-tech" count={(profile.tech_preferences || []).length}>
-          <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Contact Tickets" sectionId="sec-tickets">
-          <ContactTicketsSection clientId={clientId} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Inspections" sectionId="sec-inspections" count={0}>
-          <InspectionsSection />
-        </CollapsibleSection>
-        <CollapsibleSection title="Attachments" sectionId="sec-attachments">
-          <AttachmentsSection clientId={clientId} />
-        </CollapsibleSection>
-        <CollapsibleSection title="Home Images" sectionId="sec-homeimages">
-          <HomeImagesSection clientId={clientId} />
-        </CollapsibleSection>
       </div>
     </DashboardLayout>
   );

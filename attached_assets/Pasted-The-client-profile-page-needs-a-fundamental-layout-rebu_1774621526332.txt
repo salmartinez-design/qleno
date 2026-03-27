@@ -1,0 +1,110 @@
+The client profile page needs a fundamental layout rebuild. Stop patching the current layout — rebuild the page structure from scratch using the architecture below. All existing data, queries, and API calls stay exactly as they are. Only the layout changes.
+THE CORE ARCHITECTURE — THREE ZONES:
+ZONE 1 — HERO (fixed, never scrolls with page):
+Full width card. Contains:
+
+Avatar initials circle (48px, brand color)
+Client name, status badge (RECURRING/ONE-TIME), frequency badge, Client ID
+LTV card pinned top right — black background, large green number
+Last Cleaning and Next Cleaning dates
+Four action buttons: Schedule Job (filled brand) / Send Message / Create Invoice / Edit Profile (outlined)
+Hero has a fixed height. It does not grow.
+
+ZONE 2 — TWO-COLUMN LAYOUT (fills remaining viewport height, does not overflow):
+Directly below the hero. Two columns side by side. This entire zone has a fixed height = viewport height minus hero height minus page header. It never makes the page scroll.
+Left column (360px fixed width):
+Contains two stacked cards, each independently scrollable:
+TOP CARD — Client Details + Intelligence (combined):
+
+Customer since, eCard rate, loyalty points — only show if not null
+Divider line
+INTELLIGENCE section:
+
+Tech Consistency card (red/yellow/green)
+Lifetime Revenue
+Last 12 Months
+Avg Bill
+Total Visits
+Pending Jobs
+Revenue Trend
+Skips / Bumps
+This card scrolls independently if content exceeds height.
+
+
+
+BOTTOM CARD — Section Navigator:
+Vertical list of all sections as clickable nav items:
+
+Service Details (count badge)
+Billing & Payments
+Quotes
+Agreements
+Scorecards
+Contacts & Notifications
+Client Portal
+Technician Preferences
+Contact Tickets
+Inspections
+Attachments
+Home Images
+
+Each nav item: section name on left, count badge on right if data exists. Clicking navigates the right column to that section. Active section highlighted in brand color. This replaces the horizontal pill nav entirely.
+Right column (fills remaining width):
+This is a single scrollable panel. It contains all collapsible sections stacked vertically. Only this column scrolls — not the entire page. The left column stays fixed while the right column scrolls.
+Sections in order: Service Details (default open) / Billing & Payments / Quotes / Agreements / Scorecards / Contacts & Notifications / Client Portal / Technician Preferences / Contact Tickets / Inspections / Attachments / Home Images.
+Job History is NOT in the right column. It is in a dedicated tab — see below.
+JOB HISTORY — TAB INSIDE THE RIGHT COLUMN:
+At the top of the right column, add two tabs: "DETAILS" and "JOB HISTORY".
+
+DETAILS tab shows all the collapsible sections listed above.
+JOB HISTORY tab shows the full job history table.
+
+Job History tab contains:
+
+Summary line: X visits · $X total
+Table: Date / Technician (with 24px initials circle) / Scope / Add-On / Duration / Amount / Status badge
+10 rows per page, pagination pinned to bottom of the right column
+Clicking a row opens the slide-over panel from the right
+Hover tooltip on desktop after 400ms: Technician · Duration · Amount · Scope
+
+SLIDE-OVER (unchanged from previous spec):
+420px wide, slides in from right, 200ms ease, dark overlay behind it. Contains: full date, status badge, technician avatar + name, scope, duration, amount, add-ons, address, schedule notes, linked scorecard if exists, linked contact ticket if exists, View Full Job button if job record exists.
+MOBILE (max-width 768px):
+
+Zone 2 becomes single column — full width
+Left column (Client Details + Intelligence + Nav) collapses into a horizontal scrollable chip row at the top showing section names only
+Right column takes full width
+Hero stacks vertically: name/badges top, LTV below, dates below, action buttons in a 2x2 grid
+Slide-over takes full screen width on mobile
+All touch targets minimum 44px height
+
+SECTION HEADER DESIGN (all sections):
+
+Small caps label, letter-spacing 0.08em, #6B6860, font-weight 600
+Count badge: small gray rounded pill on right of label
+Chevron far right, rotates 180deg when open
+3px left border in var(--brand) when expanded
+Header background #F7F6F3, border-bottom #E5E2DC 1px
+200ms open/close animation
+Empty sections: single line secondary text, no large illustrated empty states
+
+WHAT NOT TO CHANGE:
+
+All data queries and API endpoints
+All existing features, buttons, forms, modals
+All field content inside each section
+Slide-over data and interactions
+
+DESIGN RULES — NON-NEGOTIABLE:
+
+Plus Jakarta Sans only
+No emojis anywhere
+No dark mode
+Background #F7F6F3
+Cards #FFFFFF
+Borders #E5E2DC
+Primary text #1A1917
+Secondary text #6B6860
+Accent var(--brand) — PHES is #5B9BD5
+The page must never require horizontal scrolling on any screen size
+
