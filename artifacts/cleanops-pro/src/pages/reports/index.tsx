@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
-  AlertTriangle, FileText, Home, Users, ArrowRight,
+  AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -40,6 +40,13 @@ const REPORT_GROUPS = [
       { title: "Contact Tickets",      desc: "Complaints, breakages, compliments, and incidents.",     url: "/reports/contact-tickets",  icon: FileText },
     ],
   },
+  {
+    label: "Growth & Retention",
+    color: "#8B5CF6",
+    reports: [
+      { title: "Upsell Conversion",    desc: "Deep Clean to recurring conversion rates, rate lock health, and trend data.", url: "/reports/upsell-conversion", icon: RefreshCw },
+    ],
+  },
 ];
 
 export default function ReportsIndexPage() {
@@ -48,7 +55,7 @@ export default function ReportsIndexPage() {
       <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1917' }}>Reports</h1>
-          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>14 reports covering financials, operations, and client quality.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>16 reports covering financials, operations, client quality, and growth.</p>
         </div>
 
         {REPORT_GROUPS.map(group => (

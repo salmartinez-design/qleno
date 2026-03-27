@@ -247,6 +247,9 @@ export function PricingTab() {
 
       {/* ── Bundles & Promotions ────────────────────────────────────────── */}
       <BundlesSection />
+
+      {/* ── Offers & Incentives ─────────────────────────────────────────── */}
+      <OffersSection />
     </div>
   );
 }
@@ -996,6 +999,138 @@ function BundlesSection() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Offers & Incentives Section ─────────────────────────────────────────────
+const FF = "'Plus Jakarta Sans', sans-serif";
+
+function ToggleSwitch({ value, onChange }: { value: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      onClick={() => onChange(!value)}
+      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center" }}
+    >
+      {value ? <ToggleRight size={28} color="var(--brand)" /> : <ToggleLeft size={28} color="#9E9B94" />}
+    </button>
+  );
+}
+
+function OffersSection() {
+  const { toast } = useToast();
+  const { data: settings, isLoading } = useQuery<any>({
+    queryKey: ["offer-settings"],
+    queryFn: () => apiFetch("/api/pricing/offer-settings"),
+  });
+  const [form, setForm] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (settings && !form) setForm({ ...settings });
+  }, [settings]);
+
+  const upd = (k: string, v: any) => setForm((f: any) => ({ ...f, [k]: v }));
+  const inp: React.CSSProperties = { width: "100%", padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", fontFamily: FF, outline: "none", boxSizing: "border-box" as const };
+  const fieldLbl = (t: string, help?: string) => (
+    <div style={{ marginBottom: 4 }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{t}</div>
+      {help && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>{help}</div>}
+    </div>
+  );
+
+  const save = async () => {
+    if (!form) return;
+    setSaving(true);
+    try {
+      await apiFetch("/api/pricing/offer-settings", { method: "PUT", body: JSON.stringify(form) });
+      toast({ title: "Offer settings saved" });
+    } catch {
+      toast({ title: "Failed to save", variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  if (isLoading || !form) return null;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div>
+          <div style={sectionHead}>Offers &amp; Incentives</div>
+          <div style={sectionSub}>Configure the recurring upsell offer shown on Deep Clean bookings and the rate lock guarantee terms.</div>
+        </div>
+      </div>
+
+      <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: "0", overflow: "hidden" }}>
+        {/* Field 1 — Upsell toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ flex: 1 }}>
+            {fieldLbl("Show recurring upsell offer on Deep Clean bookings", "When off, the upsell card is hidden entirely from the booking widget.")}
+          </div>
+          <ToggleSwitch value={!!form.upsell_enabled} onChange={v => upd("upsell_enabled", v)} />
+        </div>
+
+        {/* Field 2 — Discount % */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ flex: 1 }}>{fieldLbl("First recurring cleaning discount", "Applied to the first recurring cleaning when a customer accepts the upsell. Shown live in the booking widget.")}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, width: 120 }}>
+            <input type="number" min={0} max={50} value={form.upsell_discount_percent ?? 15} onChange={e => upd("upsell_discount_percent", parseFloat(e.target.value))} style={{ ...inp, width: 80, textAlign: "right" as const }} />
+            <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>%</span>
+          </div>
+        </div>
+
+        {/* Field 3 — Rate lock toggle */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ flex: 1 }}>{fieldLbl("Offer rate lock guarantee", "When off, rate lock language is hidden from the upsell card and no lock record is created.")}</div>
+          <ToggleSwitch value={!!form.rate_lock_enabled} onChange={v => upd("rate_lock_enabled", v)} />
+        </div>
+
+        {/* Field 4 — Rate lock duration */}
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          {fieldLbl("Rate lock duration", "How long the recurring rate is guaranteed after upsell acceptance.")}
+          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            {[12, 18, 24].map(m => (
+              <button
+                key={m}
+                onClick={() => upd("rate_lock_duration_months", m)}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 7, border: `2px solid ${form.rate_lock_duration_months === m ? "var(--brand)" : "#E5E2DC"}`, background: form.rate_lock_duration_months === m ? "var(--brand-light, #EFF6FF)" : "#FFFFFF", color: form.rate_lock_duration_months === m ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}
+              >
+                {m} months
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Field 5 — Overrun threshold */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ flex: 1 }}>{fieldLbl("Time overrun threshold", "If actual cleaning time exceeds the estimate by this percentage on enough visits, the rate lock is automatically voided.")}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, width: 120 }}>
+            <input type="number" min={1} max={100} value={form.overrun_threshold_percent ?? 20} onChange={e => upd("overrun_threshold_percent", parseFloat(e.target.value))} style={{ ...inp, width: 80, textAlign: "right" as const }} />
+            <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>%</span>
+          </div>
+        </div>
+
+        {/* Field 6 — Overrun trigger count */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "16px 20px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ flex: 1 }}>{fieldLbl("Overrun trigger — number of visits", "How many visits must exceed the threshold before the rate lock voids.")}</div>
+          <input type="number" min={1} max={10} value={form.overrun_jobs_trigger ?? 2} onChange={e => upd("overrun_jobs_trigger", parseInt(e.target.value))} style={{ ...inp, width: 80, textAlign: "right" as const }} />
+        </div>
+
+        {/* Field 7 — Service gap */}
+        <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "16px 20px" }}>
+          <div style={{ flex: 1 }}>{fieldLbl("Service gap void window", "If a client goes this many days without a completed cleaning, their rate lock is automatically voided.")}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, width: 120 }}>
+            <input type="number" min={1} value={form.service_gap_days ?? 60} onChange={e => upd("service_gap_days", parseInt(e.target.value))} style={{ ...inp, width: 80, textAlign: "right" as const }} />
+            <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+        <button style={btn("primary")} onClick={save} disabled={saving}>
+          <Save size={14} />{saving ? "Saving..." : "Save Offer Settings"}
+        </button>
+      </div>
     </div>
   );
 }

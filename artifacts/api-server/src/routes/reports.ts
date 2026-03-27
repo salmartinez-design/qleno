@@ -880,4 +880,97 @@ router.get("/first-time", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ── GET /api/reports/upsell-conversion ──────────────────────────────────────
+router.get("/upsell-conversion", requireAuth, async (req, res) => {
+  const { sql: dsql } = await import("drizzle-orm");
+  const companyId = (req as any).user?.company_id;
+  const { from, to, status: statusFilter, cadence: cadenceFilter } = req.query as Record<string, string>;
+  const fromStr = from || new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+  const toStr = to || new Date().toISOString().split("T")[0];
+  try {
+    // KPI counts
+    const kpiResult = await db.execute(dsql`
+      SELECT
+        COUNT(*) FILTER (WHERE upsell_shown = true) AS total_shown,
+        COUNT(*) FILTER (WHERE upsell_accepted = true) AS total_accepted,
+        COUNT(*) FILTER (WHERE upsell_declined = true AND upsell_accepted = false) AS total_declined,
+        COUNT(*) FILTER (WHERE upsell_deferred = true AND upsell_accepted = false) AS total_deferred
+      FROM jobs
+      WHERE company_id = ${companyId}
+        AND upsell_shown = true
+        AND created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
+    `);
+    const kpi = kpiResult.rows[0] as any;
+
+    // Weekly trend (accepted rate % by week)
+    const trendResult = await db.execute(dsql`
+      SELECT
+        TO_CHAR(DATE_TRUNC('week', created_at), 'Mon DD') AS week_label,
+        DATE_TRUNC('week', created_at) AS week_start,
+        COUNT(*) FILTER (WHERE upsell_shown = true) AS shown,
+        COUNT(*) FILTER (WHERE upsell_accepted = true) AS accepted
+      FROM jobs
+      WHERE company_id = ${companyId}
+        AND upsell_shown = true
+        AND created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
+      GROUP BY DATE_TRUNC('week', created_at)
+      ORDER BY week_start ASC
+    `);
+
+    // Breakdown table
+    let rowsQuery = dsql`
+      SELECT
+        j.id, j.created_at AS date,
+        c.first_name || ' ' || c.last_name AS client_name,
+        j.upsell_cadence_selected AS cadence,
+        j.upsell_accepted, j.upsell_declined, j.upsell_deferred,
+        rl.locked_rate,
+        j.base_fee AS deep_clean_total
+      FROM jobs j
+      JOIN clients c ON c.id = j.client_id
+      LEFT JOIN rate_locks rl ON rl.client_id = j.client_id AND rl.active = true
+      WHERE j.company_id = ${companyId}
+        AND j.upsell_shown = true
+        AND j.created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
+      ORDER BY j.created_at DESC
+      LIMIT 200
+    `;
+    const rowsResult = await db.execute(rowsQuery);
+
+    // Rate lock health
+    const lockHealthResult = await db.execute(dsql`
+      SELECT
+        COUNT(*) FILTER (WHERE active = true) AS active_count,
+        COUNT(*) FILTER (WHERE active = true AND lock_expires_at <= NOW() + INTERVAL '30 days') AS expiring_30,
+        COUNT(*) FILTER (WHERE active = false AND voided_at >= DATE_TRUNC('month', NOW())) AS voided_month,
+        COUNT(*) FILTER (WHERE active = false AND voided_at >= DATE_TRUNC('month', NOW()) AND void_reason = 'time_overrun') AS voided_time_overrun,
+        COUNT(*) FILTER (WHERE active = false AND voided_at >= DATE_TRUNC('month', NOW()) AND void_reason = 'service_gap') AS voided_service_gap,
+        COUNT(*) FILTER (WHERE active = false AND voided_at >= DATE_TRUNC('month', NOW()) AND void_reason = 'manual') AS voided_manual,
+        COUNT(*) FILTER (WHERE active = false AND voided_at >= DATE_TRUNC('month', NOW()) AND void_reason = 'expired') AS voided_expired
+      FROM rate_locks
+      WHERE company_id = ${companyId}
+    `);
+
+    const rows = rowsResult.rows as any[];
+    const filteredRows = rows
+      .filter(r => {
+        if (statusFilter === "accepted") return r.upsell_accepted;
+        if (statusFilter === "declined") return r.upsell_declined && !r.upsell_accepted;
+        if (statusFilter === "deferred") return r.upsell_deferred && !r.upsell_accepted;
+        return true;
+      })
+      .filter(r => !cadenceFilter || cadenceFilter === "all" || r.cadence === cadenceFilter);
+
+    return res.json({
+      kpi: kpi,
+      trend: trendResult.rows,
+      rows: filteredRows,
+      lockHealth: lockHealthResult.rows[0] ?? {},
+    });
+  } catch (err) {
+    console.error("upsell-conversion error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;

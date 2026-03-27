@@ -1,0 +1,410 @@
+**REPLIT PROMPT — FULL CONSOLIDATED:**
+
+---
+
+**PART 1 — SCOPE SEPARATION**
+
+In the booking widget at `/book/phes-cleaning`, split "Deep Clean or Move In/Out" into two separate cards.
+
+Render exactly these scopes — nothing else under any circumstance:
+
+RESIDENTIAL:
+1. "Deep Clean"
+2. "Move In / Move Out"
+3. "One-Time Standard Clean"
+4. "Recurring Cleaning"
+
+COMMERCIAL:
+5. "Commercial Cleaning"
+
+Both Deep Clean and Move In/Out use the `deep_clean` pricing scope. Difference is label, flow, and job tags only. No other scopes render under any circumstance — PPM Turnover, Hourly variants, and all sub-variants permanently excluded.
+
+---
+
+**PART 2 — MOVE IN/OUT FLOW**
+
+When "Move In / Move Out" is selected, after scope cards and before Home Details, show a required acknowledgment block.
+
+Heading (`#1A1917`, 15px, semi-bold): "Before we confirm your booking"
+Subheading (`#6B6860`, 13px): "Please confirm the following — all three are required to proceed."
+
+Three required checkboxes — all must be checked before Continue activates:
+- "The property will be completely empty of furniture and personal belongings on the day of cleaning"
+- "No other contractors or service providers will be present during the cleaning"
+- "The property will have running water and working electricity on the day of cleaning"
+
+If any unchecked on Continue click: red border `2px solid #E53E3E` on unchecked boxes, inline message: "Please confirm all requirements to continue."
+
+No move date field. No move date storage. No move date column.
+
+Job record tags:
+- `scope: 'move_in_out'`
+- `property_vacant: true`
+
+Dispatch board job card: show small "VACANT" badge in `#6B6860` secondary text.
+
+---
+
+**PART 3 — DEEP CLEAN RECURRING UPSELL WIDGET**
+
+When "Deep Clean" is selected (not Move In/Out, not any other scope), after Home Details and cleanliness rating, show upsell card inline before Continue button.
+
+**Card design:**
+- `#FFFFFF` background
+- `3px solid var(--brand)` left border
+- `1px solid #E5E2DC` full border
+- 20px padding
+- Smooth fade-in on appear
+
+**Content:**
+
+Label (`var(--brand)`, 11px, uppercase, letter-spacing 0.08em): "LIMITED OFFER"
+
+Heading (`#1A1917`, 18px, semi-bold): "Turn today's Deep Clean into a fresh start"
+
+Body (`#6B6860`, 14px, line-height 1.6):
+"Start recurring service today and get [upsell_discount_percent]% off your first recurring cleaning — plus your recurring rate is locked for [rate_lock_duration_months] months. Your rate will never increase as long as your home stays consistent and your service continues."
+
+Both bracketed values must pull from `offer_settings` for this company — never hardcoded. If office changes the settings, widget copy updates automatically.
+
+**Cadence selector inside card:**
+Label (`#1A1917`, 13px, semi-bold): "How often would you like us to come back?"
+Three pill options: "Weekly" / "Every 2 Weeks" / "Every 4 Weeks"
+Default: none selected.
+
+On cadence selection, show live price lines immediately below:
+- Primary (`#1A1917`, 15px, semi-bold): "Your first recurring cleaning: ~~$[full price]~~ **$[full price × (1 - discount/100)]**"
+- Secondary (`#6B6860`, 12px): "Then $[full price] per visit — locked for [rate_lock_duration_months] months."
+
+Full price calculates from pricing engine using entered square footage and selected cadence multiplier. Updates in real time as cadence changes.
+
+**Rate Lock Terms** collapsible link below price lines:
+- Link: "Rate lock terms" (`var(--brand)`, 12px, underlined)
+- Expanded (`#6B6860`, 12px, italic): "Your recurring rate is locked for [rate_lock_duration_months] months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after [service_gap_days] consecutive days without service, or if actual cleaning time exceeds the estimated time by more than [overrun_threshold_percent]% on [overrun_jobs_trigger] of your first 3 cleans."
+
+All bracketed values pull from `offer_settings` dynamically.
+
+**Only show the upsell card if `upsell_enabled = true` in offer_settings.** If false, skip entirely — no card, no offer, Continue button active as normal.
+
+**Only show rate lock language if `rate_lock_enabled = true` in offer_settings.** If false, show discount offer only with no lock language.
+
+**Two buttons stacked, full width:**
+
+Primary: "Yes — lock in my rate" (`var(--brand)` background, white text, 14px, semi-bold)
+- Requires cadence selected — if not: highlight selector with `var(--brand)` border, show "Please select how often you'd like us to come back."
+- On valid click: store upsell_accepted, cadence, locked rate — Continue activates — flow creates Deep Clean job + recurring schedule + rate lock record
+
+Secondary: "No thanks, just the Deep Clean" (`#FFFFFF` background, `1px solid #6B6860` border, `#6B6860` text, 14px)
+- On click: store upsell_declined — show Part 4 soft nudge
+
+---
+
+**PART 4 — SOFT SECOND NUDGE**
+
+On "No thanks" click, replace upsell card with smaller card:
+- `#FFFFFF` background
+- `1px solid #E5E2DC` border
+- 16px padding
+- No colored left border
+
+Text (`#6B6860`, 13px, line-height 1.6):
+"No problem. You can always set up recurring service later from your confirmation email."
+
+Link below: "Actually, I'd like to set up recurring service" (`var(--brand)`, 13px, underlined)
+- On click: restore full upsell card, reset state, clear declined flag
+
+Continue button is active at this point.
+
+If customer proceeds without accepting: store `upsell_deferred: true`.
+If customer clicks link then accepts: `upsell_accepted: true`, override deferred and declined to false.
+
+---
+
+**PART 5 — DATABASE MIGRATIONS**
+
+Run all of the following:
+
+```sql
+-- Jobs table additions
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_shown BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_accepted BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_declined BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected VARCHAR(20);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false;
+ALTER TABLE jobs DROP COLUMN IF EXISTS move_date;
+
+-- Rate locks table
+CREATE TABLE IF NOT EXISTS rate_locks (
+  id SERIAL PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  recurring_schedule_id INTEGER REFERENCES recurring_schedules(id) ON DELETE SET NULL,
+  locked_rate NUMERIC(10,2) NOT NULL,
+  cadence VARCHAR(20) NOT NULL,
+  lock_start_date DATE NOT NULL,
+  lock_expires_at DATE NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  renewal_alert_30_sent BOOLEAN DEFAULT false,
+  created_manually BOOLEAN DEFAULT false,
+  voided_at TIMESTAMP,
+  void_reason VARCHAR(50),
+  void_notes TEXT,
+  voided_by_user_id INTEGER,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_locks_client ON rate_locks(client_id);
+CREATE INDEX IF NOT EXISTS idx_rate_locks_active ON rate_locks(active, lock_expires_at);
+
+-- Offer settings table
+CREATE TABLE IF NOT EXISTS offer_settings (
+  id SERIAL PRIMARY KEY,
+  company_id INTEGER NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
+  upsell_enabled BOOLEAN NOT NULL DEFAULT true,
+  upsell_discount_percent NUMERIC(5,2) NOT NULL DEFAULT 15.00,
+  rate_lock_enabled BOOLEAN NOT NULL DEFAULT true,
+  rate_lock_duration_months INTEGER NOT NULL DEFAULT 24,
+  overrun_threshold_percent NUMERIC(5,2) NOT NULL DEFAULT 20.00,
+  overrun_jobs_trigger INTEGER NOT NULL DEFAULT 2,
+  service_gap_days INTEGER NOT NULL DEFAULT 60,
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Seed defaults for all existing companies
+INSERT INTO offer_settings (company_id)
+SELECT id FROM companies
+ON CONFLICT (company_id) DO NOTHING;
+```
+
+**On upsell accepted — form submission flow:**
+1. Create Deep Clean job with all upsell tracking columns set correctly
+2. Create `recurring_schedules` record with selected cadence, client_id, company_id, service_address, scope
+3. Create first recurring job tagged `first_recurring_discounted: true` — price at full rate × (1 - upsell_discount_percent/100) pulled from offer_settings
+4. Insert `rate_locks` record if `rate_lock_enabled = true`:
+   - `locked_rate`: full recurring rate (not discounted first-visit rate)
+   - `cadence`: selected cadence
+   - `lock_start_date`: today
+   - `lock_expires_at`: today + rate_lock_duration_months from offer_settings
+   - `active`: true
+
+**First recurring discount expiry protection:**
+Before generating or charging any recurring job, check if any prior completed job for that recurring_schedule_id has `first_recurring_discounted: true`. If yes — charge full `locked_rate` on all subsequent jobs. Never apply first-visit discount more than once per recurring schedule.
+
+---
+
+**PART 6 — RATE LOCK AUTO-VOID + RENEWAL LOGIC**
+
+Create `server/utils/rateLock.ts`.
+
+**checkRateLockVoidConditions(clientId, companyId):**
+Call this after every job is marked complete.
+
+```
+Pull offer_settings for company
+Query last 3 completed recurring jobs for this client
+
+Condition 1 — Time overrun:
+Count jobs where actual_duration > estimated_duration * (1 + overrun_threshold_percent/100)
+If count >= overrun_jobs_trigger:
+  Set rate_lock active = false
+  void_reason = 'time_overrun'
+  voided_at = NOW()
+  Send Resend email to info@phes.io:
+    Subject: "Rate Lock Voided — Time Overrun: [Client Name]"
+    Body: client name, locked rate, actual vs estimated duration average, prompt to re-quote
+```
+
+**runRateLockNightlyChecks():**
+Call alongside recurring engine in nightly cron.
+
+```
+Pull all active rate_locks
+
+Condition 2 — Service gap:
+Pull offer_settings.service_gap_days for each lock's company
+Find most recent completed job for each client
+If most_recent_job_date < TODAY - service_gap_days:
+  Set active = false, void_reason = 'service_gap', voided_at = NOW()
+  Send Resend email to info@phes.io:
+    Subject: "Rate Lock Voided — Service Gap: [Client Name]"
+    Body: client name, last service date, days since service
+
+Condition 3 — Natural expiry:
+If lock_expires_at < TODAY and active = true:
+  Set active = false, void_reason = 'expired'
+  No email
+
+Condition 4 — Renewal alert:
+If lock_expires_at = TODAY + 30 days and renewal_alert_30_sent = false:
+  Send Resend email to info@phes.io:
+    Subject: "Rate Lock Expiring Soon: [Client Name]"
+    Body: client name, locked rate, cadence, expiry date
+    Prompt: "Consider reaching out to offer a renewal before expiry."
+  Set renewal_alert_30_sent = true
+```
+
+---
+
+**PART 7 — CLIENT PROFILE: RATE LOCK UI**
+
+On client profile page add a "Rate Lock" section. Only visible if a rate_lock record exists for this client.
+
+**Active lock display:**
+- Green pill badge: "Rate Lock Active"
+- Details line: "$[locked_rate]/visit · [cadence] · Expires [date] · [X] days remaining"
+- "Void Rate Lock" button (`#FFFFFF` bg, `#E53E3E` border and text, small)
+  - Confirmation modal:
+    - Heading: "Void Rate Lock for [Client Name]?"
+    - Required dropdown: "Time Overrun" / "Condition Change" / "Service Gap" / "Other"
+    - Optional textarea: Notes
+    - Confirm button (`#E53E3E` background, white): "Void Rate Lock"
+    - On confirm: active = false, void_reason, void_notes, voided_by_user_id, voided_at recorded
+
+**Manual rate lock (office-initiated):**
+If no active rate lock exists on the client profile, show small outlined "+ Add Rate Lock" button (`var(--brand)`, small).
+- Modal fields: locked rate input, cadence selector, start date (defaults today), duration in months (defaults from offer_settings but editable), notes textarea
+- On save: creates rate_locks record with `created_manually: true`
+
+**Voided lock display:**
+- Gray pill badge: "Rate Lock Voided"
+- Details: "Was $[locked_rate]/visit · Voided [date] · Reason: [void_reason]"
+
+**No lock:**
+Render nothing.
+
+---
+
+**PART 8 — OFFERS & INCENTIVES SETTINGS PANEL**
+
+Add new collapsible section to Company Settings → Pricing tab, after Bundles & Promotions.
+
+Section heading: "Offers & Incentives"
+
+All fields read from and write to `offer_settings` for the authenticated company.
+
+**Field 1 — Upsell offer toggle:**
+Label: "Show recurring upsell offer on Deep Clean bookings"
+Toggle switch (green on, gray off)
+Maps to: `upsell_enabled`
+Help text: "When off, the upsell card is hidden entirely from the booking widget."
+
+**Field 2 — First recurring discount:**
+Label: "First recurring cleaning discount"
+Number input, % suffix
+Default: 15, Range: 0–50
+Maps to: `upsell_discount_percent`
+Help text: "Applied to the first recurring cleaning when a customer accepts the upsell. Shown live in the booking widget."
+
+**Field 3 — Rate lock toggle:**
+Label: "Offer rate lock guarantee"
+Toggle switch
+Maps to: `rate_lock_enabled`
+Help text: "When off, rate lock language is hidden from the upsell card and no lock record is created."
+
+**Field 4 — Rate lock duration:**
+Label: "Rate lock duration"
+Segmented control: "12 months" / "18 months" / "24 months"
+Maps to: `rate_lock_duration_months`
+Help text: "How long the recurring rate is guaranteed after upsell acceptance."
+
+**Field 5 — Time overrun threshold:**
+Label: "Time overrun threshold"
+Number input, % suffix
+Default: 20
+Maps to: `overrun_threshold_percent`
+Help text: "If actual cleaning time exceeds the estimate by this percentage on enough visits, the rate lock is automatically voided."
+
+**Field 6 — Overrun trigger count:**
+Label: "Overrun trigger — number of visits"
+Number input, integer
+Default: 2
+Maps to: `overrun_jobs_trigger`
+Help text: "How many visits must exceed the threshold before the rate lock voids."
+
+**Field 7 — Service gap window:**
+Label: "Service gap void window"
+Number input, "days" suffix
+Default: 60
+Maps to: `service_gap_days`
+Help text: "If a client goes this many days without a completed cleaning, their rate lock is automatically voided."
+
+Save button: "Save Offer Settings" (`var(--brand)` background, white text)
+Shows success toast on save. Updates `offer_settings.updated_at`.
+
+---
+
+**PART 9 — UPSELL CONVERSION REPORT**
+
+Add new report page at `/reports/upsell-conversion` in the Reports section.
+
+Page heading: "Upsell Conversion"
+Subheading: "Deep Clean to recurring conversion performance"
+
+**4 KPI summary cards (top row):**
+- Total Deep Clean bookings (selected date range)
+- Upsell Accepted (count + % of total)
+- Upsell Declined (count + %)
+- Upsell Deferred (count + %)
+
+**Conversion trend chart:**
+- Line chart by week showing accepted rate % over time
+- X axis: week label
+- Y axis: 0–100%
+- Chart.js, `var(--brand)` line color, `#F7F6F3` background
+
+**Breakdown table:**
+Columns: Date | Client Name | Cadence Selected | Locked Rate | Discount Applied | Status
+
+Status values: "Accepted" (green pill) / "Declined" (red pill) / "Deferred" (yellow pill)
+
+Filters above table:
+- Date range picker (default: last 30 days)
+- Status: All / Accepted / Declined / Deferred
+- Cadence: All / Weekly / Every 2 Weeks / Every 4 Weeks
+
+**Rate lock health section below table:**
+Three stat tiles:
+- Active rate locks: count
+- Expiring within 30 days: count — clicking opens table filtered to those clients
+- Voided this month: count with breakdown by void reason (time_overrun / service_gap / condition_change / manual / expired)
+
+All data scoped to authenticated company_id.
+
+---
+
+**PART 10 — FREQUENCY LABEL CLEANUP**
+
+Fix all frequency labels everywhere in the codebase:
+- `onetime` → "One-Time"
+- `weekly` → "Weekly"
+- `biweekly` → "Every 2 Weeks"
+- `monthly` → "Every 4 Weeks"
+
+Apply to: booking widget Step 3 frequency selector, upsell cadence selector, dispatch board job cards, job records display, client profile recurring schedule display, upsell conversion report, and anywhere else frequency renders as a label.
+
+---
+
+**DESIGN — ALL NEW ELEMENTS:**
+- Background: `#F7F6F3`
+- Cards: `#FFFFFF`
+- Primary text: `#1A1917`
+- Secondary text: `#6B6860`
+- Borders: `#E5E2DC`
+- Accent: `var(--brand)`
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+Republish after all parts complete. Confirm in response:
+- All DB migrations that ran successfully
+- Whether `rate_locks` and `offer_settings` tables were created
+- Whether `move_date` column was dropped
+- All new columns added to `jobs` table
+- Whether `offer_settings` were seeded for all existing companies
+- All new API endpoints created
+- All new report routes created

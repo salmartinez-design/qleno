@@ -3,6 +3,7 @@ import { seedIfNeeded } from "./seed";
 import { runRecurringJobGeneration, startRecurringJobCron } from "./lib/recurring-jobs";
 import { runPhesDataMigration } from "./phes-data-migration";
 import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
+import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 
 const rawPort = process.env["PORT"];
 
@@ -82,6 +83,11 @@ function startNotificationCron() {
     if (fired["review_request"] !== hrKey) {
       fired["review_request"] = hrKey;
       runReviewRequestCron().catch((e: Error) => console.error("[cron] review_request error:", e));
+    }
+    // 1 AM CT → rate lock nightly checks (service gap voids, expiry voids, renewal alerts)
+    if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
+      fired["rate_lock_nightly"] = `${ctDate}-1`;
+      runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
     }
   };
 

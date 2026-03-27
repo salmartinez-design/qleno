@@ -1020,6 +1020,32 @@ router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
   }
 });
 
+// ── POST /:id/rate-lock (manual create) ──────────────────────────────────────
+router.post("/:id/rate-lock", requireAuth, async (req, res) => {
+  const { sql: dsql } = await import("drizzle-orm");
+  const companyId = (req as any).user?.company_id;
+  const { locked_rate, cadence, start_date, duration_months, notes } = req.body;
+  try {
+    const clientId = parseInt(req.params.id);
+    const startDateStr = start_date || new Date().toISOString().split("T")[0];
+    const months = parseInt(duration_months) || 24;
+    const expiry = new Date(startDateStr);
+    expiry.setMonth(expiry.getMonth() + months);
+    const expiryStr = expiry.toISOString().split("T")[0];
+    const result = await db.execute(
+      dsql`
+        INSERT INTO rate_locks (company_id, client_id, locked_rate, cadence, lock_start_date, lock_expires_at, active, created_manually, void_notes, created_at)
+        VALUES (${companyId}, ${clientId}, ${parseFloat(locked_rate)}, ${cadence}, ${startDateStr}::date, ${expiryStr}::date, true, true, ${notes || null}, NOW())
+        RETURNING id
+      `
+    );
+    return res.json({ id: (result.rows[0] as any).id });
+  } catch (err) {
+    console.error("POST create rate-lock:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /:id/rate-lock ────────────────────────────────────────────────────────
 router.get("/:id/rate-lock", requireAuth, async (req, res) => {
   const { sql: dsql } = await import("drizzle-orm");

@@ -509,6 +509,25 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
     ? Math.max(0, Math.ceil((new Date(rateLock.lock_expires_at).getTime() - Date.now()) / 86400000))
     : null;
 
+  // Manual rate lock creation
+  const [addLockModal, setAddLockModal] = useState(false);
+  const [addLockForm, setAddLockForm] = useState({ locked_rate: "", cadence: "biweekly", start_date: new Date().toISOString().split("T")[0], duration_months: "24", notes: "" });
+  const [addingLock, setAddingLock] = useState(false);
+  const handleAddLock = async () => {
+    if (!addLockForm.locked_rate) return;
+    setAddingLock(true);
+    try {
+      await apiFetch(`/api/clients/${client.id}/rate-lock`, {
+        method: "POST",
+        body: JSON.stringify(addLockForm),
+      });
+      qc.invalidateQueries({ queryKey: ["rate-lock", client.id] });
+      setAddLockModal(false);
+      setAddLockForm({ locked_rate: "", cadence: "biweekly", start_date: new Date().toISOString().split("T")[0], duration_months: "24", notes: "" });
+    } catch { /* silent */ }
+    finally { setAddingLock(false); }
+  };
+
   const save = async () => {
     await onUpdate(form);
     setEditing(false);
@@ -627,6 +646,15 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
         </div>
       )}
 
+      {/* ── No lock: Add Rate Lock button ── */}
+      {!rateLock && (
+        <div>
+          <button onClick={() => setAddLockModal(true)} style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "1px solid var(--brand)", borderRadius: 7, padding: "6px 14px", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            + Add Rate Lock
+          </button>
+        </div>
+      )}
+
       {/* ── Void Lock Modal ── */}
       {voidModal && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
@@ -652,6 +680,49 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={() => { setVoidModal(false); setVoidReason("manual"); setVoidNotes(""); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Cancel</button>
               <button onClick={handleVoidLock} disabled={voiding} style={{ padding: "8px 16px", background: "#DC2626", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", opacity: voiding ? 0.6 : 1 }}>{voiding ? "Voiding..." : "Void Rate Lock"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Rate Lock Modal ── */}
+      {addLockModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 28, width: 440, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>Add Rate Lock</div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 20 }}>Manually add a rate lock for {client.first_name} {client.last_name}.</div>
+            <div style={{ display: "flex", flexDirection: "column" as const, gap: 14, marginBottom: 20 }}>
+              {[
+                { label: "Locked Rate ($/visit)", field: "locked_rate", type: "number" },
+                { label: "Start Date", field: "start_date", type: "date" },
+                { label: "Duration (months)", field: "duration_months", type: "number" },
+              ].map(({ label, field, type }) => (
+                <div key={field}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>{label}</label>
+                  <input type={type} value={(addLockForm as any)[field]} onChange={e => setAddLockForm(f => ({ ...f, [field]: e.target.value }))}
+                    style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box" as const, fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
+                </div>
+              ))}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Cadence</label>
+                <select value={addLockForm.cadence} onChange={e => setAddLockForm(f => ({ ...f, cadence: e.target.value }))}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", outline: "none", background: "#FFFFFF", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 Weeks</option>
+                  <option value="monthly">Every 4 Weeks</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
+                <textarea value={addLockForm.notes} onChange={e => setAddLockForm(f => ({ ...f, notes: e.target.value }))} rows={2}
+                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", resize: "none" as const, outline: "none", fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box" as const }} />
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setAddLockModal(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Cancel</button>
+              <button onClick={handleAddLock} disabled={addingLock || !addLockForm.locked_rate} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", opacity: (addingLock || !addLockForm.locked_rate) ? 0.6 : 1 }}>
+                {addingLock ? "Saving..." : "Add Rate Lock"}
+              </button>
             </div>
           </div>
         </div>

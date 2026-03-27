@@ -218,6 +218,17 @@ export default function BookPage() {
   const [moveInAck2, setMoveInAck2] = useState(false);
   const [moveInAck3, setMoveInAck3] = useState(false);
 
+  // Offer settings (loaded from API, never hardcoded)
+  const [offerSettings, setOfferSettings] = useState<{
+    upsell_enabled: boolean;
+    upsell_discount_percent: number;
+    rate_lock_enabled: boolean;
+    rate_lock_duration_months: number;
+    overrun_threshold_percent: number;
+    overrun_jobs_trigger: number;
+    service_gap_days: number;
+  } | null>(null);
+
   // Upsell state (Deep Clean recurring upsell)
   const [upsellCadence, setUpsellCadence] = useState("");
   const [upsellAccepted, setUpsellAccepted] = useState(false);
@@ -282,6 +293,7 @@ export default function BookPage() {
         setCompany(d);
         setLoading(false);
         pubFetch(`/api/public/bundles/${d.id}`).then(bs => setBundles(bs)).catch(() => {});
+        pubFetch(`/api/public/offer-settings/${slug}`).then(os => setOfferSettings(os)).catch(() => {});
       })
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
@@ -1186,14 +1198,14 @@ export default function BookPage() {
                   )}
 
                   {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
-                  {isDeepClean && showCleanlinessQ && cleanliness > 0 && sqft > 0 && (
+                  {isDeepClean && showCleanlinessQ && cleanliness > 0 && sqft > 0 && offerSettings?.upsell_enabled !== false && (
                     <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
                       {!upsellAccepted && !upsellDeclined && (
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: brand, textTransform: "uppercase", letterSpacing: "0.08em" }}>Limited Offer</p>
                           <p style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600, color: "#1A1917", lineHeight: 1.3 }}>Turn today's Deep Clean into a fresh start</p>
                           <p style={{ margin: "0 0 16px", fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
-                            Start recurring service today and get 15% off your first recurring cleaning — plus your recurring rate is locked for 24 months. Your rate will never increase as long as your home stays consistent and your service continues.
+                            Start recurring service today and get {offerSettings?.upsell_discount_percent ?? 15}% off your first recurring cleaning{offerSettings?.rate_lock_enabled !== false ? ` — plus your recurring rate is locked for ${offerSettings?.rate_lock_duration_months ?? 24} months. Your rate will never increase as long as your home stays consistent and your service continues.` : "."}
                           </p>
 
                           <div style={{ marginBottom: 14 }}>
@@ -1227,27 +1239,29 @@ export default function BookPage() {
                               <p style={{ margin: "0 0 3px", fontSize: 15, fontWeight: 600, color: "#1A1917" }}>
                                 Your first recurring cleaning:{" "}
                                 <span style={{ textDecoration: "line-through", color: "#9E9B94", fontWeight: 400 }}>${upsellCalcResult.final_total.toFixed(2)}</span>
-                                {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * 0.85).toFixed(2)}</strong>
+                                {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * (1 - (offerSettings?.upsell_discount_percent ?? 15) / 100)).toFixed(2)}</strong>
                               </p>
                               <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
-                                Then ${upsellCalcResult.final_total.toFixed(2)} per visit — locked for 24 months.
+                                Then ${upsellCalcResult.final_total.toFixed(2)} per visit{offerSettings?.rate_lock_enabled !== false ? ` — locked for ${offerSettings?.rate_lock_duration_months ?? 24} months.` : "."}
                               </p>
                             </div>
                           )}
 
-                          <div style={{ marginBottom: 16 }}>
-                            <button
-                              onClick={() => setUpsellTermsOpen(o => !o)}
-                              style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: brand, textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-                            >
-                              Rate lock terms
-                            </button>
-                            {upsellTermsOpen && (
-                              <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.6, fontStyle: "italic" }}>
-                                Your recurring rate is locked for 24 months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after 60 consecutive days without service, or if actual cleaning time exceeds the estimated time by more than 20% on 2 of your first 3 cleans.
-                              </p>
-                            )}
-                          </div>
+                          {offerSettings?.rate_lock_enabled !== false && (
+                            <div style={{ marginBottom: 16 }}>
+                              <button
+                                onClick={() => setUpsellTermsOpen(o => !o)}
+                                style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: brand, textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                              >
+                                Rate lock terms
+                              </button>
+                              {upsellTermsOpen && (
+                                <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.6, fontStyle: "italic" }}>
+                                  Your recurring rate is locked for {offerSettings?.rate_lock_duration_months ?? 24} months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after {offerSettings?.service_gap_days ?? 60} consecutive days without service, or if actual cleaning time exceeds the estimated time by more than {offerSettings?.overrun_threshold_percent ?? 20}% on {offerSettings?.overrun_jobs_trigger ?? 2} of your first 3 cleans.
+                                </p>
+                              )}
+                            </div>
+                          )}
 
                           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                             <button
@@ -1273,8 +1287,8 @@ export default function BookPage() {
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Rate lock confirmed</p>
                           <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.5 }}>
-                            Your recurring rate will be locked for 24 months at ${upsellCalcResult?.final_total?.toFixed(2) ?? "--"}/visit.
-                            First visit: <strong style={{ color: brand }}>${((upsellCalcResult?.final_total ?? 0) * 0.85).toFixed(2)}</strong> (15% off applied).
+                            {offerSettings?.rate_lock_enabled !== false && <>Your recurring rate will be locked for {offerSettings?.rate_lock_duration_months ?? 24} months at ${upsellCalcResult?.final_total?.toFixed(2) ?? "--"}/visit. </>}
+                            First visit: <strong style={{ color: brand }}>${((upsellCalcResult?.final_total ?? 0) * (1 - (offerSettings?.upsell_discount_percent ?? 15) / 100)).toFixed(2)}</strong> ({offerSettings?.upsell_discount_percent ?? 15}% off applied).
                           </p>
                           <button
                             onClick={() => { setUpsellAccepted(false); setUpsellDeclined(false); setUpsellCadence(""); setUpsellCalcResult(null); }}

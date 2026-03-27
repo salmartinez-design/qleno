@@ -69,6 +69,7 @@ import RatesPage from "@/pages/company/rates";
 import ReferralReportPage from "@/pages/reports/referrals";
 import IncentivesPage from "@/pages/reports/incentives";
 import RevenueGoalPage from "@/pages/reports/revenue-goal";
+import UpsellConversionPage from "@/pages/reports/upsell-conversion";
 import AccountsPage from "@/pages/accounts";
 import AccountDetailPage from "@/pages/account-detail";
 import OnboardPage from "@/pages/onboard";
@@ -141,6 +142,7 @@ function Router() {
       <Route path="/reports/referrals" component={ReferralReportPage} />
       <Route path="/reports/incentives" component={IncentivesPage} />
       <Route path="/reports/revenue-goal" component={RevenueGoalPage} />
+      <Route path="/reports/upsell-conversion" component={UpsellConversionPage} />
       <Route path="/accounts/:id" component={AccountDetailPage} />
       <Route path="/accounts" component={AccountsPage} />
       <Route path="/quotes/new" component={QuoteBuilderPage} />

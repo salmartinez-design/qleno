@@ -129,6 +129,25 @@ router.get("/addons/:scopeId", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/offer-settings/:slug ────────────────────────────────────
+router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  try {
+    const slug = req.params.slug;
+    const companyRow = await db.execute(drSql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    if (!companyRow.rows.length) return res.status(404).json({ error: "Company not found" });
+    const companyId = (companyRow.rows[0] as any).id;
+    const result = await db.execute(drSql`SELECT * FROM offer_settings WHERE company_id = ${companyId} LIMIT 1`);
+    if (!result.rows.length) {
+      return res.json({ upsell_enabled: true, upsell_discount_percent: 15, rate_lock_enabled: true, rate_lock_duration_months: 24, overrun_threshold_percent: 20, overrun_jobs_trigger: 2, service_gap_days: 60 });
+    }
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET offer-settings:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/public/bundles/:companyId ──────────────────────────────────────
 router.get("/bundles/:companyId", rateLimit, async (req, res) => {
   try {
