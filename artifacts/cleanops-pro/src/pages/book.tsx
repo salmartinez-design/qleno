@@ -660,7 +660,11 @@ export default function BookPage() {
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
                   <input type="checkbox" checked={termsConsent} onChange={e => setTermsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16 }} />
                   <span style={{ fontSize: 13, color: "#6B6860" }}>
-                    I have read and agree to the terms and conditions.
+                    I have read and agree to the{" "}
+                    <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer"
+                      style={{ color: brand, textDecoration: "underline", fontWeight: 600 }}>
+                      terms and conditions
+                    </a>.
                   </span>
                 </label>
                 {errors.terms && <div style={s.err}><AlertCircle size={12} />{errors.terms}</div>}

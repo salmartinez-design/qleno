@@ -61,7 +61,15 @@ router.get("/company/:slug", rateLimit, async (req, res) => {
       .where(and(eq(pricingScopesTable.company_id, company.id), eq(pricingScopesTable.is_active, true)))
       .orderBy(pricingScopesTable.sort_order, pricingScopesTable.id);
 
-    return res.json({ ...company, active_scopes: scopes });
+    // Resolve relative logo URLs to absolute so embedded booking widgets can load them
+    let logoUrl = company.logo_url;
+    if (logoUrl && !logoUrl.startsWith("http://") && !logoUrl.startsWith("https://")) {
+      const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+      const host = req.headers["x-forwarded-host"] || req.headers.host || "";
+      logoUrl = `${proto}://${host}${logoUrl.startsWith("/") ? logoUrl : `/${logoUrl}`}`;
+    }
+
+    return res.json({ ...company, logo_url: logoUrl, active_scopes: scopes });
   } catch (err) {
     console.error("GET /public/company/:slug:", err);
     return res.status(500).json({ error: "Internal Server Error" });
