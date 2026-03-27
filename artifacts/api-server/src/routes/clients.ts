@@ -5,7 +5,7 @@ import {
   scorecardsTable, clientHomesTable, technicianPreferencesTable,
   clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
-  recurringSchedulesTable,
+  recurringSchedulesTable, jobPhotosTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -922,6 +922,59 @@ router.get("/:id/attachments", requireAuth, async (req, res) => {
 });
 
 // ─── GET CLIENT RECURRING SCHEDULE ───────────────────────────────────────────
+// ─── PATCH RECURRING SCHEDULE ─────────────────────────────────────────────────
+router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const { frequency, day_of_week, duration_minutes, base_fee, service_type, notes } = req.body;
+    const updated = await db.update(recurringSchedulesTable).set({
+      ...(frequency && { frequency }),
+      ...(day_of_week !== undefined && { day_of_week }),
+      ...(duration_minutes !== undefined && { duration_minutes: duration_minutes === "" ? null : parseInt(String(duration_minutes)) || null }),
+      ...(base_fee !== undefined && { base_fee: base_fee === "" ? null : String(base_fee) }),
+      ...(service_type !== undefined && { service_type }),
+      ...(notes !== undefined && { notes }),
+    }).where(and(
+      eq(recurringSchedulesTable.customer_id, clientId),
+      eq(recurringSchedulesTable.company_id, companyId),
+      eq(recurringSchedulesTable.is_active, true),
+    )).returning();
+    return res.json(updated[0] || null);
+  } catch (err) {
+    console.error("Patch recurring schedule error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── JOB PHOTOS FOR CLIENT ────────────────────────────────────────────────────
+router.get("/:id/job-photos", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const rows = await db.select({
+      photo_id: jobPhotosTable.id,
+      job_id: jobPhotosTable.job_id,
+      photo_type: jobPhotosTable.photo_type,
+      url: jobPhotosTable.url,
+      photo_timestamp: jobPhotosTable.timestamp,
+      job_date: jobsTable.scheduled_date,
+      service_type: jobsTable.service_type,
+      status: jobsTable.status,
+      tech_first: usersTable.first_name,
+      tech_last: usersTable.last_name,
+    })
+      .from(jobPhotosTable)
+      .innerJoin(jobsTable, and(eq(jobPhotosTable.job_id, jobsTable.id), eq(jobsTable.client_id, clientId), eq(jobsTable.company_id, companyId)))
+      .leftJoin(usersTable, eq(jobPhotosTable.uploaded_by, usersTable.id))
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobPhotosTable.timestamp));
+    return res.json(rows);
+  } catch (err) {
+    console.error("Job photos error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);

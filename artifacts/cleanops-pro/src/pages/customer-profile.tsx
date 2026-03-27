@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -267,6 +268,206 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+function Toast({ message, type = "success", onDone }: { message: string; type?: "success" | "error"; onDone: () => void }) {
+  useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
+  return (
+    <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, background: type === "error" ? "#1A1917" : "#0A0E1A", color: "#fff", padding: "13px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: FF, boxShadow: "0 8px 30px rgba(0,0,0,0.35)", display: "flex", alignItems: "center", gap: 10, minWidth: 240 }}>
+      {type === "success" ? <Check size={14} style={{ color: "#00C9A0", flexShrink: 0 }} /> : <X size={14} style={{ color: "#EF4444", flexShrink: 0 }} />}
+      {message}
+    </div>
+  );
+}
+
+// ─── Send Message Drawer ──────────────────────────────────────────────────────
+function SendMessageDrawer({ client, onClose, onToast }: { client: any; onClose: () => void; onToast: (m: string, t?: "success" | "error") => void }) {
+  const [tab, setTab] = useState<"sms" | "email">("sms");
+  const [smsMsg, setSmsMsg] = useState("");
+  const [emailSubj, setEmailSubj] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const sendSms = async () => {
+    if (!smsMsg.trim() || !client.phone) return;
+    setSending(true);
+    try {
+      await apiFetch(`/api/clients/${client.id}/communications/sms`, { method: "POST", body: JSON.stringify({ to: client.phone, message: smsMsg }) });
+      onToast("SMS sent successfully");
+      onClose();
+    } catch { onToast("Failed to send SMS", "error"); }
+    finally { setSending(false); }
+  };
+
+  const sendEmail = async () => {
+    if (!emailBody.trim() || !client.email) return;
+    setSending(true);
+    try {
+      await apiFetch(`/api/clients/${client.id}/communications/email`, { method: "POST", body: JSON.stringify({ to: client.email, subject: emailSubj || "(no subject)", body: emailBody }) });
+      onToast("Email sent successfully");
+      onClose();
+    } catch { onToast("Failed to send email", "error"); }
+    finally { setSending(false); }
+  };
+
+  const inp: React.CSSProperties = { width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", fontFamily: FF, outline: "none", boxSizing: "border-box" };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(10,14,26,0.45)" }} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 420, zIndex: 1001, background: "#FFFFFF", boxShadow: "-8px 0 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", fontFamily: FF }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#0A0E1A" }}>Send Message</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}><X size={18} /></button>
+        </div>
+        {/* Tab bar */}
+        <div style={{ display: "flex", borderBottom: "1px solid #E5E2DC", padding: "0 24px" }}>
+          {(["sms", "email"] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{ padding: "10px 16px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: tab === t ? 700 : 500, color: tab === t ? "var(--brand)" : "#6B6860", background: "transparent", borderBottom: tab === t ? "2px solid var(--brand)" : "2px solid transparent" }}>
+              {t === "sms" ? "SMS" : "Email"}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: 1, padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+          {tab === "sms" ? (
+            <>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>To</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{client.first_name} {client.last_name} {client.phone ? `· ${client.phone}` : "· No phone on file"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Message</div>
+                <textarea value={smsMsg} onChange={e => setSmsMsg(e.target.value)} rows={6} placeholder="Type your message..." style={{ ...inp, resize: "vertical" as const }} />
+                <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, textAlign: "right" }}>{smsMsg.length} / 160</div>
+              </div>
+              {!client.phone && <div style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 7, padding: "8px 12px" }}>No phone number on file for this client.</div>}
+              <button onClick={sendSms} disabled={!smsMsg.trim() || !client.phone || sending} style={{ padding: "10px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!smsMsg.trim() || !client.phone || sending) ? 0.5 : 1, fontFamily: FF }}>
+                {sending ? "Sending..." : "Send SMS"}
+              </button>
+            </>
+          ) : (
+            <>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>To</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{client.first_name} {client.last_name} {client.email ? `· ${client.email}` : "· No email on file"}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Subject</div>
+                <input value={emailSubj} onChange={e => setEmailSubj(e.target.value)} placeholder="(optional)" style={inp} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Message</div>
+                <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)} rows={8} placeholder="Type your message..." style={{ ...inp, resize: "vertical" as const }} />
+              </div>
+              {!client.email && <div style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 7, padding: "8px 12px" }}>No email address on file for this client.</div>}
+              <button onClick={sendEmail} disabled={!emailBody.trim() || !client.email || sending} style={{ padding: "10px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!emailBody.trim() || !client.email || sending) ? 0.5 : 1, fontFamily: FF }}>
+                {sending ? "Sending..." : "Send Email"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Edit Profile Drawer ──────────────────────────────────────────────────────
+function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; onClose: () => void; onSave: (data: any) => Promise<void>; onToast: (m: string, t?: "success" | "error") => void }) {
+  const [form, setForm] = useState({
+    first_name: client.first_name || "", last_name: client.last_name || "",
+    phone: client.phone || "", email: client.email || "",
+    address: client.address || "", city: client.city || "", state: client.state || "", zip: client.zip || "",
+    home_access_notes: client.home_access_notes || "", alarm_code: client.alarm_code || "",
+    pets: client.pets || "", referral_source: client.referral_source || "", notes: client.notes || "",
+    client_since: client.client_since ? String(client.client_since).slice(0, 10) : "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const upd = (field: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setForm(f => ({ ...f, [field]: e.target.value }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onSave(form);
+      onToast("Profile updated");
+      onClose();
+    } catch { onToast("Failed to save profile", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const inp: React.CSSProperties = { width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", fontFamily: FF, outline: "none", boxSizing: "border-box" };
+  const lbl = (t: string) => <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4 }}>{t}</div>;
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(10,14,26,0.45)" }} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: 480, zIndex: 1001, background: "#FFFFFF", boxShadow: "-8px 0 40px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", fontFamily: FF }}>
+        <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#0A0E1A" }}>Edit Client Profile</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}><X size={18} /></button>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>{lbl("First Name")}<input value={form.first_name} onChange={upd("first_name")} style={inp} /></div>
+            <div>{lbl("Last Name")}<input value={form.last_name} onChange={upd("last_name")} style={inp} /></div>
+          </div>
+          <div>{lbl("Phone")}<input value={form.phone} onChange={upd("phone")} type="tel" style={inp} /></div>
+          <div>{lbl("Email")}<input value={form.email} onChange={upd("email")} type="email" style={inp} /></div>
+          <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 12 }}>Service Address</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>{lbl("Street Address")}<input value={form.address} onChange={upd("address")} style={inp} /></div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px", gap: 10 }}>
+                <div>{lbl("City")}<input value={form.city} onChange={upd("city")} style={inp} /></div>
+                <div>{lbl("State")}<input value={form.state} onChange={upd("state")} style={inp} /></div>
+                <div>{lbl("Zip")}<input value={form.zip} onChange={upd("zip")} style={inp} /></div>
+              </div>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 12 }}>Access & Security</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>{lbl("Entry Instructions")}<textarea value={form.home_access_notes} onChange={upd("home_access_notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
+              <div>{lbl("Alarm / Lockbox Code")}<input value={form.alarm_code} onChange={upd("alarm_code")} style={inp} /></div>
+              <div>{lbl("Pets / Equipment Notes")}<input value={form.pets} onChange={upd("pets")} style={inp} /></div>
+            </div>
+          </div>
+          <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 12 }}>Account</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div>
+                {lbl("Acquisition Source")}
+                <select value={form.referral_source} onChange={upd("referral_source")} style={{ ...inp, background: "#FFFFFF" }}>
+                  <option value="">Not set</option>
+                  {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div>{lbl("Client Since")}<input value={form.client_since} onChange={upd("client_since")} type="date" style={inp} /></div>
+              <div>{lbl("Internal Notes")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
+            </div>
+          </div>
+        </div>
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #E5E2DC", display: "flex", gap: 10, flexShrink: 0 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ flex: 2, padding: "10px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: saving ? 0.6 : 1, fontFamily: FF }}>{saving ? "Saving..." : "Save Changes"}</button>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -2211,33 +2412,179 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
 }
 
 // ─── Service Details Section ───────────────────────────────────────────────────
-function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule }: {
-  client: any; onUpdate: (d: any) => Promise<void>; refetch: () => void; recurringSchedule: any;
+function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, onToast }: {
+  client: any; onUpdate: (d: any) => Promise<void>; refetch: () => void; recurringSchedule: any; onToast: (m: string, t?: "success" | "error") => void;
 }) {
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    base_fee: client.base_fee || "",
+    frequency: client.frequency || "",
+    service_type: client.service_type || "",
+    allowed_hours: client.allowed_hours || "",
+    home_access_notes: client.home_access_notes || "",
+    alarm_code: client.alarm_code || "",
+    pets: client.pets || "",
+    notes: client.notes || "",
+    rec_frequency: recurringSchedule?.frequency || "",
+    rec_day: recurringSchedule?.day_of_week || "",
+    rec_duration: recurringSchedule?.duration_minutes || "",
+    rec_base_fee: recurringSchedule?.base_fee || "",
+    rec_service_type: recurringSchedule?.service_type || "",
+    rec_notes: recurringSchedule?.notes || "",
+  });
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await onUpdate({
+        base_fee: form.base_fee, frequency: form.frequency, service_type: form.service_type,
+        allowed_hours: form.allowed_hours, home_access_notes: form.home_access_notes,
+        alarm_code: form.alarm_code, pets: form.pets, notes: form.notes,
+      });
+      if (recurringSchedule) {
+        await apiFetch(`/api/clients/${client.id}/recurring-schedule`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            frequency: form.rec_frequency || undefined, day_of_week: form.rec_day || undefined,
+            duration_minutes: form.rec_duration, base_fee: form.rec_base_fee,
+            service_type: form.rec_service_type, notes: form.rec_notes,
+          }),
+        });
+        qc.invalidateQueries({ queryKey: ["client-recurring", client.id] });
+      }
+      refetch();
+      setEditing(false);
+      onToast("Service details saved");
+    } catch { onToast("Failed to save changes", "error"); }
+    finally { setSaving(false); }
+  };
+
+  const upd = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+    setForm(v => ({ ...v, [f]: e.target.value }));
+
+  const inp: React.CSSProperties = { width: "100%", padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", fontFamily: FF, outline: "none", boxSizing: "border-box", background: "#FFFFFF" };
+  const lbl = (t: string) => <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 4 }}>{t}</div>;
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <OverviewTab client={client} onUpdate={onUpdate} refetch={refetch} />
-      {recurringSchedule && (
-        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>Recurring Schedule</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-            <DL label="Frequency" value={FREQ_LABELS[recurringSchedule.frequency] || recurringSchedule.frequency} />
-            <DL label="Day of Week" value={DAY_LABELS[recurringSchedule.day_of_week] || recurringSchedule.day_of_week} />
-            <DL label="Start Date" value={fmtDate(recurringSchedule.start_date)} />
-            {recurringSchedule.base_fee && <DL label="Base Fee" value={`$${recurringSchedule.base_fee}`} />}
-            {recurringSchedule.duration_minutes && <DL label="Duration" value={`${recurringSchedule.duration_minutes} min`} />}
-            {recurringSchedule.service_type && <DL label="Scope" value={recurringSchedule.service_type} />}
-          </div>
-          {recurringSchedule.notes && (
-            <div style={{ marginTop: 14 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Schedule Notes</div>
-              <div style={{ fontSize: 13, color: "#374151" }}>{recurringSchedule.notes}</div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* NPS / Churn badges from OverviewTab */}
+      {((client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined)) && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" as const }}>
+          {client.latest_nps_score !== null && client.latest_nps_score !== undefined && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const }}>NPS</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#16A34A" : client.latest_nps_score >= 7 ? "#D97706" : "#DC2626" }}>{client.latest_nps_score}</span>
+            </div>
+          )}
+          {client.churn_risk_score !== null && client.churn_risk_score !== undefined && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const }}>Churn Risk</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#DC2626" : client.churn_risk_score >= 40 ? "#D97706" : "#16A34A" }}>{client.churn_risk_score}%</span>
             </div>
           )}
         </div>
       )}
-      <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 8 }}>Rate History</div>
+
+      {/* Header row with edit toggle */}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        {editing ? (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setEditing(false)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+            <button onClick={save} disabled={saving} style={{ padding: "7px 14px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, opacity: saving ? 0.6 : 1 }}>{saving ? "Saving..." : "Save"}</button>
+          </div>
+        ) : (
+          <button onClick={() => setEditing(true)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#1A1917", fontSize: 13, cursor: "pointer", fontFamily: FF }}>
+            <Edit2 size={13} /> Edit Service Details
+          </button>
+        )}
+      </div>
+
+      {/* Client-level service fields */}
+      {editing ? (
+        <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Client Service Settings</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>{lbl("Base Rate ($)")}<input value={form.base_fee} onChange={upd("base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
+            <div>{lbl("Allowed Hours")}<input value={form.allowed_hours} onChange={upd("allowed_hours")} type="number" min="0" step="0.5" style={inp} /></div>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              {lbl("Frequency")}
+              <select value={form.frequency} onChange={upd("frequency")} style={{ ...inp }}>
+                <option value="">Not set</option>
+                {Object.entries(FREQ_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div>{lbl("Scope / Service Type")}<input value={form.service_type} onChange={upd("service_type")} style={inp} /></div>
+          </div>
+          <div>{lbl("Entry Instructions")}<textarea value={form.home_access_notes} onChange={upd("home_access_notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>{lbl("Alarm / Lockbox Code")}<input value={form.alarm_code} onChange={upd("alarm_code")} style={inp} /></div>
+            <div>{lbl("Pets / Equipment Notes")}<input value={form.pets} onChange={upd("pets")} style={inp} /></div>
+          </div>
+          <div>{lbl("Internal Notes")}<textarea value={form.notes} onChange={upd("notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+          {client.base_fee && <DL label="Base Rate" value={fmtCurrency(client.base_fee)} />}
+          {client.frequency && <DL label="Frequency" value={FREQ_LABELS[client.frequency] || client.frequency} />}
+          {client.service_type && <DL label="Scope" value={client.service_type} />}
+          {client.allowed_hours && <DL label="Allowed Hours" value={`${client.allowed_hours} hrs`} />}
+          {client.home_access_notes && <DL label="Entry Instructions" value={client.home_access_notes} />}
+          {client.alarm_code && <DL label="Alarm Code" value="••••••" />}
+          {client.pets && <DL label="Pets / Equipment" value={client.pets} />}
+          {client.notes && <DL label="Notes" value={client.notes} />}
+        </div>
+      )}
+
+      {/* Recurring Schedule */}
+      {recurringSchedule && (
+        <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 12 }}>Recurring Schedule</div>
+          {editing ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  {lbl("Frequency")}
+                  <select value={form.rec_frequency} onChange={upd("rec_frequency")} style={{ ...inp }}>
+                    <option value="">Not set</option>
+                    {Object.entries(FREQ_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+                <div>
+                  {lbl("Day of Week")}
+                  <select value={form.rec_day} onChange={upd("rec_day")} style={{ ...inp }}>
+                    <option value="">Not set</option>
+                    {Object.entries(DAY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>{lbl("Duration (min)")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" style={inp} /></div>
+                <div>{lbl("Schedule Rate ($)")}<input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
+              </div>
+              <div>{lbl("Scope")}<input value={form.rec_service_type} onChange={upd("rec_service_type")} style={inp} /></div>
+              <div>{lbl("Schedule Notes")}<textarea value={form.rec_notes} onChange={upd("rec_notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
+              <DL label="Frequency" value={FREQ_LABELS[recurringSchedule.frequency] || recurringSchedule.frequency} />
+              <DL label="Day of Week" value={DAY_LABELS[recurringSchedule.day_of_week] || recurringSchedule.day_of_week} />
+              <DL label="Start Date" value={fmtDate(recurringSchedule.start_date)} />
+              {recurringSchedule.base_fee && <DL label="Schedule Rate" value={fmtCurrency(recurringSchedule.base_fee)} />}
+              {recurringSchedule.duration_minutes && <DL label="Duration" value={`${recurringSchedule.duration_minutes} min`} />}
+              {recurringSchedule.service_type && <DL label="Scope" value={recurringSchedule.service_type} />}
+              {recurringSchedule.notes && <DL label="Notes" value={recurringSchedule.notes} />}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Rate History */}
+      <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>Rate History</div>
         <div style={{ fontSize: 13, color: "#9E9B94" }}>
           {client.rate_increase_last_date
             ? `Last increase: ${fmtDate(client.rate_increase_last_date)}${client.rate_increase_last_pct ? ` · ${client.rate_increase_last_pct}%` : ""}`
@@ -2411,37 +2758,59 @@ function AttachmentsSection({ clientId }: { clientId: number }) {
 
 // ─── Home Images Section ──────────────────────────────────────────────────────
 function HomeImagesSection({ clientId }: { clientId: number }) {
-  const { data: items = [], isLoading } = useQuery<any[]>({
-    queryKey: ["client-attachments-images", clientId],
-    queryFn: () => apiFetch(`/api/clients/${clientId}/attachments`),
+  const { data: photos = [], isLoading } = useQuery<any[]>({
+    queryKey: ["client-job-photos", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/job-photos`),
     staleTime: 60000,
   });
 
-  const photos = items.filter((a: any) => ["image/jpeg", "image/jpg", "image/png", "image/webp"].includes((a.file_type || "").toLowerCase()));
+  const byJob = photos.reduce((acc: Record<number, any[]>, p: any) => {
+    if (!acc[p.job_id]) acc[p.job_id] = [];
+    acc[p.job_id].push(p);
+    return acc;
+  }, {});
+
+  const jobGroups = Object.entries(byJob).map(([jobId, rows]: [string, any[]]) => ({
+    jobId: parseInt(jobId),
+    jobDate: rows[0]?.job_date,
+    serviceType: rows[0]?.service_type,
+    techName: rows[0]?.tech_first ? `${rows[0].tech_first} ${rows[0].tech_last || ""}`.trim() : null,
+    photos: rows,
+  })).sort((a, b) => (b.jobDate || "").localeCompare(a.jobDate || ""));
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, opacity: 0.6 }} title="File uploads require storage configuration">
+        <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, opacity: 0.5 }} title="Photo uploads are taken by technicians during jobs">
           <Upload size={13} /> Upload Photo
         </button>
       </div>
       {isLoading ? (
         <div style={{ textAlign: "center" as const, color: "#9E9B94", fontSize: 13, padding: 24 }}>Loading...</div>
-      ) : photos.length === 0 ? (
-        <div style={{ fontSize: 13, color: "#9E9B94", padding: "6px 0" }}>No home images uploaded yet</div>
+      ) : jobGroups.length === 0 ? (
+        <div style={{ fontSize: 13, color: "#9E9B94", padding: "6px 0" }}>No job photos on record. Photos are added by technicians from the mobile app during service visits.</div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
-          {photos.map((p: any) => (
-            <div key={p.id} style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-              <img src={p.file_url} alt={p.name} style={{ width: "100%", height: 120, objectFit: "cover" as const }} />
-              <div style={{ padding: "6px 8px" }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{p.name}</div>
-                <div style={{ fontSize: 10, color: "#9E9B94" }}>{fmtDate(p.created_at)}</div>
+        jobGroups.map(group => (
+          <div key={group.jobId} style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ background: "#F7F6F3", padding: "10px 16px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid #E5E2DC" }}>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.jobDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}</div>
+                {group.techName && <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{group.techName}</div>}
               </div>
+              <a href={`/jobs/${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
             </div>
-          ))}
-        </div>
+            <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
+              {group.photos.map((p: any) => (
+                <div key={p.photo_id} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden", position: "relative" }}>
+                  <img src={p.url} alt={`Job ${group.jobId} photo`} style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block" }} />
+                  {p.photo_type && (
+                    <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FEF3C7" : "#DCFCE7", color: p.photo_type === "before" ? "#92400E" : "#166534", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
       )}
     </div>
   );
@@ -2480,9 +2849,14 @@ export default function CustomerProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["client-profile", clientId] }); refetchProfile(); },
   });
 
+  const isMobile = useIsMobile();
   const [rightTab, setRightTab] = useState<"details" | "history">("details");
   const [activeSection, setActiveSection] = useState("sec-service");
   const rightScrollRef = useRef<HTMLDivElement>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [showMessageDrawer, setShowMessageDrawer] = useState(false);
+  const [showEditProfileDrawer, setShowEditProfileDrawer] = useState(false);
+  const showToast = useCallback((message: string, type: "success" | "error" = "success") => setToast({ message, type }), []);
 
   useEffect(() => {
     if (rightTab !== "details") return;
@@ -2503,17 +2877,32 @@ export default function CustomerProfilePage() {
     return () => observer.disconnect();
   }, [rightTab, profile]);
 
-  const scrollToSection = (id: string) => {
-    if (rightTab !== "details") setRightTab("details");
-    setActiveSection(id);
-    setTimeout(() => {
-      const container = rightScrollRef.current;
-      const el = container?.querySelector<HTMLElement>(`#${id}`);
-      if (el && container) {
-        container.scrollTo({ top: el.offsetTop - 8, behavior: "smooth" });
-      }
-    }, 50);
-  };
+  const scrollToSection = useCallback((id: string) => {
+    if (rightTab !== "details") {
+      setRightTab("details");
+      setActiveSection(id);
+      setTimeout(() => {
+        const container = rightScrollRef.current;
+        const el = container?.querySelector<HTMLElement>(`#${id}`);
+        if (el && container) {
+          const containerTop = container.getBoundingClientRect().top;
+          const elTop = el.getBoundingClientRect().top;
+          container.scrollTo({ top: container.scrollTop + (elTop - containerTop) - 8, behavior: "smooth" });
+        }
+      }, 120);
+    } else {
+      setActiveSection(id);
+      setTimeout(() => {
+        const container = rightScrollRef.current;
+        const el = container?.querySelector<HTMLElement>(`#${id}`);
+        if (el && container) {
+          const containerTop = container.getBoundingClientRect().top;
+          const elTop = el.getBoundingClientRect().top;
+          container.scrollTo({ top: container.scrollTop + (elTop - containerTop) - 8, behavior: "smooth" });
+        }
+      }, 50);
+    }
+  }, [rightTab]);
 
   if (isLoading || !profile) {
     return (
@@ -2542,137 +2931,181 @@ export default function CustomerProfilePage() {
     "sec-homeimages":  undefined,
   };
 
+  const DetailsSections = (
+    <div ref={rightScrollRef} style={{ flex: 1, overflowY: "auto" as const, padding: "10px 12px 16px" }}>
+      <CollapsibleSection title="Service Details" sectionId="sec-service" defaultOpen>
+        <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} onToast={showToast} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Billing & Payments" sectionId="sec-billing" count={(profile.invoices || []).length}>
+        <BillingSection client={profile} invoices={profile.invoices || []} refetch={refetchProfile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Quotes" sectionId="sec-quotes">
+        <QuotesTab clientId={clientId} client={profile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Agreements" sectionId="sec-agreements" count={(profile.agreements || []).length}>
+        <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Scorecards" sectionId="sec-scorecards" count={(profile.scorecards || []).length}>
+        <ScorecardsTab scorecards={profile.scorecards || []} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Contacts & Notifications" sectionId="sec-contacts" count={(profile.notification_settings || []).length}>
+        <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Client Portal" sectionId="sec-portal">
+        <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Technician Preferences" sectionId="sec-tech" count={(profile.tech_preferences || []).length}>
+        <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Contact Tickets" sectionId="sec-tickets">
+        <ContactTicketsSection clientId={clientId} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Inspections" sectionId="sec-inspections">
+        <InspectionsSection />
+      </CollapsibleSection>
+      <CollapsibleSection title="Attachments" sectionId="sec-attachments">
+        <AttachmentsSection clientId={clientId} />
+      </CollapsibleSection>
+      <CollapsibleSection title="Home Images" sectionId="sec-homeimages">
+        <HomeImagesSection clientId={clientId} />
+      </CollapsibleSection>
+    </div>
+  );
+
+  const TabBar = (
+    <div style={{ display: "flex", flexShrink: 0, background: "#FFFFFF", borderRadius: "10px 10px 0 0", border: "1px solid #E5E2DC", borderBottom: "none", padding: "0 4px" }}>
+      {(["details", "history"] as const).map((tab) => {
+        const label = tab === "details" ? "Details" : "Job History";
+        const isActive = rightTab === tab;
+        return (
+          <button key={tab} onClick={() => setRightTab(tab)} style={{ padding: "11px 18px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: isActive ? 700 : 500, color: isActive ? "var(--brand)" : "#6B6860", background: "transparent", borderBottom: isActive ? "2px solid var(--brand)" : "2px solid transparent", transition: "color 120ms, border-color 120ms", minHeight: 44 }}>
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <DashboardLayout fullBleed>
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF, background: "#F7F6F3" }}>
+      {/* Drawers & Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
+      {showMessageDrawer && <SendMessageDrawer client={profile} onClose={() => setShowMessageDrawer(false)} onToast={showToast} />}
+      {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
 
-        {/* ── Zone 1: Hero (fixed, doesn't scroll) ── */}
-        <div style={{ flexShrink: 0, padding: "16px 24px 0", background: "#F7F6F3" }}>
+      {isMobile ? (
+        /* ═══════════════ MOBILE LAYOUT ═══════════════ */
+        <div style={{ display: "flex", flexDirection: "column", fontFamily: FF, background: "#F7F6F3", minHeight: "100dvh" }}>
           {/* Breadcrumb */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: 14 }}>
-            <button onClick={() => navigate("/customers")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: "13px", padding: 0, fontFamily: FF }}>
+          <div style={{ padding: "12px 16px 0", display: "flex", alignItems: "center", gap: 8 }}>
+            <button onClick={() => navigate("/customers")} style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: 13, padding: 0, fontFamily: FF, minHeight: 44 }}>
               <ArrowLeft size={14} /> Clients
             </button>
-            <span style={{ color: "#C4C0BB", fontSize: "13px" }}>/</span>
-            <span style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{profile.first_name} {profile.last_name}</span>
+            <span style={{ color: "#C4C0BB" }}>/</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{profile.first_name} {profile.last_name}</span>
           </div>
-          {/* Hero card */}
-          <ProfileHero
-            client={profile}
-            stats={profile.stats}
-            jhStats={jhStats}
-            recurringSchedule={recurringSchedule}
-            onSchedule={() => navigate("/dispatch")}
-            onMessage={() => navigate(`/clients/${clientId}/messages`)}
-            onInvoice={() => navigate(`/clients/${clientId}/invoices`)}
-            onEdit={() => navigate(`/customers/${clientId}/edit`)}
-          />
-        </div>
 
-        {/* ── Zone 2: Two-column layout (fills remaining height, no page scroll) ── */}
-        <div style={{ flex: 1, display: "flex", gap: 14, padding: "14px 24px 14px", overflow: "hidden", minHeight: 0 }}>
-
-          {/* Left column: 300px fixed */}
-          <div style={{ width: 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
-
-            {/* Top left card: Client Details + Intelligence — independently scrollable */}
-            <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, display: "flex", flexDirection: "column" }}>
-              <div style={{ flex: 1, overflowY: "auto" as const }}>
-                <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} noCard />
-                <div style={{ borderTop: "1px solid #E5E2DC", margin: "0 12px" }} />
-                <ClientIntelligencePanel jhStats={jhStats} profile={profile} noCard />
+          {/* Mobile Hero */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, margin: "12px 16px 0", padding: "16px", fontFamily: FF }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+              <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--brand-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 18, fontWeight: 800, color: "var(--brand)" }}>{profile.first_name?.[0]}{profile.last_name?.[0]}</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 17, fontWeight: 800, color: "#0A0E1A", whiteSpace: "nowrap" as const, overflow: "hidden", textOverflow: "ellipsis" }}>{profile.first_name} {profile.last_name}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#6B6860", marginTop: 2 }}>CL-{String(profile.id).padStart(4, "0")}</div>
+              </div>
+              <div style={{ background: "#0A0E1A", borderRadius: 8, padding: "8px 12px", textAlign: "center" as const }}>
+                <div style={{ fontSize: 16, fontWeight: 900, color: "#00C9A0" }}>${(jhStats?.total_revenue || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>LTV</div>
               </div>
             </div>
-
-            {/* Bottom left card: Vertical Section Navigator */}
-            <div style={{ flexShrink: 0, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
-              <VerticalSectionNav active={rightTab === "history" ? "" : activeSection} onNavigate={scrollToSection} counts={sectionCounts} />
+            {/* Mobile action buttons 2x2 grid */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 12 }}>
+              <button onClick={() => navigate(`/dispatch?client_id=${clientId}`)} style={{ padding: "10px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, minHeight: 44 }}>Schedule Job</button>
+              <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "10px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 44 }}>Send Message</button>
+              <button onClick={() => navigate(`/clients/${clientId}/invoices`)} style={{ padding: "10px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 44 }}>Create Invoice</button>
+              <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "10px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 44 }}>Edit Profile</button>
             </div>
           </div>
 
-          {/* Right column: fills remaining width, contains tabs + scrollable content */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+          {/* Mobile section chips */}
+          <div style={{ display: "flex", gap: 8, overflowX: "auto" as const, padding: "12px 16px", scrollbarWidth: "none" as any }}>
+            {NAV_PILLS.map(({ id, label }) => (
+              <button key={id} onClick={() => scrollToSection(id)} style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 20, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: activeSection === id ? 700 : 500, background: activeSection === id ? "var(--brand)" : "#EEECE8", color: activeSection === id ? "#fff" : "#6B6860", whiteSpace: "nowrap" as const, minHeight: 44 }}>
+                {label}
+              </button>
+            ))}
+          </div>
 
-            {/* Tab bar */}
-            <div style={{ display: "flex", flexShrink: 0, background: "#FFFFFF", borderRadius: "10px 10px 0 0", border: "1px solid #E5E2DC", borderBottom: "none", padding: "0 4px" }}>
-              {(["details", "history"] as const).map((tab) => {
-                const label = tab === "details" ? "Details" : "Job History";
-                const isActive = rightTab === tab;
-                return (
-                  <button
-                    key={tab}
-                    onClick={() => setRightTab(tab)}
-                    style={{
-                      padding: "11px 18px", border: "none", cursor: "pointer", fontFamily: FF,
-                      fontSize: 13, fontWeight: isActive ? 700 : 500,
-                      color: isActive ? "var(--brand)" : "#6B6860",
-                      background: "transparent",
-                      borderBottom: isActive ? "2px solid var(--brand)" : "2px solid transparent",
-                      transition: "color 120ms, border-color 120ms",
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Tab content area */}
-            <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderTop: "none", borderRadius: "0 0 10px 10px", display: "flex", flexDirection: "column" }}>
-
-              {/* DETAILS TAB */}
-              {rightTab === "details" && (
-                <div ref={rightScrollRef} style={{ flex: 1, overflowY: "auto" as const, padding: "10px 12px 16px" }}>
-                  <CollapsibleSection title="Service Details" sectionId="sec-service" defaultOpen>
-                    <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Billing & Payments" sectionId="sec-billing" count={(profile.invoices || []).length}>
-                    <BillingSection client={profile} invoices={profile.invoices || []} refetch={refetchProfile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Quotes" sectionId="sec-quotes">
-                    <QuotesTab clientId={clientId} client={profile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Agreements" sectionId="sec-agreements" count={(profile.agreements || []).length}>
-                    <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Scorecards" sectionId="sec-scorecards" count={(profile.scorecards || []).length}>
-                    <ScorecardsTab scorecards={profile.scorecards || []} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Contacts & Notifications" sectionId="sec-contacts" count={(profile.notification_settings || []).length}>
-                    <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Client Portal" sectionId="sec-portal">
-                    <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Technician Preferences" sectionId="sec-tech" count={(profile.tech_preferences || []).length}>
-                    <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Contact Tickets" sectionId="sec-tickets">
-                    <ContactTicketsSection clientId={clientId} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Inspections" sectionId="sec-inspections">
-                    <InspectionsSection />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Attachments" sectionId="sec-attachments">
-                    <AttachmentsSection clientId={clientId} />
-                  </CollapsibleSection>
-                  <CollapsibleSection title="Home Images" sectionId="sec-homeimages">
-                    <HomeImagesSection clientId={clientId} />
-                  </CollapsibleSection>
-                </div>
-              )}
-
-              {/* JOB HISTORY TAB */}
+          {/* Mobile tab bar */}
+          <div style={{ margin: "0 16px" }}>
+            {TabBar}
+            <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderTop: "none", borderRadius: "0 0 10px 10px" }}>
+              {rightTab === "details" && DetailsSections}
               {rightTab === "history" && (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                <div style={{ height: 600, display: "flex", flexDirection: "column" }}>
                   <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
                 </div>
               )}
+            </div>
+          </div>
+          <div style={{ height: 24 }} />
+        </div>
+      ) : (
+        /* ═══════════════ DESKTOP LAYOUT ═══════════════ */
+        <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF, background: "#F7F6F3" }}>
 
+          {/* Zone 1: Hero */}
+          <div style={{ flexShrink: 0, padding: "16px 24px 0", background: "#F7F6F3" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: 14 }}>
+              <button onClick={() => navigate("/customers")} style={{ display: "flex", alignItems: "center", gap: "6px", background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: "13px", padding: 0, fontFamily: FF }}>
+                <ArrowLeft size={14} /> Clients
+              </button>
+              <span style={{ color: "#C4C0BB", fontSize: "13px" }}>/</span>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{profile.first_name} {profile.last_name}</span>
+            </div>
+            <ProfileHero
+              client={profile} stats={profile.stats} jhStats={jhStats} recurringSchedule={recurringSchedule}
+              onSchedule={() => navigate(`/dispatch?client_id=${clientId}`)}
+              onMessage={() => setShowMessageDrawer(true)}
+              onInvoice={() => navigate(`/clients/${clientId}/invoices`)}
+              onEdit={() => setShowEditProfileDrawer(true)}
+            />
+          </div>
+
+          {/* Zone 2: Two-column */}
+          <div style={{ flex: 1, display: "flex", gap: 14, padding: "14px 24px 14px", overflow: "hidden", minHeight: 0 }}>
+
+            {/* Left column */}
+            <div style={{ width: 300, flexShrink: 0, display: "flex", flexDirection: "column", gap: 10, overflow: "hidden" }}>
+              <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, display: "flex", flexDirection: "column" }}>
+                <div style={{ flex: 1, overflowY: "auto" as const }}>
+                  <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} noCard />
+                  <div style={{ borderTop: "1px solid #E5E2DC", margin: "0 12px" }} />
+                  <ClientIntelligencePanel jhStats={jhStats} profile={profile} noCard />
+                </div>
+              </div>
+              <div style={{ flexShrink: 0, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+                <VerticalSectionNav active={rightTab === "history" ? "" : activeSection} onNavigate={scrollToSection} counts={sectionCounts} />
+              </div>
+            </div>
+
+            {/* Right column */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+              {TabBar}
+              <div style={{ flex: 1, overflow: "hidden", background: "#FFFFFF", border: "1px solid #E5E2DC", borderTop: "none", borderRadius: "0 0 10px 10px", display: "flex", flexDirection: "column" }}>
+                {rightTab === "details" && DetailsSections}
+                {rightTab === "history" && (
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                    <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
     </DashboardLayout>
   );
 }

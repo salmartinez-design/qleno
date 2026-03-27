@@ -30,6 +30,18 @@ Qleno is a multi-tenant SaaS platform for residential and commercial cleaning bu
 - **Text Colors:** `#1A1917` (primary), `#6B7280` (secondary), `#9E9B94` (muted).
 - **Icons:** Lucide icons.
 
+**Client Profile Page (`/customers/:id`):**
+- **2-zone viewport-filling layout** using `fullBleed` DashboardLayout prop
+- Zone 1: Hero section (breadcrumb + `ProfileHero` component with 4 action buttons)
+- Zone 2: Left 300px column (ClientDetailsPanel + ClientIntelligencePanel stacked, + VerticalSectionNav) + Right flex column (Details/Job History tabs)
+- Hero buttons: Schedule Job → `/dispatch?client_id=`, Send Message → `SendMessageDrawer`, Create Invoice → `/clients/:id/invoices`, Edit Profile → `EditProfileDrawer`
+- `SendMessageDrawer`: SMS/Email tabs, uses Twilio via `/api/clients/:id/communications/sms`
+- `EditProfileDrawer`: Full profile field editor, calls `PUT /api/clients/:id`
+- `ServiceDetailsSection`: Inline edit form for service fields + recurring schedule, saves to both `/api/clients/:id` and `PATCH /api/clients/:id/recurring-schedule`
+- `HomeImagesSection`: Fetches job photos via `GET /api/clients/:id/job-photos`, groups by job with before/after badge labels
+- `Toast`: Fixed-position bottom-right, auto-dismisses in 3.5s, success/error variants
+- Mobile responsive: stacked layout with horizontal scroll section chips
+
 **Feature Specifications & System Design Choices:**
 - **Core Functionality:** Multi-tenant JWT auth, KPI dashboard, dispatch board, employee/customer/account management, invoice generation, payroll, GPS geofencing, service zone management, smart dispatch, recurring job scheduling, communication logging, HR policy configuration, quote tool, security hardening (rate limiting, audit logging), agreement builder with e-sign, client portal, public booking widget, and comprehensive reporting.
 - **Commercial Account Architecture:** Dedicated API and UI for commercial accounts, supporting account-specific rate cards, properties, contacts, and consolidated invoicing.
@@ -48,9 +60,11 @@ Qleno is a multi-tenant SaaS platform for residential and commercial cleaning bu
 - `CLOUDFLARE_R2_ACCESS_KEY`, `CLOUDFLARE_R2_SECRET_KEY` (Cloudflare R2 for storage)
 - `GITHUB_PERSONAL_ACCESS_TOKEN`
 
+**Configured (Replit Secrets — additional):**
+- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` (SMS — wired to Send Message drawer on client profile)
+
 **Not Configured (Features Blocked):**
 - `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_CLIENT_ID` (Stripe payments)
 - `RESEND_API_KEY` (Invoice and survey emails)
-- `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` (SMS notifications)
 - `GOOGLE_MAPS_API_KEY` (Address geocoding)
 - `SQUARE_APPLICATION_ID`, `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID` (Square payment processing)

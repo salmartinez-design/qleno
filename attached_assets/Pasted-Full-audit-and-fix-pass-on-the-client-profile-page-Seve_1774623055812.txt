@@ -1,0 +1,58 @@
+Full audit and fix pass on the client profile page. Seven issues to resolve in one pass.
+ISSUE 1 — Edit button in Service Details does not work:
+The Edit button in the Service Details section must open an editable form inline or in a drawer. Fields that must be editable: current rate / base fee, frequency, scope / service type, allowed hours, square footage, number of rooms, default start time, preferred days of week, special equipment, home name / nickname, next rate increase due date. On save, write back to the clients and recurring_schedules tables. Show a success toast on save. Do not navigate away from the page.
+ISSUE 2 — Left column section nav links not all working:
+Audit every item in the left column SECTIONS nav: Service Details / Billing & Payments / Quotes / Agreements / Scorecards / Contacts & Notifications / Client Portal / Technician Preferences / Contact Tickets / Inspections / Attachments / Home Images. Every single one must smooth-scroll the right column to that section AND highlight that nav item as active. Fix any that are broken. Test each one.
+ISSUE 3 — Remove the redundant right column duplication:
+The right column currently shows sections listed in the left nav AND then repeats that same content again below in the main area. The right column should only contain the Details tab content (collapsible sections) and the Job History tab. The left column section nav is the only navigation — there must be no duplicate section list anywhere else on the page. Remove any redundant repeated section rendering.
+ISSUE 4 — Full feature audit:
+Audit the page against this complete feature list and confirm every item is present and functional. Fix anything missing:
+
+Hero: Schedule Job button, Send Message button, Create Invoice button, Edit Profile button
+Client Details: Customer since, eCard rate, loyalty points, phone (click to call), email (click to email), service address, entry instructions, preferred days, default start time, preferred technician, acquisition source, internal notes — hide nulls
+Intelligence panel: Tech Consistency card, Lifetime Revenue, Last 12 Months, Avg Bill, Total Visits, Pending Jobs, Revenue Trend, Skips, Bumps, eCard Rate
+Service Details section: all editable fields, recurring schedule, rate history table
+Billing & Payments: payment method, card on file, invoice table, payments table, QB status
+Quotes: quote table, New Quote button
+Agreements: agreement table, Send Agreement button
+Scorecards: scorecard table with job date / technician / score / comments
+Contacts & Notifications: primary contact, secondary contacts, SMS opt-in, email preferences
+Client Portal: enable/disable toggle, Send Portal Invitation button, Portal Preview / View Portal button, permissions toggles, activity log
+Technician Preferences: preferred list, blocked list, dispatch notes, warning banner
+Contact Tickets: ticket table, Create New Ticket button
+Inspections: inspection table, Create New Inspection button
+Attachments: file list, upload button, category filter tabs (All / Home Photo / Document / Inspection / Agreement / Other)
+Home Images: photo gallery grid, Upload Photo button
+
+ISSUE 5 — Hero action buttons not working:
+Wire all four hero buttons:
+
+Schedule Job → opens the new job scheduling modal or navigates to /jobs/new?client_id=X
+Send Message → opens SMS/email compose drawer. SMS sends via Twilio to client phone. Email sends via Resend to client email.
+Create Invoice → opens invoice creation modal pre-filled with this client
+Edit Profile → opens client edit drawer with all client fields editable: name, phone, email, address, entry instructions, lockbox code, alarm code, gate code, acquisition source, notes, loyalty points
+
+ISSUE 6 — Job images must tie to specific jobs:
+In the Home Images section, images must be grouped by job. Each group shows: Service Set name, Job ID (linked to /jobs/:id), Job Date, Start–End time, Team/Technician name. Images display in a grid under each job group. This matches the MaidCentral "Images by Job" layout. Pull images from the attachments or job_images table filtered by this client_id, grouped by job_id.
+ISSUE 7 — Mobile optimization:
+Audit and fix the complete mobile experience at max-width 768px:
+
+Hero: name and badges on one line, LTV below, dates below, action buttons in a 2x2 grid — all buttons must work on mobile
+Two-column layout collapses to single column: left column content (Client Details + Intelligence) stacks above right column
+Section nav becomes a horizontal scrollable chip row below the intelligence panel on mobile
+Right column takes full width on mobile
+All buttons and nav items have minimum 44px touch target height
+Slide-over takes full screen width on mobile
+No horizontal scrolling on any screen size
+Test that all section nav links work on mobile
+Test that job row click opens slide-over on mobile
+
+DESIGN RULES — non-negotiable:
+
+Plus Jakarta Sans only
+No emojis anywhere
+No dark mode
+Background #F7F6F3, cards #FFFFFF, borders #E5E2DC
+Primary text #1A1917, secondary text #6B6860
+Accent var(--brand) — PHES is #5B9BD5
+
