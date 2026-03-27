@@ -208,6 +208,7 @@ export default function BookPage() {
   const [cleanliness, setCleanliness] = useState(0);
   const [lastCleanedResponse, setLastCleanedResponse] = useState("");
   const [lastCleanedOverride, setLastCleanedOverride] = useState(false);
+  const [overageAcknowledged, setOverageAcknowledged] = useState(false);
 
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
@@ -278,6 +279,7 @@ export default function BookPage() {
     setSelectedAddonIds([]);
     setLastCleanedResponse("");
     setLastCleanedOverride(false);
+    setOverageAcknowledged(false);
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
       pubFetch(`/api/public/addons/${scopeId}`),
@@ -450,6 +452,8 @@ export default function BookPage() {
             bundle_discount_total: bundleSavings > 0 ? bundleSavings : null,
             last_cleaned_response: isRecurringScope ? (lastCleanedResponse || null) : null,
             last_cleaned_flag: isRecurringScope ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
+            overage_disclaimer_acknowledged: lastCleanedOverride && overageAcknowledged,
+            overage_rate: (lastCleanedOverride && overageAcknowledged) ? getOverageRate(frequencyStr) : null,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -568,6 +572,7 @@ export default function BookPage() {
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
   const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase() === "recurring cleaning";
+  const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
   const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
@@ -961,15 +966,9 @@ export default function BookPage() {
                       })}
                     </div>
 
-                    {showDCRec && (
-                      <div style={{
-                        marginTop: 16,
-                        background: "#fff",
-                        border: "1px solid #E5E2DC",
-                        borderLeft: `3px solid ${brand}`,
-                        borderRadius: 10,
-                        padding: 16,
-                      }}>
+                    {/* Original rec card — shown when overdue + not yet overridden */}
+                    {isOverdue && !lastCleanedOverride && (
+                      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 16 }}>
                         <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>
                           We recommend starting with a Deep Clean
                         </p>
@@ -978,18 +977,60 @@ export default function BookPage() {
                         </p>
                         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                           <button
-                            onClick={() => { setScopeId(1); setLastCleanedResponse(""); setLastCleanedOverride(false); }}
+                            onClick={() => { setScopeId(1); setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false); }}
                             style={{ padding: "10px 18px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                           >
                             Book a Deep Clean Instead
                           </button>
                           <button
-                            onClick={() => setLastCleanedOverride(true)}
+                            onClick={() => { setLastCleanedOverride(true); setOverageAcknowledged(false); }}
                             style={{ padding: "10px 18px", background: "#fff", color: brand, border: `1.5px solid ${brand}`, borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                           >
                             Continue with Recurring Anyway
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Disclaimer card — shown after "Continue with Recurring Anyway" is clicked */}
+                    {isOverdue && lastCleanedOverride && (
+                      <div style={{ marginTop: 16, background: "#fff", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 16 }}>
+                        <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>
+                          Before you continue — please read carefully
+                        </p>
+                        <p style={{ margin: "0 0 12px", fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
+                          Since you've chosen to skip our recommended Deep Clean, please note that our time estimate for your first visit is approximate. Homes that haven't been professionally cleaned recently often require additional time to reach our quality standard.
+                        </p>
+                        <p style={{ margin: "0 0 8px", fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
+                          If your cleaning requires more time than estimated, the following extended service rates apply:
+                        </p>
+                        <div style={{ marginBottom: 14, fontSize: 13 }}>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 0", marginBottom: 4 }}>
+                            <span style={{ fontWeight: 700, color: "#1A1917", paddingBottom: 4, borderBottom: "1px solid #E5E2DC" }}>Frequency</span>
+                            <span style={{ fontWeight: 700, color: "#1A1917", paddingBottom: 4, borderBottom: "1px solid #E5E2DC", paddingLeft: 8 }}>Extended Service Rate</span>
+                          </div>
+                          {[
+                            ["Weekly", "$60 / additional hour"],
+                            ["Every 2 Weeks", "$65 / additional hour"],
+                            ["Every 4 Weeks or less frequent", "$70 / additional hour"],
+                          ].map(([freq, rate]) => (
+                            <div key={freq} style={{ display: "grid", gridTemplateColumns: "1fr 1fr", paddingTop: 6 }}>
+                              <span style={{ color: "#6B6860" }}>{freq}</span>
+                              <span style={{ color: "#1A1917", fontWeight: 600, paddingLeft: 8 }}>{rate}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                          <input
+                            type="checkbox"
+                            checked={overageAcknowledged}
+                            onChange={e => setOverageAcknowledged(e.target.checked)}
+                            style={{ marginTop: 2, accentColor: brand, width: 16, height: 16, flexShrink: 0 }}
+                          />
+                          <span style={{ fontSize: 14, color: "#1A1917", lineHeight: 1.5 }}>
+                            I understand that time estimates are approximate and I agree to the extended service rates above if additional time is needed.
+                          </span>
+                        </label>
                       </div>
                     )}
                   </div>
@@ -1111,8 +1152,8 @@ export default function BookPage() {
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))) ? 0.5 : 1 }}
-                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))}
+                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))) ? 0.5 : 1 }}
+                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))}
                   onClick={() => isCommercial ? setStep(3) : setStep(2)}
                 >
                   Continue
@@ -1137,6 +1178,11 @@ export default function BookPage() {
                       </button>
                     ))}
                   </div>
+                  {lastCleanedOverride && overageAcknowledged && frequencyStr && (
+                    <p style={{ margin: "10px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.5 }}>
+                      Extended service rate applies if additional time is needed: <strong>${getOverageRate(frequencyStr)}/hr</strong> based on your selected frequency.
+                    </p>
+                  )}
                 </div>
               )}
 

@@ -1,0 +1,96 @@
+This is exactly right — and it protects Phes legally when you bill overages. Here's my thinking on top of yours:
+
+**My suggestions:**
+
+1. **Make it a required checkbox acknowledgment** — not just a warning they scroll past. They must check a box that says "I understand" before Continue activates. This is your paper trail if they dispute an overage charge.
+
+2. **Show the overage rate again at the frequency step** — a small reminder line so it's visible twice. Reinforces it without being aggressive.
+
+3. **Store the acknowledgment on the job record** — `overage_disclaimer_acknowledged: true/false` — so the office knows this client was warned and agreed.
+
+4. **Your rate structure makes sense** — escalating with cadence because less-frequent homes accumulate more between visits. I'd frame it as "extended service rate" not "overage" — softer language, same meaning.
+
+---
+
+**REPLIT PROMPT — RECURRING OVERAGE DISCLAIMER:**
+
+In the booking widget at `/book/phes-cleaning`, when a customer clicks "Continue with Recurring Anyway" after seeing the Deep Clean recommendation card, do the following before allowing them to proceed:
+
+---
+
+**Step 1 — Replace the recommendation card content**
+
+When "Continue with Recurring Anyway" is clicked, do not navigate away. Instead, replace the recommendation card body with a disclaimer that requires acknowledgment. The card remains in place with the same `var(--brand)` left border styling.
+
+**New card content:**
+
+Heading (same size, `#1A1917`): "Before you continue — please read carefully"
+
+Body text (`#6B6860`, 14px, Plus Jakarta Sans):
+
+"Since you've chosen to skip our recommended Deep Clean, please note that our time estimate for your first visit is approximate. Homes that haven't been professionally cleaned recently often require additional time to reach our quality standard.
+
+If your cleaning requires more time than estimated, the following extended service rates apply:"
+
+Rate table (simple, clean, no borders — just two columns):
+
+| Frequency | Extended Service Rate |
+|---|---|
+| Weekly | $60 / additional hour |
+| Every 2 Weeks | $65 / additional hour |
+| Every 4 Weeks or less frequent | $70 / additional hour |
+
+Below the table, a required acknowledgment checkbox:
+
+```
+[ ] I understand that time estimates are approximate and I agree to the 
+    extended service rates above if additional time is needed.
+```
+
+Checkbox label text: `#1A1917`, 14px. The checkbox itself uses `var(--brand)` when checked.
+
+**Continue button behavior:** Remains disabled until the checkbox is checked. Once checked, Continue activates with full `var(--brand)` styling.
+
+---
+
+**Step 2 — Store acknowledgment on job record**
+
+Add the following columns to the `jobs` table if not present:
+```sql
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_rate NUMERIC(10,2);
+```
+
+On form submission for any job where the customer clicked "Continue with Recurring Anyway":
+- Set `overage_disclaimer_acknowledged: true`
+- Set `overage_rate` based on the frequency they select in the next step:
+  - Weekly → 60.00
+  - Every 2 weeks → 65.00
+  - Every 4 weeks or monthly → 70.00
+
+For all other booking paths (Deep Clean, One-Time, Commercial, or Recurring via "Book a Deep Clean Instead"): set `overage_disclaimer_acknowledged: false`, `overage_rate: null`.
+
+---
+
+**Step 3 — Frequency step reminder**
+
+On Step 3 (frequency selection), when the job has `last_cleaned_flag: 'overdue'`, show a small inline reminder line below the frequency selector in secondary text (`#6B6860`, 12px):
+
+"Extended service rate applies if additional time is needed: $[rate]/hr based on your selected frequency."
+
+Update the dollar amount in real time as they switch between frequency options:
+- Weekly selected → "$60/hr"
+- Every 2 Weeks selected → "$65/hr"
+- Every 4 Weeks selected → "$70/hr"
+
+This line does not appear for customers who came through the normal path.
+
+---
+
+**Design:** Full Qleno design system throughout. No emojis. No dark mode. Plus Jakarta Sans only.
+
+Republish after changes.
+
+---
+
+Once this runs, test the full "Continue with Recurring Anyway" path — confirm the checkbox blocks Continue, the rate updates on frequency selection, and `overage_disclaimer_acknowledged` and `overage_rate` are written to the job record.

@@ -399,6 +399,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       home_condition_rating, condition_multiplier,
       applied_bundle_id, bundle_discount_total,
       last_cleaned_response, last_cleaned_flag,
+      overage_disclaimer_acknowledged, overage_rate,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
     } = req.body;
@@ -504,6 +505,8 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
 
     const lastCleanedResp = last_cleaned_response || null;
     const lastCleanedFl = last_cleaned_flag || null;
+    const overageAck = overage_disclaimer_acknowledged === true || overage_disclaimer_acknowledged === "true" ? true : false;
+    const overageRateVal = overage_rate ? parseFloat(String(overage_rate)) : null;
 
     const jobResult = await db.execute(
       drizzleSql`
@@ -513,6 +516,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           home_condition_rating, condition_multiplier,
           applied_bundle_id, bundle_discount_total,
           last_cleaned_response, last_cleaned_flag,
+          overage_disclaimer_acknowledged, overage_rate,
           notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
@@ -521,6 +525,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
           ${lastCleanedResp}, ${lastCleanedFl},
+          ${overageAck}, ${overageRateVal},
           ${jobNotes}, NOW()
         ) RETURNING id
       `
