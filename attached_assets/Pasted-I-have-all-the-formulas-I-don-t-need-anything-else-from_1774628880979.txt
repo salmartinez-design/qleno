@@ -1,0 +1,192 @@
+I have all the formulas. I don’t need anything else from MC — I can calculate every expected price right now from the tier tables you already sent me.
+Here are the 6 test cases I’m building (2 per scope), with add-ons and a discount thrown in to stress test the engine:
+Deep Clean (×$70/hr, min $210)
+	∙	1,500 sqft → 1500–1749 tier → 6.2h × $70 = $434.00
+	∙	2,800 sqft → 2750–2999 tier → 8.4h × $70 = $588.00
+Standard Cleaning (×$65/hr, min $195)
+	∙	1,200 sqft → 1000–1249 tier → 3.3h × $65 = $214.50
+	∙	3,500 sqft → 3500–3749 tier → 8.0h × $65 = $520.00
+Recurring Cleaning (Weekly $55 / Bi-weekly $60 / Every 4 Weeks $65)
+	∙	1,800 sqft → Weekly: 3.82h × $55 = $210.10 | Bi-weekly: 4.0h × $60 = $240.00 | Every 4 Wks: 4.18h × $65 = $271.70
+	∙	2,500 sqft → Weekly: 5.0h × $55 = $275.00 | Bi-weekly: 5.27h × $60 = $316.20 | Every 4 Wks: 5.45h × $65 = $354.25
+Add-on stress tests
+	∙	Deep Clean 1,500 sqft + Oven ($50 flat) = $484.00
+	∙	Deep Clean 1,500 sqft + Windows (15% of $434) = $434 + $65.10 = $499.10
+	∙	Standard 1,200 sqft + Windows (12% of $214.50) = $214.50 + $25.74 = $240.24
+Discount stress test
+	∙	Deep Clean 1,500 sqft + Compass code (15% off) = $434 × 0.85 = $368.90
+
+Here is the Replit audit prompt — paste this once Replit finishes the previous prompts:
+
+Run a full pricing audit against the Qleno pricing engine. 
+For each test case below, call the internal pricing calculation 
+function directly (do not go through the iFrame UI — call the 
+server-side pricing function that the booking widget uses). 
+
+Compare the result to the expected value. If any result differs 
+by even one cent, log the discrepancy clearly and fix the 
+pricing logic before marking the test as passed. All prices 
+must match to the cent.
+
+Do not round intermediate calculations. Use exact decimal 
+arithmetic throughout. Hours × rate = price, then apply 
+minimum bill if result is below minimum. Add-ons calculated 
+after base price. Discounts applied after add-ons.
+
+---
+
+TEST GROUP 1 — DEEP CLEAN
+Hourly rate: $70.00 | Minimum bill: $210.00
+Sqft calculation method: Max Value of Range
+
+Test 1A:
+Input: scope=deep_clean, sqft=1500, frequency=single, 
+addons=none, discount=none
+Tier: 1500–1749 → 6.2 hours
+Expected: 6.2 × 70 = $434.00
+Pass condition: result === 434.00
+
+Test 1B:
+Input: scope=deep_clean, sqft=2800, frequency=single, 
+addons=none, discount=none
+Tier: 2750–2999 → 8.4 hours
+Expected: 8.4 × 70 = $588.00
+Pass condition: result === 588.00
+
+Test 1C (add-on flat):
+Input: scope=deep_clean, sqft=1500, frequency=single, 
+addons=[oven], discount=none
+Expected: $434.00 base + $50.00 oven = $484.00
+Pass condition: result === 484.00
+
+Test 1D (add-on percentage):
+Input: scope=deep_clean, sqft=1500, frequency=single, 
+addons=[windows], discount=none
+Windows = 15% of base price
+Expected: $434.00 + ($434.00 × 0.15) = $434.00 + $65.10 = $499.10
+Pass condition: result === 499.10
+
+Test 1E (discount code):
+Input: scope=deep_clean, sqft=1500, frequency=single, 
+addons=none, discount=Compass (15% off)
+Expected: $434.00 × 0.85 = $368.90
+Pass condition: result === 368.90
+
+---
+
+TEST GROUP 2 — STANDARD CLEANING
+Hourly rate: $65.00 | Minimum bill: $195.00
+Sqft calculation method: Max Value of Range
+
+Test 2A:
+Input: scope=standard, sqft=1200, frequency=single, 
+addons=none, discount=none
+Tier: 1000–1249 → 3.3 hours
+Expected: 3.3 × 65 = $214.50
+Pass condition: result === 214.50
+
+Test 2B:
+Input: scope=standard, sqft=3500, frequency=single, 
+addons=none, discount=none
+Tier: 3500–3749 → 8.0 hours
+Expected: 8.0 × 65 = $520.00
+Pass condition: result === 520.00
+
+Test 2C (add-on percentage):
+Input: scope=standard, sqft=1200, frequency=single, 
+addons=[windows], discount=none
+Windows for Standard = 12% of base price
+Expected: $214.50 + ($214.50 × 0.12) = $214.50 + $25.74 = $240.24
+Pass condition: result === 240.24
+
+---
+
+TEST GROUP 3 — RECURRING CLEANING
+Sqft calculation method: Max Value of Range
+Three active frequencies with different hourly rates:
+Weekly = $55.00/hr
+Every Two Weeks = $60.00/hr
+Every Four Weeks = $65.00/hr
+Minimum bill: $195.00
+
+Test 3A — 1800 sqft:
+Tier: 1750–1999
+Weekly hours: 3.82 | Bi-weekly hours: 4.0 | 4-week hours: 4.18
+
+Input: scope=recurring, sqft=1800, frequency=weekly
+Expected: 3.82 × 55 = $210.10
+Pass condition: result === 210.10
+
+Input: scope=recurring, sqft=1800, frequency=biweekly
+Expected: 4.0 × 60 = $240.00
+Pass condition: result === 240.00
+
+Input: scope=recurring, sqft=1800, frequency=every_4_weeks
+Expected: 4.18 × 65 = $271.70
+Pass condition: result === 271.70
+
+Test 3B — 2500 sqft:
+Tier: 2500–2749
+Weekly hours: 5.0 | Bi-weekly hours: 5.27 | 4-week hours: 5.45
+
+Input: scope=recurring, sqft=2500, frequency=weekly
+Expected: 5.0 × 55 = $275.00
+Pass condition: result === 275.00
+
+Input: scope=recurring, sqft=2500, frequency=biweekly
+Expected: 5.27 × 60 = $316.20
+Pass condition: result === 316.20
+
+Input: scope=recurring, sqft=2500, frequency=every_4_weeks
+Expected: 5.45 × 65 = $354.25
+Pass condition: result === 354.25
+
+---
+
+TEST GROUP 4 — MINIMUM BILL ENFORCEMENT
+
+Test 4A:
+Input: scope=deep_clean, sqft=400, frequency=single, 
+addons=none, discount=none
+Tier: 0–749 → 3.0 hours
+Raw: 3.0 × 70 = $210.00
+Minimum: $210.00
+Expected: $210.00 (exactly at minimum — passes through)
+Pass condition: result === 210.00
+
+Test 4B:
+Input: scope=standard, sqft=400, frequency=single, 
+addons=none, discount=none
+Tier: 0–749 → 2.5 hours
+Raw: 2.5 × 65 = $162.50
+Minimum: $195.00
+Expected: $195.00 (minimum enforced)
+Pass condition: result === 195.00
+
+---
+
+REPORTING:
+
+After running all tests log each result in this format:
+[PASS] Test 1A — Deep Clean 1500sqft — Expected $434.00 — 
+Got $434.00
+[FAIL] Test 2A — Standard 1200sqft — Expected $214.50 — 
+Got $215.00 — DISCREPANCY: $0.50
+
+At the end log a summary:
+"PRICING AUDIT COMPLETE — X/13 tests passed"
+
+If any test fails:
+1. Log the exact discrepancy
+2. Identify which part of the calculation is wrong 
+   (tier lookup, hour value, rate, add-on, discount, 
+   or minimum enforcement)
+3. Fix the pricing function
+4. Re-run the failed tests until all 13 pass
+5. Log "ALL 13 TESTS PASSED — pricing engine matches 
+   MC to the cent"
+
+Do not mark complete until all 13 pass.
+
+
+That’s 13 test cases covering every scope, both frequency structures, flat add-ons, percentage add-ons, discount codes, and minimum bill enforcement. If Replit finds a discrepancy it will tell you exactly where the math breaks and fix it. Come back with the results and we’ll go from there.​​​​​​​​​​​​​​​​
