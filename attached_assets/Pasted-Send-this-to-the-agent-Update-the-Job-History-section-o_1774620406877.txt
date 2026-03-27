@@ -1,0 +1,63 @@
+Send this to the agent:
+
+---
+
+Update the Job History section on the client profile page. This covers both the layout fix and the new interaction design. Do not change any other part of the page.
+
+**PART 1 — FIX THE THREE-COLUMN GRID HEIGHT:**
+
+The Job History column is stretching the entire three-column grid to an unusable height. Fix this:
+
+- The three-column grid has a fixed max-height of 520px. All three columns are the same height. They do not grow taller than 520px regardless of content.
+- The Job History column header ("JOB HISTORY · 18 visits · $5,436 total") is pinned to the top of the column and does not scroll.
+- The job rows between the header and pagination controls are scrollable inside the column. The column itself does not expand.
+- Pagination controls (Previous / Page X of Y / Next) are pinned to the bottom of the column inside the fixed height.
+- Client Details column: content top-aligned, does not stretch to match job history height.
+- Intelligence column: content top-aligned, does not stretch. Tech Consistency card at top, metrics below, 8px row spacing.
+- The entire three-column grid sits inside a single card with border #E5E2DC and subtle box-shadow so it reads as one contained unit. Internal column dividers are #E5E2DC 1px vertical lines.
+
+**PART 2 — JOB ROW INTERACTIONS:**
+
+**Each job row is clickable and opens a slide-over panel:**
+- Clicking any row opens a slide-over from the right side of the screen — not a new page, not a modal. It overlays on top of the current page.
+- Slide-over width: 420px on desktop, full width on mobile.
+- Slide-over animation: 200ms ease-in from the right.
+- Light dark overlay behind the slide-over on the rest of the page.
+- X close button pinned top right of the slide-over.
+- Clicking outside the slide-over closes it.
+
+**Slide-over content:**
+- Date — large, bold. Day of week spelled out (e.g. "Thursday, March 18, 2026")
+- Status badge: Completed (green) / Skipped (amber) / Bumped (blue) / Cancelled (red)
+- Technician(s) — initials avatar circle in brand color, full name next to it. If two techs, show both.
+- Scope / service type
+- Duration (e.g. "3.98 hours")
+- Amount charged — bold, large
+- Add-ons if present
+- Service address
+- Schedule notes / internal memo if present
+- Linked scorecard: show score and comments if a scorecard exists for this job date. If none, show nothing.
+- Linked contact ticket: show ticket type and notes if a contact ticket exists for this job date. If none, show nothing.
+- "View Full Job" button at the bottom — navigates to /jobs/:id if the job record exists in the jobs table. If no linked job record, button is hidden.
+- Slide-over background: #FFFFFF. Header area background: #F7F6F3 with border-bottom #E5E2DC.
+
+**Hover tooltip on each row (desktop only):**
+- After 400ms hover delay, show a compact dark tooltip above the row.
+- Tooltip content: Technician name · Duration · Amount · Scope
+- No tooltip on mobile or touch devices.
+
+**Row styling:**
+- Cursor changes to pointer on hover
+- Subtle #F7F6F3 background on row hover
+- Rows separated by #E5E2DC 1px bottom border
+- Amount column: bold, right-aligned
+- Technician column: show small initials circle (24px, brand color background, white text) next to the name
+
+**DESIGN RULES:**
+- Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Background #F7F6F3, cards #FFFFFF, borders #E5E2DC, primary text #1A1917, secondary text #6B6860
+- Accent var(--brand) — PHES is #5B9BD5
+
+---

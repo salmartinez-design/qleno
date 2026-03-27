@@ -1590,16 +1590,39 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
 
 
 // ─── Job History helpers ───────────────────────────────────────────────────────
-function parseJobNotes(notes: string | null): { duration: string | null; addOn: string | null; tech2: string | null } {
-  if (!notes) return { duration: null, addOn: null, tech2: null };
+function parseJobNotes(notes: string | null): { duration: string | null; addOn: string | null; tech2: string | null; address: string | null; freq: string | null } {
+  if (!notes) return { duration: null, addOn: null, tech2: null, address: null, freq: null };
   const durMatch = notes.match(/^(\d+\.?\d*)h/);
   const addOnMatch = notes.match(/add-on:\s*([^·]+)/);
   const tech2Match = notes.match(/tech 2:\s*([^·]+)/);
+  const addrMatch = notes.match(/address:\s*([^·]+)/);
+  const freqMatch = notes.match(/freq:\s*([^·]+)/);
   return {
     duration: durMatch ? durMatch[1] : null,
     addOn: addOnMatch ? addOnMatch[1].trim() : null,
     tech2: tech2Match ? tech2Match[1].trim() : null,
+    address: addrMatch ? addrMatch[1].trim() : null,
+    freq: freqMatch ? freqMatch[1].trim() : null,
   };
+}
+
+function makeInitials(name: string | null | undefined): string {
+  if (!name) return "?";
+  return name.split(" ").filter(Boolean).map(n => n[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function TechAvatar({ name, size = 24 }: { name: string; size?: number }) {
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", background: "var(--brand-dim)",
+      display: "inline-flex", alignItems: "center", justifyContent: "center",
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: size * 0.42, fontWeight: 800, color: "var(--brand)", lineHeight: 1 }}>
+        {makeInitials(name)}
+      </span>
+    </div>
+  );
 }
 
 const FREQ_LABELS: Record<string, string> = {
@@ -1815,13 +1838,17 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
 }
 
 // ─── Client Details Panel (left 25%) ─────────────────────────────────────────
-function ClientDetailsPanel({ client, jhStats, recurringSchedule }: { client: any; jhStats: any; recurringSchedule: any }) {
+function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { client: any; jhStats: any; recurringSchedule: any; noCard?: boolean }) {
   const [showAlarm, setShowAlarm] = useState(false);
   const preferredTech = (client.tech_preferences || []).find((p: any) => p.preference === "preferred");
 
+  const outerStyle: React.CSSProperties = noCard
+    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 14, height: "100%", overflowY: "auto", padding: "16px" }
+    : { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 14 };
+
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 14 }}>
-      <div style={{ fontSize: 12, fontWeight: 800, color: "#0A0E1A", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Client Details</div>
+    <div style={outerStyle}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Client Details</div>
       {client.phone && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Phone</div>
@@ -1877,44 +1904,184 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule }: { client: an
   );
 }
 
-// ─── Job History Panel (center 50%) ───────────────────────────────────────────
-function JobHistoryPanel({ clientId: _clientId, jhData, isLoading }: { clientId: number; jhData: any; isLoading: boolean }) {
+// ─── Job Detail Slide-Over ─────────────────────────────────────────────────────
+const DAY_NAMES = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any; onClose: () => void }) {
+  const { duration, addOn, tech2, address } = parseJobNotes(row.notes);
+  const d = new Date(row.job_date + "T12:00");
+  const dateStr = `${DAY_NAMES[d.getDay()]}, ${d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}`;
+
+  // Derive status from notes
+  const notesLower = (row.notes || "").toLowerCase();
+  const status = notesLower.includes("skip") ? "Skipped" : notesLower.includes("bump") ? "Bumped" : notesLower.includes("cancel") ? "Cancelled" : "Completed";
+  const statusColors: Record<string, { bg: string; color: string }> = {
+    Completed: { bg: "#DCFCE7", color: "#16A34A" },
+    Skipped:   { bg: "#FEF3C7", color: "#D97706" },
+    Bumped:    { bg: "#DBEAFE", color: "#2563EB" },
+    Cancelled: { bg: "#FEE2E2", color: "#DC2626" },
+  };
+  const sc = statusColors[status];
+
+  // Linked scorecard (match by job_date prefix)
+  const scorecard = (profile?.scorecards || []).find((s: any) => {
+    const sd = s.job_date || s.created_at || "";
+    return sd.startsWith(row.job_date);
+  });
+
+  const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>{label}</div>
+      <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>{value}</div>
+    </div>
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Inject slide-in keyframe once
+  useEffect(() => {
+    const id = "jd-slide-kf";
+    if (!document.getElementById(id)) {
+      const s = document.createElement("style");
+      s.id = id;
+      s.textContent = `@keyframes jdSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }`;
+      document.head.appendChild(s);
+    }
+  }, []);
+
+  return (
+    <>
+      {/* Overlay */}
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.38)", zIndex: 200, cursor: "default" }} />
+      {/* Panel */}
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(420px, 100vw)", background: "#FFFFFF", zIndex: 201, display: "flex", flexDirection: "column", boxShadow: "-6px 0 32px rgba(0,0,0,0.13)", animation: "jdSlideIn 200ms ease", fontFamily: FF }}>
+        {/* Header */}
+        <div style={{ padding: "18px 20px 16px", background: "#F7F6F3", borderBottom: "1px solid #E5E2DC", flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 800, color: "#0A0E1A", lineHeight: 1.3 }}>{dateStr}</div>
+              <div style={{ marginTop: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: sc.bg, color: sc.color }}>{status}</span>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", padding: "5px 7px", display: "flex", color: "#6B6860" }}>
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "20px", display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Technician(s) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Technician{tech2 ? "s" : ""}</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+              {row.technician && (
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <TechAvatar name={row.technician} size={32} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{row.technician}</span>
+                </div>
+              )}
+              {tech2 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  <TechAvatar name={tech2} size={32} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{tech2}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Amount */}
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 3 }}>Amount Charged</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#0A0E1A" }}>${parseFloat(row.revenue).toFixed(2)}</div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            {row.service_type && <Field label="Scope" value={row.service_type} />}
+            {duration && <Field label="Duration" value={`${duration} hours`} />}
+            {addOn && <Field label="Add-On" value={addOn} />}
+            {address && <Field label="Service Address" value={address} />}
+          </div>
+
+          {/* Linked scorecard */}
+          {scorecard && (
+            <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "12px 14px", borderLeft: "3px solid var(--brand)" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Scorecard</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 5</div>
+              {scorecard.comments && <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>{scorecard.comments}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Job History Panel (center column) ────────────────────────────────────────
+function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { clientId: number; jhData: any; isLoading: boolean; profile?: any }) {
   const PAGE_SIZE = 10;
   const [page, setPage] = useState(1);
+  const [selectedRow, setSelectedRow] = useState<any>(null);
+  const [tooltip, setTooltip] = useState<{ row: any; x: number; y: number } | null>(null);
+  const tooltipTimer = useRef<any>(null);
+
   const rows: any[] = jhData?.rows || [];
   const stats = jhData?.stats;
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const pageRows = rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  if (isLoading) {
-    return (
-      <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 32, textAlign: "center" as const, color: "#9E9B94", fontSize: 13, fontFamily: FF }}>
-        Loading job history...
-      </div>
-    );
-  }
+  const handleMouseEnter = (row: any, e: React.MouseEvent<HTMLTableRowElement>) => {
+    const el = e.currentTarget;
+    tooltipTimer.current = setTimeout(() => {
+      const rect = el.getBoundingClientRect();
+      setTooltip({ row, x: rect.left + rect.width / 2, y: rect.top });
+    }, 400);
+  };
+  const handleMouseLeave = () => {
+    clearTimeout(tooltipTimer.current);
+    setTooltip(null);
+  };
 
+  // Column fills its parent cell — no own border/bg
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", fontFamily: FF }}>
-      <div style={{ padding: "14px 20px", borderBottom: "1px solid #E5E2DC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: "#0A0E1A", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Job History</div>
-        {stats && (
-          <div style={{ fontSize: 12, color: "#6B7280" }}>
-            <span style={{ fontWeight: 700, color: "#1A1917" }}>{stats.total_visits}</span> visits
-            {" · "}
-            <span style={{ fontWeight: 700, color: "#1A1917" }}>${stats.total_revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span> total
+    <>
+      <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF }}>
+        {/* Pinned header */}
+        <div style={{ padding: "13px 16px", borderBottom: "1px solid #E5E2DC", flexShrink: 0, background: "#FFFFFF" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Job History</div>
+            {stats && (
+              <div style={{ fontSize: 11, color: "#9E9B94" }}>
+                <span style={{ fontWeight: 700, color: "#1A1917" }}>{stats.total_visits}</span> visits
+                {" · "}
+                <span style={{ fontWeight: 700, color: "#1A1917" }}>${stats.total_revenue.toLocaleString("en-US", { maximumFractionDigits: 0 })}</span> total
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      {rows.length === 0 ? (
-        <div style={{ padding: "40px 20px", textAlign: "center" as const, color: "#9E9B94", fontSize: 13 }}>No job history records found</div>
-      ) : (
-        <>
-          <div style={{ overflowX: "auto" as const }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" as const }}>
-              <thead>
-                <tr style={{ background: "#FAFAF8" }}>
-                  {["Date", "Technician(s)", "Scope", "Add-On", "Duration", "Amount"].map(h => (
+        </div>
+
+        {/* Scrollable body */}
+        {isLoading ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9E9B94", fontSize: 13 }}>Loading...</div>
+        ) : rows.length === 0 ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9E9B94", fontSize: 13 }}>No job history records found</div>
+        ) : (
+          <div style={{ flex: 1, overflowY: "auto" as const, overflowX: "hidden" as const }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" as const, tableLayout: "fixed" as const }}>
+              <colgroup>
+                <col style={{ width: "72px" }} />
+                <col style={{ width: "auto" }} />
+                <col style={{ width: "68px" }} />
+                <col style={{ width: "64px" }} />
+              </colgroup>
+              <thead style={{ position: "sticky" as const, top: 0, zIndex: 1, background: "#FAFAF8" }}>
+                <tr>
+                  {["Date", "Technician(s)", "Dur.", "Amount"].map(h => (
                     <th key={h} style={TH_STYLE}>{h}</th>
                   ))}
                 </tr>
@@ -1924,50 +2091,91 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading }: { clientId:
                   const { duration, addOn, tech2 } = parseJobNotes(row.notes);
                   const techDisplay = tech2 ? `${row.technician} + ${tech2}` : (row.technician || "—");
                   return (
-                    <tr key={row.id}>
-                      <td style={TD_STYLE}>
-                        <span style={{ fontSize: 12, fontWeight: 600 }}>
-                          {new Date(row.job_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
-                        </span>
+                    <tr
+                      key={row.id}
+                      onClick={() => setSelectedRow(row)}
+                      onMouseEnter={(e) => handleMouseEnter(row, e)}
+                      onMouseLeave={handleMouseLeave}
+                      style={{ cursor: "pointer", borderBottom: "1px solid #F0EEE9" }}
+                      onMouseOver={(e) => { (e.currentTarget as HTMLElement).style.background = "#F7F6F3"; }}
+                      onMouseOut={(e) => { (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+                    >
+                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 10px 9px 14px", fontSize: 11, color: "#6B6860", fontWeight: 600, whiteSpace: "nowrap" as const }}>
+                        {new Date(row.job_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "2-digit" })}
                       </td>
-                      <td style={{ ...TD_STYLE, maxWidth: 160 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={techDisplay}>{techDisplay}</div>
+                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 8px", maxWidth: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, overflow: "hidden" }}>
+                          <TechAvatar name={row.technician} size={20} />
+                          <span style={{ fontSize: 11, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }} title={techDisplay}>{techDisplay}</span>
+                        </div>
+                        {addOn && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1, paddingLeft: 26 }}>{addOn}</div>}
                       </td>
-                      <td style={{ ...TD_STYLE, fontSize: 12, color: "#6B7280" }}>{row.service_type || "—"}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 11, color: addOn ? "#6B7280" : "#D0CEC9" }}>{addOn || "—"}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 12, color: "#6B7280" }}>{duration ? `${duration}h` : "—"}</td>
-                      <td style={{ ...TD_STYLE, fontSize: 13, fontWeight: 700 }}>${parseFloat(row.revenue).toFixed(2)}</td>
+                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 6px", fontSize: 11, color: "#9E9B94", whiteSpace: "nowrap" as const }}>{duration ? `${duration}h` : "—"}</td>
+                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 14px 9px 6px", fontSize: 12, fontWeight: 700, color: "#1A1917", textAlign: "right" as const, whiteSpace: "nowrap" as const }}>${parseFloat(row.revenue).toFixed(0)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 16px", borderTop: "1px solid #E5E2DC", background: "#FAFAF8" }}>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: page === 1 ? "#F3F4F6" : "#FFFFFF", color: page === 1 ? "#9E9B94" : "#1A1917", fontSize: 12, cursor: page === 1 ? "default" : "pointer", fontFamily: FF }}>
-                <ChevronLeft size={13} /> Previous
-              </button>
-              <span style={{ fontSize: 12, color: "#6B7280" }}>Page {page} of {totalPages}</span>
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: page === totalPages ? "#F3F4F6" : "#FFFFFF", color: page === totalPages ? "#9E9B94" : "#1A1917", fontSize: 12, cursor: page === totalPages ? "default" : "pointer", fontFamily: FF }}>
-                Next <ChevronRight size={13} />
-              </button>
-            </div>
-          )}
-        </>
+        )}
+
+        {/* Pinned pagination */}
+        <div style={{ borderTop: "1px solid #E5E2DC", padding: "8px 14px", flexShrink: 0, background: "#FAFAF8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: page === 1 ? "#F3F4F6" : "#FFFFFF", color: page === 1 ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: page === 1 ? "default" : "pointer", fontFamily: FF }}>
+            <ChevronLeft size={12} /> Prev
+          </button>
+          <span style={{ fontSize: 11, color: "#6B7280" }}>
+            {rows.length > 0 ? `Page ${page} of ${totalPages}` : "0 records"}
+          </span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || rows.length === 0}
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: (page === totalPages || rows.length === 0) ? "#F3F4F6" : "#FFFFFF", color: (page === totalPages || rows.length === 0) ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: (page === totalPages || rows.length === 0) ? "default" : "pointer", fontFamily: FF }}>
+            Next <ChevronRight size={12} />
+          </button>
+        </div>
+      </div>
+
+      {/* Slide-over */}
+      {selectedRow && (
+        <JobDetailSlideOver row={selectedRow} profile={profile} onClose={() => setSelectedRow(null)} />
       )}
-    </div>
+
+      {/* Hover tooltip */}
+      {tooltip && (() => {
+        const { duration, tech2 } = parseJobNotes(tooltip.row.notes);
+        const techDisplay = tech2 ? `${tooltip.row.technician} + ${tech2}` : (tooltip.row.technician || "—");
+        return (
+          <div style={{
+            position: "fixed", zIndex: 300,
+            top: tooltip.y - 42, left: tooltip.x,
+            transform: "translateX(-50%)",
+            background: "#1A1917", color: "#FFFFFF",
+            fontSize: 11, fontWeight: 500, fontFamily: FF,
+            padding: "6px 11px", borderRadius: 6,
+            whiteSpace: "nowrap" as const,
+            pointerEvents: "none" as const,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.22)",
+          }}>
+            {techDisplay} · {duration ? `${duration}h` : "—"} · ${parseFloat(tooltip.row.revenue).toFixed(0)} · {tooltip.row.service_type || "—"}
+            <div style={{ position: "absolute", bottom: -5, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid #1A1917" }} />
+          </div>
+        );
+      })()}
+    </>
   );
 }
 
 // ─── Client Intelligence Panel (right 25%) ────────────────────────────────────
-function ClientIntelligencePanel({ jhStats, profile }: { jhStats: any; profile: any }) {
+function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; profile: any; noCard?: boolean }) {
+  const outerStyle: React.CSSProperties = noCard
+    ? { fontFamily: FF, display: "flex", flexDirection: "column", gap: 16, height: "100%", overflowY: "auto", padding: "16px" }
+    : { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 16 };
+
   if (!jhStats) {
     return (
-      <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 24, fontFamily: FF }}>
-        <div style={{ fontSize: 12, fontWeight: 800, color: "#0A0E1A", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 16 }}>Intelligence</div>
+      <div style={outerStyle}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Intelligence</div>
         <div style={{ fontSize: 13, color: "#9E9B94" }}>No history data</div>
       </div>
     );
@@ -1980,14 +2188,14 @@ function ClientIntelligencePanel({ jhStats, profile }: { jhStats: any; profile: 
 
   const SR = ({ label, value, color }: { label: string; value: string | number; color?: string }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 12, color: "#6B7280" }}>{label}</span>
+      <span style={{ fontSize: 12, color: "#6B6860" }}>{label}</span>
       <span style={{ fontSize: 13, fontWeight: 700, color: color || "#1A1917" }}>{value}</span>
     </div>
   );
 
   return (
-    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px", fontFamily: FF, display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 12, fontWeight: 800, color: "#0A0E1A", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Intelligence</div>
+    <div style={outerStyle}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Intelligence</div>
       <div style={{ background: techBg, borderRadius: 8, padding: "14px 16px" }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: techColor, textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>Tech Consistency</div>
         <div style={{ fontSize: 20, fontWeight: 900, color: techColor }}>{unique_techs} tech{unique_techs !== 1 ? "s" : ""}</div>
@@ -2331,11 +2539,26 @@ export default function CustomerProfilePage() {
           onEdit={() => navigate(`/customers/${clientId}/edit`)}
         />
 
-        {/* 3-column grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr", gap: 20, alignItems: "start", marginBottom: 20 }}>
-          <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} />
-          <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} />
-          <ClientIntelligencePanel jhStats={jhStats} profile={profile} />
+        {/* Unified 3-column card */}
+        <div style={{
+          display: "grid", gridTemplateColumns: "220px 1fr 200px",
+          maxHeight: 520, height: 520,
+          border: "1px solid #E5E2DC", borderRadius: 12, overflow: "hidden",
+          boxShadow: "0 1px 6px rgba(10,14,26,0.06)",
+          background: "#FFFFFF", marginBottom: 20,
+        }}>
+          {/* Client Details — left column */}
+          <div style={{ borderRight: "1px solid #E5E2DC", overflow: "hidden" }}>
+            <ClientDetailsPanel client={profile} jhStats={jhStats} recurringSchedule={recurringSchedule} noCard />
+          </div>
+          {/* Job History — center column, fills height */}
+          <div style={{ borderRight: "1px solid #E5E2DC", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
+          </div>
+          {/* Intelligence — right column */}
+          <div style={{ overflow: "hidden" }}>
+            <ClientIntelligencePanel jhStats={jhStats} profile={profile} noCard />
+          </div>
         </div>
 
         {/* Sticky section jump nav */}
