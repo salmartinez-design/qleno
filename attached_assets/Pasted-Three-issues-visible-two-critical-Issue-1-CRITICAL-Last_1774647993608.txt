@@ -1,0 +1,54 @@
+Three issues visible, two critical:
+
+**Issue 1 — CRITICAL: Last-cleaned question not firing**
+Recurring Cleaning is selected and active (blue border) but the last-cleaned question ("When was your home last professionally cleaned?") never appeared. The trigger is broken — the conditional logic isn't detecting the scope selection.
+
+**Issue 2 — CRITICAL: Wrong scopes still showing**
+- "PPM Turnover" is under COMMERCIAL — should never be public
+- "One-Time Standard Clean" is missing from RESIDENTIAL — should be there
+- COMMERCIAL should show "Commercial Cleaning" only, not PPM Turnover
+
+**Issue 3 — MINOR: Redundant help text**
+The line "1 — Very Clean · 2 — Moderately Clean · 3 — Very Dirty" directly below the question label is redundant since the pill buttons make it self-evident. Remove it.
+
+---
+
+**REPLIT PROMPT — THREE FIXES:**
+
+**Fix 1 — Scope allowlist (hard filter)**
+
+In the widget scope loader, replace the current DB query with a hard allowlist. Do not pull scopes dynamically and filter — explicitly render only these four scope options with these exact labels, hardcoded:
+
+RESIDENTIAL group:
+- `deep_clean` → "Deep Clean or Move In/Out"
+- `one_time_standard` → "One-Time Standard Clean"
+- `recurring` → "Recurring Cleaning"
+
+COMMERCIAL group:
+- `commercial` → "Commercial Cleaning"
+
+If any other scope key comes back from the DB, ignore it entirely. PPM Turnover, Hourly variants, PPM Common Areas, Multi-Unit — none of these should ever render in the widget regardless of DB state.
+
+**Fix 2 — Last-cleaned question trigger**
+
+The last-cleaned question is not appearing when Recurring Cleaning is selected. Debug and fix the conditional render. The question must appear immediately when `selectedScope === 'recurring'`, inserted between the scope cards and the Home Details section. It must appear before square footage — not after the cleanliness rating.
+
+Correct order for Recurring scope:
+1. Scope cards (Recurring selected)
+2. "When was your home last professionally cleaned?" — 4 pill options
+3. Home Details (square footage, bedrooms, etc.)
+4. "How would you rate the current cleanliness of your home?" — 3 pill options
+
+The last-cleaned question must be visible without scrolling after scope selection. If it requires scroll to reach, add a smooth scroll-into-view on the element after scope is selected.
+
+The Continue button must remain disabled until both the last-cleaned question AND the cleanliness question are answered (for Recurring scope).
+
+**Fix 3 — Remove redundant help text**
+
+Remove the subtitle line "1 — Very Clean · 2 — Moderately Clean · 3 — Very Dirty" that appears below the cleanliness question label. The three pill buttons are self-explanatory. Delete that line entirely.
+
+Republish after all three fixes.
+
+---
+
+Screenshot Step 2 with Recurring selected after republish — confirm last-cleaned question appears immediately below the scope cards.

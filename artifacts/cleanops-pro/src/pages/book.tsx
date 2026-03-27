@@ -254,6 +254,7 @@ export default function BookPage() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastCleanedRef = useRef<HTMLDivElement>(null);
 
   // ── Load company ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -291,6 +292,15 @@ export default function BookPage() {
       setFrequencyStr(defaultFreq?.frequency ?? "");
     }).catch(() => {});
   }, [scopeId]);
+
+  // ── Scroll last-cleaned question into view when Recurring is selected ────
+  useEffect(() => {
+    if (!company || !scopeId) return;
+    const sel = company.active_scopes.find(s => s.id === scopeId);
+    if (sel?.name?.toLowerCase() === "recurring cleaning" && lastCleanedRef.current) {
+      setTimeout(() => lastCleanedRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 150);
+    }
+  }, [scopeId, company]);
 
   // ── Live pricing calculation ──────────────────────────────────────────────
   const runCalc = useCallback(async (opts?: { code?: string }) => {
@@ -438,8 +448,8 @@ export default function BookPage() {
             condition_multiplier: showCleanlinessQ ? conditionMultiplier : null,
             applied_bundle_id: activeBundleId,
             bundle_discount_total: bundleSavings > 0 ? bundleSavings : null,
-            last_cleaned_response: scopeId === 11 ? (lastCleanedResponse || null) : null,
-            last_cleaned_flag: scopeId === 11 ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
+            last_cleaned_response: isRecurringScope ? (lastCleanedResponse || null) : null,
+            last_cleaned_flag: isRecurringScope ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -557,6 +567,7 @@ export default function BookPage() {
 
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
+  const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase() === "recurring cleaning";
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
   const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
@@ -860,38 +871,55 @@ export default function BookPage() {
               <p style={s.h2}>What type of cleaning do you need?</p>
               <p style={s.sub}>Select a service and tell us about your home.</p>
 
-              {/* Scope cards — fixed 4-scope allowlist in 2 groups */}
+              {/* Scope cards — hardcoded 4-scope display, name-matched from DB */}
               {(() => {
-                const ALLOWED_IDS = [1, 3, 11, 7];
-                const allScopes = company.active_scopes.filter(sc => ALLOWED_IDS.includes(sc.id));
-                const residentialIds = [1, 3, 11];
-                const commercialIds = [7];
-                const residentialScopes = residentialIds.map(id => allScopes.find(sc => sc.id === id)).filter(Boolean) as typeof allScopes;
-                const commercialScopes = commercialIds.map(id => allScopes.find(sc => sc.id === id)).filter(Boolean) as typeof allScopes;
-                const groups: [string, typeof allScopes][] = [];
-                if (residentialScopes.length > 0) groups.push(["Residential", residentialScopes]);
-                if (commercialScopes.length > 0) groups.push(["Commercial", commercialScopes]);
-                return groups.map(([group, groupScopes]) => (
-                  <div key={group} style={{ marginBottom: 20 }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>{group}</p>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {groupScopes.map(sc => (
-                        <div key={sc.id} style={s.scopeCard(scopeId === sc.id)} onClick={() => setScopeId(sc.id)}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${scopeId === sc.id ? brand : "#C4C1BA"}`, background: scopeId === sc.id ? brand : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                              {scopeId === sc.id && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                type ScopeDef = { key: string; displayName: string; match: (n: string) => boolean };
+                const WIDGET_SCOPES: { group: string; scopes: ScopeDef[] }[] = [
+                  {
+                    group: "Residential",
+                    scopes: [
+                      { key: "deep_clean",       displayName: "Deep Clean or Move In/Out",  match: (n) => n.includes("deep clean") || n.includes("move in") },
+                      { key: "one_time_standard", displayName: "One-Time Standard Clean",    match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
+                      { key: "recurring",         displayName: "Recurring Cleaning",          match: (n) => n === "recurring cleaning" },
+                    ],
+                  },
+                  {
+                    group: "Commercial",
+                    scopes: [
+                      { key: "commercial", displayName: "Commercial Cleaning", match: (n) => n.includes("commercial cleaning") },
+                    ],
+                  },
+                ];
+                return WIDGET_SCOPES.map(({ group, scopes }) => {
+                  const rendered = scopes
+                    .map(def => {
+                      const dbScope = company.active_scopes.find(s => def.match(s.name.toLowerCase()));
+                      return dbScope ? { def, dbScope } : null;
+                    })
+                    .filter(Boolean) as { def: ScopeDef; dbScope: typeof company.active_scopes[0] }[];
+                  if (rendered.length === 0) return null;
+                  return (
+                    <div key={group} style={{ marginBottom: 20 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>{group}</p>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                        {rendered.map(({ def, dbScope }) => (
+                          <div key={def.key} style={s.scopeCard(scopeId === dbScope.id)} onClick={() => setScopeId(dbScope.id)}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${scopeId === dbScope.id ? brand : "#C4C1BA"}`, background: scopeId === dbScope.id ? brand : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                {scopeId === dbScope.id && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                              </div>
+                              <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{def.displayName}</span>
                             </div>
-                            <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{sc.name}</span>
                           </div>
-                        </div>
-                      ))}
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ));
+                  );
+                });
               })()}
 
               {/* ── Last-Cleaned Question (Recurring only) ──────────────────── */}
-              {scopeId === 11 && !isCommercial && (() => {
+              {isRecurringScope && (() => {
                 const LAST_CLEANED_OPTS = [
                   { value: "within_2_weeks", label: "Within the last 2 weeks" },
                   { value: "2_4_weeks",      label: "2–4 weeks ago" },
@@ -901,7 +929,7 @@ export default function BookPage() {
                 const isOverdue = ["1_3_months", "over_3_months"].includes(lastCleanedResponse);
                 const showDCRec = isOverdue && !lastCleanedOverride;
                 return (
-                  <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8, marginBottom: 0 }}>
+                  <div ref={lastCleanedRef} style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8, marginBottom: 0 }}>
                     <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", marginBottom: 4 }}>
                       When was your home last professionally cleaned?
                     </p>
@@ -1001,10 +1029,9 @@ export default function BookPage() {
 
                   {showCleanlinessQ && (
                     <div style={{ marginBottom: 16 }}>
-                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 8 }}>
                         How would you rate the current cleanliness of your home?
                       </label>
-                      <p style={{ margin: "0 0 10px", fontSize: 11, color: "#9E9B94" }}>1 — Very Clean · 2 — Moderately Clean · 3 — Very Dirty</p>
                       <div style={{ display: "flex", gap: 8 }}>
                         {([
                           [1, "1 — Very Clean"],
@@ -1084,8 +1111,8 @@ export default function BookPage() {
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (scopeId === 11 && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride))))) ? 0.5 : 1 }}
-                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (scopeId === 11 && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride))))}
+                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))) ? 0.5 : 1 }}
+                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && !lastCleanedOverride) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))}
                   onClick={() => isCommercial ? setStep(3) : setStep(2)}
                 >
                   Continue
