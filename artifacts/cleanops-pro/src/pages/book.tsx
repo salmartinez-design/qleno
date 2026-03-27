@@ -205,7 +205,7 @@ export default function BookPage() {
   const [floors, setFloors] = useState(1);
   const [people, setPeople] = useState(2);
   const [pets, setPets] = useState(0);
-  const [cleanliness, setCleanliness] = useState(2);
+  const [cleanliness, setCleanliness] = useState(0);
 
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
@@ -419,6 +419,8 @@ export default function BookPage() {
             scope_id: scopeId, sqft, frequency: frequencyStr,
             addon_ids: selectedAddonIds, discount_code: discountCode || null,
             bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
+            home_condition_rating: showCleanlinessQ ? (cleanliness || 1) : null,
+            condition_multiplier: showCleanlinessQ ? conditionMultiplier : null,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -538,6 +540,14 @@ export default function BookPage() {
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
+  const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
+  const showCleanlinessQ = !isCommercial && !!scopeId && (
+    (scopeNameLower.includes("deep clean") && !scopeNameLower.includes("hourly")) ||
+    scopeNameLower.includes("one-time standard") ||
+    scopeNameLower.startsWith("recurring")
+  );
+  const conditionMultiplier = (showCleanlinessQ && cleanliness === 3) ? 1.08 : 1.0;
+
   const stepLabels = ["Contact", "Scope", "Frequency", "Date", "Payment", "Confirmed"];
 
   // ── Right panel ───────────────────────────────────────────────────────────
@@ -642,13 +652,16 @@ export default function BookPage() {
               {calcResult.discount_amount > 0 && (
                 <Row label={`Discount${discountCode ? ` (${discountCode})` : ""}`} value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
               )}
+              {conditionMultiplier > 1 && (
+                <Row label="Condition Adj. (+8%)" value={`+$${(calcResult.final_total * 0.08).toFixed(2)}`} />
+              )}
               {calcResult.minimum_applied && (
                 <p style={{ fontSize: 11, color: "#F59E0B", margin: 0 }}>Minimum bill rate applied</p>
               )}
             </div>
             <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <span style={{ fontSize: 13, color: "#6B6860" }}>Estimated Total</span>
-              <span style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>${calcResult.final_total.toFixed(2)}</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>${(calcResult.final_total * conditionMultiplier).toFixed(2)}</span>
             </div>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 0" }}>Final price confirmed at time of service.</p>
           </div>
@@ -829,19 +842,39 @@ export default function BookPage() {
                     ))}
                   </div>
 
-                  <FieldWrap label={`Cleanliness (${cleanlinessLabel[cleanliness]})`}>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      {[1, 2, 3].map(v => (
-                        <button key={v} onClick={() => setCleanliness(v)} style={{
-                          flex: 1, padding: "10px 0", borderRadius: 8, border: `2px solid ${cleanliness === v ? brand : "#E5E2DC"}`,
-                          background: cleanliness === v ? `${brand}12` : "#fff", fontWeight: 600, fontSize: 13,
-                          color: cleanliness === v ? brand : "#6B6860", cursor: "pointer",
-                        }}>
-                          {v} — {cleanlinessLabel[v]}
-                        </button>
-                      ))}
+                  {showCleanlinessQ && (
+                    <div style={{ marginBottom: 16 }}>
+                      <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>
+                        How would you rate the current cleanliness of your home?
+                      </label>
+                      <p style={{ margin: "0 0 10px", fontSize: 11, color: "#9E9B94" }}>1 — Very Clean · 2 — Moderately Clean · 3 — Very Dirty</p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {([
+                          [1, "1 — Very Clean"],
+                          [2, "2 — Moderately Clean"],
+                          [3, "3 — Very Dirty"],
+                        ] as [number, string][]).map(([v, label]) => (
+                          <button
+                            key={v}
+                            onClick={() => setCleanliness(v)}
+                            style={{
+                              flex: 1, padding: "10px 6px", borderRadius: 8,
+                              border: `2px solid ${cleanliness === v ? brand : "#E5E2DC"}`,
+                              background: cleanliness === v ? `${brand}10` : "#fff",
+                              fontWeight: 600, fontSize: 12,
+                              color: cleanliness === v ? brand : "#1A1917",
+                              cursor: "pointer", transition: "all 0.15s",
+                            }}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      {cleanliness === 3 && (
+                        <p style={{ margin: "6px 0 0", fontSize: 11, color: "#F59E0B" }}>An 8% condition adjustment will be added to your estimate.</p>
+                      )}
                     </div>
-                  </FieldWrap>
+                  )}
                 </div>
               )}
 
@@ -1080,7 +1113,7 @@ export default function BookPage() {
                   <Row label="Frequency" value={frequencyStr} />
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
                   {address && <Row label="Address" value={address} />}
-                  {calcResult && <Row label="Estimated Total" value={`$${calcResult.final_total.toFixed(2)}`} bold />}
+                  {calcResult && <Row label="Estimated Total" value={`$${(calcResult.final_total * conditionMultiplier).toFixed(2)}`} bold />}
                 </div>
               </div>
 

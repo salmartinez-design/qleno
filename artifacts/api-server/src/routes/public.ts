@@ -129,6 +129,23 @@ router.get("/addons/:scopeId", rateLimit, async (req, res) => {
   }
 });
 
+// ── Map human-readable scope name → service_type enum ───────────────────────
+function scopeNameToServiceType(name: string): string {
+  const n = (name || "").toLowerCase();
+  if (n.includes("move out") || n.includes("move-out")) return "move_out";
+  if (n.includes("move in") || n.includes("move-in")) return "move_in";
+  if (n.includes("deep clean") || n.includes("move in/out")) return "deep_clean";
+  if (n.includes("recurring")) return "recurring";
+  if (n.includes("ppm turnover")) return "ppm_turnover";
+  if (n.includes("post construction") || n.includes("post_construction")) return "post_construction";
+  if (n.includes("post event") || n.includes("post_event")) return "post_event";
+  if (n.includes("office") || n.includes("commercial")) return "office_cleaning";
+  if (n.includes("common area")) return "common_areas";
+  if (n.includes("retail")) return "retail_store";
+  if (n.includes("medical")) return "medical_office";
+  return "standard_clean"; // fallback
+}
+
 // ── Shared calculate logic (used by both private and public calculate) ───────
 export async function runCalculate(params: {
   scope_id: number;
@@ -340,9 +357,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const {
       company_id,
       first_name, last_name, phone, email, zip,
-      referral_source, sms_consent,
+      referral_source,
       scope_id, sqft, frequency, addon_ids, discount_code,
       bedrooms, bathrooms, half_baths, floors, people, pets, cleanliness,
+      home_condition_rating, condition_multiplier,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
     } = req.body;
@@ -411,16 +429,14 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         drizzleSql`
           INSERT INTO clients (
             company_id, first_name, last_name, phone, email,
-            referral_source, sms_consent,
+            referral_source,
             stripe_customer_id, stripe_payment_method_id, payment_source,
-            card_last_four, card_brand, card_expiry, card_saved_at,
-            created_at
+            card_last_four, card_brand, card_expiry, card_saved_at, created_at
           ) VALUES (
             ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-            ${referral_source || null}, ${sms_consent ? true : false},
+            ${referral_source || null},
             ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
-            ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(),
-            NOW()
+            ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW()
           ) RETURNING id
         `
       );
@@ -439,18 +455,23 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const addonBreakdownJson = JSON.stringify(pricing.addon_breakdown);
     const scopeRow = await db.execute(drizzleSql`SELECT name FROM pricing_scopes WHERE id = ${scope_id} LIMIT 1`);
     const scopeName = (scopeRow.rows[0] as any)?.name || "Cleaning";
-    const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || "N/A"}. People: ${people || "N/A"}. Floors: ${floors || "N/A"}. Home ID: ${homeId}.`;
+    const serviceTypeEnum = scopeNameToServiceType(scopeName);
+    const condMult = parseFloat(String(condition_multiplier || 1)) || 1;
+    const condRating = parseInt(String(home_condition_rating || 1)) || 1;
+    const adjustedTotal = Math.round(pricing.final_total * condMult * 100) / 100;
+    const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || "N/A"}. Condition rating: ${condRating}. People: ${people || "N/A"}. Floors: ${floors || "N/A"}. Home ID: ${homeId}.`;
 
     const jobResult = await db.execute(
       drizzleSql`
         INSERT INTO jobs (
           company_id, client_id, service_type, status,
-          scheduled_date, frequency, base_fee, estimated_hours, hourly_rate, notes, created_at
+          scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
+          home_condition_rating, condition_multiplier, notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, ${scopeName}, 'unassigned',
+          ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
           ${preferred_date || null}, ${frequency},
-          ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
-          ${jobNotes}, NOW()
+          ${adjustedTotal}, ${pricing.base_hours}, ${pricing.hourly_rate},
+          ${condRating}, ${condMult}, ${jobNotes}, NOW()
         ) RETURNING id
       `
     );
