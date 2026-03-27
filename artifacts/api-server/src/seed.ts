@@ -202,7 +202,7 @@ export async function seedIfNeeded() {
           brand_color: "#5B9BD5",
           phone: "(773) 706-6000",
           email: "info@phes.io",
-          address: "4800 W 95th St",
+          address: "9850 South Cicero Ave",
           city: "Oak Lawn",
           state: "IL",
           zip: "60453",

@@ -502,44 +502,90 @@ export default function BookPage() {
   const stepLabels = ["Contact", "Scope", "Frequency", "Date", "Payment", "Confirmed"];
 
   // ── Right panel ───────────────────────────────────────────────────────────
+  const sectionLabel: React.CSSProperties = {
+    margin: "0 0 12px", fontWeight: 700, fontSize: 11, textTransform: "uppercase",
+    letterSpacing: "0.07em", color: "#9E9B94",
+  };
   const rightPanel = (
     <div style={{ width: 300, flexShrink: 0 }}>
-      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 16 }}>
-        {/* Company info */}
+      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+
+        {/* Section 1 — Contact Information */}
         <div style={s.card}>
-          {logoSrc && (
-            <img src={logoSrc} alt={company.name} style={{ height: 40, objectFit: "contain", marginBottom: 12 }} />
-          )}
-          <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 16, color: "#1A1917" }}>{company.name}</p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <p style={sectionLabel}>Contact Information</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {company.phone && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860" }}>
-                <Phone size={14} color={brand} />
-                <a href={`tel:${company.phone}`} style={{ color: "#6B6860", textDecoration: "none" }}>{company.phone}</a>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                <Phone size={14} color={brand} style={{ flexShrink: 0 }} />
+                <a href={`tel:${company.phone}`} style={{ color: brand, textDecoration: "none", fontWeight: 600 }}>{company.phone}</a>
               </div>
             )}
             {company.email && (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860" }}>
-                <Mail size={14} color={brand} />
-                <a href={`mailto:${company.email}`} style={{ color: "#6B6860", textDecoration: "none" }}>{company.email}</a>
-              </div>
-            )}
-            {(company.city || company.address) && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#6B6860" }}>
-                <MapPin size={14} color={brand} style={{ marginTop: 2, flexShrink: 0 }} />
-                <span>{[company.address, company.city, company.state].filter(Boolean).join(", ")}</span>
-              </div>
-            )}
-            {company.business_hours && (
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#6B6860" }}>
-                <Clock size={14} color={brand} style={{ marginTop: 2, flexShrink: 0 }} />
-                <span style={{ whiteSpace: "pre-line" }}>{company.business_hours}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13 }}>
+                <Mail size={14} color={brand} style={{ flexShrink: 0 }} />
+                <a href={`mailto:${company.email}`} style={{ color: "#1A1917", textDecoration: "none" }}>{company.email}</a>
               </div>
             )}
           </div>
         </div>
 
-        {/* Price summary */}
+        {/* Section 2 — Office Locations */}
+        <div style={s.card}>
+          <p style={sectionLabel}>Office Locations</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <MapPin size={14} color={brand} style={{ marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Oak Lawn, IL</p>
+                <p style={{ margin: 0, fontSize: 12, color: "#9E9B94" }}>Oak Lawn, IL</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+              <MapPin size={14} color={brand} style={{ marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Schaumburg</p>
+                <p style={{ margin: 0, fontSize: 12, color: "#9E9B94" }}>Schaumburg, IL</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3 — Business Hours */}
+        <div style={s.card}>
+          <p style={sectionLabel}>Business Hours</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {(company.business_hours ?? "").split("\n").filter(Boolean).map(line => {
+              const colonIdx = line.indexOf(": ");
+              const day = colonIdx >= 0 ? line.slice(0, colonIdx) : line;
+              const time = colonIdx >= 0 ? line.slice(colonIdx + 2) : "";
+              return (
+                <div key={line} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 13 }}>
+                  <span style={{ color: "#6B6860" }}>{day}</span>
+                  <span style={{ color: time === "Closed" ? "#9E9B94" : "#1A1917", fontWeight: 500 }}>{time || day}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Section 4 — Important Policies */}
+        <div style={s.card}>
+          <p style={sectionLabel}>Important Policies</p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 14 }}>
+            {["48-hour cancellation notice required", "24-hour satisfaction guarantee", "Licensed, bonded & insured"].map(policy => (
+              <div key={policy} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#6B6860" }}>
+                <CheckCircle2 size={14} color={brand} style={{ marginTop: 1, flexShrink: 0 }} />
+                <span>{policy}</span>
+              </div>
+            ))}
+          </div>
+          <a href="https://phes.io/terms" target="_blank" rel="noreferrer"
+            style={{ display: "block", textAlign: "center", fontSize: 12, fontWeight: 600, color: brand, textDecoration: "none", padding: "9px 14px", border: `1px solid ${brand}`, borderRadius: 8 }}>
+            View Full Terms & Conditions
+          </a>
+        </div>
+
+        {/* Estimate summary (appears once pricing is selected) */}
         {calcResult && (
           <div style={s.card}>
             <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 14, color: "#1A1917", borderBottom: "1px solid #E5E2DC", paddingBottom: 10 }}>Estimate Summary</p>
