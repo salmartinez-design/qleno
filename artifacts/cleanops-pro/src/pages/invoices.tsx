@@ -5,7 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown } from "lucide-react";
+import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown, DollarSign, RotateCcw, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CloseDayModal } from "@/components/close-day-modal";
 
@@ -477,6 +477,45 @@ export default function InvoicesPage() {
   try { userRole = JSON.parse(atob(token.split(".")[1])).role || "office"; } catch {}
   const canAdmin = userRole === "owner" || userRole === "admin";
   const { activeBranchId } = useBranch();
+
+  const [readyExpanded, setReadyExpanded] = useState(true);
+  const [failedExpanded, setFailedExpanded] = useState(true);
+  const [chargingJobId, setChargingJobId] = useState<number | null>(null);
+
+  const { data: readyData, refetch: refetchReady } = useQuery({
+    queryKey: ["ready-to-charge"],
+    queryFn: () => apiFetch("/api/jobs/ready-to-charge"),
+    enabled: canAdmin,
+  });
+  const readyJobs: any[] = readyData?.data || [];
+
+  const { data: failedData, refetch: refetchFailed } = useQuery({
+    queryKey: ["failed-payments"],
+    queryFn: () => apiFetch("/api/payments/failed"),
+    enabled: canAdmin,
+  });
+  const failedPayments: any[] = failedData?.data || [];
+
+  async function chargeJob(jobId: number) {
+    setChargingJobId(jobId);
+    try {
+      const r = await fetch(`${API}/api/jobs/${jobId}/charge`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Charge failed");
+      const brand = d.card_brand ? (d.card_brand.charAt(0).toUpperCase() + d.card_brand.slice(1)) : "Card";
+      toast({ title: `Payment collected`, description: `${brand} •••• ${d.card_last_four || "????"} charged $${Number(d.amount).toFixed(2)}` });
+      refetchReady();
+      refetchFailed();
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Charge failed", description: err.message, variant: "destructive" });
+    } finally {
+      setChargingJobId(null);
+    }
+  }
 
   const buildInvoicesUrl = () => {
     const params = new URLSearchParams();

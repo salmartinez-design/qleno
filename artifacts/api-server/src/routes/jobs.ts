@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -495,6 +495,38 @@ router.get("/availability", requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/jobs/ready-to-charge ─── Daily Stripe charge queue ──────────────
+router.get("/ready-to-charge", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    const rows = await db.execute(drizzleSql`
+      SELECT j.id, j.client_id, j.scheduled_date, j.base_fee, j.billed_amount, j.service_type,
+             j.charge_failed_at,
+             c.first_name, c.last_name, c.card_last_four, c.card_brand, c.payment_source
+      FROM jobs j
+      JOIN clients c ON c.id = j.client_id
+      WHERE j.company_id = ${companyId}
+        AND j.status = 'complete'
+        AND c.payment_source = 'stripe'
+        AND c.stripe_payment_method_id IS NOT NULL
+        AND j.charge_succeeded_at IS NULL
+        AND j.scheduled_date = ${todayStr}
+        AND NOT EXISTS (
+          SELECT 1 FROM payments p WHERE p.job_id = j.id AND p.status = 'completed'
+        )
+      ORDER BY c.last_name, c.first_name
+    `);
+
+    return res.json({ data: rows.rows });
+  } catch (err) {
+    console.error("GET /jobs/ready-to-charge error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
@@ -973,6 +1005,168 @@ router.post("/:id/photos", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Upload photo error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to upload photo" });
+  }
+});
+
+// ── POST /api/jobs/:id/charge ─── Manual Stripe charge (owner/admin only) ────
+router.post("/:id/charge", requireAuth, async (req, res) => {
+  try {
+    const role = (req as any).auth?.role;
+    if (role !== "owner" && role !== "admin") {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+
+    // Load job with client info
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    const jobRows = await db.execute(drizzleSql`
+      SELECT j.id, j.company_id, j.client_id, j.status, j.base_fee, j.billed_amount,
+             j.charge_failed_at, j.charge_succeeded_at,
+             c.stripe_customer_id, c.stripe_payment_method_id, c.payment_source,
+             c.card_last_four, c.card_brand,
+             c.first_name, c.last_name, c.email, c.phone,
+             inv.id as invoice_id, inv.total as invoice_total, inv.status as invoice_status
+      FROM jobs j
+      JOIN clients c ON c.id = j.client_id
+      LEFT JOIN invoices inv ON inv.job_id = j.id AND inv.status != 'paid'
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId}
+      LIMIT 1
+    `);
+
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+    const job = jobRows.rows[0] as any;
+
+    if (job.status !== "complete") return res.status(400).json({ error: "Job must be completed before charging" });
+    if (job.payment_source !== "stripe") return res.status(400).json({ error: "Client does not have Stripe on file" });
+    if (!job.stripe_customer_id || !job.stripe_payment_method_id) {
+      return res.status(400).json({ error: "No card on file for this client" });
+    }
+    if (job.charge_succeeded_at) return res.status(400).json({ error: "Job already charged successfully" });
+
+    // Check for existing successful payment
+    const existingPmt = await db.execute(drizzleSql`
+      SELECT id FROM payments WHERE job_id = ${jobId} AND status = 'completed' LIMIT 1
+    `);
+    if (existingPmt.rows.length > 0) return res.status(400).json({ error: "Payment already recorded for this job" });
+
+    const chargeAmount = Number(job.billed_amount || job.base_fee || 0);
+    if (chargeAmount <= 0) return res.status(400).json({ error: "Invalid charge amount" });
+    const amountCents = Math.round(chargeAmount * 100);
+
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey) return res.status(503).json({ error: "Stripe not configured" });
+
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
+
+    try {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: "usd",
+        customer: job.stripe_customer_id,
+        payment_method: job.stripe_payment_method_id,
+        confirm: true,
+        off_session: true,
+        description: `Job #${jobId} — ${job.first_name} ${job.last_name}`,
+        metadata: {
+          job_id: String(jobId),
+          client_id: String(job.client_id),
+          company_id: String(companyId),
+        },
+      });
+
+      if (paymentIntent.status !== "succeeded") {
+        throw new Error(`Payment status: ${paymentIntent.status}`);
+      }
+
+      // Record successful payment
+      await db.insert(paymentsTable).values({
+        company_id: companyId,
+        client_id: job.client_id,
+        invoice_id: job.invoice_id || null,
+        job_id: jobId,
+        amount: String(chargeAmount),
+        method: "stripe",
+        status: "completed",
+        stripe_payment_id: paymentIntent.id,
+        last_4: job.card_last_four || null,
+        card_brand: job.card_brand || null,
+        processed_by: req.auth!.userId,
+        attempted_at: new Date(),
+      });
+
+      // Mark invoice paid
+      if (job.invoice_id) {
+        await db.execute(drizzleSql`
+          UPDATE invoices SET status = 'paid', paid_at = NOW(), stripe_payment_intent_id = ${paymentIntent.id}
+          WHERE id = ${job.invoice_id}
+        `);
+      }
+
+      // Mark job charged
+      await db.execute(drizzleSql`
+        UPDATE jobs SET charge_succeeded_at = NOW(), charge_failed_at = NULL WHERE id = ${jobId}
+      `);
+
+      // Fire payment_received notification
+      try {
+        await sendNotification("payment_received", job.client_id, companyId, {
+          client_name: `${job.first_name} ${job.last_name}`,
+          client_email: job.email,
+          client_phone: job.phone,
+          amount: chargeAmount.toFixed(2),
+          card_brand: job.card_brand || "Card",
+          card_last_four: job.card_last_four || "****",
+        });
+      } catch (notifErr) {
+        console.error("[charge] notification error:", notifErr);
+      }
+
+      console.log(`[STRIPE] Charge succeeded — job_id=${jobId} amount=$${chargeAmount} pi=${paymentIntent.id}`);
+      return res.json({
+        ok: true,
+        amount: chargeAmount,
+        card_brand: job.card_brand,
+        card_last_four: job.card_last_four,
+        payment_intent_id: paymentIntent.id,
+      });
+    } catch (stripeErr: any) {
+      const errCode = stripeErr?.code || stripeErr?.raw?.code || "unknown";
+      const errMsg = stripeErr?.message || "Charge failed";
+
+      // Record failed payment
+      await db.insert(paymentsTable).values({
+        company_id: companyId,
+        client_id: job.client_id,
+        invoice_id: job.invoice_id || null,
+        job_id: jobId,
+        amount: String(chargeAmount),
+        method: "stripe",
+        status: "failed",
+        stripe_error_code: errCode,
+        stripe_error_message: errMsg,
+        last_4: job.card_last_four || null,
+        card_brand: job.card_brand || null,
+        processed_by: req.auth!.userId,
+        attempted_at: new Date(),
+      });
+
+      // Mark job charge failed
+      await db.execute(drizzleSql`
+        UPDATE jobs SET charge_failed_at = NOW() WHERE id = ${jobId}
+      `);
+
+      console.error(`[STRIPE] Charge failed — job_id=${jobId} code=${errCode} msg=${errMsg}`);
+      return res.status(402).json({
+        error: `Charge failed: ${errMsg}. Contact the client to collect a backup payment method.`,
+        stripe_error_code: errCode,
+      });
+    }
+  } catch (err: any) {
+    console.error("POST /jobs/:id/charge error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

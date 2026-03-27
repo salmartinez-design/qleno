@@ -279,7 +279,219 @@ router.post("/calculate", rateLimit, async (req, res) => {
   }
 });
 
-// ── POST /api/public/book ────────────────────────────────────────────────────
+// ── POST /api/public/book/setup ─────────────────────────────────────────────
+// Phase 1: Create Stripe customer + SetupIntent. Returns client_secret for card capture.
+// Does NOT create any DB records yet.
+router.post("/book/setup", rateLimit, async (req, res) => {
+  try {
+    const { company_id, email, first_name, last_name, phone } = req.body;
+    if (!company_id || !email) return res.status(400).json({ error: "Missing required fields" });
+
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const pubKey = process.env.STRIPE_PUBLISHABLE_KEY;
+    if (!stripeKey || !pubKey) {
+      return res.json({ stripe_enabled: false });
+    }
+
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
+
+    // Check for existing client with Stripe customer
+    const existing = await db.execute(
+      drizzleSql`SELECT id, stripe_customer_id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
+    );
+
+    let customerId: string;
+    if (existing.rows.length > 0 && (existing.rows[0] as any).stripe_customer_id) {
+      customerId = (existing.rows[0] as any).stripe_customer_id;
+    } else {
+      const customer = await stripe.customers.create({
+        email,
+        name: `${first_name || ""} ${last_name || ""}`.trim(),
+        phone: phone || undefined,
+        metadata: { company_id: String(company_id) },
+      });
+      customerId = customer.id;
+    }
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      usage: "off_session",
+    });
+
+    return res.json({
+      stripe_enabled: true,
+      publishable_key: pubKey,
+      client_secret: setupIntent.client_secret,
+      customer_id: customerId,
+    });
+  } catch (err: any) {
+    console.error("POST /public/book/setup:", err);
+    return res.status(500).json({ error: "Failed to initialize payment setup" });
+  }
+});
+
+// ── POST /api/public/book/confirm ────────────────────────────────────────────
+// Phase 2: Card has been confirmed client-side. Store payment method + create job.
+router.post("/book/confirm", rateLimit, async (req, res) => {
+  try {
+    const {
+      company_id,
+      first_name, last_name, phone, email, zip,
+      referral_source, sms_consent,
+      scope_id, sqft, frequency, addon_ids, discount_code,
+      bedrooms, bathrooms, half_baths, floors, people, pets, cleanliness,
+      address, preferred_date,
+      payment_method_id, stripe_customer_id,
+    } = req.body;
+
+    if (!company_id || !first_name || !last_name || !phone || !email || !scope_id || !sqft || !frequency) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeKey || !payment_method_id) {
+      return res.status(400).json({ error: "Card verification required" });
+    }
+
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
+
+    // Retrieve payment method details (card last4, brand)
+    let cardLast4: string | null = null;
+    let cardBrand: string | null = null;
+    let cardExpiry: string | null = null;
+    try {
+      const pm = await stripe.paymentMethods.retrieve(payment_method_id);
+      cardLast4 = pm.card?.last4 || null;
+      cardBrand = pm.card?.brand || null;
+      cardExpiry = pm.card?.exp_month && pm.card?.exp_year
+        ? `${String(pm.card.exp_month).padStart(2, "0")}/${pm.card.exp_year}`
+        : null;
+      // Attach to customer if not already attached
+      if (stripe_customer_id && !pm.customer) {
+        await stripe.paymentMethods.attach(payment_method_id, { customer: stripe_customer_id });
+        await stripe.customers.update(stripe_customer_id, {
+          invoice_settings: { default_payment_method: payment_method_id },
+        });
+      }
+    } catch (pmErr: any) {
+      console.error("Stripe PM retrieve error:", pmErr);
+      return res.status(422).json({
+        error: "We were unable to verify your card. Please check your details or use a different card.",
+      });
+    }
+
+    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
+    const { sql: drizzleSql } = await import("drizzle-orm");
+
+    // Find or create client
+    const existingClients = await db.execute(
+      drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
+    );
+
+    let clientId: number;
+    if (existingClients.rows.length > 0) {
+      clientId = (existingClients.rows[0] as any).id;
+      await db.execute(
+        drizzleSql`UPDATE clients SET
+          stripe_customer_id = COALESCE(stripe_customer_id, ${stripe_customer_id || null}),
+          stripe_payment_method_id = ${payment_method_id},
+          payment_source = 'stripe',
+          card_last_four = ${cardLast4},
+          card_brand = ${cardBrand},
+          card_expiry = ${cardExpiry},
+          card_saved_at = NOW()
+          WHERE id = ${clientId}`
+      );
+    } else {
+      const newClient = await db.execute(
+        drizzleSql`
+          INSERT INTO clients (
+            company_id, first_name, last_name, phone, email,
+            referral_source, sms_consent,
+            stripe_customer_id, stripe_payment_method_id, payment_source,
+            card_last_four, card_brand, card_expiry, card_saved_at,
+            created_at
+          ) VALUES (
+            ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
+            ${referral_source || null}, ${sms_consent ? true : false},
+            ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
+            ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(),
+            NOW()
+          ) RETURNING id
+        `
+      );
+      clientId = (newClient.rows[0] as any).id;
+    }
+
+    const homeResult = await db.execute(
+      drizzleSql`
+        INSERT INTO client_homes (company_id, client_id, address, zip, bedrooms, bathrooms, sq_footage, is_primary, created_at)
+        VALUES (${company_id}, ${clientId}, ${address || null}, ${zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
+        RETURNING id
+      `
+    );
+    const homeId = (homeResult.rows[0] as any).id;
+
+    const addonBreakdownJson = JSON.stringify(pricing.addon_breakdown);
+    const scopeRow = await db.execute(drizzleSql`SELECT name FROM pricing_scopes WHERE id = ${scope_id} LIMIT 1`);
+    const scopeName = (scopeRow.rows[0] as any)?.name || "Cleaning";
+    const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || "N/A"}. People: ${people || "N/A"}. Floors: ${floors || "N/A"}. Home ID: ${homeId}.`;
+
+    const jobResult = await db.execute(
+      drizzleSql`
+        INSERT INTO jobs (
+          company_id, client_id, service_type, status,
+          scheduled_date, frequency, base_fee, estimated_hours, hourly_rate, notes, created_at
+        ) VALUES (
+          ${company_id}, ${clientId}, ${scopeName}, 'unassigned',
+          ${preferred_date || null}, ${frequency},
+          ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
+          ${jobNotes}, NOW()
+        ) RETURNING id
+      `
+    );
+    const jobId = (jobResult.rows[0] as any).id;
+
+    await db.execute(
+      drizzleSql`
+        INSERT INTO quotes (
+          company_id, client_id, scope_id, sqft, frequency,
+          base_price, discount_amount, discount_code, total_price,
+          estimated_hours, addons, status, booked_job_id,
+          bedrooms, bathrooms, pets, notes, created_at
+        ) VALUES (
+          ${company_id}, ${clientId}, ${scope_id}, ${sqft}, ${frequency},
+          ${pricing.base_price}, ${pricing.discount_amount}, ${discount_code || null}, ${pricing.final_total},
+          ${pricing.base_hours}, ${addonBreakdownJson}::jsonb, 'booked', ${jobId},
+          ${bedrooms || null}, ${bathrooms || null}, ${pets || null},
+          ${`Online booking: ${scopeName}, ${sqft} sqft, ${frequency}`},
+          NOW()
+        )
+      `
+    );
+
+    console.log(`[STRIPE] Booking confirmed — client_id=${clientId} job_id=${jobId} PM=${payment_method_id} card=${cardBrand} *${cardLast4}`);
+    return res.status(201).json({
+      ok: true,
+      client_id: clientId,
+      job_id: jobId,
+      home_id: homeId,
+      pricing,
+      card_last4: cardLast4,
+      card_brand: cardBrand,
+    });
+  } catch (err: any) {
+    if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
+    console.error("POST /public/book/confirm:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/public/book ─── (legacy / Stripe-disabled fallback) ─────────────
 router.post("/book", rateLimit, async (req, res) => {
   try {
     const {
@@ -288,21 +500,23 @@ router.post("/book", rateLimit, async (req, res) => {
       referral_source, sms_consent,
       scope_id, sqft, frequency, addon_ids, discount_code,
       bedrooms, bathrooms, half_baths, floors, people, pets, cleanliness,
-      address,
-      preferred_date,
-      card_token,
+      address, preferred_date,
     } = req.body;
 
     if (!company_id || !first_name || !last_name || !phone || !email || !scope_id || !sqft || !frequency) {
       return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    if (stripeKey) {
+      return res.status(400).json({ error: "Card verification required. Please use the booking widget." });
+    }
 
+    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
     const { sql: drizzleSql } = await import("drizzle-orm");
 
     const existingClients = await db.execute(
-      drizzleSql`SELECT id, first_name, last_name, phone, email FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
+      drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
     let clientId: number;
@@ -311,8 +525,8 @@ router.post("/book", rateLimit, async (req, res) => {
     } else {
       const newClient = await db.execute(
         drizzleSql`
-          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, sms_consent, status, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source || null}, ${sms_consent ? true : false}, 'active', NOW())
+          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, sms_consent, created_at)
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source || null}, ${sms_consent ? true : false}, NOW())
           RETURNING id
         `
       );
@@ -328,59 +542,20 @@ router.post("/book", rateLimit, async (req, res) => {
     );
     const homeId = (homeResult.rows[0] as any).id;
 
-    let stripeCustomerId: string | null = null;
-    let setupIntentClientSecret: string | null = null;
-
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    if (stripeKey && card_token) {
-      try {
-        const Stripe = (await import("stripe")).default;
-        const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
-
-        const customer = await stripe.customers.create({
-          email,
-          name: `${first_name} ${last_name}`,
-          phone,
-          metadata: { company_id: String(company_id), client_id: String(clientId) },
-        });
-        stripeCustomerId = customer.id;
-
-        const setupIntent = await stripe.setupIntents.create({
-          customer: customer.id,
-          payment_method_types: ["card"],
-          usage: "off_session",
-        });
-        setupIntentClientSecret = setupIntent.client_secret;
-
-        await db.execute(
-          drizzleSql`UPDATE clients SET stripe_customer_id = ${stripeCustomerId} WHERE id = ${clientId}`
-        );
-      } catch (stripeErr) {
-        console.error("Stripe setup error (non-fatal):", stripeErr);
-      }
-    }
-
     const addonBreakdownJson = JSON.stringify(pricing.addon_breakdown);
-    const addonIdsJson = JSON.stringify(addon_ids || []);
-
     const scopeRow = await db.execute(drizzleSql`SELECT name FROM pricing_scopes WHERE id = ${scope_id} LIMIT 1`);
     const scopeName = (scopeRow.rows[0] as any)?.name || "Cleaning";
-
-    const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || 'N/A'}. People: ${people || 'N/A'}. Floors: ${floors || 'N/A'}. Home ID: ${homeId}.`;
+    const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || "N/A"}. People: ${people || "N/A"}. Floors: ${floors || "N/A"}. Home ID: ${homeId}.`;
 
     const jobResult = await db.execute(
       drizzleSql`
         INSERT INTO jobs (
           company_id, client_id, service_type, status,
-          scheduled_date, frequency,
-          base_fee, estimated_hours, hourly_rate,
-          notes, created_at
+          scheduled_date, frequency, base_fee, estimated_hours, hourly_rate, notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${scopeName}, 'unassigned',
-          ${preferred_date ? preferred_date : null}, ${frequency},
-          ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
-          ${jobNotes},
-          NOW()
+          ${preferred_date || null}, ${frequency}, ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
+          ${jobNotes}, NOW()
         ) RETURNING id
       `
     );
@@ -391,15 +566,12 @@ router.post("/book", rateLimit, async (req, res) => {
         INSERT INTO quotes (
           company_id, client_id, scope_id, sqft, frequency,
           base_price, discount_amount, discount_code, total_price,
-          estimated_hours,
-          addons, status, booked_job_id,
-          bedrooms, bathrooms, pets,
-          notes, created_at
+          estimated_hours, addons, status, booked_job_id,
+          bedrooms, bathrooms, pets, notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${scope_id}, ${sqft}, ${frequency},
           ${pricing.base_price}, ${pricing.discount_amount}, ${discount_code || null}, ${pricing.final_total},
-          ${pricing.base_hours},
-          ${addonBreakdownJson}::jsonb, 'booked', ${jobId},
+          ${pricing.base_hours}, ${addonBreakdownJson}::jsonb, 'booked', ${jobId},
           ${bedrooms || null}, ${bathrooms || null}, ${pets || null},
           ${`Online booking: ${scopeName}, ${sqft} sqft, ${frequency}`},
           NOW()
@@ -407,17 +579,7 @@ router.post("/book", rateLimit, async (req, res) => {
       `
     );
 
-    return res.status(201).json({
-      ok: true,
-      client_id: clientId,
-      job_id: jobId,
-      home_id: homeId,
-      pricing,
-      stripe: {
-        customer_id: stripeCustomerId,
-        setup_intent_client_secret: setupIntentClientSecret,
-      },
-    });
+    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, home_id: homeId, pricing });
   } catch (err: any) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error("POST /public/book:", err);

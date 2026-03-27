@@ -215,6 +215,16 @@ export default function BookPage() {
   const [bookError, setBookError] = useState("");
   const [booking, setBooking] = useState(false);
 
+  // Step 4: Stripe card capture
+  const [stripeEnabled, setStripeEnabled] = useState<boolean | null>(null); // null = unknown
+  const [stripeSetupLoading, setStripeSetupLoading] = useState(false);
+  const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+  const [stripeCustomerId, setStripeCustomerId] = useState<string | null>(null);
+  const [stripePubKey, setStripePubKey] = useState<string | null>(null);
+  const [stripeInstance, setStripeInstance] = useState<any>(null);
+  const [stripeCardElement, setStripeCardElement] = useState<any>(null);
+  const [stripeCardReady, setStripeCardReady] = useState(false);
+
   // Pricing
   const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
   const [calcLoading, setCalcLoading] = useState(false);
@@ -306,43 +316,118 @@ export default function BookPage() {
     return Object.keys(errs).length === 0;
   }
 
-  // ── Book submission ───────────────────────────────────────────────────────
+  // ── Stripe setup: called when entering Step 4 ─────────────────────────────
+  useEffect(() => {
+    if (step !== 4 || !company || stripeClientSecret || stripeEnabled === false || stripeSetupLoading) return;
+    setStripeSetupLoading(true);
+    setBookError("");
+    pubFetch("/api/public/book/setup", {
+      method: "POST",
+      body: JSON.stringify({ company_id: company.id, email, first_name: firstName, last_name: lastName, phone }),
+    })
+      .then((res) => {
+        if (!res.stripe_enabled) { setStripeEnabled(false); return; }
+        setStripeEnabled(true);
+        setStripePubKey(res.publishable_key);
+        setStripeClientSecret(res.client_secret);
+        setStripeCustomerId(res.customer_id);
+      })
+      .catch(() => { setStripeEnabled(false); })
+      .finally(() => setStripeSetupLoading(false));
+  }, [step, company]);
+
+  // ── Mount Stripe card element once we have client_secret + publishable_key ─
+  useEffect(() => {
+    if (!stripeEnabled || !stripeClientSecret || !stripePubKey) return;
+    const mountCard = () => {
+      const w = window as any;
+      if (!w.Stripe) return;
+      const stripe = w.Stripe(stripePubKey);
+      const elements = stripe.elements({ clientSecret: stripeClientSecret });
+      const cardEl = elements.create("card", {
+        style: {
+          base: {
+            fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
+            fontSize: "15px",
+            color: "#1A1917",
+            "::placeholder": { color: "#9E9B94" },
+          },
+        },
+      });
+      const container = document.getElementById("stripe-card-element-book");
+      if (container && !container.hasChildNodes()) {
+        cardEl.mount("#stripe-card-element-book");
+        cardEl.on("ready", () => setStripeCardReady(true));
+        setStripeInstance(stripe);
+        setStripeCardElement(cardEl);
+      }
+    };
+
+    const existing = document.getElementById("stripe-js-book");
+    if (existing) { mountCard(); return; }
+    const script = document.createElement("script");
+    script.id = "stripe-js-book";
+    script.src = "https://js.stripe.com/v3/";
+    script.onload = mountCard;
+    document.head.appendChild(script);
+  }, [stripeEnabled, stripeClientSecret, stripePubKey]);
+
+  // ── Book submission (Stripe path) ─────────────────────────────────────────
   async function submitBooking() {
     if (!company) return;
     setBooking(true);
     setBookError("");
+
     try {
+      // If Stripe is enabled, confirm the SetupIntent first
+      if (stripeEnabled && stripeInstance && stripeCardElement && stripeClientSecret) {
+        const { setupIntent, error } = await stripeInstance.confirmCardSetup(stripeClientSecret, {
+          payment_method: { card: stripeCardElement },
+        });
+        if (error) {
+          setBookError("We were unable to verify your card. Please check your details or use a different card.");
+          setBooking(false);
+          return;
+        }
+        const paymentMethodId = setupIntent.payment_method;
+        const result = await pubFetch("/api/public/book/confirm", {
+          method: "POST",
+          body: JSON.stringify({
+            company_id: company.id,
+            first_name: firstName, last_name: lastName, phone, email, zip,
+            referral_source: referral || null, sms_consent: smsConsent,
+            scope_id: scopeId, sqft, frequency: frequencyStr,
+            addon_ids: selectedAddonIds, discount_code: discountCode || null,
+            bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
+            address, preferred_date: selectedDate,
+            payment_method_id: paymentMethodId,
+            stripe_customer_id: stripeCustomerId,
+          }),
+        });
+        setBookResult(result);
+        setStep(5);
+        return;
+      }
+
+      // Stripe disabled fallback
       const result = await pubFetch("/api/public/book", {
         method: "POST",
         body: JSON.stringify({
           company_id: company.id,
-          first_name: firstName,
-          last_name: lastName,
-          phone,
-          email,
-          zip,
-          referral_source: referral || null,
-          sms_consent: smsConsent,
-          scope_id: scopeId,
-          sqft,
-          frequency: frequencyStr,
-          addon_ids: selectedAddonIds,
-          discount_code: discountCode || null,
-          bedrooms,
-          bathrooms,
-          half_baths: halfBaths,
-          floors,
-          people,
-          pets,
-          cleanliness,
-          address,
-          preferred_date: selectedDate,
+          first_name: firstName, last_name: lastName, phone, email, zip,
+          referral_source: referral || null, sms_consent: smsConsent,
+          scope_id: scopeId, sqft, frequency: frequencyStr,
+          addon_ids: selectedAddonIds, discount_code: discountCode || null,
+          bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
+          address, preferred_date: selectedDate,
         }),
       });
       setBookResult(result);
       setStep(5);
     } catch (err: any) {
-      setBookError(err.message || "Something went wrong. Please try again.");
+      let msg = err.message || "Something went wrong. Please try again.";
+      try { const parsed = JSON.parse(msg); if (parsed.error) msg = parsed.error; } catch {}
+      setBookError(msg);
     } finally {
       setBooking(false);
     }
@@ -796,18 +881,35 @@ export default function BookPage() {
           {step === 4 && (
             <div style={s.card}>
               <p style={s.h2}>Secure your appointment</p>
-              <p style={s.sub}>Your card is saved securely. You will not be charged until after each completed cleaning.</p>
+              <p style={s.sub}>Your card is saved securely and charged only after each completed cleaning.</p>
 
-              <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: 20, marginBottom: 24, textAlign: "center" }}>
-                <p style={{ margin: "0 0 8px", fontWeight: 600, fontSize: 14, color: "#1A1917" }}>Card on File</p>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B6860" }}>
-                  Your payment card will be saved securely on file. You will be charged after each completed cleaning, not at booking.
-                </p>
-              </div>
+              {/* Stripe card form (when Stripe is configured) */}
+              {stripeEnabled !== false && (
+                <div style={{ marginBottom: 20 }}>
+                  {stripeSetupLoading || stripeEnabled === null ? (
+                    <div style={{ padding: "20px", textAlign: "center", fontSize: 13, color: "#9E9B94" }}>Setting up secure payment...</div>
+                  ) : (
+                    <div>
+                      <p style={{ margin: "0 0 10px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>Card Details</p>
+                      <div
+                        id="stripe-card-element-book"
+                        style={{
+                          border: "1px solid #E5E2DC", borderRadius: 8,
+                          padding: "14px 16px", backgroundColor: "#FFFFFF",
+                          minHeight: 48,
+                        }}
+                      />
+                      <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>
+                        Secured by Stripe. Your card details are encrypted and never stored on our servers.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
 
-              <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 20, marginBottom: 24 }}>
-                <p style={{ margin: "0 0 16px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>Booking Summary</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16, marginBottom: 20 }}>
+                <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>Booking Summary</p>
+                <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                   <Row label="Name" value={`${firstName} ${lastName}`} />
                   <Row label="Email" value={email} />
                   <Row label="Phone" value={phone} />
@@ -829,11 +931,11 @@ export default function BookPage() {
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: booking ? 0.7 : 1 }}
-                  disabled={booking}
+                  style={{ ...s.btn(), opacity: (booking || (stripeEnabled && !stripeCardReady)) ? 0.7 : 1 }}
+                  disabled={booking || (stripeEnabled === true && !stripeCardReady)}
                   onClick={submitBooking}
                 >
-                  {booking ? "Booking..." : "Book It"}
+                  {booking ? "Processing..." : stripeEnabled ? "Confirm & Book" : "Book It"}
                 </button>
               </div>
             </div>

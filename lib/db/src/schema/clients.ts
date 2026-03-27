@@ -62,6 +62,8 @@ export const clientsTable = pgTable("clients", {
   card_brand: text("card_brand"),
   card_expiry: text("card_expiry"),
   card_saved_at: timestamp("card_saved_at"),
+  stripe_payment_method_id: text("stripe_payment_method_id"),
+  payment_source: text("payment_source"),
   zone_id: integer("zone_id"),
   account_id: integer("account_id"),
   referral_source: referralSourceEnum("referral_source"),

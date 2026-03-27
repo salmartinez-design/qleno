@@ -1,0 +1,134 @@
+Wire the complete Stripe charge flow for PHES online 
+booking clients. This covers three stages: card 
+verification at booking, manual charge on day of service, 
+and failed charge handling.
+
+---
+
+STAGE 1 — CARD VERIFICATION AT BOOKING (already partially 
+built — verify and harden)
+
+When a booking is submitted at /book/phes-cleaning:
+
+1. Create a Stripe SetupIntent with usage = 'off_session'
+2. On SetupIntent confirmation, attach the PaymentMethod 
+   to a Stripe Customer object. Create the Stripe Customer 
+   if one does not already exist for this client email. 
+   Store stripe_customer_id on the client record in 
+   Supabase.
+3. Store the stripe_payment_method_id on the client record.
+4. Run a $0 authorization (setup_future_usage = 
+   'off_session') to verify the card is active. If Stripe 
+   returns an error at this stage (card declined, invalid, 
+   expired), return an error to the booking widget and 
+   block the booking from completing. Display message: 
+   "We were unable to verify your card. Please check your 
+   details or use a different card."
+5. Only create the job record AFTER card verification 
+   succeeds. Never create a job without a verified 
+   stripe_payment_method_id on the client.
+
+---
+
+STAGE 2 — MANUAL CHARGE ON DAY OF SERVICE
+
+Build a "Charge Client" button on the job detail page. 
+Visible to owner and admin roles only. Only appears when:
+- job.status = 'completed'
+- client.payment_source = 'stripe'
+- job has no existing successful payment record
+
+When clicked:
+1. Show a confirmation modal displaying:
+   - Client name
+   - Card brand + last 4 digits
+   - Charge amount (pulled from job total)
+   - Confirm button and Cancel button
+2. On confirm, create a Stripe PaymentIntent with:
+   - amount = job total in cents
+   - currency = 'usd'
+   - customer = client.stripe_customer_id
+   - payment_method = client.stripe_payment_method_id
+   - confirm = true
+   - off_session = true
+3. On success:
+   - Create a payment record in Supabase linked to the job 
+     and invoice
+   - Update invoice.status = 'paid'
+   - Fire the payment_received email + SMS notification 
+     to the client
+   - Show success toast: "Payment of $X.XX collected 
+     from [Card Brand] ending in XXXX"
+4. On failure: see Stage 3
+
+---
+
+STAGE 3 — FAILED CHARGE HANDLING
+
+If the Stripe PaymentIntent fails for any reason:
+
+1. Do NOT retry automatically
+2. Do NOT send anything to the client automatically
+3. Create a failed_payment record in Supabase with:
+   - job_id, client_id, amount, stripe_error_code, 
+     stripe_error_message, attempted_at
+4. Show error in the UI to the office user:
+   "Charge failed: [Stripe error message]. Contact the 
+   client to collect a backup payment method."
+5. Add a visible alert banner on the client profile and 
+   the job detail page: "Payment failed — follow up 
+   required" in red (#DC2626)
+6. Add the job to a Failed Payments queue visible in 
+   the Invoices module — filterable by status = 
+   'payment_failed'
+
+No auto-retry. No automated client notification. 
+Office handles all failed payment follow-up manually.
+
+---
+
+STAGE 4 — CARD ON FILE REQUIREMENT ENFORCEMENT
+
+This rule applies globally for PHES online bookings:
+
+- A job cannot be created via the iFrame without a 
+  verified stripe_payment_method_id
+- If SetupIntent fails for any reason, the booking 
+  is blocked
+- Office-created jobs for Stripe clients must also 
+  have a payment method on file before the job can 
+  be saved. If none exists, show warning: "No card 
+  on file for this client. Add a payment method 
+  before scheduling."
+
+For Square clients (existing PHES clients): 
+no change — existing Square workflow unchanged.
+
+---
+
+STAGE 5 — OFFICE CHARGE REVIEW QUEUE
+
+Build a daily charge queue view in the Invoices module. 
+Shows all jobs where:
+- status = 'completed'
+- payment_source = 'stripe'
+- no successful payment record exists
+- completed_at = today
+
+Label this section "Ready to Charge Today"
+
+Each row shows: client name, card last 4, job total, 
+scope, completed date. Charge button on each row 
+triggers Stage 2 flow inline.
+
+---
+
+VERIFICATION:
+
+After building, log:
+"STRIPE CHARGE FLOW COMPLETE — 
+Stage 1: SetupIntent + card verification wired
+Stage 2: Manual charge button built
+Stage 3: Failed charge queue built  
+Stage 4: Card on file enforcement active
+Stage 5: Daily charge review queue built"

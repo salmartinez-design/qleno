@@ -88,4 +88,30 @@ router.post("/:id/refund", requireAuth, requireRole("owner", "admin"), async (re
   }
 });
 
+// ── GET /api/payments/failed ─── Failed Stripe charges queue ─────────────────
+router.get("/failed", requireAuth, async (req, res) => {
+  try {
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(drizzleSql`
+      SELECT p.id, p.job_id, p.client_id, p.amount, p.stripe_error_code,
+             p.stripe_error_message, p.attempted_at, p.last_4, p.card_brand,
+             c.first_name, c.last_name,
+             j.service_type, j.scheduled_date
+      FROM payments p
+      JOIN clients c ON c.id = p.client_id
+      LEFT JOIN jobs j ON j.id = p.job_id
+      WHERE p.company_id = ${companyId}
+        AND p.status = 'failed'
+        AND p.stripe_error_code IS NOT NULL
+      ORDER BY p.attempted_at DESC
+      LIMIT 100
+    `);
+    return res.json({ data: rows.rows });
+  } catch (e: any) {
+    console.error("GET /payments/failed error:", e);
+    return res.status(500).json({ error: "Internal Server Error", message: e.message });
+  }
+});
+
 export default router;

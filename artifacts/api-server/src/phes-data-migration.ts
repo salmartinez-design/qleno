@@ -953,6 +953,12 @@ async function runNotificationTemplateSeed() {
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS review_link TEXT`);
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_start_hour INTEGER NOT NULL DEFAULT 8`);
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_end_hour INTEGER NOT NULL DEFAULT 18`);
+    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT`);
+    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT`);
+    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS job_id INTEGER`);
+    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_code TEXT`);
+    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_message TEXT`);
+    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempted_at TIMESTAMP`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP`);
 

@@ -92,6 +92,55 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const assignedEmp = employees.find(e => e.id === job.assigned_user_id);
   const endMins = timeToMins(job.scheduled_time) + job.duration_minutes;
 
+  // Role check for charge button
+  let userRole = "office";
+  try { userRole = JSON.parse(atob(token.split(".")[1])).role || "office"; } catch {}
+  const canCharge = (userRole === "owner" || userRole === "admin");
+
+  // Charge modal state
+  const [chargeOpen, setChargeOpen] = useState(false);
+  const [chargeClientData, setChargeClientData] = useState<{ card_last_four: string | null; card_brand: string | null; payment_source: string | null } | null>(null);
+  const [chargeBusy, setChargeBusy] = useState(false);
+  const [chargeError, setChargeError] = useState("");
+
+  const _API3 = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  async function openChargeModal() {
+    setChargeError("");
+    setChargeOpen(true);
+    if (!chargeClientData) {
+      try {
+        const r = await fetch(`${_API3}/api/clients/${job.client_id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const d = await r.json();
+        setChargeClientData({ card_last_four: d.card_last_four || d.default_card_last_4 || null, card_brand: d.card_brand || d.default_card_brand || null, payment_source: d.payment_source || null });
+      } catch { setChargeClientData({ card_last_four: null, card_brand: null, payment_source: null }); }
+    }
+  }
+
+  async function confirmCharge() {
+    setChargeBusy(true);
+    setChargeError("");
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/charge`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Charge failed");
+      const brand = d.card_brand ? (d.card_brand.charAt(0).toUpperCase() + d.card_brand.slice(1)) : "Card";
+      toast({ title: `Payment of $${Number(d.amount).toFixed(2)} collected`, description: `${brand} ending in ${d.card_last_four || "****"}` });
+      setChargeOpen(false);
+      onUpdate();
+    } catch (err: any) {
+      setChargeError(err.message || "Charge failed");
+    } finally {
+      setChargeBusy(false);
+    }
+  }
+
+  // Show charge button when: completed + can charge + not already charged + Stripe client
+  const chargeAmount = Number(job.billed_amount ?? job.amount ?? 0);
+
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");
   const [cancelNote, setCancelNote] = useState("");
@@ -403,6 +452,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Flag
             </button>
           )}
+          {/* Charge Client — owner/admin only, completed Stripe jobs not yet charged */}
+          {canCharge && job.status === "complete" && !job.charge_succeeded_at && (
+            <button onClick={openChargeModal}
+              style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#ECFDF5", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
+              <DollarSign size={13} /> Charge Client
+            </button>
+          )}
           <button onClick={() => {
             setRescheduleOpen(true); setRescheduleSuccess(""); setRescheduleReason(""); setRescheduleReasonOther("");
             setRescheduleDate(job.scheduled_date || ""); setRescheduleHour(null);
@@ -419,6 +475,49 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
         </div>
       </div>
+
+      {/* Charge Confirmation Modal */}
+      {chargeOpen && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: "100%", maxWidth: 400, fontFamily: FF }}>
+            <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Confirm Payment</h3>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280" }}>Charge the card on file for this completed job.</p>
+            <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: "#6B7280" }}>Client</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{job.client_name}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: "#6B7280" }}>Card</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
+                  {chargeClientData
+                    ? (chargeClientData.card_brand ? `${chargeClientData.card_brand.charAt(0).toUpperCase()}${chargeClientData.card_brand.slice(1)} ending in ${chargeClientData.card_last_four || "????"}` : "Card on file")
+                    : "Loading..."}
+                </span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 12, color: "#6B7280" }}>Amount</span>
+                <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${chargeAmount.toFixed(2)}</span>
+              </div>
+            </div>
+            {chargeError && (
+              <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12, color: "#DC2626", lineHeight: 1.5 }}>
+                {chargeError}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setChargeOpen(false)} disabled={chargeBusy}
+                style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                Cancel
+              </button>
+              <button onClick={confirmCharge} disabled={chargeBusy}
+                style={{ flex: 1, padding: "10px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, opacity: chargeBusy ? 0.7 : 1 }}>
+                {chargeBusy ? "Charging..." : `Charge $${chargeAmount.toFixed(2)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reschedule modal */}
       {rescheduleOpen && (() => {
