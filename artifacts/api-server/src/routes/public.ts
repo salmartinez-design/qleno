@@ -400,6 +400,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       applied_bundle_id, bundle_discount_total,
       last_cleaned_response, last_cleaned_flag,
       overage_disclaimer_acknowledged, overage_rate,
+      upsell_shown, upsell_accepted, upsell_declined, upsell_deferred,
+      upsell_cadence_selected, upsell_locked_rate,
+      property_vacant,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
     } = req.body;
@@ -507,6 +510,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const lastCleanedFl = last_cleaned_flag || null;
     const overageAck = overage_disclaimer_acknowledged === true || overage_disclaimer_acknowledged === "true" ? true : false;
     const overageRateVal = overage_rate ? parseFloat(String(overage_rate)) : null;
+    const upsellShownVal = upsell_shown === true || upsell_shown === "true" ? true : false;
+    const upsellAcceptedVal = upsell_accepted === true || upsell_accepted === "true" ? true : false;
+    const upsellDeclinedVal = upsell_declined === true || upsell_declined === "true" ? true : false;
+    const upsellDeferredVal = upsell_deferred === true || upsell_deferred === "true" ? true : false;
+    const upsellCadenceVal = upsell_cadence_selected || null;
+    const propertyVacantVal = property_vacant === true || property_vacant === "true" ? true : false;
 
     const jobResult = await db.execute(
       drizzleSql`
@@ -517,6 +526,8 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           applied_bundle_id, bundle_discount_total,
           last_cleaned_response, last_cleaned_flag,
           overage_disclaimer_acknowledged, overage_rate,
+          upsell_shown, upsell_accepted, upsell_declined, upsell_deferred, upsell_cadence_selected,
+          property_vacant,
           notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
@@ -526,11 +537,43 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${bundleId}, ${bundleDiscount},
           ${lastCleanedResp}, ${lastCleanedFl},
           ${overageAck}, ${overageRateVal},
+          ${upsellShownVal}, ${upsellAcceptedVal}, ${upsellDeclinedVal}, ${upsellDeferredVal}, ${upsellCadenceVal},
+          ${propertyVacantVal},
           ${jobNotes}, NOW()
         ) RETURNING id
       `
     );
     const jobId = (jobResult.rows[0] as any).id;
+
+    // ── Upsell accepted: create recurring_schedule + rate_lock ───────────────
+    if (upsellAcceptedVal && upsellCadenceVal && upsell_locked_rate) {
+      const lockedRate = parseFloat(String(upsell_locked_rate));
+      const lockExpiry = new Date();
+      lockExpiry.setMonth(lockExpiry.getMonth() + 24);
+      const lockExpiryStr = lockExpiry.toISOString().split("T")[0];
+      const todayStr = new Date().toISOString().split("T")[0];
+      try {
+        const recurScopeRow = await db.execute(drizzleSql`SELECT id FROM pricing_scopes WHERE company_id = ${company_id} AND name ILIKE '%recurring%' LIMIT 1`);
+        const recurScopeServiceType = "recurring";
+        const recurSchedule = await db.execute(
+          drizzleSql`
+            INSERT INTO recurring_schedules (company_id, customer_id, frequency, start_date, service_type, base_fee, notes, is_active, created_at)
+            VALUES (${company_id}, ${clientId}, ${upsellCadenceVal}::recurring_frequency, ${todayStr}::date, ${recurScopeServiceType}, ${lockedRate}, ${"Upsell accepted from online booking widget."}, true, NOW())
+            RETURNING id
+          `
+        );
+        const scheduleId = (recurSchedule.rows[0] as any).id;
+        await db.execute(
+          drizzleSql`
+            INSERT INTO rate_locks (company_id, client_id, recurring_schedule_id, locked_rate, cadence, lock_start_date, lock_expires_at, active, created_at)
+            VALUES (${company_id}, ${clientId}, ${scheduleId}, ${lockedRate}, ${upsellCadenceVal}, ${todayStr}::date, ${lockExpiryStr}::date, true, NOW())
+          `
+        );
+        console.log(`[UPSELL] Rate lock created — client_id=${clientId} rate=${lockedRate} cadence=${upsellCadenceVal} expires=${lockExpiryStr}`);
+      } catch (upsellErr) {
+        console.error("[UPSELL] Failed to create recurring_schedule/rate_lock:", upsellErr);
+      }
+    }
 
     await db.execute(
       drizzleSql`

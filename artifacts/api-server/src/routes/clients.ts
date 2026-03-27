@@ -1020,5 +1020,34 @@ router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /:id/rate-lock ────────────────────────────────────────────────────────
+router.get("/:id/rate-lock", requireAuth, async (req, res) => {
+  const { sql: dsql } = await import("drizzle-orm");
+  try {
+    const result = await db.execute(
+      dsql`SELECT * FROM rate_locks WHERE client_id = ${req.params.id} ORDER BY created_at DESC LIMIT 1`
+    );
+    return res.json(result.rows[0] || null);
+  } catch (err) {
+    console.error("GET rate-lock:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /:id/rate-lock/:lockId/void ─────────────────────────────────────────
+router.post("/:id/rate-lock/:lockId/void", requireAuth, async (req, res) => {
+  const { sql: dsql } = await import("drizzle-orm");
+  const { reason, notes } = req.body;
+  try {
+    await db.execute(
+      dsql`UPDATE rate_locks SET active = false, void_reason = ${reason || "manual"}, void_notes = ${notes || null}, voided_at = NOW() WHERE id = ${req.params.lockId} AND client_id = ${req.params.id}`
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST void rate-lock:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
 

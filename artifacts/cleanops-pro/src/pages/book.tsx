@@ -210,6 +210,22 @@ export default function BookPage() {
   const [lastCleanedOverride, setLastCleanedOverride] = useState(false);
   const [overageAcknowledged, setOverageAcknowledged] = useState(false);
 
+  // Display scope key — distinguishes Deep Clean vs Move In/Out (same DB scope)
+  const [displayScopeKey, setDisplayScopeKey] = useState<string | null>(null);
+
+  // Move In/Out acknowledgments
+  const [moveInAck1, setMoveInAck1] = useState(false);
+  const [moveInAck2, setMoveInAck2] = useState(false);
+  const [moveInAck3, setMoveInAck3] = useState(false);
+
+  // Upsell state (Deep Clean recurring upsell)
+  const [upsellCadence, setUpsellCadence] = useState("");
+  const [upsellAccepted, setUpsellAccepted] = useState(false);
+  const [upsellDeclined, setUpsellDeclined] = useState(false);
+  const [upsellTermsOpen, setUpsellTermsOpen] = useState(false);
+  const [upsellCalcResult, setUpsellCalcResult] = useState<CalcResult | null>(null);
+  const [upsellCadenceError, setUpsellCadenceError] = useState(false);
+
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
   const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
@@ -340,6 +356,17 @@ export default function BookPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [scopeId, sqft, frequencyStr, selectedAddonIds]);
 
+  // ── Upsell pricing: fetch recurring rate for chosen cadence ─────────────
+  useEffect(() => {
+    if (!company || !upsellCadence || !sqft) { setUpsellCalcResult(null); return; }
+    const recurringScope = company.active_scopes.find(s => s.name.toLowerCase() === "recurring cleaning");
+    if (!recurringScope) return;
+    pubFetch("/api/public/calculate", {
+      method: "POST",
+      body: JSON.stringify({ company_id: company.id, scope_id: recurringScope.id, sqft, frequency: upsellCadence }),
+    }).then(r => setUpsellCalcResult(r)).catch(() => {});
+  }, [company, upsellCadence, sqft]);
+
   // ── Step 0 validation ─────────────────────────────────────────────────────
   function validateStep0() {
     const errs: Record<string, string> = {};
@@ -454,6 +481,13 @@ export default function BookPage() {
             last_cleaned_flag: isRecurringScope ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
             overage_disclaimer_acknowledged: lastCleanedOverride && overageAcknowledged,
             overage_rate: (lastCleanedOverride && overageAcknowledged) ? getOverageRate(frequencyStr) : null,
+            upsell_shown: isDeepClean,
+            upsell_accepted: upsellAccepted,
+            upsell_declined: upsellDeclined && !upsellAccepted,
+            upsell_deferred: upsellDeclined && !upsellAccepted,
+            upsell_cadence_selected: upsellAccepted ? upsellCadence : null,
+            upsell_locked_rate: upsellAccepted && upsellCalcResult ? upsellCalcResult.final_total : null,
+            property_vacant: isMoveInOut,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -514,6 +548,22 @@ export default function BookPage() {
     }
   }
 
+  // ── Scope selection helper — sets DB scope + display key + resets state ──
+  function selectScope(newScopeId: number, key: string) {
+    setScopeId(newScopeId);
+    setDisplayScopeKey(key);
+    setMoveInAck1(false); setMoveInAck2(false); setMoveInAck3(false);
+    setUpsellCadence(""); setUpsellAccepted(false); setUpsellDeclined(false);
+    setUpsellTermsOpen(false); setUpsellCalcResult(null); setUpsellCadenceError(false);
+    setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false);
+  }
+
+  // ── Frequency label helper ────────────────────────────────────────────────
+  function wLabel(f: string) {
+    const m: Record<string, string> = { onetime: "One-Time", weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" };
+    return m[f] || f;
+  }
+
   // ── Shared styles ─────────────────────────────────────────────────────────
   const s = {
     input: {
@@ -572,6 +622,8 @@ export default function BookPage() {
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
   const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase() === "recurring cleaning";
+  const isMoveInOut = displayScopeKey === "move_in_out";
+  const isDeepClean = displayScopeKey === "deep_clean";
   const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
@@ -876,16 +928,17 @@ export default function BookPage() {
               <p style={s.h2}>What type of cleaning do you need?</p>
               <p style={s.sub}>Select a service and tell us about your home.</p>
 
-              {/* Scope cards — hardcoded 4-scope display, name-matched from DB */}
+              {/* Scope cards — 5-scope display (Deep Clean + Move In/Out split), name-matched from DB */}
               {(() => {
                 type ScopeDef = { key: string; displayName: string; match: (n: string) => boolean };
                 const WIDGET_SCOPES: { group: string; scopes: ScopeDef[] }[] = [
                   {
                     group: "Residential",
                     scopes: [
-                      { key: "deep_clean",       displayName: "Deep Clean or Move In/Out",  match: (n) => n.includes("deep clean") || n.includes("move in") },
-                      { key: "one_time_standard", displayName: "One-Time Standard Clean",    match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
-                      { key: "recurring",         displayName: "Recurring Cleaning",          match: (n) => n === "recurring cleaning" },
+                      { key: "deep_clean",       displayName: "Deep Clean",           match: (n) => n.includes("deep clean") || n.includes("move in") },
+                      { key: "move_in_out",       displayName: "Move In / Move Out",   match: (n) => n.includes("deep clean") || n.includes("move in") },
+                      { key: "one_time_standard", displayName: "One-Time Standard Clean", match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
+                      { key: "recurring",         displayName: "Recurring Cleaning",   match: (n) => n === "recurring cleaning" },
                     ],
                   },
                   {
@@ -907,16 +960,19 @@ export default function BookPage() {
                     <div key={group} style={{ marginBottom: 20 }}>
                       <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>{group}</p>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                        {rendered.map(({ def, dbScope }) => (
-                          <div key={def.key} style={s.scopeCard(scopeId === dbScope.id)} onClick={() => setScopeId(dbScope.id)}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${scopeId === dbScope.id ? brand : "#C4C1BA"}`, background: scopeId === dbScope.id ? brand : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                                {scopeId === dbScope.id && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                        {rendered.map(({ def, dbScope }) => {
+                          const sel = displayScopeKey === def.key;
+                          return (
+                            <div key={def.key} style={s.scopeCard(sel)} onClick={() => selectScope(dbScope.id, def.key)}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${sel ? brand : "#C4C1BA"}`, background: sel ? brand : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                                  {sel && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
+                                </div>
+                                <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{def.displayName}</span>
                               </div>
-                              <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{def.displayName}</span>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
@@ -977,7 +1033,10 @@ export default function BookPage() {
                         </p>
                         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                           <button
-                            onClick={() => { setScopeId(1); setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false); }}
+                            onClick={() => {
+                              const dcScope = company.active_scopes.find(s => s.name.toLowerCase().includes("deep clean") || s.name.toLowerCase().includes("move in"));
+                              if (dcScope) selectScope(dcScope.id, "deep_clean");
+                            }}
                             style={{ padding: "10px 18px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                           >
                             Book a Deep Clean Instead
@@ -1037,8 +1096,33 @@ export default function BookPage() {
                 );
               })()}
 
+              {/* ── Move In / Move Out pre-booking acknowledgments ────────────── */}
+              {isMoveInOut && scopeId && (
+                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8, marginBottom: 8 }}>
+                  <p style={{ fontWeight: 600, fontSize: 15, color: "#1A1917", marginBottom: 4 }}>Before we confirm your booking</p>
+                  <p style={{ fontSize: 13, color: "#6B6860", marginBottom: 16 }}>Please confirm the following — all three are required to proceed.</p>
+                  {(
+                    [
+                      [moveInAck1, setMoveInAck1, "The property will be completely empty of furniture and personal belongings on the day of cleaning"],
+                      [moveInAck2, setMoveInAck2, "No other contractors or service providers will be present during the cleaning"],
+                      [moveInAck3, setMoveInAck3, "The property will have running water and working electricity on the day of cleaning"],
+                    ] as [boolean, React.Dispatch<React.SetStateAction<boolean>>, string][]
+                  ).map(([val, setter, text], i) => (
+                    <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12, cursor: "pointer" }}>
+                      <input
+                        type="checkbox"
+                        checked={val}
+                        onChange={e => setter(e.target.checked)}
+                        style={{ marginTop: 2, accentColor: brand, width: 16, height: 16, flexShrink: 0, outline: !val ? "2px solid transparent" : undefined }}
+                      />
+                      <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>{text}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+
               {scopeId && !isCommercial && (
-                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: scopeId === 11 ? 16 : 8 }}>
+                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: isMoveInOut ? 0 : (isRecurringScope ? 16 : 8) }}>
                   <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", marginBottom: 16 }}>Home Details</p>
 
                   <FieldWrap label="Square Footage">
@@ -1100,6 +1184,122 @@ export default function BookPage() {
                       )}
                     </div>
                   )}
+
+                  {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
+                  {isDeepClean && showCleanlinessQ && cleanliness > 0 && sqft > 0 && (
+                    <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
+                      {!upsellAccepted && !upsellDeclined && (
+                        <>
+                          <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: brand, textTransform: "uppercase", letterSpacing: "0.08em" }}>Limited Offer</p>
+                          <p style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600, color: "#1A1917", lineHeight: 1.3 }}>Turn today's Deep Clean into a fresh start</p>
+                          <p style={{ margin: "0 0 16px", fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
+                            Start recurring service today and get 15% off your first recurring cleaning — plus your recurring rate is locked for 24 months. Your rate will never increase as long as your home stays consistent and your service continues.
+                          </p>
+
+                          <div style={{ marginBottom: 14 }}>
+                            <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 600, color: "#1A1917" }}>How often would you like us to come back?</p>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              {[
+                                { value: "weekly", label: "Weekly" },
+                                { value: "biweekly", label: "Every 2 Weeks" },
+                                { value: "monthly", label: "Every 4 Weeks" },
+                              ].map(opt => (
+                                <button
+                                  key={opt.value}
+                                  onClick={() => { setUpsellCadence(opt.value); setUpsellCadenceError(false); }}
+                                  style={{
+                                    flex: 1, padding: "10px 4px", borderRadius: 8,
+                                    border: `2px solid ${upsellCadence === opt.value ? brand : (upsellCadenceError ? brand : "#E5E2DC")}`,
+                                    background: upsellCadence === opt.value ? `${brand}12` : "#fff",
+                                    fontWeight: 600, fontSize: 13, color: upsellCadence === opt.value ? brand : "#1A1917",
+                                    cursor: "pointer", transition: "all 0.15s", fontFamily: "'Plus Jakarta Sans', sans-serif",
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                            {upsellCadenceError && <p style={{ margin: "6px 0 0", fontSize: 12, color: brand }}>Please select how often you'd like us to come back.</p>}
+                          </div>
+
+                          {upsellCalcResult && upsellCadence && (
+                            <div style={{ marginBottom: 14, padding: "12px 14px", background: "#F7F6F3", borderRadius: 8 }}>
+                              <p style={{ margin: "0 0 3px", fontSize: 15, fontWeight: 600, color: "#1A1917" }}>
+                                Your first recurring cleaning:{" "}
+                                <span style={{ textDecoration: "line-through", color: "#9E9B94", fontWeight: 400 }}>${upsellCalcResult.final_total.toFixed(2)}</span>
+                                {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * 0.85).toFixed(2)}</strong>
+                              </p>
+                              <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
+                                Then ${upsellCalcResult.final_total.toFixed(2)} per visit — locked for 24 months.
+                              </p>
+                            </div>
+                          )}
+
+                          <div style={{ marginBottom: 16 }}>
+                            <button
+                              onClick={() => setUpsellTermsOpen(o => !o)}
+                              style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: brand, textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                            >
+                              Rate lock terms
+                            </button>
+                            {upsellTermsOpen && (
+                              <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.6, fontStyle: "italic" }}>
+                                Your recurring rate is locked for 24 months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after 60 consecutive days without service, or if actual cleaning time exceeds the estimated time by more than 20% on 2 of your first 3 cleans.
+                              </p>
+                            )}
+                          </div>
+
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            <button
+                              onClick={() => {
+                                if (!upsellCadence) { setUpsellCadenceError(true); return; }
+                                setUpsellAccepted(true); setUpsellDeclined(false);
+                              }}
+                              style={{ padding: "12px 20px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                            >
+                              Yes — lock in my rate
+                            </button>
+                            <button
+                              onClick={() => { setUpsellDeclined(true); setUpsellAccepted(false); }}
+                              style={{ padding: "12px 20px", background: "#FFFFFF", color: "#6B6860", border: "1px solid #6B6860", borderRadius: 8, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                            >
+                              No thanks, just the Deep Clean
+                            </button>
+                          </div>
+                        </>
+                      )}
+
+                      {upsellAccepted && (
+                        <>
+                          <p style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Rate lock confirmed</p>
+                          <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.5 }}>
+                            Your recurring rate will be locked for 24 months at ${upsellCalcResult?.final_total?.toFixed(2) ?? "--"}/visit.
+                            First visit: <strong style={{ color: brand }}>${((upsellCalcResult?.final_total ?? 0) * 0.85).toFixed(2)}</strong> (15% off applied).
+                          </p>
+                          <button
+                            onClick={() => { setUpsellAccepted(false); setUpsellDeclined(false); setUpsellCadence(""); setUpsellCalcResult(null); }}
+                            style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "#6B6860", textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                          >
+                            Change selection
+                          </button>
+                        </>
+                      )}
+
+                      {upsellDeclined && !upsellAccepted && (
+                        <>
+                          <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+                            No problem. Your technician can walk you through recurring options during your cleaning — no commitment required. Or you can always set it up later from your confirmation email.
+                          </p>
+                          <button
+                            onClick={() => { setUpsellDeclined(false); setUpsellAccepted(false); setUpsellCadence(""); setUpsellCalcResult(null); }}
+                            style={{ background: "none", border: "none", padding: 0, fontSize: 13, color: brand, textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                          >
+                            Actually, I'd like to set up recurring service
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1152,8 +1352,26 @@ export default function BookPage() {
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))) ? 0.5 : 1 }}
-                  disabled={isCommercial ? !commercialOption : (!scopeId || !sqft || (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) || (showCleanlinessQ && !isRecurringScope && cleanliness === 0))}
+                  style={{ ...s.btn(), opacity: (() => {
+                    if (isCommercial) return !commercialOption ? 0.5 : 1;
+                    if (!scopeId || !sqft) return 0.5;
+                    if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return 0.5;
+                    if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return 0.5;
+                    if (isDeepClean && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
+                    if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return 0.5;
+                    if (!isMoveInOut && !isDeepClean && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return 0.5;
+                    return 1;
+                  })() }}
+                  disabled={(() => {
+                    if (isCommercial) return !commercialOption;
+                    if (!scopeId || !sqft) return true;
+                    if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return true;
+                    if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return true;
+                    if (isDeepClean && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
+                    if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
+                    if (!isMoveInOut && !isDeepClean && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return true;
+                    return false;
+                  })()}
                   onClick={() => isCommercial ? setStep(3) : setStep(2)}
                 >
                   Continue
@@ -1174,7 +1392,7 @@ export default function BookPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     {frequencies.map(f => (
                       <button key={f.id} style={s.freqCard(frequencyStr === f.frequency)} onClick={() => setFrequencyStr(f.frequency)}>
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{f.label || f.frequency}</p>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{wLabel(f.frequency)}</p>
                       </button>
                     ))}
                   </div>

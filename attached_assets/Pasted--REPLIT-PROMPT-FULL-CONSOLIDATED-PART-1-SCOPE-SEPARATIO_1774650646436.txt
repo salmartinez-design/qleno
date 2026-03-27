@@ -1,0 +1,282 @@
+**REPLIT PROMPT — FULL CONSOLIDATED:**
+
+---
+
+**PART 1 — SCOPE SEPARATION: DEEP CLEAN vs MOVE IN/OUT**
+
+In the booking widget at `/book/phes-cleaning`, split the current "Deep Clean or Move In/Out" scope card into two separate cards under the RESIDENTIAL group.
+
+Final scope list — render exactly these, nothing else:
+
+RESIDENTIAL group (in this order):
+1. "Deep Clean"
+2. "Move In / Move Out"
+3. "One-Time Standard Clean"
+4. "Recurring Cleaning"
+
+COMMERCIAL group:
+5. "Commercial Cleaning"
+
+Both Deep Clean and Move In/Out pull pricing from the same `deep_clean` scope in the pricing engine. The difference is label, flow questions, and job record tags only.
+
+No other scopes render under any circumstance — PPM Turnover, Hourly variants, and all sub-variants are permanently excluded.
+
+---
+
+**PART 2 — MOVE IN/OUT FLOW**
+
+When "Move In / Move Out" is selected, after the scope cards and before Home Details, show a required acknowledgment block.
+
+Section heading (`#1A1917`, 15px, semi-bold): "Before we confirm your booking"
+Subheading (`#6B6860`, 13px): "Please confirm the following — all three are required to proceed."
+
+Three required checkboxes — all three must be checked before Continue activates:
+- "The property will be completely empty of furniture and personal belongings on the day of cleaning"
+- "No other contractors or service providers will be present during the cleaning"
+- "The property will have running water and working electricity on the day of cleaning"
+
+If any checkbox is unchecked when Continue is clicked: highlight unchecked boxes with a `2px solid #E53E3E` red border and show inline message in red below: "Please confirm all requirements to continue."
+
+No move date field. No move date storage. Do not ask when they are moving — only when they want us to clean.
+
+Job record tags for Move In/Out bookings:
+- `scope: 'move_in_out'`
+- `property_vacant: true`
+
+On the dispatch board job card for Move In/Out jobs, show a small "VACANT" badge in secondary text (`#6B6860`) so the team knows before arrival.
+
+---
+
+**PART 3 — DEEP CLEAN RECURRING UPSELL**
+
+When "Deep Clean" is selected (not Move In/Out, not any other scope), after the customer completes Home Details and the cleanliness rating question, show an upsell offer card inline — before the Continue button.
+
+**Upsell card design:**
+- `#FFFFFF` background
+- `3px solid var(--brand)` left border
+- `1px solid #E5E2DC` full border
+- 20px padding
+- Smooth fade-in animation on appear
+
+**Card content:**
+
+Label above heading (`var(--brand)`, 11px, uppercase, letter-spacing 0.08em): "LIMITED OFFER"
+
+Heading (`#1A1917`, 18px, semi-bold): "Turn today's Deep Clean into a fresh start"
+
+Body (`#6B6860`, 14px, line-height 1.6):
+"Start recurring service today and get 15% off your first recurring cleaning — plus your recurring rate is locked for 24 months. Your rate will never increase as long as your home stays consistent and your service continues."
+
+**Cadence selector** inside the card, labeled "How often would you like us to come back?" (`#1A1917`, 13px, semi-bold):
+
+Three pill options in a row:
+- "Weekly"
+- "Every 2 Weeks"
+- "Every 4 Weeks"
+
+Default: none selected. When a cadence is selected, show a live price line immediately below:
+
+Primary line (`#1A1917`, 15px, semi-bold):
+"Your first recurring cleaning: ~~$[full calculated price]~~ **$[full price × 0.85]**"
+
+Secondary line (`#6B6860`, 12px):
+"Then $[full price] per visit — locked for 24 months."
+
+The full price must calculate from the pricing engine using the entered square footage and selected cadence multiplier. Update in real time as cadence changes.
+
+**Rate Lock Terms** — collapsible link directly below the price lines:
+- Link text: "Rate lock terms" (`var(--brand)`, 12px, underlined)
+- On click: expands inline below the link
+- Expanded text (`#6B6860`, 12px, italic):
+"Your recurring rate is locked for 24 months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after 60 consecutive days without service, or if actual cleaning time exceeds the estimated time by more than 20% on 2 of your first 3 cleans."
+
+**Two action buttons** below the terms link, full width, stacked:
+
+Button 1 — Primary: "Yes — lock in my rate"
+- `var(--brand)` background, white text, 14px, semi-bold
+- Requires a cadence to be selected — if no cadence selected and clicked, highlight the cadence selector with a `var(--brand)` border and show: "Please select how often you'd like us to come back."
+- On valid click: store `upsell_accepted: true`, `upsell_cadence_selected`, `locked_recurring_rate`
+- Continue button activates — flow proceeds booking both the Deep Clean AND creating a recurring schedule
+
+Button 2 — Secondary: "No thanks, just the Deep Clean"
+- `#FFFFFF` background, `1px solid #6B6860` border, `#6B6860` text, 14px
+- On click: store `upsell_declined: true` — show soft second nudge (Part 4)
+
+**Upsell tracking — store on job record at submission:**
+- `upsell_shown: boolean` — always `true` when Deep Clean scope is selected
+- `upsell_accepted: boolean`
+- `upsell_declined: boolean`
+- `upsell_deferred: boolean`
+- `upsell_cadence_selected: varchar` — null if declined
+
+---
+
+**PART 4 — SOFT SECOND NUDGE**
+
+When "No thanks, just the Deep Clean" is clicked, replace the upsell card with a smaller low-pressure card:
+
+Card design: `#FFFFFF` background, `1px solid #E5E2DC` border, 16px padding, no colored left border.
+
+Text (`#6B6860`, 13px, line-height 1.6):
+"No problem. Your technician can walk you through recurring options during your cleaning — no commitment required. Or you can always set it up later from your confirmation email."
+
+One subtle link below the text: "Actually, I'd like to set up recurring service" (`var(--brand)`, 13px, underlined)
+- On click: restore the full upsell card, reset to upsell_shown state, clear declined flag
+
+Continue button is active at this point — they can proceed with just the Deep Clean.
+
+If customer proceeds past this point without accepting: store `upsell_deferred: true`.
+If customer clicks the link and then accepts: store `upsell_accepted: true`, override deferred and declined to false.
+
+---
+
+**PART 5 — DATABASE**
+
+Run the following migrations:
+
+```sql
+-- Jobs table additions
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_shown BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_accepted BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_declined BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false;
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected VARCHAR(20);
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false;
+
+-- Remove move_date if it was previously added
+ALTER TABLE jobs DROP COLUMN IF EXISTS move_date;
+
+-- Rate locks table
+CREATE TABLE IF NOT EXISTS rate_locks (
+  id SERIAL PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  client_id INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  recurring_schedule_id INTEGER REFERENCES recurring_schedules(id) ON DELETE SET NULL,
+  locked_rate NUMERIC(10,2) NOT NULL,
+  cadence VARCHAR(20) NOT NULL,
+  lock_start_date DATE NOT NULL,
+  lock_expires_at DATE NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT true,
+  voided_at TIMESTAMP,
+  void_reason VARCHAR(50),
+  -- void_reason values: 'time_overrun' | 'condition_change' | 'service_gap' | 'manual'
+  void_notes TEXT,
+  voided_by_user_id INTEGER,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rate_locks_client ON rate_locks(client_id);
+CREATE INDEX IF NOT EXISTS idx_rate_locks_active ON rate_locks(active, lock_expires_at);
+```
+
+**On upsell accepted — form submission flow:**
+1. Create the Deep Clean job with all standard fields plus upsell tracking columns
+2. Create a `recurring_schedules` record with the selected cadence, client_id, company_id, service_address, and scope
+3. Insert into `rate_locks`:
+   - `locked_rate`: full recurring rate (not the discounted first visit rate)
+   - `cadence`: selected cadence
+   - `lock_start_date`: today
+   - `lock_expires_at`: today + 24 months
+   - `active`: true
+4. Apply 15% discount to the first recurring job only — tag it `first_recurring_discounted: true` on that job record
+
+---
+
+**PART 6 — RATE LOCK AUTO-VOID LOGIC**
+
+Create `checkRateLockVoidConditions(clientId, companyId)` in `server/utils/rateLock.ts`.
+
+Call this function server-side after every job is marked complete.
+
+**Condition 1 — Time overrun pattern:**
+```
+Query the last 3 completed recurring jobs for this client
+If 2 or more jobs have actual_duration > estimated_duration * 1.20:
+  - Set rate_locks.active = false
+  - Set void_reason = 'time_overrun'
+  - Set voided_at = NOW()
+  - Send Resend email to info@phes.io:
+    Subject: "Rate Lock Voided — Time Overrun: [Client Name]"
+    Body: Client name, locked rate, average actual vs estimated time, prompt to re-quote
+```
+
+**Condition 2 — Service gap (run on nightly cron alongside recurring engine):**
+```
+Query all rate_locks WHERE active = true AND lock_expires_at > TODAY
+For each lock, find the most recent completed job for that client
+If most_recent_job_date < TODAY - 60 days:
+  - Set active = false
+  - Set void_reason = 'service_gap'
+  - Set voided_at = NOW()
+  - Send Resend email to info@phes.io:
+    Subject: "Rate Lock Voided — Service Gap: [Client Name]"
+    Body: Client name, last service date, days since last service
+```
+
+**Condition 3 — Expiry:**
+```
+Same nightly check: if lock_expires_at < TODAY and active = true:
+  - Set active = false
+  - Set void_reason = 'expired'
+  No email needed for natural expiry
+```
+
+---
+
+**PART 7 — OFFICE UI: RATE LOCK ON CLIENT PROFILE**
+
+On the client profile page, add a "Rate Lock" row in the client details section. Only visible if a rate lock record exists for this client.
+
+**Active lock:**
+- Green pill badge: "Rate Lock Active"
+- Details: "$[locked_rate]/visit · [cadence] · Expires [date] · [X] days remaining"
+- Button: "Void Rate Lock" — small, `#FFFFFF` background, `#E53E3E` text and border
+  - Opens confirmation modal:
+    - Heading: "Void Rate Lock for [Client Name]?"
+    - Required dropdown: Reason — "Time Overrun" / "Condition Change" / "Service Gap" / "Other"
+    - Optional textarea: Notes
+    - Confirm button: `#E53E3E` background, white text: "Void Rate Lock"
+    - On confirm: sets active = false, records reason, notes, voided_by_user_id, voided_at
+
+**Voided lock:**
+- Gray pill badge: "Rate Lock Voided"
+- Details: "Was $[locked_rate]/visit · Voided [date] · Reason: [void_reason]"
+
+**No lock:**
+- Nothing rendered — clean profile
+
+---
+
+**PART 8 — FREQUENCY LABEL CLEANUP**
+
+Fix all frequency option labels everywhere in the widget:
+- `onetime` → "One-Time"
+- `weekly` → "Weekly"
+- `biweekly` → "Every 2 Weeks"
+- `monthly` → "Every 4 Weeks"
+
+Apply to: Step 3 frequency selector, the upsell cadence selector in Part 3, and any other location in the widget where frequency labels render.
+
+---
+
+**DESIGN — ALL NEW ELEMENTS:**
+- Background: `#F7F6F3`
+- Cards: `#FFFFFF`
+- Primary text: `#1A1917`
+- Secondary text: `#6B6860`
+- Borders: `#E5E2DC`
+- Accent: `var(--brand)`
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+Republish after all parts complete. Confirm in response:
+- Which DB migrations ran successfully
+- Whether `rate_locks` table was created
+- Whether `move_date` column was dropped if it existed
+- Which columns were added to `jobs`
+
+After republish — screenshot the Deep Clean upsell card with "Every 2 Weeks" selected showing the live strikethrough price and the rate lock terms expanded.

@@ -478,6 +478,37 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ first_name: client.first_name, last_name: client.last_name, email: client.email || "", phone: client.phone || "", company_name: client.company_name || "", notes: client.notes || "", base_fee: client.base_fee || "", allowed_hours: client.allowed_hours || "", frequency: client.frequency || "", service_type: client.service_type || "" });
 
+  // ── Rate Lock ─────────────────────────────────────────────────────────────
+  const qc = useQueryClient();
+  const { data: rateLock } = useQuery<any>({
+    queryKey: ["rate-lock", client.id],
+    queryFn: () => apiFetch(`/api/clients/${client.id}/rate-lock`),
+    staleTime: 30_000,
+  });
+  const [voidModal, setVoidModal] = useState(false);
+  const [voidReason, setVoidReason] = useState("manual");
+  const [voidNotes, setVoidNotes] = useState("");
+  const [voiding, setVoiding] = useState(false);
+  const handleVoidLock = async () => {
+    if (!rateLock) return;
+    setVoiding(true);
+    try {
+      await apiFetch(`/api/clients/${client.id}/rate-lock/${rateLock.id}/void`, {
+        method: "POST",
+        body: JSON.stringify({ reason: voidReason, notes: voidNotes }),
+      });
+      qc.invalidateQueries({ queryKey: ["rate-lock", client.id] });
+      setVoidModal(false);
+      setVoidReason("manual");
+      setVoidNotes("");
+    } catch { /* silent */ }
+    finally { setVoiding(false); }
+  };
+  const cadenceLabel = (c: string) => ({ weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" }[c] ?? c);
+  const lockDaysLeft = rateLock?.active && rateLock?.lock_expires_at
+    ? Math.max(0, Math.ceil((new Date(rateLock.lock_expires_at).getTime() - Date.now()) / 86400000))
+    : null;
+
   const save = async () => {
     await onUpdate(form);
     setEditing(false);
@@ -547,6 +578,82 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
               </span>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Rate Lock Card ── */}
+      {rateLock && (
+        <div style={{ border: `1px solid ${rateLock.active ? "#BFDBFE" : "#E5E2DC"}`, borderRadius: 10, padding: "14px 16px", background: rateLock.active ? "#EFF6FF" : "#FAFAF9" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: rateLock.active ? "#1D4ED8" : "#9E9B94" }}>Rate Lock</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: rateLock.active ? "#DBEAFE" : "#F3F4F6", color: rateLock.active ? "#1D4ED8" : "#6B7280" }}>
+                {rateLock.active ? "Active" : "Voided"}
+              </span>
+            </div>
+            {rateLock.active && (
+              <button onClick={() => setVoidModal(true)} style={{ fontSize: 11, fontWeight: 600, color: "#DC2626", background: "none", border: "1px solid #FCA5A5", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                Void Lock
+              </button>
+            )}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Locked Rate</div>
+              <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${parseFloat(rateLock.locked_rate).toFixed(2)}<span style={{ fontSize: 11, fontWeight: 500, color: "#6B6860" }}>/visit</span></div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Cadence</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{cadenceLabel(rateLock.cadence)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>
+                {rateLock.active ? "Expires" : "Voided"}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>
+                {rateLock.active
+                  ? `${new Date(rateLock.lock_expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} (${lockDaysLeft}d left)`
+                  : rateLock.voided_at ? new Date(rateLock.voided_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"
+                }
+              </div>
+            </div>
+          </div>
+          {!rateLock.active && rateLock.void_reason && (
+            <div style={{ marginTop: 10, fontSize: 11, color: "#6B7280" }}>
+              <strong>Void reason:</strong> {rateLock.void_reason === "manual" ? "Voided manually" : rateLock.void_reason === "time_overrun" ? "Recurring time overruns" : rateLock.void_reason === "service_gap" ? "60+ day service gap" : rateLock.void_reason === "expired" ? "24-month term expired" : rateLock.void_reason}
+              {rateLock.void_notes && <span> — {rateLock.void_notes}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Void Lock Modal ── */}
+      {voidModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999 }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 28, width: 420, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>Void Rate Lock</div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 20 }}>
+              This will immediately end the locked rate of <strong>${parseFloat(rateLock?.locked_rate ?? 0).toFixed(2)}/visit</strong> for {client.first_name} {client.last_name}. This action cannot be undone.
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Reason</label>
+              <select value={voidReason} onChange={e => setVoidReason(e.target.value)} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", outline: "none", background: "#FFFFFF", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                <option value="manual">Manual void</option>
+                <option value="time_overrun">Recurring time overruns</option>
+                <option value="service_gap">Service gap (60+ days)</option>
+                <option value="pricing_error">Pricing error / correction</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
+              <textarea value={voidNotes} onChange={e => setVoidNotes(e.target.value)} rows={3} placeholder="Add context..." style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", resize: "none" as const, outline: "none", fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box" as const }} />
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => { setVoidModal(false); setVoidReason("manual"); setVoidNotes(""); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Cancel</button>
+              <button onClick={handleVoidLock} disabled={voiding} style={{ padding: "8px 16px", background: "#DC2626", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", opacity: voiding ? 0.6 : 1 }}>{voiding ? "Voiding..." : "Void Rate Lock"}</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
