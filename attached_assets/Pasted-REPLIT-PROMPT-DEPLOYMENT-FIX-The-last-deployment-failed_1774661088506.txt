@@ -1,0 +1,51 @@
+REPLIT PROMPT — DEPLOYMENT FIX:
+The last deployment failed at the Auto scale promote stage with “Your app failed to promote.” The live app is still running on the previous build — do not touch the database.
+Do the following to diagnose and fix:
+Step 1 — Check startup logs:
+Look at the server startup sequence in the logs. Find the first error that appears after “Starting server…” or “Running migrations…”. This is the crash point.
+Step 2 — Common causes to check and fix:
+Check 1 — Migration crash:
+If any ALTER TABLE or CREATE TABLE statement in the startup migration is failing, wrap all migrations in individual try/catch blocks so a single failed migration does not crash the entire server:
+
+const migrations = [
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_shown BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_accepted BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_declined BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected VARCHAR(20)`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false`,
+  `ALTER TABLE jobs DROP COLUMN IF EXISTS move_date`,
+];
+
+for (const sql of migrations) {
+  try {
+    await db.execute(sql);
+  } catch (err) {
+    console.error('Migration warning (non-fatal):', err.message);
+  }
+}
+
+
+Apply this pattern to ALL startup migrations — rate_locks table, offer_settings table, addon_bundles, and all column additions. No single migration failure should crash the server.
+Check 2 — Missing import:
+Scan all recently added files for imports that reference a module that does not exist or was not installed. Common culprits: node-cron, any new utility file in server/utils/. If node-cron is not in package.json, add it:
+
+npm install node-cron
+npm install @types/node-cron --save-dev
+
+
+Check 3 — TypeScript compile error:
+If the build log shows a TS error, find the file and line, fix the type mismatch. Common issue: a new column added to the Drizzle schema but the type definition doesn’t match the DB column type.
+Check 4 — Offer settings seed crash:
+The INSERT INTO offer_settings seed may be failing if the table creation failed first. Wrap in try/catch as per Check 1 pattern.
+Check 5 — Rate lock nightly cron import:
+If runRateLockNightlyChecks is imported in the scheduler but the export is missing or named differently in server/utils/rateLock.ts, the server crashes on import. Verify the export name matches exactly.
+Step 3 — After fixes:
+Once the crash cause is identified and fixed, redeploy. Do not change any frontend code in this fix — only resolve the startup crash. Frontend mobile changes ship with the next successful deploy.
+Step 4 — Verify:
+After successful deploy, confirm in logs:
+	∙	“Server started on port [X]” appears
+	∙	No red error lines before the startup confirmation
+	∙	Migrations log as complete or non-fatal warnings
+Redeploy after all fixes.​​​​​​​​​​​​​​​​

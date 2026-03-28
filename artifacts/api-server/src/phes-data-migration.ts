@@ -14,7 +14,74 @@ import { sql } from "drizzle-orm";
 
 const PHES = 1; // company_id
 
+// ── Booking Schema Guard ──────────────────────────────────────────────────────
+// Ensures all columns/tables used by the booking widget and rate-lock system
+// exist in the database. Each statement is wrapped individually so a single
+// failure never blocks the rest. This runs before Drizzle ORM queries so that
+// raw SQL inserts in the booking route can never fail with "column does not exist".
+async function runBookingSchemaGuard(): Promise<void> {
+  const guards: Array<{ label: string; stmt: string }> = [
+    // ── jobs extra columns ──────────────────────────────────────────────────
+    { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    { label: "jobs.condition_multiplier",  stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS condition_multiplier NUMERIC(5,3)" },
+    { label: "jobs.applied_bundle_id",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applied_bundle_id INTEGER" },
+    { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
+    { label: "jobs.last_cleaned_response", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_response TEXT" },
+    { label: "jobs.last_cleaned_flag",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_flag TEXT" },
+    { label: "jobs.overage_disclaimer_acknowledged", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false" },
+    { label: "jobs.overage_rate",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_rate NUMERIC(10,2)" },
+    { label: "jobs.upsell_shown",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_shown BOOLEAN DEFAULT false" },
+    { label: "jobs.upsell_accepted",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_accepted BOOLEAN DEFAULT false" },
+    { label: "jobs.upsell_declined",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_declined BOOLEAN DEFAULT false" },
+    { label: "jobs.upsell_deferred",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false" },
+    { label: "jobs.upsell_cadence_selected", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected TEXT" },
+    { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
+    { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
+    // ── rate_locks table ────────────────────────────────────────────────────
+    { label: "CREATE rate_locks", stmt: `
+      CREATE TABLE IF NOT EXISTS rate_locks (
+        id                    SERIAL PRIMARY KEY,
+        company_id            INTEGER NOT NULL,
+        client_id             INTEGER NOT NULL,
+        recurring_schedule_id INTEGER,
+        locked_rate           NUMERIC(10,2) NOT NULL,
+        cadence               TEXT,
+        lock_start_date       DATE,
+        lock_expires_at       DATE,
+        active                BOOLEAN NOT NULL DEFAULT true,
+        void_reason           TEXT,
+        voided_at             TIMESTAMPTZ,
+        renewal_alert_30_sent BOOLEAN NOT NULL DEFAULT false,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    // ── offer_settings table ────────────────────────────────────────────────
+    { label: "CREATE offer_settings", stmt: `
+      CREATE TABLE IF NOT EXISTS offer_settings (
+        id                        SERIAL PRIMARY KEY,
+        company_id                INTEGER NOT NULL UNIQUE,
+        overrun_threshold_percent NUMERIC(5,2) DEFAULT 20,
+        overrun_jobs_trigger      INTEGER DEFAULT 2,
+        service_gap_days          INTEGER DEFAULT 60,
+        rate_lock_duration_months INTEGER DEFAULT 24,
+        renewal_alert_days        INTEGER DEFAULT 30
+      )
+    ` },
+  ];
+
+  for (const { label, stmt } of guards) {
+    try {
+      await db.execute(sql.raw(stmt));
+    } catch (err: any) {
+      console.warn(`[schema-guard] ${label} — non-fatal:`, err?.message ?? err);
+    }
+  }
+  console.log("[schema-guard] Booking schema guard complete.");
+}
+
 export async function runPhesDataMigration(): Promise<void> {
+  await runBookingSchemaGuard();
+
   try {
     // ── 1. Activate + set cadence for 4 inactive clients ───────────────────
     await db.execute(sql`
@@ -947,22 +1014,31 @@ async function runNotificationTemplateSeed() {
   try {
     const PHES = 1;
 
-    // Ensure DDL columns exist (safe to run repeatedly)
-    await db.execute(sql`ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS body_html TEXT`);
-    await db.execute(sql`ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS body_text TEXT`);
-    await db.execute(sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS error_message TEXT`);
-    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS survey_last_sent TIMESTAMP`);
-    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS review_link TEXT`);
-    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_start_hour INTEGER NOT NULL DEFAULT 8`);
-    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_end_hour INTEGER NOT NULL DEFAULT 18`);
-    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT`);
-    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT`);
-    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS job_id INTEGER`);
-    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_code TEXT`);
-    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_message TEXT`);
-    await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempted_at TIMESTAMP`);
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`);
-    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP`);
+    // Ensure DDL columns exist (safe to run repeatedly — each statement is individually guarded)
+    const ddlStmts: Array<[string, ReturnType<typeof sql.raw>]> = [
+      ["notification_templates.body_html",         sql`ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS body_html TEXT`],
+      ["notification_templates.body_text",          sql`ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS body_text TEXT`],
+      ["notification_log.error_message",            sql`ALTER TABLE notification_log ADD COLUMN IF NOT EXISTS error_message TEXT`],
+      ["clients.survey_last_sent",                  sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS survey_last_sent TIMESTAMP`],
+      ["companies.review_link",                     sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS review_link TEXT`],
+      ["companies.dispatch_start_hour",             sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_start_hour INTEGER NOT NULL DEFAULT 8`],
+      ["companies.dispatch_end_hour",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_end_hour INTEGER NOT NULL DEFAULT 18`],
+      ["clients.stripe_payment_method_id",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT`],
+      ["clients.payment_source",                    sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT`],
+      ["payments.job_id",                           sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS job_id INTEGER`],
+      ["payments.stripe_error_code",                sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_code TEXT`],
+      ["payments.stripe_error_message",             sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS stripe_error_message TEXT`],
+      ["payments.attempted_at",                     sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS attempted_at TIMESTAMP`],
+      ["users.reset_token",                         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`],
+      ["users.reset_token_expires_at",              sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP`],
+    ];
+    for (const [label, stmt] of ddlStmts) {
+      try {
+        await db.execute(stmt);
+      } catch (ddlErr: any) {
+        console.warn(`[notification-templates] DDL non-fatal (${label}):`, ddlErr?.message ?? ddlErr);
+      }
+    }
 
     // Set default review link for PHES
     await db.execute(sql`

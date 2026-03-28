@@ -55,6 +55,23 @@ export const jobsTable = pgTable("jobs", {
   branch_id: integer("branch_id").references(() => branchesTable.id),
   recurring_schedule_id: integer("recurring_schedule_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
+  // ── Booking widget extra fields ─────────────────────────────────────────────
+  home_condition_rating: integer("home_condition_rating"),
+  condition_multiplier: numeric("condition_multiplier", { precision: 5, scale: 3 }),
+  applied_bundle_id: integer("applied_bundle_id"),
+  bundle_discount_total: numeric("bundle_discount_total", { precision: 10, scale: 2 }),
+  last_cleaned_response: text("last_cleaned_response"),
+  last_cleaned_flag: text("last_cleaned_flag"),
+  overage_disclaimer_acknowledged: boolean("overage_disclaimer_acknowledged").default(false),
+  overage_rate: numeric("overage_rate", { precision: 10, scale: 2 }),
+  // ── Upsell tracking ─────────────────────────────────────────────────────────
+  upsell_shown: boolean("upsell_shown").default(false),
+  upsell_accepted: boolean("upsell_accepted").default(false),
+  upsell_declined: boolean("upsell_declined").default(false),
+  upsell_deferred: boolean("upsell_deferred").default(false),
+  upsell_cadence_selected: text("upsell_cadence_selected"),
+  property_vacant: boolean("property_vacant").default(false),
+  first_recurring_discounted: boolean("first_recurring_discounted").default(false),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });
