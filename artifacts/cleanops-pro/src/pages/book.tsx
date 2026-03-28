@@ -493,7 +493,7 @@ export default function BookPage() {
             last_cleaned_flag: isRecurringScope ? (["1_3_months", "over_3_months"].includes(lastCleanedResponse) ? "overdue" : "ok") : null,
             overage_disclaimer_acknowledged: lastCleanedOverride && overageAcknowledged,
             overage_rate: (lastCleanedOverride && overageAcknowledged) ? getOverageRate(frequencyStr) : null,
-            upsell_shown: isDeepClean,
+            upsell_shown: isDeepCleanScope,
             upsell_accepted: upsellAccepted,
             upsell_declined: upsellDeclined && !upsellAccepted,
             upsell_deferred: upsellDeclined && !upsellAccepted,
@@ -636,6 +636,7 @@ export default function BookPage() {
   const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase() === "recurring cleaning";
   const isMoveInOut = displayScopeKey === "move_in_out";
   const isDeepClean = displayScopeKey === "deep_clean";
+  const isDeepCleanScope = !isMoveInOut && (selectedScope?.name ?? "").toLowerCase().includes("deep clean");
   const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
@@ -1198,7 +1199,7 @@ export default function BookPage() {
                   )}
 
                   {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
-                  {isDeepClean && showCleanlinessQ && cleanliness > 0 && sqft > 0 && offerSettings?.upsell_enabled !== false && (
+                  {isDeepCleanScope && showCleanlinessQ && cleanliness > 0 && offerSettings?.upsell_enabled !== false && (
                     <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
                       {!upsellAccepted && !upsellDeclined && (
                         <>
@@ -1371,9 +1372,9 @@ export default function BookPage() {
                     if (!scopeId || !sqft) return 0.5;
                     if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return 0.5;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return 0.5;
-                    if (isDeepClean && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
+                    if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return 0.5;
-                    if (!isMoveInOut && !isDeepClean && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return 0.5;
+                    if (!isMoveInOut && !isDeepCleanScope && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return 0.5;
                     return 1;
                   })() }}
                   disabled={(() => {
@@ -1381,9 +1382,9 @@ export default function BookPage() {
                     if (!scopeId || !sqft) return true;
                     if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return true;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return true;
-                    if (isDeepClean && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
+                    if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
-                    if (!isMoveInOut && !isDeepClean && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return true;
+                    if (!isMoveInOut && !isDeepCleanScope && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return true;
                     return false;
                   })()}
                   onClick={() => isCommercial ? setStep(3) : setStep(2)}
