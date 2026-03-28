@@ -712,7 +712,7 @@ export default function BookPage() {
     letterSpacing: "0.07em", color: "#9E9B94",
   };
   const rightPanel = (
-    <div style={{ width: 300, flexShrink: 0 }}>
+    <div className="bw-sidebar" style={{ width: 300, flexShrink: 0 }}>
       <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14 }}>
 
         {/* Section 1 — Contact Information */}
@@ -828,9 +828,32 @@ export default function BookPage() {
 
   // ── Page wrapper ──────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="bw-root" style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media (max-width: 767px) {
+          .bw-topbar { padding: 12px 16px !important; }
+          .bw-progress { padding: 10px 16px !important; }
+          .bw-progress-inner { gap: 2px !important; }
+          .bw-step-label { display: none !important; }
+          .bw-step-label.active { display: inline !important; }
+          .bw-body { flex-direction: column !important; padding: 16px !important; }
+          .bw-sidebar { display: none !important; }
+          .bw-form { width: 100% !important; }
+          .bw-grid2 { grid-template-columns: 1fr !important; }
+          .bw-consent { font-size: 13px !important; line-height: 1.6 !important; }
+          .bw-root input:not([type="checkbox"]):not([type="radio"]), .bw-root select, .bw-root textarea { min-height: 48px !important; font-size: 16px !important; }
+          .bw-nav { flex-direction: column !important; gap: 8px !important; }
+          .bw-nav button { width: 100% !important; min-height: 52px !important; font-size: 15px !important; }
+          .bw-nav-end button { width: 100% !important; min-height: 52px !important; font-size: 15px !important; }
+          .bw-nav-end { justify-content: stretch !important; }
+        }
+        @media (max-width: 400px) {
+          .bw-step-label { display: none !important; }
+          .bw-step-label.active { display: inline !important; }
+        }
+      `}} />
       {/* Top bar */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "14px 32px", display: "flex", alignItems: "center", gap: 16 }}>
+      <div className="bw-topbar" style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "14px 32px", display: "flex", alignItems: "center", gap: 16 }}>
         {logoSrc ? (
           <img src={logoSrc} alt={company.name} style={{ height: 32, objectFit: "contain" }} />
         ) : (
@@ -841,8 +864,8 @@ export default function BookPage() {
 
       {/* Progress bar */}
       {step < 5 && (
-        <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 32px" }}>
-          <div style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", gap: 4 }}>
+        <div className="bw-progress" style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 32px" }}>
+          <div className="bw-progress-inner" style={{ maxWidth: 900, margin: "0 auto", display: "flex", alignItems: "center", gap: 4 }}>
             {stepLabels.slice(0, 5).map((label, i) => (
               <div key={i} style={{ display: "flex", alignItems: "center", flex: i < 4 ? "1" : "none" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -854,7 +877,7 @@ export default function BookPage() {
                   }}>
                     {i < step ? <CheckCircle2 size={14} /> : i + 1}
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: i === step ? 700 : 400, color: i === step ? "#1A1917" : "#9E9B94", whiteSpace: "nowrap" }}>
+                  <span className={`bw-step-label${i === step ? " active" : ""}`} style={{ fontSize: 12, fontWeight: i === step ? 700 : 400, color: i === step ? "#1A1917" : "#9E9B94", whiteSpace: "nowrap" }}>
                     {label}
                   </span>
                 </div>
@@ -865,8 +888,8 @@ export default function BookPage() {
         </div>
       )}
 
-      <div style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="bw-body" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
+        <div className="bw-form" style={{ flex: 1, minWidth: 0 }}>
 
           {/* ── Step 0: Contact Info ────────────────────────────────────────── */}
           {step === 0 && (
@@ -874,7 +897,7 @@ export default function BookPage() {
               <p style={s.h2}>Let's get started</p>
               <p style={s.sub}>Tell us a bit about yourself so we can get your home on the schedule.</p>
 
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+              <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
                 <FieldWrap label="First Name" error={errors.firstName}>
                   <input style={s.input} value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jane" />
                 </FieldWrap>
@@ -882,7 +905,7 @@ export default function BookPage() {
                   <input style={s.input} value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Doe" />
                 </FieldWrap>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+              <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
                 <FieldWrap label="Cell Phone" error={errors.phone}>
                   <input style={s.input} value={phone} onChange={e => setPhone(e.target.value)} placeholder="(773) 555-0000" type="tel" />
                 </FieldWrap>
@@ -890,12 +913,12 @@ export default function BookPage() {
                   <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" type="email" />
                 </FieldWrap>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
+              <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
                 <FieldWrap label="Zip Code" error={errors.zip}>
                   <input style={s.input} value={zip} onChange={e => setZip(e.target.value)} placeholder="60453" maxLength={5} />
                 </FieldWrap>
                 <FieldWrap label="How did you hear about us?">
-                  <select style={s.input} value={referral} onChange={e => setReferral(e.target.value)}>
+                  <select style={{ ...s.input, width: "100%" }} value={referral} onChange={e => setReferral(e.target.value)}>
                     <option value="">Select...</option>
                     {["Google","Facebook","Instagram","Nextdoor","Friend/Family","Other"].map(v => <option key={v} value={v}>{v}</option>)}
                   </select>
@@ -904,8 +927,8 @@ export default function BookPage() {
 
               <div style={{ marginBottom: 16 }}>
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16 }} />
-                  <span style={{ fontSize: 13, color: "#6B6860" }}>
+                  <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16, flexShrink: 0, minHeight: "unset" }} />
+                  <span className="bw-consent" style={{ fontSize: 13, color: "#6B6860", width: "100%" }}>
                     By checking this box, you agree to receive transactional SMS messages from Phes regarding your appointment. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. You must be 18 or older to opt in. View our{" "}
                     <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: brand, textDecoration: "underline" }}>Terms of Service</a>
                     {" "}and{" "}
@@ -915,7 +938,7 @@ export default function BookPage() {
               </div>
               <div style={{ marginBottom: 24 }}>
                 <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                  <input type="checkbox" checked={termsConsent} onChange={e => setTermsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16 }} />
+                  <input type="checkbox" checked={termsConsent} onChange={e => setTermsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16, flexShrink: 0, minHeight: "unset" }} />
                   <span style={{ fontSize: 13, color: "#6B6860" }}>
                     I have read and agree to the{" "}
                     <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer"
@@ -927,7 +950,7 @@ export default function BookPage() {
                 {errors.terms && <div style={s.err}><AlertCircle size={12} />{errors.terms}</div>}
               </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <div className="bw-nav-end" style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button style={s.btn()} onClick={() => { if (validateStep0()) setStep(1); }}>
                   Continue
                 </button>
@@ -1364,7 +1387,7 @@ export default function BookPage() {
                 </div>
               )}
 
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
+              <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (() => {
@@ -1522,7 +1545,7 @@ export default function BookPage() {
                 Add extras now — requesting them later may require a separate visit.
               </p>
 
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+              <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
                 <button style={s.btn(false)} onClick={() => setStep(1)}>Back</button>
                 <button style={{ ...s.btn(), opacity: !frequencyStr ? 0.5 : 1 }} disabled={!frequencyStr} onClick={() => setStep(3)}>
                   Continue
@@ -1554,7 +1577,7 @@ export default function BookPage() {
                 </div>
               )}
 
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
+              <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (!selectedDate || walkthroughBooking) ? 0.5 : 1 }}
@@ -1624,7 +1647,7 @@ export default function BookPage() {
                 </div>
               )}
 
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (booking || (stripeEnabled && !stripeCardReady)) ? 0.7 : 1 }}

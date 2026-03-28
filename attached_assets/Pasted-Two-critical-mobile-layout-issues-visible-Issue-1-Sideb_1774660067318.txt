@@ -1,0 +1,75 @@
+Two critical mobile layout issues visible:
+Issue 1 — Sidebar overlapping form content (Image 2)
+The two-column layout (form left, sidebar right) is not collapsing on mobile. The sidebar is rendering on top of the form, cutting off all the left-side text (“Let”, “Tell us a bit about your…”). The form is completely unusable on mobile in this state.
+Issue 2 — SMS consent text unreadable (Image 1)
+The consent text is rendering in an extremely narrow column — looks like it’s inheriting a constrained width from the broken layout. Nearly impossible to read on a phone.
+
+REPLIT PROMPT — MOBILE LAYOUT FIX (BOOKING WIDGET):
+The booking widget at /book/phes-cleaning has a broken mobile layout. The two-column layout (form + sidebar) is not collapsing on small screens. Fix the following:
+Fix 1 — Responsive layout:
+The widget uses a two-column layout on desktop (form left, sidebar right). On mobile (below 768px) this must collapse to a single full-width column.
+Apply to the outermost widget container:
+
+/* Desktop: two columns */
+.widget-container {
+  display: flex;
+  flex-direction: row;
+  gap: 24px;
+}
+
+/* Mobile: single column, form first */
+@media (max-width: 767px) {
+  .widget-container {
+    flex-direction: column;
+  }
+}
+
+
+Or in Tailwind:
+
+className="flex flex-col md:flex-row gap-6"
+
+
+Fix 2 — Sidebar on mobile:
+Hide the sidebar entirely on mobile. It contains contact info, office locations, business hours, and important policies — useful on desktop but takes up critical space on mobile and is causing the overlap.
+
+className="hidden md:block" 
+
+
+Apply this to the entire sidebar column. On mobile the customer only sees the form — full width, no sidebar.
+Fix 3 — Main form column width:
+On mobile the form must be full width with 16px horizontal padding:
+
+className="w-full md:w-[60%] px-4 md:px-0"
+
+
+Fix 4 — SMS consent text:
+The SMS consent checkbox and text must be full width on mobile with proper text wrapping. Minimum font size 13px. No width constraints. The text block must not inherit a narrow column width.
+
+className="w-full text-sm leading-relaxed"
+
+
+Fix 5 — Step progress bar:
+The step indicators (1 Contact · 2 Scope · 3 Frequency · 4 Date · 5 Payment) are getting cut off on mobile. On screens below 400px, show only the step number and active step label. Hide inactive step labels:
+
+/* Show number always, label only for active step on mobile */
+@media (max-width: 400px) {
+  .step-label { display: none; }
+  .step-label.active { display: inline; }
+}
+
+
+Or Tailwind: inactive step labels get className="hidden sm:inline", active step label gets className="inline".
+Fix 6 — “How did you hear about us?” dropdown:
+Ensure this select element is full width on mobile:
+
+className="w-full"
+
+
+General mobile rules for the entire widget:
+	∙	No element may exceed 100vw
+	∙	No horizontal scrolling
+	∙	All inputs: minimum 48px height, 16px font size (prevents iOS auto-zoom on focus)
+	∙	All padding: minimum 16px horizontal
+	∙	The “Continue” button: full width, 52px height, fixed at bottom of viewport or at natural document flow — never cut off
+Republish after fix. Test on iPhone — Step 1 should show full-width form with no sidebar overlap, all fields accessible, SMS consent text fully readable.​​​​​​​​​​​​​​​​
