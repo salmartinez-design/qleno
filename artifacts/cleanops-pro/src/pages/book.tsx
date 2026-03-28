@@ -872,7 +872,6 @@ export default function BookPage() {
               <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />
               <Row label="Frequency" value={calcResult.frequency} />
               <Row label="Est. Hours" value={`${calcResult.base_hours.toFixed(1)}h`} />
-              <Row label="Hourly Rate" value={`$${calcResult.hourly_rate.toFixed(0)}/hr`} />
               <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 8, marginTop: 4 }} />
               <Row label="Base Price" value={`$${calcResult.base_price.toFixed(2)}`} />
               {calcResult.addon_breakdown.map(a => (
@@ -1560,7 +1559,7 @@ export default function BookPage() {
                   </div>
                   {lastCleanedOverride && overageAcknowledged && frequencyStr && (
                     <p style={{ margin: "10px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.5 }}>
-                      Extended service rate applies if additional time is needed: <strong>${getOverageRate(frequencyStr)}/hr</strong> based on your selected frequency.
+                      Extended service rate applies if additional time is needed based on your selected frequency.
                     </p>
                   )}
                 </div>
