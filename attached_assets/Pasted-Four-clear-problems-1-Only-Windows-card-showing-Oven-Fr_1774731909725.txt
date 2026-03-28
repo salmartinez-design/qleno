@@ -1,0 +1,161 @@
+Four clear problems:
+	1.	Only Windows card showing — Oven, Fridge, Kitchen Cabinets, Clean Basement all missing
+	2.	Wrong icon on Windows — showing a refrigerator SVG on the Windows card
+	3.	Wrong label — “Windows (inside panes) — Standard / Recurring” needs to be “Windows (inside panes only) — Tracks not included”
+	4.	“Save a separate visit” duplicated — appears in both the persuasion line and the nudge below
+
+REPLIT PROMPT — ADD-ONS FULL FIX:
+CRITICAL — READ FIRST:
+Do not touch pricing engine tables. All fixes are widget display only.
+
+Fix 1 — Load all 5 add-ons for Deep Clean:
+The add-on query is only returning Windows. Fix the filter to return all 5 add-ons for Deep Clean scope using this explicit name-based allowlist:
+
+const DEEP_CLEAN_ADDONS = [
+  'oven',
+  'refrigerator', 
+  'kitchen cabinet',
+  'windows',
+  'basement'
+];
+
+const deepCleanAddons = allAddons.filter(addon =>
+  DEEP_CLEAN_ADDONS.some(key => 
+    addon.name.toLowerCase().includes(key)
+  )
+);
+
+
+If the above returns fewer than 5 results, do not filter from DB at all — instead hardcode the 5 cards with their names and pricing logic, and match them to DB records by name for checkbox state and submission. The cards must always show regardless of what the DB query returns.
+
+Fix 2 — Correct SVG icon per card:
+Each card must use its own unique SVG. The wrong icon is appearing because the same SVG is being reused. Assign explicitly:
+Oven — use this SVG:
+
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="8" y="8" width="48" height="48" rx="4" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="16" y="24" width="32" height="24" rx="2" stroke="currentColor" stroke-width="2"/>
+  <circle cx="20" cy="16" r="3" stroke="currentColor" stroke-width="2"/>
+  <circle cx="32" cy="16" r="3" stroke="currentColor" stroke-width="2"/>
+  <circle cx="44" cy="16" r="3" stroke="currentColor" stroke-width="2"/>
+  <line x1="22" y1="36" x2="42" y2="36" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+
+
+Refrigerator — use this SVG:
+
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="12" y="4" width="40" height="56" rx="4" stroke="currentColor" stroke-width="2.5"/>
+  <line x1="12" y1="24" x2="52" y2="24" stroke="currentColor" stroke-width="2"/>
+  <line x1="28" y1="12" x2="28" y2="20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+  <line x1="28" y1="32" x2="28" y2="48" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+</svg>
+
+
+Kitchen Cabinets — use this SVG:
+
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="4" y="8" width="26" height="48" rx="2" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="34" y="8" width="26" height="48" rx="2" stroke="currentColor" stroke-width="2.5"/>
+  <circle cx="24" cy="32" r="2.5" fill="currentColor"/>
+  <circle cx="40" cy="32" r="2.5" fill="currentColor"/>
+  <line x1="4" y1="32" x2="30" y2="32" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/>
+  <line x1="34" y1="32" x2="60" y2="32" stroke="currentColor" stroke-width="1.5" stroke-dasharray="3 3"/>
+</svg>
+
+
+Windows — use this SVG:
+
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect x="6" y="6" width="52" height="52" rx="3" stroke="currentColor" stroke-width="2.5"/>
+  <line x1="32" y1="6" x2="32" y2="58" stroke="currentColor" stroke-width="2"/>
+  <line x1="6" y1="32" x2="58" y2="32" stroke="currentColor" stroke-width="2"/>
+  <path d="M14 14 Q20 20 14 26" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+</svg>
+
+
+Clean Basement — use this SVG:
+
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <path d="M4 28 L32 8 L60 28" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="8" y="28" width="48" height="28" rx="2" stroke="currentColor" stroke-width="2.5"/>
+  <rect x="24" y="40" width="16" height="16" rx="1" stroke="currentColor" stroke-width="2"/>
+  <line x1="8" y1="40" x2="22" y2="40" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  <line x1="42" y1="40" x2="56" y2="40" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+</svg>
+
+
+Each SVG must be hardcoded to its specific card component — never dynamically assigned.
+
+Fix 3 — Correct labels and sub-labels:
+
+
+
+|Card            |Display Name                                       |Sub-label                                   |
+|----------------|---------------------------------------------------|--------------------------------------------|
+|Oven            |“Oven Cleaning”                                    |“Recommended by 9 out of 10 clients”        |
+|Refrigerator    |“Refrigerator Cleaning”                            |“Recommended by 9 out of 10 clients”        |
+|Kitchen Cabinets|“Kitchen Cabinets”                                 |“Cabinets must be empty upon arrival”       |
+|Windows         |“Windows (inside panes only) — Tracks not included”|Dynamic price or “Price varies by home size”|
+|Clean Basement  |“Clean Basement”                                   |Dynamic price or “Price varies by home size”|
+
+Remove “— Standard / Recurring” and any other internal scope labels from all display names. Customer-facing names only.
+
+Fix 4 — Dynamic pricing for Windows and Clean Basement:
+
+// Both calculate at 15% of Deep Clean base price for entered sqft
+const dynamicAddonPrice = (deepCleanBasePrice) => {
+  if (!deepCleanBasePrice || deepCleanBasePrice <= 0) return null;
+  return Math.round(deepCleanBasePrice * 0.15 * 100) / 100;
+};
+
+const windowsPrice = dynamicAddonPrice(deepCleanBasePrice);
+const basementPrice = dynamicAddonPrice(deepCleanBasePrice);
+
+
+Sub-label when sqft not entered: “Price varies by home size”
+Sub-label when sqft entered: “+$[calculated amount]”
+Updates in real time as sqft changes. No flat dollar amount ever shown for these two.
+
+Fix 5 — Remove duplicate “separate visit” copy:
+Currently “save a separate visit” appears twice. Keep only ONE instance.
+Remove the persuasion line above the grid entirely.
+Keep only the nudge below the grid:
+“Add extras now — requesting them later may require a separate visit.”
+Position: below the add-ons grid, above Continue button. #6B6860, 12px, centered.
+
+Fix 6 — Bundle logic:
+Oven + Refrigerator both selected:
+	∙	Both cards show $50.00 $40.00
+	∙	Green badge below grid: “Appliance Bundle applied — you’re saving $20.00”
+Only Oven selected:
+	∙	Amber nudge on Fridge card only: “Add Refrigerator Cleaning to unlock the Appliance Bundle — save $10”
+Only Fridge selected:
+	∙	Amber nudge on Oven card only: “Add Oven Cleaning to unlock the Appliance Bundle — save $10”
+
+Fix 7 — “Most Popular” badge:
+Show ONLY on Oven and Refrigerator cards. Position: absolute top-right of icon area. var(--brand) background, white text, 10px, pill shape.
+Do not show “Most Popular” badge on Kitchen Cabinets, Windows, or Clean Basement.
+
+Fix 8 — Card grid:
+Desktop: 2 columns
+Mobile (below 768px): 1 column, full width, each card full width
+Order: Oven → Refrigerator → Kitchen Cabinets → Windows → Clean Basement
+
+Fix 9 — Running total:
+Above Continue button, right-aligned:
+“Subtotal: $[base price + flat add-ons + dynamic add-ons - bundle discount]”
+#1A1917, 14px, semi-bold. Updates in real time.
+
+DESIGN:
+	∙	Background: #F7F6F3
+	∙	Cards: #FFFFFF
+	∙	Primary text: #1A1917
+	∙	Secondary text: #6B6860
+	∙	Borders: #E5E2DC
+	∙	Accent: var(--brand)
+	∙	Font: Plus Jakarta Sans only
+	∙	No emojis
+	∙	No dark mode
+
+Republish after complete. Screenshot Step 3 on mobile showing all 5 cards with correct icons, Oven + Fridge selected showing bundle badge and strikethrough, Windows showing calculated price.​​​​​​​​​​​​​​​​

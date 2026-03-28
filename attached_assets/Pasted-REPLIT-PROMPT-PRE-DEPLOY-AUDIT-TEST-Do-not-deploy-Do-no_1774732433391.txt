@@ -1,0 +1,224 @@
+REPLIT PROMPT — PRE-DEPLOY AUDIT & TEST:
+
+Do not deploy. Do not republish. Run the following checks and report results for each item before any deployment occurs.
+
+SECTION 1 — BOOKING WIDGET FLOW AUDIT
+Start the dev server and open the booking widget at /book/phes-cleaning. Walk through each path and report pass/fail:
+Scope display (Step 2):
+	∙	Exactly 5 scopes render: Deep Clean, Move In/Move Out, One-Time Standard Clean, Recurring Cleaning, Commercial Cleaning
+	∙	No other scopes visible (no PPM Turnover, no Hourly variants, no sub-variants)
+	∙	RESIDENTIAL label above first 3, COMMERCIAL label above Commercial
+	∙	No duplicate scopes
+Deep Clean path:
+	∙	Selecting Deep Clean shows Home Details (sqft, bedrooms, bathrooms, floors, people, pets)
+	∙	Cleanliness question appears after home details (3 pills: 1-Very Clean, 2-Moderately Clean, 3-Very Dirty)
+	∙	Selecting cleanliness pill triggers upsell card immediately — no loading state
+	∙	Upsell card shows: LIMITED OFFER label, heading, body copy, 3 cadence pills
+	∙	Selecting “Every 2 Weeks” shows a real dollar price (not $0, not “Calculating…”)
+	∙	Price shows strikethrough full rate and discounted first visit rate
+	∙	“Rate lock terms” link expands with plain English copy (no “20%” language)
+	∙	“Yes — lock in my rate” button is active after cadence selected
+	∙	“No thanks” button shows soft nudge card (no technician reference)
+	∙	Soft nudge has “Actually, I’d like to set up recurring service” link
+	∙	Continue button disabled until cleanliness + upsell decision made
+Step 3 — Deep Clean add-ons:
+	∙	Heading shows “Add extras to your cleaning”
+	∙	No frequency selector showing
+	∙	Exactly 5 add-on cards: Oven, Refrigerator, Kitchen Cabinets, Windows, Clean Basement
+	∙	Each card has correct SVG icon (oven icon on oven, fridge icon on fridge, etc.)
+	∙	“Most Popular” badge on Oven and Refrigerator only
+	∙	Oven shows +$50.00
+	∙	Refrigerator shows +$50.00
+	∙	Kitchen Cabinets shows +$50.00 with “Cabinets must be empty upon arrival”
+	∙	Windows shows “Windows (inside panes only) — Tracks not included” with dynamic price
+	∙	Clean Basement shows dynamic price
+	∙	Selecting Oven only → amber nudge on Fridge card
+	∙	Selecting Fridge only → amber nudge on Oven card
+	∙	Selecting both Oven + Fridge → both show $50.00 $40.00, green bundle badge “saving $20.00”
+	∙	No discount code field anywhere
+	∙	No service address field
+	∙	Running total updates in real time
+	∙	Continue is active immediately (add-ons optional)
+Move In/Out path:
+	∙	Three acknowledgment checkboxes appear before home details
+	∙	Continue blocked until all three checked
+	∙	No upsell card
+	∙	No cleanliness question
+	∙	No move date field
+	∙	Job tagged property_vacant: true
+Recurring path:
+	∙	“When was your home last professionally cleaned?” appears after scope selection
+	∙	4 pill options in 2×2 grid
+	∙	Selecting option 3 or 4 shows Deep Clean recommendation card
+	∙	“Book a Deep Clean Instead” switches scope
+	∙	“Continue with Recurring Anyway” shows disclaimer with checkbox
+	∙	Disclaimer copy references office contact — no technician mention
+	∙	Continue blocked until checkbox checked on disclaimer
+	∙	last_cleaned_response and last_cleaned_flag stored on submission
+Commercial path:
+	∙	Two option cards: Single Visit and Cleaning Walkthrough
+	∙	Walkthrough card has “Recommended” badge and brand border
+	∙	Single Visit proceeds to card capture
+	∙	Walkthrough skips card capture
+	∙	Internal alert email triggered on walkthrough submission
+
+SECTION 2 — PRICING AUDIT
+Run the pricing calculation tests and report actual vs expected:
+
+Deep Clean tests (pricing engine — DO NOT MODIFY):
+[ ] 1,500 sqft Deep Clean one-time      → Expected $434.00
+[ ] 2,800 sqft Deep Clean one-time      → Expected $588.00
+[ ] 2,800 sqft + Oven ($50 flat)        → Expected $638.00
+[ ] 1,500 sqft + Windows (15% of base) → Expected $434 + $65.10 = $499.10
+[ ] COMPASS discount code (15% off)    → Expected $368.90 on $434
+
+Standard tests:
+[ ] 1,200 sqft Standard                 → Expected $214.50
+[ ] 3,500 sqft Standard                 → Expected $520.00
+
+Recurring tests (NEW hourly rate formula):
+[ ] Report actual output for 1,800 sqft Weekly
+[ ] Report actual output for 1,800 sqft Biweekly  
+[ ] Report actual output for 1,800 sqft Every 4 Weeks
+[ ] Report actual output for 2,500 sqft Weekly
+[ ] Report actual output for 2,500 sqft Biweekly
+[ ] Report actual output for 2,500 sqft Every 4 Weeks
+
+Minimum bill:
+[ ] Deep Clean 400 sqft → Expected $210.00 (minimum enforced)
+[ ] Standard 400 sqft   → Expected $195.00 (minimum enforced)
+
+
+Report every result as PASS/FAIL with actual value shown.
+
+SECTION 3 — DATABASE MIGRATIONS AUDIT
+Check the following tables and columns exist in the database:
+
+-- Check jobs table columns
+SELECT column_name FROM information_schema.columns 
+WHERE table_name = 'jobs' 
+AND column_name IN (
+  'upsell_shown', 'upsell_accepted', 'upsell_declined', 
+  'upsell_deferred', 'upsell_cadence_selected',
+  'property_vacant', 'first_recurring_discounted',
+  'last_cleaned_response', 'last_cleaned_flag',
+  'overage_disclaimer_acknowledged', 'overage_rate',
+  'applied_bundle_id', 'bundle_discount_total'
+);
+
+-- Check rate_locks table exists
+SELECT EXISTS (
+  SELECT FROM information_schema.tables 
+  WHERE table_name = 'rate_locks'
+);
+
+-- Check offer_settings table exists  
+SELECT EXISTS (
+  SELECT FROM information_schema.tables 
+  WHERE table_name = 'offer_settings'
+);
+
+-- Check addon_bundles table exists
+SELECT EXISTS (
+  SELECT FROM information_schema.tables 
+  WHERE table_name = 'addon_bundles'
+);
+
+-- Check Phes has offer_settings seeded
+SELECT * FROM offer_settings 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+
+-- Check Appliance Bundle seeded
+SELECT b.name, b.discount_value, b.active, 
+       array_agg(i.addon_key) as items
+FROM addon_bundles b
+JOIN addon_bundle_items i ON i.bundle_id = b.id
+WHERE b.company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+GROUP BY b.id, b.name, b.discount_value, b.active;
+
+-- Check recurring scope has hourly rates set
+SELECT name, weekly_hourly_rate, biweekly_hourly_rate, 
+       monthly_hourly_rate, use_frequency_hourly_rates
+FROM pricing_scopes
+WHERE name ILIKE '%recurring%'
+AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+
+-- Check move_date column was dropped
+SELECT column_name FROM information_schema.columns 
+WHERE table_name = 'jobs' AND column_name = 'move_date';
+-- Should return 0 rows
+
+
+Report each check as EXISTS/MISSING or correct value/incorrect value.
+
+SECTION 4 — API ENDPOINTS AUDIT
+Test each endpoint exists and returns correct status codes:
+
+GET  /api/bundles                          → 200 (authenticated)
+POST /api/bundles                          → 200 or 201 (authenticated)
+PUT  /api/bundles/:id                      → 200 (authenticated)
+PUT  /api/bundles/:id/toggle               → 200 (authenticated)
+DELETE /api/bundles/:id                    → 200 (authenticated)
+GET  /api/bundles/flat-addons              → 200 (authenticated)
+GET  /api/public/bundles/:companyId        → 200 (public)
+GET  /api/pricing/offer-settings           → 200 (authenticated)
+PUT  /api/pricing/offer-settings           → 200 (authenticated)
+POST /api/admin/recurring-engine/run       → 200 (authenticated)
+GET  /api/admin/recurring-engine/status    → 200 (authenticated)
+
+
+Report each as PASS/FAIL with actual status code.
+
+SECTION 5 — NIGHTLY CRON AUDIT
+Check the cron jobs are registered:
+	∙	Recurring engine cron registered at midnight CT (0 0 * * *)
+	∙	Rate lock nightly checks registered at 1 AM CT (0 1 * * *)
+	∙	Startup run of recurring engine completed on last server start
+	∙	Report how many schedules were processed and jobs created on startup run
+
+SECTION 6 — KNOWN ISSUES CHECKLIST
+Confirm these previously identified issues are fixed:
+	∙	No loyalty discount add-ons in public widget
+	∙	No discount code field in public widget (any step)
+	∙	No service address field on Step 3
+	∙	No technician references in any customer-facing copy
+	∙	No “Standard / Recurring” in Windows add-on label
+	∙	No “Calculating…” state in upsell card
+	∙	Frequency selector does not appear for Deep Clean
+	∙	Soft nudge only appears after “No thanks” click — never automatically
+	∙	Rate lock terms use plain English (no “20%” language)
+	∙	move_date column does not exist on jobs table
+
+OUTPUT FORMAT:
+Report results in this format:
+
+SECTION 1 — WIDGET FLOW
+Deep Clean path: X/Y checks passed
+[List any FAIL items with description]
+
+SECTION 2 — PRICING
+Deep Clean: X/Y passed
+Standard: X/Y passed  
+Recurring new values: [list all 6 results]
+Minimums: X/Y passed
+
+SECTION 3 — DATABASE
+Tables: X/Y exist
+Columns: X/Y present
+[List any MISSING items]
+
+SECTION 4 — API ENDPOINTS
+X/Y endpoints responding correctly
+[List any FAIL items]
+
+SECTION 5 — CRON
+[Status of each cron]
+
+SECTION 6 — KNOWN ISSUES
+X/Y confirmed fixed
+[List any still broken]
+
+OVERALL: READY TO DEPLOY / NOT READY — [reason if not ready]
+
+
+Do not deploy until this audit is complete and all critical items pass.​​​​​​​​​​​​​​​​
