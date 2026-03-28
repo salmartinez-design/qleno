@@ -369,9 +369,20 @@ export default function BookPage() {
   }, [scopeId, sqft, frequencyStr, selectedAddonIds]);
 
   // ── Upsell pricing: fetch recurring rate for chosen cadence ─────────────
+  // Scope 11 ("Recurring Cleaning") has no pricing tiers. Use the cadence-specific
+  // scopes which carry their own hourly rates and tier tables.
   useEffect(() => {
     if (!company || !upsellCadence || !sqft) { setUpsellCalcResult(null); return; }
-    const recurringScope = company.active_scopes.find(s => s.name.toLowerCase() === "recurring cleaning");
+    const cadenceToScopeName: Record<string, string> = {
+      weekly:    "recurring cleaning - weekly",
+      biweekly:  "recurring cleaning - every 2 weeks",
+      monthly:   "recurring cleaning - every 4 weeks",
+    };
+    const targetName = cadenceToScopeName[upsellCadence];
+    if (!targetName) return;
+    const recurringScope = company.active_scopes.find(
+      s => s.name.toLowerCase() === targetName
+    );
     if (!recurringScope) return;
     pubFetch("/api/public/calculate", {
       method: "POST",
@@ -1258,16 +1269,22 @@ export default function BookPage() {
                             {upsellCadenceError && <p style={{ margin: "6px 0 0", fontSize: 12, color: brand }}>Please select how often you'd like us to come back.</p>}
                           </div>
 
-                          {upsellCalcResult && upsellCadence && (
-                            <div style={{ marginBottom: 14, padding: "12px 14px", background: "#F7F6F3", borderRadius: 8 }}>
-                              <p style={{ margin: "0 0 3px", fontSize: 15, fontWeight: 600, color: "#1A1917" }}>
-                                Your first recurring cleaning:{" "}
-                                <span style={{ textDecoration: "line-through", color: "#9E9B94", fontWeight: 400 }}>${upsellCalcResult.final_total.toFixed(2)}</span>
-                                {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * (1 - (offerSettings?.upsell_discount_percent ?? 15) / 100)).toFixed(2)}</strong>
-                              </p>
-                              <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
-                                Then ${upsellCalcResult.final_total.toFixed(2)} per visit{offerSettings?.rate_lock_enabled !== false ? ` — locked for ${offerSettings?.rate_lock_duration_months ?? 24} months.` : "."}
-                              </p>
+                          {upsellCadence && (
+                            <div style={{ marginBottom: 14, padding: "12px 14px", background: "#F7F6F3", borderRadius: 8, minHeight: 56 }}>
+                              {upsellCalcResult ? (
+                                <>
+                                  <p style={{ margin: "0 0 3px", fontSize: 15, fontWeight: 600, color: "#1A1917" }}>
+                                    Your first recurring cleaning:{" "}
+                                    <span style={{ textDecoration: "line-through", color: "#9E9B94", fontWeight: 400 }}>${upsellCalcResult.final_total.toFixed(2)}</span>
+                                    {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * (1 - (offerSettings?.upsell_discount_percent ?? 15) / 100)).toFixed(2)}</strong>
+                                  </p>
+                                  <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
+                                    Then ${upsellCalcResult.final_total.toFixed(2)} per visit{offerSettings?.rate_lock_enabled !== false ? ` — locked for ${offerSettings?.rate_lock_duration_months ?? 24} months.` : "."}
+                                  </p>
+                                </>
+                              ) : (
+                                <p style={{ margin: 0, fontSize: 13, color: "#9E9B94" }}>Calculating your rate…</p>
+                              )}
                             </div>
                           )}
 
@@ -1291,11 +1308,19 @@ export default function BookPage() {
                             <button
                               onClick={() => {
                                 if (!upsellCadence) { setUpsellCadenceError(true); return; }
+                                if (!upsellCalcResult) return;
                                 setUpsellAccepted(true); setUpsellDeclined(false);
                               }}
-                              style={{ padding: "12px 20px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                              disabled={!upsellCadence || !upsellCalcResult}
+                              style={{
+                                padding: "12px 20px", background: brand, color: "#fff", border: "none", borderRadius: 8,
+                                fontSize: 14, fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif",
+                                cursor: (!upsellCadence || !upsellCalcResult) ? "not-allowed" : "pointer",
+                                opacity: (!upsellCadence || !upsellCalcResult) ? 0.55 : 1,
+                                transition: "opacity 0.15s",
+                              }}
                             >
-                              Yes — lock in my rate
+                              {upsellCadence && !upsellCalcResult ? "Calculating…" : "Yes — lock in my rate"}
                             </button>
                             <button
                               onClick={() => { setUpsellDeclined(true); setUpsellAccepted(false); }}

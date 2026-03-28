@@ -1,0 +1,61 @@
+Two issues visible:
+
+**Issue 1 — CRITICAL: Price showing $0.00**
+"Rate lock confirmed — Your recurring rate will be locked for 24 months at $—/visit. First visit: $0.00 (15% off applied)."
+
+The price calculation is returning $0. The pricing engine isn't connecting to the cadence selection. It should show approximately $240/visit for a 2,000 sqft biweekly clean, first visit at ~$204 (15% off).
+
+**Issue 2 — UI changed unexpectedly**
+The upsell card with the full offer layout (LIMITED OFFER heading, cadence pills, rate lock terms, two buttons) has been replaced with a "Rate lock confirmed" summary card. It looks like it jumped straight to a confirmed state without showing the full offer card first. The cadence selector and "Yes — lock in my rate" button are gone.
+
+---
+
+**REPLIT PROMPT — UPSELL CARD PRICE FIX:**
+
+Two bugs on the Deep Clean upsell card in the booking widget:
+
+**Bug 1 — Price calculating as $0.00:**
+
+The upsell card is showing "$0.00" for the recurring rate. Fix the price calculation:
+
+The recurring rate must be calculated using the same pricing engine used for the quote builder. Given the entered square footage (e.g. 2000) and selected cadence, calculate:
+
+```javascript
+// Pull base price from pricing engine for this sqft + scope
+const basePrice = calculatePrice({
+  scope: 'recurring',
+  sqft: enteredSquareFootage,
+  cadence: selectedCadence // 'weekly' | 'biweekly' | 'every_4_weeks'
+});
+
+// Apply cadence multipliers
+const multipliers = {
+  weekly: 0.80,
+  biweekly: 0.90,
+  every_4_weeks: 1.00
+};
+
+const recurringRate = basePrice * multipliers[selectedCadence];
+const firstVisitPrice = recurringRate * 0.85; // 15% off first visit
+```
+
+Display:
+- Primary: "~~$[recurringRate]~~/visit~~ **$[firstVisitPrice] first visit** (15% off)"
+- Secondary: "Then $[recurringRate]/visit — locked for 24 months"
+
+If `basePrice` returns 0 or null, check that the pricing engine is being called with the correct scope key for recurring cleaning. Use name-based lookup not ID-based.
+
+**Bug 2 — Upsell card skipping to confirmed state:**
+
+The card is jumping directly to "Rate lock confirmed" without showing the full offer first. The user must see and interact with the offer card before it confirms. Restore the correct flow:
+
+1. Cleanliness pill selected → upsell offer card appears (LIMITED OFFER heading, offer copy, cadence pills, rate lock terms link, two buttons)
+2. User selects cadence → live price appears inside the offer card
+3. User clicks "Yes — lock in my rate" → card transitions to "Rate lock confirmed" summary
+4. User clicks "No thanks" → soft nudge card appears
+
+The confirmed state should only show after explicit button click — never automatically.
+
+"Change selection" link in the confirmed state should restore the full offer card.
+
+Republish after fixes.

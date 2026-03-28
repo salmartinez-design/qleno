@@ -1,0 +1,218 @@
+**REPLIT PROMPT — FULL CONSOLIDATED FIX:**
+
+---
+
+**CONTEXT**
+
+The pricing engine (6 tables, 16/16 audit tests) is confirmed correct and must not be touched. All fixes below are widget display and flow only. No changes to `pricing_scopes`, `pricing_tiers`, `pricing_addons`, `pricing_fee_rules`, `pricing_discounts`, or `pay_templates`.
+
+---
+
+**FIX 1 — UPSELL CARD PRICE CALCULATION**
+
+The upsell card is showing $0.00 for the recurring rate. Fix the price calculation without touching the pricing engine tables.
+
+When the customer selects a cadence pill in the upsell card (Weekly / Every 2 Weeks / Every 4 Weeks), calculate the recurring rate as follows:
+
+```javascript
+// Use the same pricing calculation function used in the quote builder
+// Pass scope: 'recurring cleaning' (name-based, not ID-based)
+// Pass sqft: the value entered in the Square Footage field on this step
+// Pass cadence: the selected cadence from the upsell card
+
+const basePrice = await calculateQuotePrice({
+  scopeName: 'recurring cleaning',
+  sqft: enteredSquareFootage,
+  bedrooms: enteredBedrooms,
+  bathrooms: enteredBathrooms
+});
+
+// Apply cadence multipliers (read from pricing engine, do not hardcode)
+// Weekly = 0.80x, Every 2 Weeks = 0.90x, Every 4 Weeks = 1.00x
+const cadenceMultipliers = {
+  'weekly': 0.80,
+  'biweekly': 0.90,
+  'every_4_weeks': 1.00
+};
+
+const recurringRate = basePrice * cadenceMultipliers[selectedCadence];
+
+// Pull discount from offer_settings (default 15%)
+const firstVisitRate = recurringRate * (1 - (offerSettings.upsell_discount_percent / 100));
+```
+
+Display in the upsell card:
+- Primary line (`#1A1917`, 15px, semi-bold): "Your first recurring cleaning: ~~$[recurringRate formatted]~~ **$[firstVisitRate formatted]**"
+- Secondary line (`#6B6860`, 12px): "Then $[recurringRate formatted]/visit — locked for [rate_lock_duration_months] months."
+
+Both values update in real time as cadence changes. If sqft is 0 or not entered, show "Enter your home size above to see your rate" in secondary text instead of a price.
+
+---
+
+**FIX 2 — UPSELL CARD FLOW SEQUENCE**
+
+The card is jumping to a "Rate lock confirmed" state without user interaction. Restore the correct sequence:
+
+**State 1 — Offer (default when Deep Clean + cleanliness selected):**
+- LIMITED OFFER label
+- "Turn today's Deep Clean into a fresh start" heading
+- Offer body copy
+- Cadence pills (Weekly / Every 2 Weeks / Every 4 Weeks)
+- Live price lines (appear after cadence selected)
+- "Rate lock terms" collapsible link
+- "Yes — lock in my rate" primary button
+- "No thanks, just the Deep Clean" secondary button
+
+**State 2 — Confirmed (only after "Yes — lock in my rate" clicked):**
+- "Rate lock confirmed" heading
+- "Your recurring rate will be locked for 24 months at $[recurringRate]/visit. First visit: $[firstVisitRate] (15% off applied)."
+- "Change selection" link — returns to State 1
+
+**State 3 — Declined (only after "No thanks" clicked):**
+- Soft nudge card
+- "Actually, I'd like to set up recurring service" link — returns to State 1
+
+Never auto-advance to State 2. State 2 only appears on explicit button click.
+
+---
+
+**FIX 3 — RATE LOCK TERMS COPY**
+
+Replace existing rate lock terms text with plain English version:
+
+Old:
+"Your recurring rate is locked for 24 months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after 60 consecutive days without service, or if actual cleaning time exceeds the estimated time by more than 20% on 2 of your first 3 cleans."
+
+New:
+"Your rate is guaranteed for 24 months as long as your home stays the same. If your home significantly changes — new pets, more people, or major renovations — we may need to adjust your rate. Your guarantee also pauses if you skip service for more than 60 days, or if your first few cleanings consistently take longer than expected."
+
+Apply this update everywhere the rate lock terms appear:
+- Booking widget upsell card
+- Any email templates referencing rate lock terms
+- Client profile rate lock section if terms text is displayed there
+
+---
+
+**FIX 4 — STEP 3 WHEN UPSELL ACCEPTED**
+
+When `upsell_accepted === true` and cadence is already selected from the upsell card:
+
+**Remove from Step 3:**
+- Frequency selector (cadence already confirmed in upsell card)
+- Discount code field and Apply button (must never appear in public widget)
+- Service address field (captured in Step 1 contact info)
+
+**Update Step 3 heading:**
+Change "How often and what extras?" to "Add extras to your cleaning"
+
+**Show read-only frequency confirmation:**
+```
+Cleaning Frequency
+Every 2 Weeks  [Change]
+```
+- Label: `#6B6860`, 13px
+- Value: `#1A1917`, 14px, semi-bold
+- "Change" link: `var(--brand)`, 12px — on click returns to Step 2 upsell card
+
+**Restore full add-ons grid:**
+The add-ons section is missing from Step 3. Restore it below the frequency confirmation. Show all applicable add-ons for Deep Clean scope:
+- Oven Cleaning — +$50 — "Most Popular" badge
+- Refrigerator Cleaning — +$50 — "Most Popular" badge
+- Kitchen Cabinets (must be empty upon arrival) — +$50
+- Windows (inside panes) — price varies by home size (15% of base, calculated dynamically)
+- Clean Basement — price varies by home size (15% of base, calculated dynamically)
+
+Bundle logic must be active: Oven + Refrigerator selected together = $10 off each, green "Appliance Bundle applied — you're saving $20.00" badge appears.
+
+Bundle nudge: if only Oven selected, show amber nudge on Fridge card: "Add Refrigerator Cleaning to unlock the Appliance Bundle discount." Vice versa.
+
+Scope-aware persuasion line above add-ons grid:
+- Deep Clean: "Most customers add oven and refrigerator cleaning — save a separate visit."
+
+Soft nudge below add-ons, above Continue:
+"Add extras now — requesting them later may require a separate visit."
+
+---
+
+**FIX 5 — STEP 3 WHEN UPSELL DECLINED OR NOT SHOWN**
+
+For all other scopes and paths (One-Time Standard, Recurring normal path, upsell declined):
+
+Keep Step 3 as "How often and what extras?" with frequency selector showing.
+
+Remove from Step 3 for ALL paths:
+- Discount code field and Apply button — permanently removed from public widget
+- Service address field — permanently removed from Step 3
+
+Frequency selector labels (confirm these are correct everywhere):
+- `weekly` → "Weekly"
+- `biweekly` → "Every 2 Weeks"
+- `monthly` → "Every 4 Weeks"
+- `onetime` → "One-Time" (for non-recurring scopes if shown)
+
+---
+
+**FIX 6 — SERVICE ADDRESS CAPTURE**
+
+Service address must be captured in Step 1 (Contact Information) not Step 3.
+
+In Step 1, confirm the following fields exist:
+- First Name (required)
+- Last Name (required)
+- Cell Phone (required)
+- Email (required)
+- Service Address (required) — full address input with placeholder "Enter your service address"
+
+If Service Address is not currently in Step 1, add it as the last field before the SMS consent checkbox.
+
+Store as `service_address` on the job record at submission.
+
+---
+
+**FIX 7 — CONFIRM DISCOUNT CODE PERMANENTLY REMOVED**
+
+Search the entire booking widget codebase for any instance of:
+- Discount code input field
+- Promo code input field
+- Apply button adjacent to a text input
+- Any reference to `discountCode` state in the widget
+
+Remove all instances. The discount code field must never appear anywhere in the public booking widget under any scope or path.
+
+---
+
+**FIX 8 — CONTINUE BUTTON GATING (STEP 3)**
+
+Continue button on Step 3 must remain disabled until:
+- At least one add-on is selected OR the customer has scrolled past the add-ons section (do not force an add-on selection — they are optional)
+- Actually: Continue on Step 3 should be active immediately — add-ons are optional, no gating required on this step
+
+Remove any gating on Step 3 Continue. The only gated step is Step 2 (requires cleanliness selection + upsell decision for Deep Clean, requires last-cleaned selection for Recurring, requires all three checkboxes for Move In/Out).
+
+---
+
+**DESIGN — ALL ELEMENTS:**
+- Background: `#F7F6F3`
+- Cards: `#FFFFFF`
+- Primary text: `#1A1917`
+- Secondary text: `#6B6860`
+- Borders: `#E5E2DC`
+- Accent: `var(--brand)`
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+**DO NOT TOUCH:**
+- `pricing_scopes` table
+- `pricing_tiers` table
+- `pricing_addons` table
+- `pricing_fee_rules` table
+- `pricing_discounts` table
+- `pay_templates` table
+- Any pricing calculation function or formula
+- The 16/16 audit test results
+
+Republish after all fixes complete. Confirm in response which fixes were applied and whether the price calculation in the upsell card is now pulling from the pricing engine correctly.
