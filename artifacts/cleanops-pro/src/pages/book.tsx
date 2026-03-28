@@ -241,9 +241,6 @@ export default function BookPage() {
   const [frequencyStr, setFrequencyStr] = useState("");
   const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
   const [address, setAddressField] = useState("");
-  const [discountInput, setDiscountInput] = useState("");
-  const [discountCode, setDiscountCode] = useState("");
-  const [discountError, setDiscountError] = useState("");
 
   // Step 3: Date
   const [selectedDate, setSelectedDate] = useState("");
@@ -308,9 +305,12 @@ export default function BookPage() {
     setLastCleanedResponse("");
     setLastCleanedOverride(false);
     setOverageAcknowledged(false);
+    // Scope 11 (Recurring Cleaning) has no addons defined — fetch from One-Time Standard (3)
+    // so we have pricing data; frontend scope filter then enforces visibility rules
+    const addonScopeId = scopeId === 11 ? 3 : scopeId;
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
-      pubFetch(`/api/public/addons/${scopeId}`),
+      pubFetch(`/api/public/addons/${addonScopeId}`),
     ]).then(([freqs, ads]) => {
       const filteredFreqs = (freqs as PricingFrequency[]).filter(f => {
         if (scopeId === 11) return !f.frequency.toLowerCase().includes("onetime") && !f.frequency.toLowerCase().includes("one_time") && f.frequency !== "onetime";
@@ -333,7 +333,7 @@ export default function BookPage() {
   }, [scopeId, company]);
 
   // ── Live pricing calculation ──────────────────────────────────────────────
-  const runCalc = useCallback(async (opts?: { code?: string }) => {
+  const runCalc = useCallback(async () => {
     if (!company || !scopeId || !sqft || !frequencyStr) { setCalcResult(null); return; }
     setCalcLoading(true);
     try {
@@ -345,22 +345,12 @@ export default function BookPage() {
           sqft,
           frequency: frequencyStr,
           addon_ids: selectedAddonIds,
-          discount_code: opts?.code ?? discountCode,
         }),
       });
       setCalcResult(result);
-      if (opts?.code !== undefined) {
-        if (result.discount_valid === false) {
-          setDiscountError("Code not found or inactive");
-          setDiscountCode("");
-        } else if (result.discount_amount > 0) {
-          setDiscountError("");
-          setDiscountCode(opts.code);
-        }
-      }
     } catch { /* silent */ }
     finally { setCalcLoading(false); }
-  }, [company, scopeId, sqft, frequencyStr, selectedAddonIds, discountCode]);
+  }, [company, scopeId, sqft, frequencyStr, selectedAddonIds]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -495,7 +485,7 @@ export default function BookPage() {
             first_name: firstName, last_name: lastName, phone, email, zip,
             referral_source: referral || null, sms_consent: smsConsent,
             scope_id: scopeId, sqft, frequency: frequencyStr,
-            addon_ids: selectedAddonIds, discount_code: discountCode || null,
+            addon_ids: selectedAddonIds,
             bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
             home_condition_rating: showCleanlinessQ ? (cleanliness || 1) : null,
             condition_multiplier: showCleanlinessQ ? conditionMultiplier : null,
@@ -530,7 +520,7 @@ export default function BookPage() {
           first_name: firstName, last_name: lastName, phone, email, zip,
           referral_source: referral || null, sms_consent: smsConsent,
           scope_id: scopeId, sqft, frequency: frequencyStr,
-          addon_ids: selectedAddonIds, discount_code: discountCode || null,
+          addon_ids: selectedAddonIds,
           bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
           address, preferred_date: selectedDate,
         }),
@@ -650,6 +640,11 @@ export default function BookPage() {
   const isDeepClean = displayScopeKey === "deep_clean";
   const isDeepCleanScope = selectedScope?.name?.toLowerCase().trim() === "deep clean";
   const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
+
+  // Upsell state machine — mutually exclusive, explicit
+  const showUpsellOffer     = isDeepCleanScope && cleanliness > 0 && !upsellAccepted && !upsellDeclined;
+  const showUpsellConfirmed = isDeepCleanScope && upsellAccepted === true;
+  const showSoftNudge       = isDeepCleanScope && upsellDeclined === true;
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
   const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
@@ -660,8 +655,31 @@ export default function BookPage() {
   );
   const conditionMultiplier = (showCleanlinessQ && cleanliness === 3) ? 1.08 : 1.0;
 
-  // ── Bundle detection ──────────────────────────────────────────────────────
-  const visibleAddons = addons.filter(a => !a.name.toLowerCase().includes("loyalty discount"));
+  // ── Scope-based add-on visibility rules ──────────────────────────────────
+  const ALLOWED_ADDON_IDS: Record<string, number[]> = {
+    deep_clean:        [8, 10, 12, 16, 19],
+    move_in_out:       [8, 10, 12, 16],
+    one_time_standard: [8, 10, 12],
+    recurring:         [8, 10, 12],
+    commercial:        [22],
+  };
+  const scopeKeyForAddons = isDeepCleanScope ? "deep_clean"
+    : isMoveInOut ? "move_in_out"
+    : scopeNameLower.includes("one-time") || scopeNameLower.includes("one time") ? "one_time_standard"
+    : isRecurringScope ? "recurring"
+    : isCommercial ? "commercial"
+    : null;
+  const allowedAddonIds: number[] | null = scopeKeyForAddons ? (ALLOWED_ADDON_IDS[scopeKeyForAddons] ?? null) : null;
+
+  const visibleAddons = addons.filter(a => {
+    const nl = a.name.toLowerCase();
+    if (nl.includes("loyalty")) return false;
+    if (nl.includes("promo")) return false;
+    if (nl.includes("second appointment")) return false;
+    if (nl.includes("commercial adjustment")) return false;
+    if (allowedAddonIds && !allowedAddonIds.includes(a.id)) return false;
+    return true;
+  });
 
   const isDynamicPricedAddon = (addonId: number) => {
     const a = addons.find(x => x.id === addonId);
@@ -818,7 +836,7 @@ export default function BookPage() {
                 <Row key={a.id} label={a.name} value={`+$${a.amount.toFixed(2)}`} />
               ))}
               {calcResult.discount_amount > 0 && (
-                <Row label={`Discount${discountCode ? ` (${discountCode})` : ""}`} value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
+                <Row label="Bundle Discount" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
               )}
               {conditionMultiplier > 1 && (
                 <Row label="Condition Adj. (+8%)" value={`+$${(calcResult.final_total * 0.08).toFixed(2)}`} />
@@ -1238,9 +1256,9 @@ export default function BookPage() {
                   )}
 
                   {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
-                  {isDeepCleanScope && showCleanlinessQ && cleanliness > 0 && offerSettings?.upsell_enabled !== false && (
+                  {(showUpsellOffer || showUpsellConfirmed || showSoftNudge) && offerSettings?.upsell_enabled !== false && (
                     <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
-                      {!upsellAccepted && !upsellDeclined && (
+                      {showUpsellOffer && (
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: brand, textTransform: "uppercase", letterSpacing: "0.08em" }}>Limited Offer</p>
                           <p style={{ margin: "0 0 12px", fontSize: 18, fontWeight: 600, color: "#1A1917", lineHeight: 1.3 }}>Turn today's Deep Clean into a fresh start</p>
@@ -1276,7 +1294,9 @@ export default function BookPage() {
 
                           {upsellCadence && (
                             <div style={{ marginBottom: 14, padding: "12px 14px", background: "#F7F6F3", borderRadius: 8, minHeight: 56 }}>
-                              {upsellCalcResult ? (
+                              {!sqft ? (
+                                <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>Enter your home size above to see your rate.</p>
+                              ) : upsellCalcResult ? (
                                 <>
                                   <p style={{ margin: "0 0 3px", fontSize: 15, fontWeight: 600, color: "#1A1917" }}>
                                     Your first recurring cleaning:{" "}
@@ -1284,7 +1304,7 @@ export default function BookPage() {
                                     {" "}<strong style={{ color: brand }}>${(upsellCalcResult.final_total * (1 - (offerSettings?.upsell_discount_percent ?? 15) / 100)).toFixed(2)}</strong>
                                   </p>
                                   <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
-                                    Then ${upsellCalcResult.final_total.toFixed(2)} per visit{offerSettings?.rate_lock_enabled !== false ? ` — locked for ${offerSettings?.rate_lock_duration_months ?? 24} months.` : "."}
+                                    Then ${upsellCalcResult.final_total.toFixed(2)}/visit{offerSettings?.rate_lock_enabled !== false ? ` — locked for ${offerSettings?.rate_lock_duration_months ?? 24} months.` : "."}
                                   </p>
                                 </>
                               ) : (
@@ -1337,7 +1357,7 @@ export default function BookPage() {
                         </>
                       )}
 
-                      {upsellAccepted && (
+                      {showUpsellConfirmed && (
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Rate lock confirmed</p>
                           <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.5 }}>
@@ -1353,10 +1373,10 @@ export default function BookPage() {
                         </>
                       )}
 
-                      {upsellDeclined && !upsellAccepted && (
+                      {showSoftNudge && (
                         <>
                           <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
-                            No problem. Your technician can walk you through recurring options during your cleaning — no commitment required. Or you can always set it up later from your confirmation email.
+                            No problem. You can always set up recurring service later — just give our office a call or reply to your confirmation email and we'll get you set up.
                           </p>
                           <button
                             onClick={() => { setUpsellDeclined(false); setUpsellAccepted(false); setUpsellCadence(""); setUpsellCalcResult(null); }}
@@ -1451,11 +1471,21 @@ export default function BookPage() {
           {/* ── Step 2: Frequency + Add-ons ──────────────────────────────────── */}
           {step === 2 && (
             <div style={s.card}>
-              <p style={s.h2}>{upsellAccepted ? "Add extras to your cleaning" : "How often and what extras?"}</p>
-              <p style={s.sub}>{upsellAccepted ? "Your recurring schedule is confirmed. Choose any extras below." : "Choose your cleaning frequency and any add-ons."}</p>
+              {/* Heading — scope-aware */}
+              {isRecurringScope ? (
+                <>
+                  <p style={s.h2}>How often and what extras?</p>
+                  <p style={s.sub}>Choose your cleaning frequency and any add-ons.</p>
+                </>
+              ) : (
+                <>
+                  <p style={s.h2}>Add extras to your cleaning</p>
+                  <p style={s.sub}>{upsellAccepted ? "Your recurring schedule is confirmed. Choose any extras below." : "Customize your cleaning with any optional add-ons."}</p>
+                </>
+              )}
 
-              {/* Frequency section — read-only when upsell accepted, interactive otherwise */}
-              {upsellAccepted ? (
+              {/* Deep Clean + upsell accepted — read-only frequency row */}
+              {isDeepCleanScope && upsellAccepted && (
                 <div style={{ marginBottom: 24, padding: "14px 16px", background: "#F7F6F3", borderRadius: 10, border: "1px solid #E5E2DC" }}>
                   <p style={{ margin: "0 0 4px", fontSize: 13, color: "#6B6860", fontWeight: 600 }}>Cleaning Frequency</p>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1468,38 +1498,48 @@ export default function BookPage() {
                     </button>
                   </div>
                 </div>
-              ) : (
-                frequencies.length > 0 && (
-                  <div style={{ marginBottom: 24 }}>
-                    <span style={s.label}>Frequency</span>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                      {frequencies.map(f => (
-                        <button key={f.id} style={s.freqCard(frequencyStr === f.frequency)} onClick={() => setFrequencyStr(f.frequency)}>
-                          <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{wLabel(f.frequency)}</p>
-                        </button>
-                      ))}
-                    </div>
-                    {lastCleanedOverride && overageAcknowledged && frequencyStr && (
-                      <p style={{ margin: "10px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.5 }}>
-                        Extended service rate applies if additional time is needed: <strong>${getOverageRate(frequencyStr)}/hr</strong> based on your selected frequency.
-                      </p>
-                    )}
-                  </div>
-                )
               )}
 
+              {/* Recurring normal path — cadence picker (required) */}
+              {isRecurringScope && (
+                <div style={{ marginBottom: 24 }}>
+                  <span style={s.label}>Frequency</span>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {([
+                      { value: "weekly",   label: "Weekly" },
+                      { value: "biweekly", label: "Every 2 Weeks" },
+                      { value: "monthly",  label: "Every 4 Weeks" },
+                    ] as { value: string; label: string }[]).map(f => (
+                      <button key={f.value} style={s.freqCard(frequencyStr === f.value)} onClick={() => setFrequencyStr(f.value)}>
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{f.label}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {lastCleanedOverride && overageAcknowledged && frequencyStr && (
+                    <p style={{ margin: "10px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.5 }}>
+                      Extended service rate applies if additional time is needed: <strong>${getOverageRate(frequencyStr)}/hr</strong> based on your selected frequency.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Add-ons grid */}
               {visibleAddons.length > 0 && (
                 <div style={{ marginBottom: 16 }}>
-                  {upsellAccepted && isDeepCleanScope && (
-                    <p style={{ fontSize: 12, color: "#6B6860", marginBottom: 10, fontStyle: "italic", lineHeight: 1.5 }}>
-                      Most customers add oven and refrigerator cleaning — save a separate visit.
+                  {/* Persuasion line */}
+                  {isDeepCleanScope && (
+                    <p style={{ fontSize: 13, color: "#6B6860", marginBottom: 12, lineHeight: 1.5 }}>
+                      {upsellAccepted
+                        ? "Most customers add oven and refrigerator cleaning — save a separate visit."
+                        : "Deep cleans are the perfect time to tackle appliances — add extras while we're already there."}
                     </p>
                   )}
-                  {!upsellAccepted && addonPersuasionLine && (
-                    <p style={{ fontSize: 12, color: "#6B6860", marginBottom: 10, fontStyle: "italic", lineHeight: 1.5 }}>
-                      {addonPersuasionLine}
+                  {!isDeepCleanScope && !isCommercial && (
+                    <p style={{ fontSize: 13, color: "#6B6860", marginBottom: 12, lineHeight: 1.5 }}>
+                      A great time to tackle the extras while we're already there.
                     </p>
                   )}
+
                   <span style={s.label}>Add-ons (optional)</span>
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {visibleAddons.map(a => {
@@ -1511,14 +1551,14 @@ export default function BookPage() {
                       const bundleDiscount = (activeBundle && isBundleAddon && !isDynamicPricedAddon(a.id))
                         ? parseFloat(activeBundle.discount_value)
                         : 0;
-                      let displayPrice = fromResult
+                      let displayPrice: any = fromResult
                         ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `+$${fromResult.amount.toFixed(2)}`)
                         : a.price_type === "time_only"
                         ? "No additional charge"
                         : a.price_type === "flat" && pv !== 0
                         ? (pv < 0 ? `-$${Math.abs(pv).toFixed(2)}` : `+$${pv.toFixed(2)}`)
                         : isPct
-                        ? (pv < 0 ? `${Math.abs(pv).toFixed(0)}% off — calculated on estimate` : `${pv.toFixed(0)}% of estimate — price varies by home size`)
+                        ? "Price varies by home size"
                         : "";
                       if (bundleDiscount > 0 && a.price_type === "flat" && pv > 0) {
                         const discounted = pv - bundleDiscount;
@@ -1527,7 +1567,7 @@ export default function BookPage() {
                             <span style={{ textDecoration: "line-through", color: "#9E9B94", marginRight: 4 }}>+${pv.toFixed(2)}</span>
                             <span style={{ color: "#2D6A4F", fontWeight: 600 }}>+${discounted.toFixed(2)}</span>
                           </span>
-                        ) as any;
+                        );
                       }
                       return (
                         <div key={a.id} style={{ position: "relative" }}>
@@ -1547,7 +1587,7 @@ export default function BookPage() {
                           </div>
                           {partialBundleNudge && partialBundleNudge.missingName === a.name && !sel && (
                             <p style={{ fontSize: 11, color: "#92400E", margin: "4px 0 0", paddingLeft: 4 }}>
-                              Add this to unlock the {partialBundleNudge.bundleName} discount
+                              Add {a.name} to unlock the {partialBundleNudge.bundleName} discount
                             </p>
                           )}
                         </div>
@@ -1566,15 +1606,15 @@ export default function BookPage() {
                 </div>
               )}
 
-              <p style={{ fontSize: 11, color: "#9E9B94", marginBottom: 16, marginTop: 4, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 12, color: "#9E9B94", marginBottom: 16, marginTop: 4, lineHeight: 1.5, textAlign: "center" }}>
                 Add extras now — requesting them later may require a separate visit.
               </p>
 
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
                 <button style={s.btn(false)} onClick={() => setStep(1)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (!upsellAccepted && !frequencyStr) ? 0.5 : 1 }}
-                  disabled={!upsellAccepted && !frequencyStr}
+                  style={{ ...s.btn(), opacity: (isRecurringScope && !frequencyStr) ? 0.5 : 1 }}
+                  disabled={isRecurringScope && !frequencyStr}
                   onClick={() => setStep(3)}
                 >
                   Continue

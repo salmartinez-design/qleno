@@ -1,0 +1,263 @@
+**REPLIT PROMPT — FULL CONSOLIDATED STEP 3 + UPSELL FIXES:**
+
+---
+
+**CONTEXT**
+
+Do not touch the pricing engine tables: `pricing_scopes`, `pricing_tiers`, `pricing_addons`, `pricing_fee_rules`, `pricing_discounts`, `pay_templates`. All fixes are widget flow and display only.
+
+---
+
+**FIX 1 — UPSELL CARD STATE MACHINE**
+
+The upsell card has incorrect trigger logic. Replace entirely with this explicit state machine:
+
+```javascript
+const isDeepCleanScope = selectedScope?.name?.toLowerCase().trim() === 'deep clean';
+
+// Upsell states — mutually exclusive
+const showUpsellOffer = isDeepCleanScope && cleanlinessRating !== null && !upsellAccepted && !upsellDeclined;
+const showUpsellConfirmed = isDeepCleanScope && upsellAccepted === true;
+const showSoftNudge = isDeepCleanScope && upsellDeclined === true;
+
+// Never show more than one state at a time
+// Never show soft nudge before "No thanks" is explicitly clicked
+// Never show upsell offer and confirmed state simultaneously
+```
+
+**State 1 — Upsell Offer** (default after cleanliness selected):
+- LIMITED OFFER label (`var(--brand)`, 11px, uppercase)
+- Heading: "Turn today's Deep Clean into a fresh start"
+- Body: "Start recurring service today and get [discount]% off your first recurring cleaning — plus your recurring rate is locked for [months] months. Your rate will never increase as long as your home stays consistent and your service continues."
+- Cadence pills: "Weekly" / "Every 2 Weeks" / "Every 4 Weeks"
+- Live price lines after cadence selected:
+  - Primary: "Your first recurring cleaning: ~~$[recurringRate]~~ **$[firstVisitRate]**"
+  - Secondary: "Then $[recurringRate]/visit — locked for [months] months."
+- "Rate lock terms" collapsible link
+- Primary button: "Yes — lock in my rate" — requires cadence selected
+- Secondary button: "No thanks, just the Deep Clean"
+
+**State 2 — Confirmed** (only after "Yes — lock in my rate" clicked):
+- Heading: "Rate lock confirmed"
+- Body: "Your recurring rate will be locked for [months] months at $[recurringRate]/visit. First visit: $[firstVisitRate] ([discount]% off applied)."
+- "Change selection" link — resets to State 1
+
+**State 3 — Soft Nudge** (only after "No thanks" clicked):
+- Body (`#6B6860`, 13px): "No problem. You can always set up recurring service later — just give our office a call or reply to your confirmation email and we'll get you set up."
+- Link: "Actually, I'd like to set up recurring service" (`var(--brand)`, 13px, underlined) — resets to State 1, clears declined flag
+
+**Transition rules:**
+- Cleanliness selected → State 1 (never State 3)
+- "Yes — lock in my rate" clicked → State 2
+- "No thanks" clicked → State 3
+- "Change selection" clicked → State 1
+- "Actually, I'd like to set up" clicked → State 1
+- Scope changes → reset all upsell state
+
+---
+
+**FIX 2 — UPSELL CARD PRICE CALCULATION**
+
+The price is showing $0.00. Fix:
+
+```javascript
+// Calculate recurring rate using the same pricing engine as the quote builder
+// Use name-based scope lookup — never ID-based
+const baseRecurringPrice = await calculateQuotePrice({
+  scopeName: 'recurring cleaning',
+  sqft: enteredSquareFootage,
+  bedrooms: enteredBedrooms,
+  bathrooms: enteredBathrooms
+});
+
+// Cadence multipliers — read from pricing engine
+const cadenceMultipliers = {
+  'weekly': 0.80,
+  'biweekly': 0.90,
+  'every_4_weeks': 1.00
+};
+
+const recurringRate = baseRecurringPrice * cadenceMultipliers[selectedUpsellCadence];
+
+// Pull discount % from offer_settings
+const firstVisitRate = recurringRate * (1 - (offerSettings.upsell_discount_percent / 100));
+```
+
+If sqft is 0 or not entered: show "Enter your home size above to see your rate" in `#6B6860` 12px instead of price.
+
+Price updates in real time as cadence pill is selected. Uses `offer_settings.upsell_discount_percent` and `offer_settings.rate_lock_duration_months` — never hardcoded values.
+
+---
+
+**FIX 3 — RATE LOCK TERMS PLAIN ENGLISH COPY**
+
+Replace rate lock terms expanded text:
+
+Old: "Your recurring rate is locked for 24 months provided your home conditions remain consistent with your original booking. Significant changes to home size, occupants, or pets may require a re-quote. Rate lock is void after 60 consecutive days without service, or if actual cleaning time exceeds the estimated time by more than 20% on 2 of your first 3 cleans."
+
+New: "Your rate is guaranteed for [months] months as long as your home stays the same. If your home significantly changes — new pets, more people, or major renovations — we may need to adjust your rate. Your guarantee also pauses if you skip service for more than 60 days, or if your first few cleanings consistently take longer than expected."
+
+`[months]` pulls from `offer_settings.rate_lock_duration_months` dynamically.
+
+Apply this update everywhere rate lock terms appear: booking widget, email templates, client profile rate lock section.
+
+---
+
+**FIX 4 — STEP 3 LAYOUT FOR DEEP CLEAN**
+
+When `isDeepCleanScope === true`, Step 3 must render as follows:
+
+**Heading:** "Add extras to your cleaning"
+
+**Frequency section:**
+- If `upsellAccepted === true`: show read-only line only:
+  ```
+  Cleaning Frequency
+  [selected cadence label]  [Change]
+  ```
+  "Change" link returns to Step 2 upsell card State 1.
+- If `upsellAccepted === false` or null: show nothing about frequency. Deep Clean is always single visit.
+- Never show the frequency selector pills (Weekly / Every 2 Weeks / Every 4 Weeks) for Deep Clean under any circumstance.
+
+**Persuasion line** (`#6B6860`, 13px, below frequency section):
+"Most customers add oven and refrigerator cleaning — save a separate visit."
+
+**Add-ons grid** — full width checkbox cards:
+
+Card structure: checkbox left, name center-left, price right. `#FFFFFF` background, `1px solid #E5E2DC` border, 16px padding, 8px border radius. Selected: `var(--brand)` border, light brand tint.
+
+Add-ons for Deep Clean:
+1. Oven Cleaning — +$50.00 — "Most Popular" badge (top-right pill, `var(--brand)` bg, white text, 11px)
+2. Refrigerator Cleaning — +$50.00 — "Most Popular" badge
+3. Kitchen Cabinets (must be empty upon arrival) — +$50.00
+4. Windows (inside panes) — "Price varies by home size" (calculates 15% of base price in real time once sqft entered)
+5. Clean Basement — "Price varies by home size" (calculates 15% of base price in real time)
+
+**Bundle logic:**
+- Oven + Refrigerator both selected → show green badge below grid: "Appliance Bundle applied — you're saving $20.00" — each shows $40.00 with $50.00 struck through
+- Only Oven selected → amber nudge on Fridge card: "Add Refrigerator Cleaning to unlock the Appliance Bundle discount"
+- Only Fridge selected → amber nudge on Oven card: "Add Oven Cleaning to unlock the Appliance Bundle discount"
+- Neither selected → no nudge shown
+
+**Soft nudge below grid** (`#6B6860`, 12px, centered):
+"Add extras now — requesting them later may require a separate visit."
+
+**Continue button:** Active immediately — add-ons are optional.
+
+---
+
+**FIX 5 — STEP 3 LAYOUT FOR RECURRING (NORMAL PATH)**
+
+When scope is "Recurring Cleaning" AND `upsellAccepted === false`:
+
+**Heading:** "How often and what extras?"
+
+**Frequency selector:** Show cadence pills — Weekly / Every 2 Weeks / Every 4 Weeks. Required selection before Continue activates.
+
+**Add-ons grid:** Show same add-ons as Deep Clean minus Windows and Clean Basement (those are Deep Clean only). Show:
+1. Oven Cleaning — +$50.00 — "Most Popular" badge
+2. Refrigerator Cleaning — +$50.00 — "Most Popular" badge
+3. Kitchen Cabinets — +$50.00
+
+Persuasion line: "A great time to tackle the extras while we're already there."
+
+**Continue:** Active only after frequency is selected.
+
+---
+
+**FIX 6 — STEP 3 LAYOUT FOR ONE-TIME STANDARD**
+
+When scope is "One-Time Standard Clean":
+
+**Heading:** "Add extras to your cleaning"
+
+No frequency selector — One-Time is always single visit.
+
+**Add-ons grid:**
+1. Oven Cleaning — +$50.00 — "Most Popular" badge
+2. Refrigerator Cleaning — +$50.00 — "Most Popular" badge
+3. Kitchen Cabinets — +$50.00
+
+Persuasion line: "A great time to tackle the extras while we're already there."
+
+Bundle logic active.
+
+**Continue:** Active immediately.
+
+---
+
+**FIX 7 — PERMANENTLY REMOVE FROM ALL STEPS**
+
+Search entire booking widget codebase and remove every instance of:
+- Discount code input field
+- Promo code input field
+- Apply button adjacent to a text input on any step
+- Any `discountCode` or `promoCode` state variable in the widget
+- Service address field on Step 3 (captured in Step 1)
+
+These must never appear in the public widget under any scope or path.
+
+---
+
+**FIX 8 — TECHNICIAN REFERENCE REMOVAL**
+
+Search entire booking widget for any text referencing:
+- "Your technician can..."
+- "Ask your technician..."
+- "The technician will..."
+- Any language suggesting the technician handles pricing, upsells, or recurring service setup
+
+Remove or replace all instances. Recurring service setup and pricing discussions are office functions only. Replace any such references with office contact language: "give our office a call or reply to your confirmation email."
+
+---
+
+**FIX 9 — SCOPE-BASED ADD-ON VISIBILITY RULES**
+
+Enforce these add-on visibility rules by scope:
+
+| Add-on | Deep Clean | One-Time Standard | Recurring | Commercial Single | Move In/Out |
+|---|---|---|---|---|---|
+| Oven Cleaning | Yes | Yes | Yes | No | Yes |
+| Refrigerator Cleaning | Yes | Yes | Yes | No | Yes |
+| Kitchen Cabinets | Yes | Yes | Yes | No | Yes |
+| Windows (inside panes) | Yes | No | No | No | Yes |
+| Clean Basement | Yes | No | No | No | No |
+| Parking Fee | No | No | No | Yes | No |
+
+Do not show add-ons outside of their designated scopes.
+
+---
+
+**DESIGN — ALL ELEMENTS:**
+- Background: `#F7F6F3`
+- Cards: `#FFFFFF`
+- Primary text: `#1A1917`
+- Secondary text: `#6B6860`
+- Borders: `#E5E2DC`
+- Brand accent: `var(--brand)`
+- Font: Plus Jakarta Sans only
+- No emojis anywhere
+- No dark mode
+- Light theme only
+
+---
+
+**DO NOT TOUCH:**
+- `pricing_scopes` table
+- `pricing_tiers` table
+- `pricing_addons` table
+- `pricing_fee_rules` table
+- `pricing_discounts` table
+- `pay_templates` table
+- Any pricing calculation function or formula
+
+---
+
+Republish after all fixes complete. Confirm in response:
+- Upsell state machine implemented correctly
+- Price calculation pulling from pricing engine (not returning $0)
+- Frequency selector removed from Deep Clean path
+- Add-ons grid restored on Step 3
+- Discount code and service address permanently removed
+- Technician references removed
+- Scope-based add-on visibility rules applied
