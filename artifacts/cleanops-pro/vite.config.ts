@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import fs from "fs";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
 const isProduction = process.env.NODE_ENV === "production";
@@ -33,6 +34,17 @@ export default defineConfig({
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
+    {
+      name: "spa-fallback",
+      closeBundle() {
+        const dist = path.resolve(import.meta.dirname, "dist/public");
+        const indexHtml = path.join(dist, "index.html");
+        if (fs.existsSync(indexHtml)) {
+          fs.copyFileSync(indexHtml, path.join(dist, "404.html"));
+          fs.writeFileSync(path.join(dist, "_redirects"), "/* /index.html 200\n");
+        }
+      },
+    },
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [
