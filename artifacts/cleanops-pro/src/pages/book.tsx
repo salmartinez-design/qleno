@@ -583,7 +583,7 @@ export default function BookPage() {
     setDisplayScopeKey(key);
     setMoveInAck1(false); setMoveInAck2(false); setMoveInAck3(false);
     setUpsellCadence(""); setUpsellAccepted(false); setUpsellDeclined(false);
-    setUpsellTermsOpen(false); setUpsellCalcResult(null); setUpsellCadenceError(false);
+    setUpsellTermsOpen(false); setUpsellCadenceError(false);
     setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false);
   }
 
@@ -1397,7 +1397,7 @@ export default function BookPage() {
                             No problem. You can always set up recurring service later — just give our office a call or reply to your confirmation email and we'll get you set up.
                           </p>
                           <button
-                            onClick={() => { setUpsellDeclined(false); setUpsellAccepted(false); setUpsellCadence(""); setUpsellCalcResult(null); }}
+                            onClick={() => { setUpsellDeclined(false); setUpsellAccepted(false); setUpsellCadence(""); }}
                             style={{ background: "none", border: "none", padding: 0, fontSize: 13, color: brand, textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                           >
                             Actually, I'd like to set up recurring service
