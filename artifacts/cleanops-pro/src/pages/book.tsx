@@ -340,9 +340,8 @@ export default function BookPage() {
   const [displayScopeKey, setDisplayScopeKey] = useState<string | null>(null);
 
   // Move In/Out acknowledgments
-  const [moveInAck1, setMoveInAck1] = useState(false);
-  const [moveInAck2, setMoveInAck2] = useState(false);
-  const [moveInAck3, setMoveInAck3] = useState(false);
+  const [moveInAck, setMoveInAck] = useState(false);
+  const [moveInNotes, setMoveInNotes] = useState("");
 
   // Offer settings (loaded from API, never hardcoded)
   const [offerSettings, setOfferSettings] = useState<{
@@ -613,6 +612,7 @@ export default function BookPage() {
             upsell_cadence_selected: upsellAccepted ? upsellCadence : null,
             upsell_locked_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.recurringRate : null,
             property_vacant: isMoveInOut,
+            move_in_notes: isMoveInOut && moveInNotes.trim() ? moveInNotes.trim() : null,
             address, preferred_date: selectedDate,
             payment_method_id: paymentMethodId,
             stripe_customer_id: stripeCustomerId,
@@ -677,7 +677,7 @@ export default function BookPage() {
   function selectScope(newScopeId: number, key: string) {
     setScopeId(newScopeId);
     setDisplayScopeKey(key);
-    setMoveInAck1(false); setMoveInAck2(false); setMoveInAck3(false);
+    setMoveInAck(false); setMoveInNotes("");
     setUpsellCadence(""); setUpsellAccepted(false); setUpsellDeclined(false);
     setUpsellTermsOpen(false); setUpsellCadenceError(false);
     setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false);
@@ -1273,28 +1273,44 @@ export default function BookPage() {
                 );
               })()}
 
-              {/* ── Move In / Move Out pre-booking acknowledgments ────────────── */}
+              {/* ── Move In / Move Out special notes + acknowledgment ─────────── */}
               {isMoveInOut && scopeId && (
                 <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8, marginBottom: 8 }}>
-                  <p style={{ fontWeight: 600, fontSize: 15, color: "#1A1917", marginBottom: 4 }}>Before we confirm your booking</p>
-                  <p style={{ fontSize: 13, color: "#6B6860", marginBottom: 16 }}>Please confirm the following — all three are required to proceed.</p>
-                  {(
-                    [
-                      [moveInAck1, setMoveInAck1, "The property will be completely empty of furniture and personal belongings on the day of cleaning"],
-                      [moveInAck2, setMoveInAck2, "No other contractors or service providers will be present during the cleaning"],
-                      [moveInAck3, setMoveInAck3, "The property will have running water and working electricity on the day of cleaning"],
-                    ] as [boolean, React.Dispatch<React.SetStateAction<boolean>>, string][]
-                  ).map(([val, setter, text], i) => (
-                    <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12, cursor: "pointer" }}>
-                      <input
-                        type="checkbox"
-                        checked={val}
-                        onChange={e => setter(e.target.checked)}
-                        style={{ marginTop: 2, accentColor: brand, width: 16, height: 16, flexShrink: 0, outline: !val ? "2px solid transparent" : undefined }}
-                      />
-                      <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>{text}</span>
+
+                  {/* Notes textarea */}
+                  <div style={{ marginBottom: 20 }}>
+                    <label style={{ display: "block", fontWeight: 600, fontSize: 13, color: "#1A1917", marginBottom: 6 }}>
+                      Special notes or anything you'd like us to know
                     </label>
-                  ))}
+                    <textarea
+                      value={moveInNotes}
+                      onChange={e => setMoveInNotes(e.target.value)}
+                      placeholder="e.g. garage access code, fragile items in cabinets, areas to avoid…"
+                      rows={3}
+                      style={{
+                        width: "100%", boxSizing: "border-box",
+                        border: "1.5px solid #E5E2DC", borderRadius: 8,
+                        padding: "10px 12px", fontSize: 13, color: "#1A1917",
+                        fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        resize: "vertical", outline: "none",
+                        background: "#fff", lineHeight: 1.5,
+                      }}
+                    />
+                  </div>
+
+                  {/* Single consolidated acknowledgment */}
+                  <p style={{ fontWeight: 600, fontSize: 15, color: "#1A1917", marginBottom: 12 }}>Before we confirm your booking</p>
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={moveInAck}
+                      onChange={e => setMoveInAck(e.target.checked)}
+                      style={{ marginTop: 2, accentColor: brand, width: 16, height: 16, flexShrink: 0 }}
+                    />
+                    <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>
+                      I confirm the property will be completely empty of furniture and personal belongings, no other contractors will be present, and the property will have running water and working electricity on the day of cleaning.
+                    </span>
+                  </label>
                 </div>
               )}
 
@@ -1555,7 +1571,7 @@ export default function BookPage() {
                   style={{ ...s.btn(), opacity: (() => {
                     if (isCommercial) return !commercialOption ? 0.5 : 1;
                     if (!scopeId || !sqft) return 0.5;
-                    if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return 0.5;
+                    if (isMoveInOut && !moveInAck) return 0.5;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return 0.5;
                     if (showVeryDirtyCard) return 0.5;
                     if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
@@ -1566,7 +1582,7 @@ export default function BookPage() {
                   disabled={(() => {
                     if (isCommercial) return !commercialOption;
                     if (!scopeId || !sqft) return true;
-                    if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return true;
+                    if (isMoveInOut && !moveInAck) return true;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return true;
                     if (showVeryDirtyCard) return true;
                     if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
