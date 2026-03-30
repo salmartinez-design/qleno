@@ -325,11 +325,11 @@ export default function BookPage() {
   // Step 1: Scope + Home Details
   const [scopeId, setScopeId] = useState<number | null>(null);
   const [sqft, setSqft] = useState(0);
-  const [bedrooms, setBedrooms] = useState(2);
-  const [bathrooms, setBathrooms] = useState(1);
+  const [bedrooms, setBedrooms] = useState(0);
+  const [bathrooms, setBathrooms] = useState(0);
   const [halfBaths, setHalfBaths] = useState(0);
-  const [floors, setFloors] = useState(1);
-  const [people, setPeople] = useState(2);
+  const [floors, setFloors] = useState(0);
+  const [people, setPeople] = useState(0);
   const [pets, setPets] = useState(0);
   const [cleanliness, setCleanliness] = useState(0);
   const [lastCleanedResponse, setLastCleanedResponse] = useState("");
@@ -749,9 +749,10 @@ export default function BookPage() {
   const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
 
   // Upsell state machine — mutually exclusive, explicit
-  const showUpsellOffer     = isDeepCleanScope && cleanliness > 0 && !upsellAccepted && !upsellDeclined;
+  const showVeryDirtyCard   = isDeepCleanScope && cleanliness === 3;
+  const showUpsellOffer     = isDeepCleanScope && cleanliness > 0 && cleanliness !== 3 && !upsellAccepted && !upsellDeclined;
   const showUpsellConfirmed = isDeepCleanScope && upsellAccepted === true;
-  const showSoftNudge       = isDeepCleanScope && upsellDeclined === true;
+  const showSoftNudge       = isDeepCleanScope && upsellDeclined === true && cleanliness !== 3;
   const cleanlinessLabel: Record<number, string> = { 1: "Very Clean", 2: "Moderately Clean", 3: "Very Dirty" };
 
   // Synchronous upsell price — instant, zero network dependency
@@ -763,7 +764,7 @@ export default function BookPage() {
     scopeNameLower.includes("one-time standard") ||
     scopeNameLower.startsWith("recurring")
   );
-  const conditionMultiplier = (showCleanlinessQ && cleanliness === 3) ? 1.08 : 1.0;
+  const conditionMultiplier = 1.0;
 
   // ── Scope-based add-on visibility rules ──────────────────────────────────
   const ALLOWED_ADDON_IDS: Record<string, number[]> = {
@@ -946,9 +947,6 @@ export default function BookPage() {
               ))}
               {calcResult.discount_amount > 0 && (
                 <Row label="Bundle Discount" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
-              )}
-              {conditionMultiplier > 1 && (
-                <Row label="Condition Adj. (+8%)" value={`+$${(calcResult.final_total * 0.08).toFixed(2)}`} />
               )}
               {calcResult.minimum_applied && (
                 <p style={{ fontSize: 11, color: "#F59E0B", margin: 0 }}>Minimum bill rate applied</p>
@@ -1358,8 +1356,23 @@ export default function BookPage() {
                           </button>
                         ))}
                       </div>
-                      {cleanliness === 3 && (
-                        <p style={{ margin: "6px 0 0", fontSize: 11, color: "#F59E0B" }}>An 8% condition adjustment will be added to your estimate.</p>
+                      {showVeryDirtyCard && (
+                        <div style={{ marginTop: 12, background: "#FFF8F0", border: "1.5px solid #F59E0B", borderRadius: 10, padding: 16 }}>
+                          <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.07em" }}>Custom Quote Required</p>
+                          <p style={{ margin: "0 0 12px", fontSize: 14, color: "#78350F", lineHeight: 1.5 }}>
+                            Heavily soiled homes require an in-person assessment before we can book online. Please contact our office and we'll get you scheduled right away.
+                          </p>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <a href="tel:+17737066000" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", color: "#92400E", fontWeight: 600, fontSize: 14 }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.93 9.13a19.79 19.79 0 01-3.07-8.67A2 2 0 012.88 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+                              (773) 706-6000
+                            </a>
+                            <a href="mailto:info@phes.io" style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none", color: "#92400E", fontWeight: 600, fontSize: 14 }}>
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,12 2,6"/></svg>
+                              info@phes.io
+                            </a>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -1554,6 +1567,7 @@ export default function BookPage() {
                     if (!scopeId || !sqft) return 0.5;
                     if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return 0.5;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return 0.5;
+                    if (showVeryDirtyCard) return 0.5;
                     if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return 0.5;
                     if (!isMoveInOut && !isDeepCleanScope && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return 0.5;
@@ -1564,6 +1578,7 @@ export default function BookPage() {
                     if (!scopeId || !sqft) return true;
                     if (isMoveInOut && (!moveInAck1 || !moveInAck2 || !moveInAck3)) return true;
                     if (isMoveInOut && showCleanlinessQ && cleanliness === 0) return true;
+                    if (showVeryDirtyCard) return true;
                     if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
                     if (!isMoveInOut && !isDeepCleanScope && !isRecurringScope && showCleanlinessQ && cleanliness === 0) return true;
@@ -1647,11 +1662,11 @@ export default function BookPage() {
                   ? Math.round(deepBase * 0.15 * 100) / 100
                   : null;
 
-                const ovenSel  = !!(ovenDb   && selectedAddonIds.includes(ovenDb.id));
-                const fridgeSel = !!(fridgeDb && selectedAddonIds.includes(fridgeDb.id));
-                const cabSel   = !!(cabDb    && selectedAddonIds.includes(cabDb.id));
-                const winSel   = !!(winDb    && selectedAddonIds.includes(winDb.id));
-                const basSel   = !!(basDb    && selectedAddonIds.includes(basDb.id));
+                const ovenSel  = selectedAddonIds.includes(ovenDb?.id ?? 8);
+                const fridgeSel = selectedAddonIds.includes(fridgeDb?.id ?? 10);
+                const cabSel   = selectedAddonIds.includes(cabDb?.id ?? 12);
+                const winSel   = selectedAddonIds.includes(winDb?.id ?? 16);
+                const basSel   = selectedAddonIds.includes(basDb?.id ?? 19);
 
                 const applianceActive  = ovenSel && fridgeSel;
                 const bundleDisc = parseFloat(activeBundle?.discount_value ?? "0");
@@ -1724,9 +1739,10 @@ export default function BookPage() {
                   ? `+$${dynPrice.toFixed(2)}`
                   : "Price varies by home size";
 
-                const toggle = (db: PricingAddon | undefined, sel: boolean) => {
-                  if (!db) return;
-                  setSelectedAddonIds(prev => sel ? prev.filter(x => x !== db.id) : [...prev, db.id]);
+                const toggle = (id: number) => {
+                  setSelectedAddonIds(prev =>
+                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                  );
                 };
 
                 // Scoped visibility: which hardcoded cards show per scope
@@ -1744,7 +1760,7 @@ export default function BookPage() {
                       {/* Card 1 — Oven Cleaning */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(ovenSel)} onClick={() => toggle(ovenDb, ovenSel)}>
+                          <div style={cardStyle(ovenSel)} onClick={() => toggle(ovenDb?.id ?? 8)}>
                             <div style={iconAreaStyle(ovenSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="8" y="8" width="48" height="48" rx="4" stroke="currentColor" strokeWidth="2.5"/>
@@ -1774,7 +1790,7 @@ export default function BookPage() {
                       {/* Card 2 — Refrigerator Cleaning */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(fridgeSel)} onClick={() => toggle(fridgeDb, fridgeSel)}>
+                          <div style={cardStyle(fridgeSel)} onClick={() => toggle(fridgeDb?.id ?? 10)}>
                             <div style={iconAreaStyle(fridgeSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="12" y="4" width="40" height="56" rx="4" stroke="currentColor" strokeWidth="2.5"/>
@@ -1802,7 +1818,7 @@ export default function BookPage() {
                       {/* Card 3 — Kitchen Cabinets */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(cabSel)} onClick={() => toggle(cabDb, cabSel)}>
+                          <div style={cardStyle(cabSel)} onClick={() => toggle(cabDb?.id ?? 12)}>
                             <div style={iconAreaStyle(cabSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="4" y="8" width="26" height="48" rx="2" stroke="currentColor" strokeWidth="2.5"/>
@@ -1830,7 +1846,7 @@ export default function BookPage() {
                       {/* Card 4 — Windows */}
                       {showDynCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(winSel)} onClick={() => toggle(winDb, winSel)}>
+                          <div style={cardStyle(winSel)} onClick={() => toggle(winDb?.id ?? 16)}>
                             <div style={iconAreaStyle(winSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="6" y="6" width="52" height="52" rx="3" stroke="currentColor" strokeWidth="2.5"/>
@@ -1856,7 +1872,7 @@ export default function BookPage() {
                       {/* Card 5 — Clean Basement */}
                       {showBasCard && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(basSel)} onClick={() => toggle(basDb, basSel)}>
+                          <div style={cardStyle(basSel)} onClick={() => toggle(basDb?.id ?? 19)}>
                             <div style={iconAreaStyle(basSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <path d="M4 28 L32 8 L60 28" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
