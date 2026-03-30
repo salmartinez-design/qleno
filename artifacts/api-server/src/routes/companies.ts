@@ -174,4 +174,85 @@ router.post("/logo", requireAuth, (req, res) => {
   });
 });
 
+// ── GET /api/companies/booking-settings ──────────────────────────────────────
+router.get("/booking-settings", requireAuth, async (req, res) => {
+  try {
+    const { sql: drSql } = await import("drizzle-orm");
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(drSql`SELECT * FROM booking_settings WHERE company_id = ${companyId} LIMIT 1`);
+    if (!result.rows.length) {
+      return res.json({
+        booking_lead_days: 7,
+        max_advance_days: 60,
+        available_sun: false,
+        available_mon: true,
+        available_tue: true,
+        available_wed: true,
+        available_thu: true,
+        available_fri: true,
+        available_sat: false,
+      });
+    }
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET booking-settings:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PUT /api/companies/booking-settings ──────────────────────────────────────
+router.put("/booking-settings", requireAuth, async (req, res) => {
+  try {
+    const { sql: drSql } = await import("drizzle-orm");
+    const companyId = req.auth!.companyId;
+    const {
+      booking_lead_days,
+      max_advance_days,
+      available_sun,
+      available_mon,
+      available_tue,
+      available_wed,
+      available_thu,
+      available_fri,
+      available_sat,
+    } = req.body;
+
+    await db.execute(drSql`
+      INSERT INTO booking_settings
+        (company_id, booking_lead_days, max_advance_days,
+         available_sun, available_mon, available_tue, available_wed,
+         available_thu, available_fri, available_sat, updated_at)
+      VALUES
+        (${companyId},
+         ${booking_lead_days ?? 7},
+         ${max_advance_days ?? 60},
+         ${available_sun ?? false},
+         ${available_mon ?? true},
+         ${available_tue ?? true},
+         ${available_wed ?? true},
+         ${available_thu ?? true},
+         ${available_fri ?? true},
+         ${available_sat ?? false},
+         NOW())
+      ON CONFLICT (company_id) DO UPDATE SET
+        booking_lead_days = EXCLUDED.booking_lead_days,
+        max_advance_days  = EXCLUDED.max_advance_days,
+        available_sun     = EXCLUDED.available_sun,
+        available_mon     = EXCLUDED.available_mon,
+        available_tue     = EXCLUDED.available_tue,
+        available_wed     = EXCLUDED.available_wed,
+        available_thu     = EXCLUDED.available_thu,
+        available_fri     = EXCLUDED.available_fri,
+        available_sat     = EXCLUDED.available_sat,
+        updated_at        = NOW()
+    `);
+
+    const updated = await db.execute(drSql`SELECT * FROM booking_settings WHERE company_id = ${companyId} LIMIT 1`);
+    return res.json(updated.rows[0]);
+  } catch (err) {
+    console.error("PUT booking-settings:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;

@@ -86,22 +86,76 @@ function Stepper({ value, onChange, min = 0, max = 20 }: { value: number; onChan
 }
 
 // ── Simple calendar ──────────────────────────────────────────────────────────
-function SimpleCalendar({ selected, onSelect, brand, leadHours }: { selected: string; onSelect: (d: string) => void; brand: string; leadHours?: number }) {
-  const effectiveLeadHours = leadHours ?? 48;
-  const minDate = new Date();
-  minDate.setTime(minDate.getTime() + effectiveLeadHours * 60 * 60 * 1000);
-  minDate.setHours(0, 0, 0, 0);
+type AvailableDays = { sun: boolean; mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean };
+const DAY_KEYS: (keyof AvailableDays)[] = ["sun","mon","tue","wed","thu","fri","sat"];
 
-  const [viewDate, setViewDate] = useState(() => {
+function SimpleCalendar({
+  selected,
+  onSelect,
+  brand,
+  leadDays,
+  maxAdvanceDays,
+  availableDays,
+}: {
+  selected: string;
+  onSelect: (d: string) => void;
+  brand: string;
+  leadDays?: number;
+  maxAdvanceDays?: number;
+  availableDays?: AvailableDays;
+}) {
+  const effectiveLeadDays = leadDays ?? 7;
+  const effectiveMaxAdvanceDays = maxAdvanceDays ?? 60;
+  const effectiveAvail: AvailableDays = availableDays ?? { sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: false };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const minDate = new Date(today);
+  minDate.setDate(minDate.getDate() + effectiveLeadDays);
+
+  const maxDate = new Date(today);
+  maxDate.setDate(maxDate.getDate() + effectiveMaxAdvanceDays);
+
+  function isDisabledDate(d: Date): boolean {
+    const cmp = new Date(d); cmp.setHours(0,0,0,0);
+    if (cmp < minDate || cmp > maxDate) return true;
+    return !effectiveAvail[DAY_KEYS[cmp.getDay()]];
+  }
+
+  function firstAvailableDate(): Date {
     const d = new Date(minDate);
-    return d;
-  });
+    for (let i = 0; i < effectiveMaxAdvanceDays; i++) {
+      if (!isDisabledDate(d)) return new Date(d);
+      d.setDate(d.getDate() + 1);
+    }
+    return new Date(minDate);
+  }
+
+  const defaultDate = firstAvailableDate();
+
+  const [viewDate, setViewDate] = useState(() => new Date(defaultDate.getFullYear(), defaultDate.getMonth(), 1));
+
+  useEffect(() => {
+    if (!selected) {
+      const ds = defaultDate.toISOString().split("T")[0];
+      onSelect(ds);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthName = viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const minViewYear = minDate.getFullYear();
+  const minViewMonth = minDate.getMonth();
+  const maxViewYear = maxDate.getFullYear();
+  const maxViewMonth = maxDate.getMonth();
+  const canGoPrev = year > minViewYear || (year === minViewYear && month > minViewMonth);
+  const canGoNext = year < maxViewYear || (year === maxViewYear && month < maxViewMonth);
 
   const days: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) days.push(null);
@@ -112,20 +166,26 @@ function SimpleCalendar({ selected, onSelect, brand, leadHours }: { selected: st
     return d.toISOString().split("T")[0];
   }
 
-  function isPast(day: number) {
-    const d = new Date(year, month, day);
-    d.setHours(0, 0, 0, 0);
-    return d < minDate;
+  function isDisabledDay(day: number): boolean {
+    return isDisabledDate(new Date(year, month, day));
   }
 
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: 20 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <button onClick={() => setViewDate(new Date(year, month - 1, 1))} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6 }}>
+        <button
+          onClick={() => canGoPrev && setViewDate(new Date(year, month - 1, 1))}
+          disabled={!canGoPrev}
+          style={{ background: "none", border: "none", cursor: canGoPrev ? "pointer" : "default", padding: 4, borderRadius: 6, opacity: canGoPrev ? 1 : 0.25 }}
+        >
           <ChevronLeft size={18} color="#6B6860" />
         </button>
         <span style={{ fontWeight: 600, fontSize: 15, color: "#1A1917" }}>{monthName}</span>
-        <button onClick={() => setViewDate(new Date(year, month + 1, 1))} style={{ background: "none", border: "none", cursor: "pointer", padding: 4, borderRadius: 6 }}>
+        <button
+          onClick={() => canGoNext && setViewDate(new Date(year, month + 1, 1))}
+          disabled={!canGoNext}
+          style={{ background: "none", border: "none", cursor: canGoNext ? "pointer" : "default", padding: 4, borderRadius: 6, opacity: canGoNext ? 1 : 0.25 }}
+        >
           <ChevronRight size={18} color="#6B6860" />
         </button>
       </div>
@@ -138,18 +198,18 @@ function SimpleCalendar({ selected, onSelect, brand, leadHours }: { selected: st
         {days.map((day, i) => {
           if (!day) return <div key={i} />;
           const dateStr = fmtDay(day);
-          const past = isPast(day);
+          const disabled = isDisabledDay(day);
           const sel = dateStr === selected;
           return (
             <button
               key={i}
-              disabled={past}
+              disabled={disabled}
               onClick={() => onSelect(dateStr)}
               style={{
                 width: "100%", aspectRatio: "1", borderRadius: 8, border: sel ? `2px solid ${brand}` : "1px solid transparent",
-                background: sel ? brand : past ? "#F7F6F3" : "#fff",
-                color: sel ? "#fff" : past ? "#C4C1BA" : "#1A1917",
-                fontSize: 13, fontWeight: sel ? 700 : 400, cursor: past ? "default" : "pointer",
+                background: sel ? brand : disabled ? "#F7F6F3" : "#fff",
+                color: sel ? "#fff" : disabled ? "#C4C1BA" : "#1A1917",
+                fontSize: 13, fontWeight: sel ? 700 : 400, cursor: disabled ? "default" : "pointer",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 transition: "all 0.1s",
               }}
@@ -309,6 +369,12 @@ export default function BookPage() {
 
   // Step 3: Date
   const [selectedDate, setSelectedDate] = useState("");
+  const [bookingSettings, setBookingSettings] = useState<{
+    booking_lead_days: number;
+    max_advance_days: number;
+    available_sun: boolean; available_mon: boolean; available_tue: boolean;
+    available_wed: boolean; available_thu: boolean; available_fri: boolean; available_sat: boolean;
+  } | null>(null);
 
   // Step 5: Booking result
   const [bookResult, setBookResult] = useState<any>(null);
@@ -356,6 +422,7 @@ export default function BookPage() {
         setLoading(false);
         pubFetch(`/api/public/bundles/${d.id}`).then(bs => setBundles(bs)).catch(() => {});
         pubFetch(`/api/public/offer-settings/${slug}`).then(os => setOfferSettings(os)).catch(() => {});
+        pubFetch(`/api/public/booking-settings/${slug}`).then(bs => setBookingSettings(bs)).catch(() => {});
       })
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
@@ -1863,7 +1930,22 @@ export default function BookPage() {
               <p style={s.h2}>When would you like your first cleaning?</p>
               <p style={s.sub}>All available dates are shown below. Select your preferred date.</p>
 
-              <SimpleCalendar selected={selectedDate} onSelect={setSelectedDate} brand={brand} leadHours={company.online_booking_lead_hours ?? 48} />
+              <SimpleCalendar
+                selected={selectedDate}
+                onSelect={setSelectedDate}
+                brand={brand}
+                leadDays={bookingSettings?.booking_lead_days ?? 7}
+                maxAdvanceDays={bookingSettings?.max_advance_days ?? 60}
+                availableDays={bookingSettings ? {
+                  sun: bookingSettings.available_sun,
+                  mon: bookingSettings.available_mon,
+                  tue: bookingSettings.available_tue,
+                  wed: bookingSettings.available_wed,
+                  thu: bookingSettings.available_thu,
+                  fri: bookingSettings.available_fri,
+                  sat: bookingSettings.available_sat,
+                } : undefined}
+              />
 
               {selectedDate && (
                 <div style={{ marginTop: 16, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>

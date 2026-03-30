@@ -67,6 +67,23 @@ async function runBookingSchemaGuard(): Promise<void> {
         renewal_alert_days        INTEGER DEFAULT 30
       )
     ` },
+    // ── booking_settings table ──────────────────────────────────────────────
+    { label: "CREATE booking_settings", stmt: `
+      CREATE TABLE IF NOT EXISTS booking_settings (
+        id                SERIAL PRIMARY KEY,
+        company_id        INTEGER NOT NULL UNIQUE,
+        booking_lead_days INTEGER NOT NULL DEFAULT 7,
+        max_advance_days  INTEGER NOT NULL DEFAULT 60,
+        available_sun     BOOLEAN NOT NULL DEFAULT false,
+        available_mon     BOOLEAN NOT NULL DEFAULT true,
+        available_tue     BOOLEAN NOT NULL DEFAULT true,
+        available_wed     BOOLEAN NOT NULL DEFAULT true,
+        available_thu     BOOLEAN NOT NULL DEFAULT true,
+        available_fri     BOOLEAN NOT NULL DEFAULT true,
+        available_sat     BOOLEAN NOT NULL DEFAULT false,
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
   ];
 
   for (const { label, stmt } of guards) {
@@ -81,6 +98,21 @@ async function runBookingSchemaGuard(): Promise<void> {
 
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
+
+  // ── Seed booking_settings for PHES (company_id=1) ──────────────────────────
+  try {
+    await db.execute(sql`
+      INSERT INTO booking_settings
+        (company_id, booking_lead_days, max_advance_days,
+         available_sun, available_mon, available_tue, available_wed,
+         available_thu, available_fri, available_sat)
+      VALUES
+        (${PHES}, 7, 60, false, true, true, true, true, true, false)
+      ON CONFLICT (company_id) DO NOTHING
+    `);
+  } catch (err: any) {
+    console.warn("[phes-migration] booking_settings seed — non-fatal:", err?.message ?? err);
+  }
 
   try {
     // ── 1. Activate + set cadence for 4 inactive clients ───────────────────

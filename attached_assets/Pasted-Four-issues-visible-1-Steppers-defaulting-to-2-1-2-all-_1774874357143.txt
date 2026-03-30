@@ -1,0 +1,179 @@
+Four issues visible:
+
+1. **Steppers defaulting to 2/1/2** — all should start at 0
+2. **"3 — Very Dirty" shows a price adjustment** — should block booking entirely and route to office contact
+3. **Soft nudge showing automatically** — still firing without "No thanks" click
+4. **Only Refrigerator is selectable** — Oven, Kitchen Cabinets, Windows, Basement checkboxes not working
+
+---
+
+**REPLIT PROMPT — FOUR FIXES:**
+
+---
+
+**Fix 1 — Stepper defaults:**
+
+All home detail steppers must default to 0 on load — not pre-populated with assumed values:
+
+```javascript
+const [bedrooms, setBedrooms] = useState(0);
+const [fullBathrooms, setFullBathrooms] = useState(0);
+const [halfBathrooms, setHalfBathrooms] = useState(0);
+const [floors, setFloors] = useState(0);
+const [peopleInHousehold, setPeopleInHousehold] = useState(0);
+const [pets, setPets] = useState(0);
+```
+
+All steppers start at 0. Minimum value for all steppers is 0 — the minus button is disabled when value is already 0.
+
+---
+
+**Fix 2 — "3 — Very Dirty" blocks booking:**
+
+When "3 — Very Dirty" is selected, do NOT apply an 8% price adjustment and do NOT allow the customer to continue booking. Instead:
+
+Hide the upsell card entirely. Replace with an office contact card:
+
+```
+Card design: #FFFFFF background, 3px solid var(--brand) left border, 
+1px solid #E5E2DC full border, 20px padding
+```
+
+Heading (`#1A1917`, 16px, semi-bold): "Let's make sure we get this right"
+
+Body (`#6B6860`, 14px, line-height 1.6):
+"Homes that need extra attention are our specialty — we just want to make sure we send the right team with the right time. Give us a call or drop your info below and we'll reach out within one business day to get you scheduled."
+
+Two options:
+
+Option A — Call us:
+- Link: "(773) 706-6000" styled as a large tappable button, `var(--brand)` background, white text, full width
+
+Option B — Request a callback:
+- Small form inline: Name (pre-filled from Step 1), Phone (pre-filled from Step 1), Email (pre-filled from Step 1)
+- Message field: "Tell us a bit about your home" — textarea, 3 rows
+- Submit button: "Request a Callback" — `var(--brand)` background, white text, full width
+- On submit: send internal alert to `info@phes.io`:
+  - Subject: "Callback Request — Very Dirty Home Assessment"
+  - Body: name, phone, email, sqft, bedrooms, bathrooms, service address
+- Confirmation message after submit: "Got it — we'll be in touch within one business day."
+
+**Continue button must remain disabled** when "3 — Very Dirty" is selected. Customer cannot proceed to booking on this path.
+
+**Remove the "An 8% condition adjustment will be added to your estimate" line entirely.** Never show pricing language for condition 3.
+
+**Store on the lead record:**
+- `home_condition_rating: 3`
+- `condition_flag: 'requires_assessment'`
+- `booking_blocked: true`
+
+This is NOT a job record — it's a lead record. Create a `leads` table if not exists:
+
+```sql
+CREATE TABLE IF NOT EXISTS leads (
+  id SERIAL PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id),
+  first_name VARCHAR(100),
+  last_name VARCHAR(100),
+  email VARCHAR(255),
+  phone VARCHAR(50),
+  service_address TEXT,
+  sqft INTEGER,
+  bedrooms INTEGER,
+  bathrooms INTEGER,
+  home_condition_rating INTEGER,
+  condition_flag VARCHAR(50),
+  notes TEXT,
+  source VARCHAR(50) DEFAULT 'booking_widget',
+  status VARCHAR(20) DEFAULT 'new',
+  created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+---
+
+**Fix 3 — Soft nudge trigger:**
+
+The soft nudge is still appearing automatically. Fix the state machine:
+
+```javascript
+// These must be mutually exclusive
+const showUpsellOffer = isDeepCleanScope 
+  && cleanlinessRating !== null 
+  && cleanlinessRating !== 3  // Never show for Very Dirty
+  && !upsellAccepted 
+  && !upsellDeclined;
+
+const showUpsellConfirmed = isDeepCleanScope && upsellAccepted === true;
+
+const showSoftNudge = isDeepCleanScope && upsellDeclined === true;
+// ONLY when upsellDeclined === true — never automatically
+
+const showVeryDirtyCard = isDeepCleanScope && cleanlinessRating === 3;
+```
+
+Soft nudge NEVER appears unless `upsellDeclined === true`. This must be enforced with an explicit boolean flag set only on "No thanks" button click — never from any other trigger.
+
+---
+
+**Fix 4 — Add-on checkboxes all functional:**
+
+Only Refrigerator is currently selectable. Fix all 5 add-on checkboxes:
+
+Each add-on card must have its own independent checked state:
+
+```javascript
+const [selectedAddons, setSelectedAddons] = useState({
+  oven: false,
+  refrigerator: false,
+  kitchenCabinets: false,
+  windows: false,
+  cleanBasement: false
+});
+
+const toggleAddon = (key) => {
+  setSelectedAddons(prev => ({
+    ...prev,
+    [key]: !prev[key]
+  }));
+};
+```
+
+Each card's checkbox and the entire card surface must be clickable — tapping anywhere on the card toggles it. Do not rely on the checkbox input click event alone — wrap the entire card in an onClick handler.
+
+```jsx
+<div 
+  onClick={() => toggleAddon('oven')}
+  style={{cursor: 'pointer'}}
+>
+  {/* card content */}
+  <input 
+    type="checkbox" 
+    checked={selectedAddons.oven}
+    onChange={() => toggleAddon('oven')}
+    onClick={(e) => e.stopPropagation()}
+  />
+</div>
+```
+
+Apply this pattern to all 5 cards. Confirm each card independently toggles without affecting others.
+
+---
+
+**DESIGN:**
+- Background: `#F7F6F3`
+- Cards: `#FFFFFF`
+- Primary text: `#1A1917`
+- Secondary text: `#6B6860`
+- Borders: `#E5E2DC`
+- Accent: `var(--brand)`
+- Font: Plus Jakarta Sans only
+- No emojis
+- No dark mode
+
+---
+
+Republish after all four fixes. Screenshot:
+1. Step 2 with all steppers showing 0
+2. "3 — Very Dirty" selected showing office contact card with Continue disabled
+3. Step 3 with all 5 add-on cards selectable — Oven + Fridge both checked showing bundle badge

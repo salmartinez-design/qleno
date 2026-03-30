@@ -1444,33 +1444,58 @@ function InvoicingTab() {
 }
 
 // ── Online Booking Tab ────────────────────────────────────────────────────────
-function OnlineBookingTab() {
-  const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
-  const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
-  const { toast } = useToast();
+type BookingAvailDays = { sun: boolean; mon: boolean; tue: boolean; wed: boolean; thu: boolean; fri: boolean; sat: boolean };
+const AVAIL_DAY_LABELS: { key: keyof BookingAvailDays; label: string }[] = [
+  { key: 'sun', label: 'Sun' },
+  { key: 'mon', label: 'Mon' },
+  { key: 'tue', label: 'Tue' },
+  { key: 'wed', label: 'Wed' },
+  { key: 'thu', label: 'Thu' },
+  { key: 'fri', label: 'Fri' },
+  { key: 'sat', label: 'Sat' },
+];
 
-  const [leadHours, setLeadHours] = useState(48);
+function OnlineBookingTab() {
+  const { toast } = useToast();
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+  const [leadDays, setLeadDays] = useState(7);
+  const [maxAdvanceDays, setMaxAdvanceDays] = useState(60);
+  const [avail, setAvail] = useState<BookingAvailDays>({ sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: false });
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (company) {
-      setLeadHours((company as any).online_booking_lead_hours ?? 48);
-    }
-  }, [company]);
-
-  const LEAD_OPTIONS = [
-    { value: 24,  label: '24 hours' },
-    { value: 48,  label: '48 hours (default)' },
-    { value: 72,  label: '72 hours' },
-    { value: 168, label: '1 week' },
-    { value: 336, label: '2 weeks' },
-    { value: 720, label: '1 month' },
-  ];
+    fetch(`${BASE}/api/companies/booking-settings`, { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => {
+        if (d && !d.error) {
+          setLeadDays(d.booking_lead_days ?? 7);
+          setMaxAdvanceDays(d.max_advance_days ?? 60);
+          setAvail({
+            sun: !!d.available_sun, mon: !!d.available_mon, tue: !!d.available_tue,
+            wed: !!d.available_wed, thu: !!d.available_thu, fri: !!d.available_fri, sat: !!d.available_sat,
+          });
+        }
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, [BASE]);
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateCompany.mutateAsync({ body: { online_booking_lead_hours: leadHours } } as any);
+      const r = await fetch(`${BASE}/api/companies/booking-settings`, {
+        method: 'PUT',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          booking_lead_days: leadDays,
+          max_advance_days: maxAdvanceDays,
+          available_sun: avail.sun, available_mon: avail.mon, available_tue: avail.tue,
+          available_wed: avail.wed, available_thu: avail.thu, available_fri: avail.fri, available_sat: avail.sat,
+        }),
+      });
+      if (!r.ok) throw new Error('Failed');
       toast({ title: 'Saved', description: 'Online booking settings updated.' });
     } catch {
       toast({ title: 'Error', description: 'Could not save settings.', variant: 'destructive' });
@@ -1479,40 +1504,84 @@ function OnlineBookingTab() {
     }
   }
 
+  function toggleDay(key: keyof BookingAvailDays) {
+    setAvail(prev => ({ ...prev, [key]: !prev[key] }));
+  }
+
   const cardStyle = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6, fontFamily: FF };
-  const selectStyle: React.CSSProperties = {
-    width: '100%', maxWidth: 280, padding: '10px 14px', border: '1px solid #E5E2DC', borderRadius: 8,
+  const numInputStyle: React.CSSProperties = {
+    width: 90, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
     fontSize: 14, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF,
   };
+
+  if (!loaded) return <div style={{ padding: 24, color: '#9E9B94', fontFamily: FF, fontSize: 13 }}>Loading…</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 20, fontFamily: FF }}>Booking Lead Time</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div>
-            <label style={labelStyle}>Minimum notice required before a client can book</label>
-            <select style={selectStyle} value={leadHours} onChange={e => setLeadHours(parseInt(e.target.value))}>
-              {LEAD_OPTIONS.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            <label style={labelStyle}>Minimum notice before a client can book (calendar days)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="number" min={1} max={60} value={leadDays}
+                onChange={e => setLeadDays(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
+                style={numInputStyle}
+              />
+              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF }}>days from today</span>
+            </div>
             <p style={{ fontSize: 12, color: '#9E9B94', marginTop: 8, fontFamily: FF }}>
-              Dates within this window are blocked on the booking calendar. Currently set to <strong>{LEAD_OPTIONS.find(o => o.value === leadHours)?.label}</strong>.
+              Dates within this window are blocked on the booking calendar.
             </p>
+          </div>
+          <div>
+            <label style={labelStyle}>How far in advance clients can book (calendar days)</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <input
+                type="number" min={14} max={365} value={maxAdvanceDays}
+                onChange={e => setMaxAdvanceDays(Math.max(14, Math.min(365, parseInt(e.target.value) || 60)))}
+                style={numInputStyle}
+              />
+              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF }}>days out</span>
+            </div>
           </div>
         </div>
       </div>
 
       <div style={cardStyle}>
-        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 20, fontFamily: FF }}>New Booking Assignment</div>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Available Days</div>
+        <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 18, fontFamily: FF }}>
+          Select which days of the week clients can book. Unavailable days are hidden on the calendar.
+        </p>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {AVAIL_DAY_LABELS.map(({ key, label }) => {
+            const on = avail[key];
+            return (
+              <button
+                key={key}
+                onClick={() => toggleDay(key)}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
+                  border: `2px solid ${on ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}`,
+                  background: on ? 'var(--brand, #5B9BD5)' : '#fff',
+                  color: on ? '#fff' : '#6B7280',
+                  cursor: 'pointer', transition: 'all 0.1s',
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 8, fontFamily: FF }}>New Booking Assignment</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>New Bookings Assign To</div>
-            <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>
-              All bookings submitted through the widget are placed in the Unassigned queue for manual dispatch. This cannot be changed.
-            </div>
+          <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF }}>
+            All bookings submitted through the widget are placed in the Unassigned queue for manual dispatch. This cannot be changed.
           </div>
           <div style={{ padding: '6px 14px', background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#1A1917', fontFamily: FF, flexShrink: 0 }}>
             Unassigned (required)
@@ -1529,7 +1598,7 @@ function OnlineBookingTab() {
           cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: FF,
         }}
       >
-        {saving ? 'Saving…' : 'Save Online Booking Settings'}
+        {saving ? 'Saving…' : 'Save Booking Settings'}
       </button>
     </div>
   );

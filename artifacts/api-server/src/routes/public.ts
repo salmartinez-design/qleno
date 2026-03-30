@@ -148,6 +148,34 @@ router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/booking-settings/:slug ──────────────────────────────────
+router.get("/booking-settings/:slug", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  const DEFAULT = {
+    booking_lead_days: 7,
+    max_advance_days: 60,
+    available_sun: false,
+    available_mon: true,
+    available_tue: true,
+    available_wed: true,
+    available_thu: true,
+    available_fri: true,
+    available_sat: false,
+  };
+  try {
+    const slug = req.params.slug;
+    const companyRow = await db.execute(drSql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    if (!companyRow.rows.length) return res.json(DEFAULT);
+    const companyId = (companyRow.rows[0] as any).id;
+    const result = await db.execute(drSql`SELECT * FROM booking_settings WHERE company_id = ${companyId} LIMIT 1`);
+    if (!result.rows.length) return res.json(DEFAULT);
+    return res.json(result.rows[0]);
+  } catch (err) {
+    console.error("GET booking-settings:", err);
+    return res.json(DEFAULT);
+  }
+});
+
 // ── GET /api/public/bundles/:companyId ──────────────────────────────────────
 router.get("/bundles/:companyId", rateLimit, async (req, res) => {
   try {
