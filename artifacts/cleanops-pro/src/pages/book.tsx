@@ -639,7 +639,7 @@ export default function BookPage() {
       const w = window as any;
       if (!w.Stripe) return;
       const stripe = w.Stripe(stripePubKey);
-      const elements = stripe.elements({ clientSecret: stripeClientSecret });
+      const elements = stripe.elements(); // clientSecret goes to confirmCardSetup, not here
       const cardEl = elements.create("card", {
         style: {
           base: {
@@ -2489,8 +2489,12 @@ export default function BookPage() {
               <p style={s.h2}>Secure your appointment</p>
               <p style={s.sub}>Your card is saved securely and charged only after each completed cleaning.</p>
 
-              {/* Stripe card form (when Stripe is configured) */}
-              {stripeEnabled !== false && (
+              {/* Stripe card form */}
+              {stripeEnabled === false ? (
+                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#DC2626" }}>
+                  Payment setup is temporarily unavailable. Please call us at (773) 706-6000 to complete your booking.
+                </div>
+              ) : (
                 <div style={{ marginBottom: 20 }}>
                   {stripeSetupLoading || stripeEnabled === null ? (
                     <div style={{ padding: "20px", textAlign: "center", fontSize: 13, color: "#9E9B94" }}>Setting up secure payment...</div>
@@ -2538,11 +2542,11 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || (stripeEnabled && !stripeCardReady)) ? 0.7 : 1 }}
-                  disabled={booking || (stripeEnabled === true && !stripeCardReady)}
+                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
+                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
                   onClick={submitBooking}
                 >
-                  {booking ? "Processing..." : stripeEnabled ? "Confirm & Book" : "Book It"}
+                  {booking ? "Processing..." : (stripeSetupLoading || stripeEnabled === null) ? "Setting up..." : stripeEnabled ? "Confirm & Book" : "Book It"}
                 </button>
               </div>
             </div>
