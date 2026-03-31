@@ -14,7 +14,7 @@ run = "pnpm --filter @workspace/api-server run dev"
 
 [services.production]
 build = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
-run = "node dist/index.mjs"
+run = "node artifacts/api-server/dist/index.mjs"
 
 [services.production.health.startup]
 path = "/api/healthz"
