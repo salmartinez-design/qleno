@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { companiesTable } from "@workspace/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import { mkdirSync } from "fs";
@@ -40,17 +40,21 @@ router.get("/me", requireAuth, async (req, res) => {
     if (!req.auth!.companyId) {
       return res.status(404).json({ error: "Not Found", message: "No company for this user" });
     }
-    const company = await db
-      .select()
-      .from(companiesTable)
-      .where(eq(companiesTable.id, req.auth!.companyId))
-      .limit(1);
+    const rows = await db.execute(sql`
+      SELECT c.*, st.slug AS tier_slug, st.name AS tier_name,
+             st.monthly_price_cents, st.max_technicians
+      FROM companies c
+      LEFT JOIN subscription_tiers st ON st.id = c.subscription_tier_id
+      WHERE c.id = ${req.auth!.companyId}
+      LIMIT 1
+    `);
+    const company = ((rows as any).rows ?? [])[0];
 
-    if (!company[0]) {
+    if (!company) {
       return res.status(404).json({ error: "Not Found", message: "Company not found" });
     }
 
-    return res.json(company[0]);
+    return res.json(company);
   } catch (err) {
     console.error("Get company error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get company" });

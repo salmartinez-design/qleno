@@ -2,7 +2,7 @@ import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
-import { CreditCard, CheckCircle, AlertCircle, Clock, TrendingUp, Users, X } from "lucide-react";
+import { CreditCard, CheckCircle, AlertCircle, Clock, TrendingUp, Users, X, Lock } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -36,6 +36,13 @@ export default function CompanyBillingPage() {
     queryKey: ["billing-status"],
     queryFn: () => apiFetch("/api/billing/status"),
   });
+
+  const { data: companyInfo } = useQuery({
+    queryKey: ["company-me"],
+    queryFn: () => apiFetch("/api/companies/me"),
+  });
+
+  const tierSlug: string = companyInfo?.tier_slug ?? "team";
 
   const startTrialMut = useMutation({
     mutationFn: (d: any) => apiFetch("/api/billing/create-subscription", { method: "POST", body: JSON.stringify(d) }),
@@ -165,6 +172,25 @@ export default function CompanyBillingPage() {
             <div>
               <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", marginBottom: "4px" }}>You are on a free trial</div>
               <div style={{ fontSize: "13px", color: "#6B7280" }}>Your trial gives you full access to all features. Add a payment method before your trial ends to continue uninterrupted service.</div>
+            </div>
+          </div>
+        )}
+
+        {/* Solo plan — employees locked */}
+        {tierSlug === "solo" && (
+          <div style={{ ...card, borderLeft: "3px solid #6B6860", marginBottom: "20px", display: "flex", alignItems: "flex-start", gap: "14px" }}>
+            <div style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: "#F0EEE9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Lock size={16} style={{ color: "#6B6860" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", marginBottom: "4px" }}>Employee management is not available on the Solo plan</div>
+              <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "12px" }}>The Solo plan is designed for owner-operators with 1 user. Upgrade to Team or Pro to unlock employee management, payroll, timeclock, and dispatch board features.</div>
+              <button
+                onClick={() => setShowPlanModal(true)}
+                style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 16px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+              >
+                Upgrade to Team
+              </button>
             </div>
           </div>
         )}

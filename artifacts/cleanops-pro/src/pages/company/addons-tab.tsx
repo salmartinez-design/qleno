@@ -349,60 +349,102 @@ export function AddonsTab() {
           </table>
         </div>
 
-        {/* New add-on form */}
-        {showNewAddon ? (
-          <div style={{ marginTop: 16, padding: "16px", background: "#F7F6F3", borderRadius: 8, border: "1px solid #E5E2DC" }}>
-            <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>New Add-on</p>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 140px 100px", gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>Name</label>
-                <input style={inputStyle} value={newAddon.name} onChange={e => setNewAddon(p => ({ ...p, name: e.target.value }))} placeholder="Add-on name" />
+        <button style={{ ...btnPrimary, marginTop: 14 }} onClick={() => { setShowNewAddon(true); setNewAddon({ ...EMPTY_ADDON }); setNewAddonScopes([]); }}>
+          <Plus size={14} /> Add New
+        </button>
+
+        {/* New add-on modal */}
+        {showNewAddon && (
+          <>
+            <div onClick={() => setShowNewAddon(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 200 }} />
+            <div style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+              zIndex: 201, backgroundColor: "#FFFFFF", borderRadius: 12, width: 480, maxWidth: "calc(100vw - 32px)",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.18)", padding: "28px 28px 24px", display: "flex", flexDirection: "column", gap: 18,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h3 style={{ margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 17, color: "#1A1917" }}>New Add-on</h3>
+                <button onClick={() => setShowNewAddon(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}>
+                  <X size={18} />
+                </button>
               </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>Type</label>
-                <select style={selectStyle} value={newAddon.price_type} onChange={e => setNewAddon(p => ({ ...p, price_type: e.target.value }))}>
-                  {PRICE_TYPES.map(pt => <option key={pt.value} value={pt.value}>{pt.label}</option>)}
-                </select>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#EF4444" }}>*</span></label>
+                <input
+                  autoFocus
+                  style={{ ...inputStyle, width: "100%", boxSizing: "border-box" as const }}
+                  value={newAddon.name}
+                  onChange={e => setNewAddon(p => ({ ...p, name: e.target.value }))}
+                  placeholder="e.g. Oven Cleaning"
+                />
               </div>
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>Value</label>
-                <input style={inputStyle} type="number" step="0.01" value={newAddon.price_value} onChange={e => setNewAddon(p => ({ ...p, price_value: e.target.value }))} />
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Price Type</label>
+                  <select style={{ ...selectStyle, width: "100%" }} value={newAddon.price_type} onChange={e => setNewAddon(p => ({ ...p, price_type: e.target.value }))}>
+                    {PRICE_TYPES.map(pt => <option key={pt.value} value={pt.value}>{pt.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Value</label>
+                  <input
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" as const }}
+                    type="number" step="0.01" min="0"
+                    value={newAddon.price_value}
+                    onChange={e => setNewAddon(p => ({ ...p, price_value: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Applies to Scopes</label>
+                <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
+                  {SCOPE_OPTIONS.map(s => (
+                    <button key={s.id} onClick={() => toggleScopeInEdit(s.id, newAddonScopes, setNewAddonScopes)}
+                      style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${newAddonScopes.includes(s.id) ? "var(--brand)" : "#E5E2DC"}`, background: newAddonScopes.includes(s.id) ? "var(--brand)" : "#fff", color: newAddonScopes.includes(s.id) ? "#fff" : "#6B6860", cursor: "pointer", fontFamily: "inherit", fontWeight: newAddonScopes.includes(s.id) ? 600 : 400 }}>
+                      {s.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 20 }}>
+                <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" as const }}>
+                  <div
+                    onClick={() => setNewAddon(p => ({ ...p, show_online: !p.show_online }))}
+                    style={{ width: 38, height: 22, borderRadius: 11, backgroundColor: newAddon.show_online ? "var(--brand)" : "#E5E2DC", position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}
+                  >
+                    <div style={{ position: "absolute", top: 3, left: newAddon.show_online ? 19 : 3, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </div>
+                  Show in booking widget
+                </label>
+                <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" as const }}>
+                  <div
+                    onClick={() => setNewAddon(p => ({ ...p, show_office: !p.show_office }))}
+                    style={{ width: 38, height: 22, borderRadius: 11, backgroundColor: newAddon.show_office ? "var(--brand)" : "#E5E2DC", position: "relative", cursor: "pointer", transition: "background 0.2s", flexShrink: 0 }}
+                  >
+                    <div style={{ position: "absolute", top: 3, left: newAddon.show_office ? 19 : 3, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }} />
+                  </div>
+                  Show in office (job wizard)
+                </label>
+              </div>
+
+              <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+                <button
+                  style={{ ...btnPrimary, flex: 1, justifyContent: "center" }}
+                  onClick={() => createAddon.mutate({ ...newAddon, scope_ids: newAddonScopes })}
+                  disabled={!newAddon.name || createAddon.isPending}
+                >
+                  <Check size={14} /> {createAddon.isPending ? "Saving..." : "Create Add-on"}
+                </button>
+                <button style={{ ...btnGhost, padding: "8px 18px" }} onClick={() => { setShowNewAddon(false); setNewAddon({ ...EMPTY_ADDON }); setNewAddonScopes([]); }}>
+                  Cancel
+                </button>
               </div>
             </div>
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 6 }}>Scopes</label>
-              <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
-                {SCOPE_OPTIONS.map(s => (
-                  <button key={s.id} onClick={() => toggleScopeInEdit(s.id, newAddonScopes, setNewAddonScopes)}
-                    style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, border: `1px solid ${newAddonScopes.includes(s.id) ? "var(--brand)" : "#E5E2DC"}`, background: newAddonScopes.includes(s.id) ? `var(--brand)15` : "#fff", color: newAddonScopes.includes(s.id) ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: "inherit" }}>
-                    {s.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                <input type="checkbox" checked={newAddon.show_online} onChange={e => setNewAddon(p => ({ ...p, show_online: e.target.checked }))} />
-                Show online
-              </label>
-              <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                <input type="checkbox" checked={newAddon.show_office} onChange={e => setNewAddon(p => ({ ...p, show_office: e.target.checked }))} />
-                Show office
-              </label>
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button style={btnPrimary} onClick={() => createAddon.mutate({ ...newAddon, scope_ids: newAddonScopes })} disabled={!newAddon.name}>
-                <Check size={14} /> Create Add-on
-              </button>
-              <button style={btnGhost} onClick={() => { setShowNewAddon(false); setNewAddon({ ...EMPTY_ADDON }); setNewAddonScopes([]); }}>
-                <X size={14} /> Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button style={{ ...btnPrimary, marginTop: 14 }} onClick={() => setShowNewAddon(true)}>
-            <Plus size={14} /> Add New
-          </button>
+          </>
         )}
       </div>
 
