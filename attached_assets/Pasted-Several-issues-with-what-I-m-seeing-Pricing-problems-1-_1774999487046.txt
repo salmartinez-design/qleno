@@ -1,0 +1,36 @@
+Several issues with what I'm seeing:
+
+**Pricing problems:**
+
+1. **Deep Clean 1,242 sqft showing $291.20** — wrong. Tier 1,000–1,249 = 5.2 hrs × $70 = **$364.00**. $291.20 = 5.2 hrs × $56/hr which is the old Deep Clean weekly rate override, not the one-time rate. The widget is pulling the wrong frequency rate for Deep Clean.
+
+2. **Recurring Weekly from visit 2 showing $180.00** — wrong. At 1,242 sqft, Weekly tier 1,000–1,249 = 3.0 hrs × $60 = **$180.00**. This one is actually correct.
+
+3. **Rate lock first visit $153.00 (15% off $180)** — this is calculating 15% off the recurring rate not the Deep Clean rate. Should be 15% off $180 = $153 which is mathematically correct but the wrong base — rate lock discount should apply to recurring rate so $153 is right if $180 is the recurring base. This is actually fine.
+
+**The main problem is #1 — Deep Clean is calculating at $56/hr instead of $70/hr.**
+
+---
+
+**REPLIT PROMPT — DEEP CLEAN RATE FIX:**
+
+Deep Clean at 1,242 sqft is returning $291.20 on the live production booking widget. The correct price is $364.00 (5.2 hrs × $70/hr).
+
+$291.20 = 5.2 hours × $56.00/hr — this means the engine is using the weekly rate override of $56/hr from pricing_frequencies instead of the $70/hr base rate for a one-time Deep Clean.
+
+Fix this in order:
+
+1. Read the pricing_frequencies table in production for scope_id = 11 (Deep Clean in production). Show all rows including frequency, rate_override, and multiplier.
+
+2. Read the `runCalculate()` function — find where it selects which rate to use for a one-time Deep Clean. The bug is that it is applying a rate_override meant for weekly frequency to the one-time calculation.
+
+3. The rule: for one-time Deep Clean, the rate must always be scope.hourly_rate ($70). Rate overrides only apply when the matching frequency is explicitly selected. A one-time booking must never use a weekly or biweekly rate_override.
+
+4. Fix the calculation logic so one-time Deep Clean always uses $70/hr with no rate override applied.
+
+5. After fixing, verify on the live production URL `https://clean-ops-pro.replit.app/book/phes-cleaning`:
+   - 1,242 sqft Deep Clean one-time = $364.00
+   - 1,500 sqft Deep Clean one-time = $434.00
+   - 2,000 sqft Deep Clean one-time = $532.00
+
+Do not close until all three return correct values on the live production URL — not dev preview.

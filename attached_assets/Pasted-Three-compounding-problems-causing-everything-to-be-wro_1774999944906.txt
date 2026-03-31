@@ -1,0 +1,143 @@
+Three compounding problems causing everything to be wrong:
+
+1. **Deep Clean base still $291.20** — still routing to wrong scope with $56/hr rate
+2. **Baseboards still appearing** — show_online = false not applied to production
+3. **Loyalty Discount auto-applying** — phantom discount still firing
+4. **Price summary text overflowing** — no truncation or wrapping on the sidebar labels
+
+---
+
+**REPLIT PROMPT — PRODUCTION PRICING EMERGENCY FIX:**
+
+Everything must be tested on `https://clean-ops-pro.replit.app` only. No dev preview. No DB query assumptions.
+
+**Step 1 — Find the actual scope being used for Deep Clean in production:**
+
+Run this on the PRODUCTION database:
+
+```sql
+SELECT id, name, hourly_rate, is_active, scope_group 
+FROM pricing_scopes 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%deep%'
+ORDER BY id;
+```
+
+Show all results. Then run:
+
+```sql
+SELECT ps.id, ps.name, ps.hourly_rate, count(pt.id) as tier_count
+FROM pricing_scopes ps
+LEFT JOIN pricing_tiers pt ON pt.scope_id = ps.id
+WHERE ps.company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND ps.name ILIKE '%deep%'
+GROUP BY ps.id, ps.name, ps.hourly_rate;
+```
+
+The correct Deep Clean scope has 20 tiers and hourly_rate = $70. Report which scope_id that is in production.
+
+**Step 2 — Fix the booking widget to use the correct scope_id:**
+
+Read `book.tsx` and find where scope_id is being set when the user selects "Deep Clean." It is currently sending the wrong scope_id. Update it to send the scope_id that has 20 tiers and $70/hr rate as found in Step 1.
+
+**Step 3 — Fix rate calculation for one-time Deep Clean:**
+
+Read `runCalculate()` in production. Find where it selects the hourly rate. The bug: it is applying a rate_override from pricing_frequencies to a one-time booking.
+
+The rule is absolute:
+- If frequency = 'onetime' or 'one_time' or 'on_demand' → always use scope.hourly_rate, never a rate_override
+- rate_override only applies when the frequency exactly matches the override's frequency row
+
+Fix this logic in runCalculate().
+
+**Step 4 — Remove Baseboards and all discount add-ons from production:**
+
+Run directly on PRODUCTION database:
+
+```sql
+-- Hide baseboards from online widget
+UPDATE pricing_addons 
+SET show_online = false 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%baseboard%';
+
+-- Hide all loyalty/discount/promo add-ons
+UPDATE pricing_addons 
+SET show_online = false 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND (
+  name ILIKE '%loyalty%' OR 
+  name ILIKE '%promo%' OR 
+  name ILIKE '%discount%' OR
+  name ILIKE '%adjustment%' OR
+  name ILIKE '%second appointment%' OR
+  name ILIKE '%commercial adjust%' OR
+  name ILIKE '%parking%'
+);
+```
+
+Then verify by querying:
+```sql
+SELECT id, name, show_online 
+FROM pricing_addons 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND show_online = true
+ORDER BY name;
+```
+
+Only these should show show_online = true: Oven Cleaning, Refrigerator Cleaning, Kitchen Cabinets, Windows, Clean Basement.
+
+**Step 5 — Fix add-on prices in production:**
+
+```sql
+UPDATE pricing_addons SET price_value = 50 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%oven%' AND name NOT ILIKE '%hourly%';
+
+UPDATE pricing_addons SET price_value = 50 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%refrigerator%' AND name NOT ILIKE '%hourly%';
+
+UPDATE pricing_addons SET price_value = 50 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%cabinet%' AND name NOT ILIKE '%hourly%';
+
+UPDATE pricing_addons SET price_value = 15, price_type = 'percentage'
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%window%' AND name NOT ILIKE '%hourly%';
+
+UPDATE pricing_addons SET price_value = 15, price_type = 'percentage'
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND name ILIKE '%basement%' AND name NOT ILIKE '%hourly%';
+```
+
+**Step 6 — Fix price summary sidebar text overflow:**
+
+The price summary sidebar labels are overflowing their container. Fix the CSS:
+
+- Each line in the price summary must truncate with ellipsis if it exceeds the container width
+- The label (left side) gets `flex: 1, overflow: hidden, text-overflow: ellipsis, white-space: nowrap, min-width: 0`
+- The price (right side) gets `flex-shrink: 0, white-space: nowrap, padding-left: 8px`
+- The container row uses `display: flex, align-items: center, gap: 8px, width: 100%`
+- Apply this to every line item in the price summary tile
+
+**Step 7 — Simplify add-on label names in price summary:**
+
+Current labels are verbose ("Baseboards — Deep Clean (Sq Ft %)", "Windows (inside panes) — Standard / Recurring"). Shorten them:
+- Show only the first part before the "—" dash in the price summary
+- "Oven Cleaning", "Refrigerator Cleaning", "Windows", "Clean Basement", "Kitchen Cabinets"
+- Never show the scope suffix in the price summary tile
+
+**After all fixes verify ONLY on production URL:**
+
+| Test | URL | Expected |
+|---|---|---|
+| V1 | /book/phes-cleaning → Deep Clean 1242 sqft | $364.00 base |
+| V2 | /book/phes-cleaning → Deep Clean 1500 sqft | $434.00 base |
+| V3 | /book/phes-cleaning → Add Oven | +$50.00 |
+| V4 | /book/phes-cleaning → Add Windows | +15% of base, no "Standard/Recurring" label |
+| V5 | /book/phes-cleaning → Step 3 add-on cards | No Baseboards card, no Loyalty Discount card |
+| V6 | /book/phes-cleaning → Price summary | No text overflowing the container |
+| V7 | /api/public/addons?companySlug=phes-cleaning | Only 5 add-ons returned — Oven, Fridge, Cabinets, Windows, Basement |
+
+Do not report complete until you have confirmed each test on the live production URL with actual response values. If any test fails fix it immediately and retest.

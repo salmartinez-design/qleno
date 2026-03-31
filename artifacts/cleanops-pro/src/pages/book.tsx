@@ -566,11 +566,13 @@ export default function BookPage() {
   }, [scopeId, company]);
 
   // ── Live pricing calculation ──────────────────────────────────────────────
-  // effectiveFreq: use explicit selection, fall back to first loaded freq or "onetime"
-  // so calcResult stays populated even while the frequencies API is still in-flight
+  // effectiveFreq: one-time scopes (Deep Clean, Move In/Out) always calculate at "onetime"
+  // so the base hourly rate ($70) is used — never the recurring multiplier (e.g. 0.8×weekly).
+  // Recurring scopes use frequencyStr (the cadence the user picked).
   const runCalc = useCallback(async () => {
     if (!company || !scopeId || !sqft) { setCalcResult(null); return; }
-    const effectiveFreq = frequencyStr || frequencies[0]?.frequency || "onetime";
+    const hasOnetime = frequencies.some(f => f.frequency === "onetime");
+    const effectiveFreq = hasOnetime ? "onetime" : (frequencyStr || frequencies[0]?.frequency || "onetime");
     setCalcLoading(true);
     try {
       const result = await pubFetch("/api/public/calculate", {
@@ -708,7 +710,7 @@ export default function BookPage() {
             company_id: company.id,
             first_name: firstName, last_name: lastName, phone, email, zip,
             referral_source: referral || null, sms_consent: smsConsent,
-            scope_id: scopeId, sqft, frequency: frequencyStr,
+            scope_id: scopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
             addon_ids: selectedAddonIds,
             bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
             home_condition_rating: showCleanlinessQ ? (cleanliness || 1) : null,
@@ -753,7 +755,7 @@ export default function BookPage() {
           company_id: company.id,
           first_name: firstName, last_name: lastName, phone, email, zip,
           referral_source: referral || null, sms_consent: smsConsent,
-          scope_id: scopeId, sqft, frequency: frequencyStr,
+          scope_id: scopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
           addon_ids: selectedAddonIds,
           bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
           address: addressComponents?.formatted ?? address,
