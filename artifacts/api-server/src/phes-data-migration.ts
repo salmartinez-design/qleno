@@ -407,6 +407,114 @@ export async function runPhesDataMigration(): Promise<void> {
     }
     console.log("[phes-migration] Frequencies ensured for all scopes");
 
+    // ── 4c. Seed pricing tiers for each scope (idempotent — only inserts if scope has 0 tiers) ───
+    type TierRow = { min: number; max: number; hours: string };
+    const dcTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "3.00" }, { min: 750,  max: 999,  hours: "3.20" },
+      { min: 1000, max: 1249, hours: "5.20" }, { min: 1250, max: 1499, hours: "6.00" },
+      { min: 1500, max: 1749, hours: "6.20" }, { min: 1750, max: 1999, hours: "6.50" },
+      { min: 2000, max: 2249, hours: "7.60" }, { min: 2250, max: 2499, hours: "8.00" },
+      { min: 2500, max: 2749, hours: "8.00" }, { min: 2750, max: 2999, hours: "8.40" },
+      { min: 3000, max: 3249, hours: "9.50" }, { min: 3250, max: 3499, hours: "10.00" },
+      { min: 3500, max: 3749, hours: "10.50" }, { min: 3750, max: 3999, hours: "11.00" },
+      { min: 4000, max: 4249, hours: "13.00" }, { min: 4250, max: 4499, hours: "14.00" },
+      { min: 4500, max: 4749, hours: "16.00" }, { min: 4750, max: 5000, hours: "18.00" },
+      { min: 5001, max: 5500, hours: "20.00" }, { min: 5501, max: 6000, hours: "29.00" },
+    ];
+    const stdTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "2.50" }, { min: 750,  max: 999,  hours: "3.00" },
+      { min: 1000, max: 1249, hours: "3.30" }, { min: 1250, max: 1499, hours: "3.50" },
+      { min: 1500, max: 1749, hours: "3.70" }, { min: 1750, max: 1999, hours: "3.80" },
+      { min: 2000, max: 2249, hours: "4.20" }, { min: 2250, max: 2499, hours: "4.50" },
+      { min: 2500, max: 2749, hours: "5.00" }, { min: 2750, max: 2999, hours: "5.50" },
+      { min: 3000, max: 3249, hours: "7.00" }, { min: 3250, max: 3499, hours: "7.60" },
+      { min: 3500, max: 3749, hours: "8.00" }, { min: 3750, max: 3999, hours: "8.50" },
+      { min: 4000, max: 4249, hours: "9.20" }, { min: 4250, max: 4499, hours: "9.80" },
+      { min: 4500, max: 4749, hours: "10.00" }, { min: 4750, max: 4999, hours: "10.50" },
+      { min: 5000, max: 5249, hours: "11.00" }, { min: 5250, max: 5499, hours: "11.50" },
+    ];
+    const otscTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "2.50" }, { min: 750,  max: 999,  hours: "3.00" },
+      { min: 1000, max: 1249, hours: "3.30" }, { min: 1250, max: 1499, hours: "3.50" },
+      { min: 1500, max: 1749, hours: "3.70" }, { min: 1750, max: 1999, hours: "3.80" },
+      { min: 2000, max: 2249, hours: "4.20" }, { min: 2250, max: 2499, hours: "4.50" },
+      { min: 2500, max: 2749, hours: "5.00" }, { min: 2750, max: 3499, hours: "5.50" },
+      { min: 3500, max: 3749, hours: "8.00" }, { min: 3750, max: 3999, hours: "8.50" },
+      { min: 4000, max: 4249, hours: "9.20" }, { min: 4250, max: 4499, hours: "9.80" },
+      { min: 4500, max: 4749, hours: "10.00" }, { min: 4750, max: 4999, hours: "10.50" },
+      { min: 5000, max: 5249, hours: "11.00" }, { min: 5250, max: 6000, hours: "11.50" },
+    ];
+    const ppmTiers: TierRow[] = [
+      { min: 1000, max: 1200, hours: "5.20" }, { min: 1200, max: 1400, hours: "6.00" },
+      { min: 1400, max: 1600, hours: "7.00" }, { min: 1600, max: 1800, hours: "8.00" },
+      { min: 1800, max: 2000, hours: "9.00" }, { min: 2000, max: 2200, hours: "10.00" },
+      { min: 2200, max: 2400, hours: "11.20" }, { min: 2400, max: 2600, hours: "12.40" },
+      { min: 2600, max: 2800, hours: "13.60" }, { min: 2800, max: 3000, hours: "14.80" },
+      { min: 3000, max: 3200, hours: "16.00" }, { min: 3200, max: 3400, hours: "17.40" },
+      { min: 3400, max: 3600, hours: "18.80" }, { min: 3600, max: 3800, hours: "20.20" },
+      { min: 3800, max: 4000, hours: "21.60" }, { min: 4000, max: 4400, hours: "23.20" },
+      { min: 4400, max: 4800, hours: "25.00" }, { min: 4800, max: 5200, hours: "26.60" },
+      { min: 5200, max: 5600, hours: "28.00" }, { min: 5600, max: 6000, hours: "29.00" },
+    ];
+    const recurWeeklyTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "2.90" }, { min: 750,  max: 999,  hours: "2.91" },
+      { min: 1000, max: 1249, hours: "3.00" }, { min: 1250, max: 1499, hours: "3.18" },
+      { min: 1500, max: 1749, hours: "3.30" }, { min: 1750, max: 1999, hours: "3.82" },
+      { min: 2000, max: 2249, hours: "4.00" }, { min: 2250, max: 2499, hours: "4.50" },
+      { min: 2500, max: 2749, hours: "5.00" }, { min: 2750, max: 3499, hours: "5.45" },
+      { min: 3500, max: 3749, hours: "5.45" }, { min: 3750, max: 3999, hours: "7.00" },
+      { min: 4000, max: 4999, hours: "9.50" }, { min: 5000, max: 5499, hours: "11.00" },
+    ];
+    const recurBiweeklyTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "3.00" }, { min: 750,  max: 999,  hours: "3.00" },
+      { min: 1000, max: 1249, hours: "3.10" }, { min: 1250, max: 1499, hours: "3.27" },
+      { min: 1500, max: 1749, hours: "3.45" }, { min: 1750, max: 1999, hours: "4.00" },
+      { min: 2000, max: 2249, hours: "4.09" }, { min: 2250, max: 2499, hours: "4.70" },
+      { min: 2500, max: 2749, hours: "5.27" }, { min: 2750, max: 3499, hours: "5.60" },
+      { min: 3500, max: 3749, hours: "6.20" }, { min: 3750, max: 3999, hours: "7.27" },
+      { min: 4000, max: 4999, hours: "10.00" }, { min: 5000, max: 5499, hours: "12.00" },
+    ];
+    const recurMonthlyTiers: TierRow[] = [
+      { min: 0,    max: 749,  hours: "3.09" }, { min: 750,  max: 999,  hours: "3.09" },
+      { min: 1000, max: 1249, hours: "3.20" }, { min: 1250, max: 1499, hours: "3.45" },
+      { min: 1500, max: 1749, hours: "3.54" }, { min: 1750, max: 1999, hours: "4.18" },
+      { min: 2000, max: 2249, hours: "4.54" }, { min: 2250, max: 2499, hours: "5.00" },
+      { min: 2500, max: 2749, hours: "5.45" }, { min: 2750, max: 3499, hours: "6.00" },
+      { min: 3500, max: 3749, hours: "6.60" }, { min: 3750, max: 3999, hours: "8.00" },
+      { min: 4000, max: 4999, hours: "10.50" }, { min: 5000, max: 5499, hours: "13.00" },
+    ];
+
+    const tierSeedMap: Array<{ scopeName: string; tiers: TierRow[] }> = [
+      { scopeName: "Deep Clean",                         tiers: dcTiers },
+      { scopeName: "Move In / Move Out",                 tiers: dcTiers },
+      { scopeName: "Standard Clean",                     tiers: stdTiers },
+      { scopeName: "One-Time Standard Clean",            tiers: otscTiers },
+      { scopeName: "PPM Turnover",                       tiers: ppmTiers },
+      { scopeName: "Recurring Cleaning - Weekly",        tiers: recurWeeklyTiers },
+      { scopeName: "Recurring Cleaning - Every 2 Weeks", tiers: recurBiweeklyTiers },
+      { scopeName: "Recurring Cleaning - Every 4 Weeks", tiers: recurMonthlyTiers },
+    ];
+
+    let tiersSeeded = 0;
+    for (const { scopeName, tiers } of tierSeedMap) {
+      const sid = scopeMap[scopeName];
+      if (!sid) continue;
+      const countRes = await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM pricing_tiers WHERE scope_id = ${sid} AND company_id = ${PHES}
+      `);
+      const existingCount = parseInt(((countRes as any).rows ?? [{}])[0]?.cnt ?? "0");
+      if (existingCount > 0) continue; // already has tiers
+      for (const t of tiers) {
+        await db.execute(sql`
+          INSERT INTO pricing_tiers (scope_id, company_id, min_sqft, max_sqft, hours)
+          VALUES (${sid}, ${PHES}, ${t.min}, ${t.max}, ${t.hours})
+        `);
+      }
+      tiersSeeded += tiers.length;
+    }
+    if (tiersSeeded > 0) console.log(`[phes-migration] Pricing tiers seeded: ${tiersSeeded} rows`);
+    else console.log("[phes-migration] Pricing tiers already present — skipping.");
+
     // ── 5. Seed MC rate modifications / add-ons ────────────────────────────
     // Only run if no addons with scope_ids have been seeded yet
     const addonCheckResult = await db.execute(sql`
