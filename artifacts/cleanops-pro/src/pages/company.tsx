@@ -771,6 +771,7 @@ function PayrollOptionsTab() {
 }
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+const FF = "'Plus Jakarta Sans', sans-serif";
 
 const TRIGGER_LABELS: Record<string, string> = {
   job_scheduled: "Job Scheduled",
@@ -1463,6 +1464,7 @@ const AVAIL_DAY_LABELS: { key: keyof BookingAvailDays; label: string }[] = [
 ];
 
 function OnlineBookingTab() {
+  const FF = "'Plus Jakarta Sans', sans-serif";
   const { toast } = useToast();
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 
@@ -1632,6 +1634,7 @@ interface SzZone {
 }
 
 function ServiceZonesTab() {
+  const FF = "'Plus Jakarta Sans', sans-serif";
   const SZ_API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
   const [zones, setZones] = useState<SzZone[]>([]);

@@ -907,29 +907,15 @@ export default function BookPage() {
   );
   const conditionMultiplier = 1.0;
 
-  // ── Scope-based add-on visibility rules ──────────────────────────────────
-  const ALLOWED_ADDON_IDS: Record<string, number[]> = {
-    deep_clean:        [8, 10, 12, 16, 19],
-    move_in_out:       [8, 10, 12, 16, 19],
-    one_time_standard: [8, 10, 12, 16, 19],
-    recurring:         [8, 10, 12, 16, 19],
-    commercial:        [],
-  };
-  const scopeKeyForAddons = isDeepCleanScope ? "deep_clean"
-    : isMoveInOut ? "move_in_out"
-    : scopeNameLower.includes("one-time") || scopeNameLower.includes("one time") ? "one_time_standard"
-    : isRecurringScope ? "recurring"
-    : isCommercial ? "commercial"
-    : null;
-  const allowedAddonIds: number[] | null = scopeKeyForAddons ? (ALLOWED_ADDON_IDS[scopeKeyForAddons] ?? null) : null;
-
+  // ── Add-on visibility: dynamically driven by show_online flag from API ──
   const visibleAddons = addons.filter(a => {
     const nl = a.name.toLowerCase();
     if (nl.includes("loyalty")) return false;
     if (nl.includes("promo")) return false;
     if (nl.includes("second appointment")) return false;
     if (nl.includes("commercial adjustment")) return false;
-    if (allowedAddonIds && !allowedAddonIds.includes(a.id)) return false;
+    if (nl.includes("manual adj")) return false;
+    if (nl.includes("parking fee")) return false;
     return true;
   });
 

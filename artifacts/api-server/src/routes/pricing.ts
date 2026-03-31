@@ -272,6 +272,7 @@ router.post("/addons", requireAuth, async (req, res) => {
       name, addon_type, scope_ids, price_type, price_value,
       time_add_minutes, time_unit, is_itemized, is_taxed,
       show_office, show_online, show_portal, sort_order,
+      description, icon,
     } = req.body;
 
     const scopeIdsArr = Array.isArray(scope_ids) ? scope_ids : [];
@@ -283,12 +284,12 @@ router.post("/addons", requireAuth, async (req, res) => {
         (company_id, scope_id, name, addon_type, scope_ids,
          price_type, price_value, time_add_minutes, time_unit,
          is_itemized, is_taxed, show_office, show_online, show_portal,
-         is_active, sort_order)
+         is_active, sort_order, description, icon)
       VALUES
         (${companyId}, ${firstScopeId}, ${name}, ${addon_type || "cleaning_extras"}, ${scopeIdsJson},
          ${price_type || "flat"}, ${price_value ?? 0}, ${time_add_minutes ?? 0}, ${time_unit || "each"},
-         ${is_itemized !== false}, ${is_taxed === true}, ${show_office !== false}, ${show_online !== false}, ${show_portal !== false},
-         true, ${sort_order ?? 0})
+         ${is_itemized !== false}, ${is_taxed === true}, ${show_office !== false}, ${show_online === true}, ${show_portal !== false},
+         true, ${sort_order ?? 0}, ${description ?? null}, ${icon ?? null})
       RETURNING *
     `);
     const row = ((result as any).rows ?? [])[0];
@@ -307,6 +308,7 @@ async function patchAddon(req: any, res: any) {
       name, addon_type, scope_ids, price_type, price_value,
       time_add_minutes, time_unit, is_itemized, is_taxed,
       show_office, show_online, show_portal, is_active, sort_order,
+      description, icon,
     } = req.body;
 
     // Build typed updates object — Drizzle accepts partial column sets
@@ -324,6 +326,8 @@ async function patchAddon(req: any, res: any) {
     if (show_portal !== undefined)      updates.show_portal = show_portal;
     if (is_active !== undefined)        updates.is_active = is_active;
     if (sort_order !== undefined)       updates.sort_order = sort_order;
+    if (description !== undefined)      updates.description = description;
+    if (icon !== undefined)             updates.icon = icon;
     if (scope_ids !== undefined) {
       const arr = Array.isArray(scope_ids) ? scope_ids : [];
       updates.scope_ids = JSON.stringify(arr);

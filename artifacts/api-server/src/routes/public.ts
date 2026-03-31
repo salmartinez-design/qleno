@@ -182,6 +182,9 @@ router.get("/service-zones/check", rateLimit, async (req, res) => {
     const { zip, companySlug } = req.query as { zip?: string; companySlug?: string };
     if (!zip || !companySlug) return res.status(400).json({ error: "zip and companySlug required" });
 
+    const cleanZip = zip.trim().replace(/\D/g, "").slice(0, 5);
+    if (cleanZip.length !== 5) return res.json({ inZone: false, zoneName: null, location: null });
+
     const { sql: drSql } = await import("drizzle-orm");
 
     const companyRows = await db.execute(drSql`
@@ -194,7 +197,7 @@ router.get("/service-zones/check", rateLimit, async (req, res) => {
       SELECT id, name, location, color FROM service_zones
       WHERE company_id = ${company.id}
         AND is_active = true
-        AND ${zip} = ANY(zip_codes)
+        AND zip_codes @> ARRAY[${cleanZip}]::text[]
       LIMIT 1
     `);
     const zone = (zoneRows as any).rows?.[0];

@@ -126,6 +126,10 @@ export function PricingTab() {
   const [scopeSubTab, setScopeSubTab] = useState<"tiers" | "frequencies" | "addons">("tiers");
   const [showNewScope, setShowNewScope] = useState(false);
   const [newScope, setNewScope] = useState({ name: "", scope_group: "Residential", hourly_rate: "", minimum_bill: "" });
+  const [recurringExpanded, setRecurringExpanded] = useState(false);
+  const [activeRecurringScope, setActiveRecurringScope] = useState<number>(4);
+  const [recurringSubTab, setRecurringSubTab] = useState<"tiers" | "frequencies" | "addons">("tiers");
+  const RECURRING_IDS = [4, 9, 10];
 
   const { data: scopes = [] } = useQuery<Scope[]>({ queryKey: ["pricing-scopes"], queryFn: () => apiFetch("/api/pricing/scopes") });
   const { data: discounts = [] } = useQuery<Discount[]>({ queryKey: ["pricing-discounts"], queryFn: () => apiFetch("/api/pricing/discounts") });
@@ -191,7 +195,8 @@ export function PricingTab() {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {scopes.map(scope => (
+          {/* Regular active scopes (excluding recurring group 4/9/10 and inactive) */}
+          {scopes.filter(s => s.is_active && !RECURRING_IDS.includes(s.id)).map(scope => (
             <div key={scope.id} style={{ border: "1px solid #E5E2DC", borderRadius: 10, background: "#fff", overflow: "hidden" }}>
               <div
                 style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", cursor: "pointer", userSelect: "none" }}
@@ -202,27 +207,19 @@ export function PricingTab() {
                 <Badge>{scope.scope_group}</Badge>
                 <span style={{ fontSize: 12, color: "#6B6860", minWidth: 80 }}>${parseFloat(scope.hourly_rate).toFixed(0)}/hr</span>
                 <span style={{ fontSize: 12, color: "#6B6860", minWidth: 90 }}>Min ${parseFloat(scope.minimum_bill).toFixed(0)}</span>
-                <button
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
-                  onClick={e => { e.stopPropagation(); toggleScope.mutate(scope); }}
-                  title={scope.is_active ? "Deactivate" : "Activate"}
-                >
-                  {scope.is_active ? <ToggleRight size={20} color="var(--brand)" /> : <ToggleLeft size={20} color="#9E9B94" />}
+                <button style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }} onClick={e => { e.stopPropagation(); toggleScope.mutate(scope); }} title="Deactivate">
+                  <ToggleRight size={20} color="var(--brand)" />
                 </button>
-                <button
-                  style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }}
-                  onClick={e => { e.stopPropagation(); if (confirm(`Delete "${scope.name}"?`)) deleteScope.mutate(scope.id); }}
-                >
+                <button style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }} onClick={e => { e.stopPropagation(); if (confirm(`Delete "${scope.name}"?`)) deleteScope.mutate(scope.id); }}>
                   <Trash2 size={14} color="#DC2626" />
                 </button>
               </div>
-
               {expandedScope === scope.id && (
                 <div style={{ borderTop: "1px solid #E5E2DC" }}>
                   <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC", padding: "0 18px" }}>
                     {(["tiers", "frequencies", "addons"] as const).map(t => (
-                      <button key={t} onClick={() => setScopeSubTab(t)} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, fontWeight: scopeSubTab === t ? 600 : 400, color: scopeSubTab === t ? "var(--brand)" : "#6B6860", borderBottom: `2px solid ${scopeSubTab === t ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "10px 14px", marginBottom: -1, cursor: "pointer", textTransform: "capitalize" }}>
-                        {t === "frequencies" ? "Frequencies" : t === "addons" ? "Add-Ons" : "Pricing Tiers"}
+                      <button key={t} onClick={() => setScopeSubTab(t)} style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, fontWeight: scopeSubTab === t ? 600 : 400, color: scopeSubTab === t ? "var(--brand)" : "#6B6860", borderBottom: `2px solid ${scopeSubTab === t ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "10px 14px", marginBottom: -1, cursor: "pointer" }}>
+                        {t === "tiers" ? "Pricing Tiers" : t === "frequencies" ? "Frequencies" : "Add-Ons"}
                       </button>
                     ))}
                   </div>
@@ -235,7 +232,61 @@ export function PricingTab() {
               )}
             </div>
           ))}
-          {scopes.length === 0 && <div style={{ textAlign: "center", padding: 32, color: "#9E9B94", fontSize: 13 }}>No scopes yet. Create your first scope above.</div>}
+
+          {/* Recurring Cleaning — combined accordion for scopes 4, 9, 10 */}
+          {scopes.some(s => RECURRING_IDS.includes(s.id)) && (() => {
+            const recurringScopes = [
+              { id: 4, label: "Weekly" },
+              { id: 9, label: "Every 2 Weeks" },
+              { id: 10, label: "Every 4 Weeks" },
+            ].filter(r => scopes.find(s => s.id === r.id));
+            const recScope = scopes.find(s => s.id === activeRecurringScope) ?? scopes.find(s => RECURRING_IDS.includes(s.id));
+            return (
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, background: "#fff", overflow: "hidden" }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", cursor: "pointer", userSelect: "none" }}
+                  onClick={() => setRecurringExpanded(v => !v)}
+                >
+                  {recurringExpanded ? <ChevronDown size={15} color="#9E9B94" /> : <ChevronRight size={15} color="#9E9B94" />}
+                  <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 14, color: "#1A1917", flex: 1 }}>Recurring Cleaning</span>
+                  <Badge color="#2D6A4F">Recurring Cleaning</Badge>
+                  <span style={{ fontSize: 12, color: "#9E9B94" }}>{recurringScopes.length} frequencies</span>
+                </div>
+                {recurringExpanded && (
+                  <div style={{ borderTop: "1px solid #E5E2DC" }}>
+                    {/* Frequency tabs */}
+                    <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC", padding: "0 18px", background: "#FAFAF8" }}>
+                      {recurringScopes.map(r => (
+                        <button key={r.id} onClick={() => { setActiveRecurringScope(r.id); setRecurringSubTab("tiers"); }}
+                          style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: activeRecurringScope === r.id ? 700 : 400, color: activeRecurringScope === r.id ? "var(--brand)" : "#6B6860", borderBottom: `2px solid ${activeRecurringScope === r.id ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "11px 16px", marginBottom: -1, cursor: "pointer" }}>
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+                    {recScope && (
+                      <div>
+                        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #F0EDE8", padding: "0 18px" }}>
+                          {(["tiers", "frequencies", "addons"] as const).map(t => (
+                            <button key={t} onClick={() => setRecurringSubTab(t)}
+                              style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, fontWeight: recurringSubTab === t ? 600 : 400, color: recurringSubTab === t ? "var(--brand)" : "#9E9B94", borderBottom: `2px solid ${recurringSubTab === t ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "8px 12px", marginBottom: -1, cursor: "pointer" }}>
+                              {t === "tiers" ? "Pricing Tiers" : t === "frequencies" ? "Frequencies" : "Add-Ons"}
+                            </button>
+                          ))}
+                        </div>
+                        <div style={{ padding: "16px 18px" }}>
+                          {recurringSubTab === "tiers" && <TiersEditor scopeId={activeRecurringScope} />}
+                          {recurringSubTab === "frequencies" && <FrequenciesEditor scopeId={activeRecurringScope} />}
+                          {recurringSubTab === "addons" && <AddonsEditor scopeId={activeRecurringScope} />}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {scopes.filter(s => s.is_active).length === 0 && <div style={{ textAlign: "center", padding: 32, color: "#9E9B94", fontSize: 13 }}>No scopes yet. Create your first scope above.</div>}
         </div>
       </div>
 

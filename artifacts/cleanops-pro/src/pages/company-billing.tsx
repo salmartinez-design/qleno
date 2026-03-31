@@ -52,8 +52,9 @@ export default function CompanyBillingPage() {
   const StatusIcon = sc.icon;
 
   const plans = [
-    { id: "starter", name: "Starter", price: "$100/mo", desc: "Up to 50 employees", features: ["Unlimited clients", "Scheduling & dispatch", "Invoicing", "Employee management", "SMS notifications", "Client portal"] },
-    { id: "growth", name: "Growth", price: "$100 + $2/employee/mo", desc: "Over 50 employees", features: ["Everything in Starter", "Priority support", "Advanced reporting", "$2/employee over 50"] },
+    { id: "solo",  name: "Solo",  price: "$100/mo", desc: "1 user — owner only",           features: ["Unlimited clients", "Scheduling & dispatch", "Invoicing", "Online booking widget", "SMS notifications", "Client portal"] },
+    { id: "team",  name: "Team",  price: "$200/mo", desc: "Up to 10 technicians",           features: ["Everything in Solo", "Employee management", "Payroll & timeclock", "GPS geofencing", "Dispatch board", "Priority support"] },
+    { id: "pro",   name: "Pro",   price: "$250/mo", desc: "Up to 20 technicians + $5/tech above 20", features: ["Everything in Team", "Advanced reporting", "Churn scoring", "Revenue goals", "API access"] },
   ];
 
   if (isLoading) {
@@ -136,18 +137,18 @@ export default function CompanyBillingPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #F0EDE8" }}>
               <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>Base Plan (Starter)</div>
-                <div style={{ fontSize: "12px", color: "#6B7280" }}>Up to 50 employees included</div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>Base Plan ({billing?.plan_label || "Team"})</div>
+                <div style={{ fontSize: "12px", color: "#6B7280" }}>Qleno starts at $100/mo for solo operators, $200/mo for teams up to 10, and $250/mo for up to 20 technicians</div>
               </div>
-              <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>$100.00</div>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>${billing?.monthly_total || 200}.00</div>
             </div>
-            {(billing?.employee_count || 0) > 50 && (
+            {(billing?.employee_count || 0) > 20 && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #F0EDE8" }}>
                 <div>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>Additional Employees</div>
-                  <div style={{ fontSize: "12px", color: "#6B7280" }}>{(billing.employee_count - 50)} over 50 × $2.00/mo</div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>Additional Technicians</div>
+                  <div style={{ fontSize: "12px", color: "#6B7280" }}>{(billing.employee_count - 20)} over 20 × $5.00/mo</div>
                 </div>
-                <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>${((billing.employee_count - 50) * 2).toFixed(2)}</div>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>${((billing.employee_count - 20) * 5).toFixed(2)}</div>
               </div>
             )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
@@ -199,7 +200,7 @@ export default function CompanyBillingPage() {
                 <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 800, color: "#1A1917" }}>Choose Your Plan</h2>
                 <button onClick={() => setShowPlanModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={20} /></button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px", marginBottom: "24px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px", marginBottom: "24px" }}>
                 {plans.map(p => (
                   <div key={p.id} onClick={() => setSelectedPlan(p.id)} style={{ border: `2px solid ${selectedPlan === p.id ? "var(--brand)" : "#E5E2DC"}`, borderRadius: "10px", padding: "20px", cursor: "pointer", backgroundColor: selectedPlan === p.id ? "#EFF6FF" : "#FFFFFF", transition: "all 0.15s" }}>
                     <div style={{ fontSize: "16px", fontWeight: 800, color: "#1A1917", marginBottom: "4px" }}>{p.name}</div>
@@ -220,10 +221,10 @@ export default function CompanyBillingPage() {
                 <input value={billingEmail} onChange={e => setBillingEmail(e.target.value)} placeholder="billing@yourcompany.com" style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", fontFamily: "inherit", boxSizing: "border-box" }} />
               </div>
               <div style={{ backgroundColor: "#F7F6F3", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px", fontSize: "12px", color: "#6B7280" }}>
-                14-day free trial — no credit card required to start. Add a payment method before your trial ends.
+                First month free — no credit card required to start. Add a payment method before your trial ends.
               </div>
               <button onClick={() => startTrialMut.mutate({ plan: selectedPlan, billing_email: billingEmail })} disabled={startTrialMut.isPending} style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "8px", padding: "12px", fontSize: "14px", fontWeight: 700, cursor: "pointer" }}>
-                {startTrialMut.isPending ? "Activating..." : "Start 14-Day Free Trial"}
+                {startTrialMut.isPending ? "Activating..." : "Start Free Trial"}
               </button>
             </div>
           </div>

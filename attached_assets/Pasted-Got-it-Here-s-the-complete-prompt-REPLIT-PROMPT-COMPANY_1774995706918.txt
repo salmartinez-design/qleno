@@ -1,0 +1,192 @@
+Got it. Here's the complete prompt:
+
+---
+
+**REPLIT PROMPT — COMPANY SETTINGS OVERHAUL + ADD-ONS + PRICING TIERS:**
+
+Fix all issues in one pass. Read every relevant file before making changes.
+
+---
+
+**Fix 1 — Zone check failing in production:**
+
+The booking widget shows "We don't currently service this area" for valid zips including 60805. Check the zone check endpoint query — fix it to correctly search inside the zip_codes array column. Test zips 60805, 60453, and 60173 after fixing and confirm all return inZone: true with correct location.
+
+---
+
+**Fix 2 — Online Booking and Service Zones tabs crashing:**
+
+Both crash with "Something went wrong." Run this migration and fix any other missing tables or columns these tabs depend on:
+
+```sql
+CREATE TABLE IF NOT EXISTS booking_settings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id uuid REFERENCES companies(id),
+  lead_time_days INTEGER DEFAULT 7,
+  max_advance_days INTEGER DEFAULT 60,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO booking_settings (company_id, lead_time_days, max_advance_days)
+SELECT id, 7, 60 FROM companies WHERE slug = 'phes-cleaning'
+ON CONFLICT DO NOTHING;
+```
+
+---
+
+**Fix 3 — Add-on prices showing $0.00:**
+
+Update pricing_addons to correct values:
+- Oven Cleaning — flat $50.00, show_online = true
+- Refrigerator Cleaning — flat $50.00, show_online = true
+- Kitchen Cabinets — flat $50.00, show_online = true
+- Windows (inside panes only) — 15% of base, show_online = true
+- Clean Basement — 15% of base, show_online = true
+- Baseboards — flat $30.00, show_online = false (default off, owner can toggle on)
+- Parking Fee — flat $20.00, show_online = false
+- Manual Adjustment — show_online = false always, no toggle available
+- All loyalty/promo/discount add-ons — show_online = false
+
+---
+
+**Fix 4 — Recurring Cleaning UI consolidation:**
+
+Group scopes 4, 9, 10 under one "Recurring Cleaning" accordion in Company Settings → Pricing & Scopes. When expanded show three tabs: Weekly, Every 2 Weeks, Every 4 Weeks. Each tab shows Pricing Tiers, Frequencies, and Add-Ons sub-tabs for that scope. DB records unchanged — UI only.
+
+---
+
+**Fix 5 — Remove legacy scope 11 from UI:**
+
+Scope 11 has no tiers and is inactive. Hide it from Company Settings UI entirely. Do not delete from DB.
+
+---
+
+**Fix 6 — Scope group labels:**
+
+Update scope_group in DB:
+- Commercial Cleaning → "Commercial"
+- PPM Turnover → "Commercial"
+- Hourly Deep Clean → "Hourly"
+- Hourly Standard Cleaning → "Hourly"
+
+---
+
+**Fix 7 — Add-on show_online toggle:**
+
+Every add-on in Company Settings must have a show_online toggle that the owner can flip on or off. When toggled on, that add-on appears as a card in the booking widget Step 3. When toggled off it is hidden from the widget but remains available for office use.
+
+Manual Adjustment is the only exception — it has no toggle and is always office-only.
+
+The booking widget must dynamically load only add-ons where show_online = true for that company. No hardcoded add-on lists in the widget.
+
+---
+
+**Fix 8 — Custom add-ons for tenants:**
+
+Add a "+ Create Add-On" button in Company Settings → Add-Ons tab. When clicked opens a modal with these fields:
+
+- Name (text, required)
+- Description (text, optional — shows as subtext on the booking widget card)
+- Price Type — flat / percentage / time_only
+- Price Value — dollar amount or percentage
+- Icon — choice of built-in SVG icon library OR upload custom image (PNG/JPG, max 2MB, stored in Cloudflare R2)
+- Scopes — multi-select of active scopes this add-on applies to
+- Show Online — toggle, default off
+- Active — toggle, default on
+
+Save creates a new row in pricing_addons for that company_id. The add-on then appears in the Add-Ons tab and in the booking widget if show_online = true.
+
+The built-in icon library should include at minimum: oven, refrigerator, window, basement, cabinet, bed, laundry/washer, folded clothes, vacuum, mop, iron, garage, patio, dishes.
+
+Custom add-ons are fully editable and deletable by the owner after creation.
+
+---
+
+**Fix 9 — New Qleno pricing tiers:**
+
+Replace the existing flat $200/month pricing with these three tiers. Update the Super Admin portal, onboarding wizard, and any billing references throughout the app.
+
+| Tier | Name | Price | Limit | Overage |
+|---|---|---|---|---|
+| 1 | Solo | $100/month | 1 user, owner only | None |
+| 2 | Team | $200/month | 1–10 cleaners | None |
+| 3 | Pro | $250/month | 11–20 cleaners | $5/tech above 20 |
+
+Trial offer:
+- First 10 tenants to sign up: 3 months free
+- All subsequent tenants: 1 month free
+
+Tier 1 Solo restrictions:
+- Cannot add employees or technicians — the Employees section is hidden or locked for Tier 1 accounts
+- Cannot access payroll, clock monitor, or GPS geofencing — these require technicians
+- Company Settings must not show any employee-related configuration for Tier 1
+
+Create a `subscription_tiers` table:
+
+```sql
+CREATE TABLE IF NOT EXISTS subscription_tiers (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL UNIQUE,
+  monthly_price_cents INTEGER NOT NULL,
+  max_technicians INTEGER,
+  overage_per_tech_cents INTEGER DEFAULT 0,
+  trial_days INTEGER DEFAULT 30,
+  features JSONB DEFAULT '{}',
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+INSERT INTO subscription_tiers (name, slug, monthly_price_cents, max_technicians, overage_per_tech_cents, trial_days) VALUES
+('Solo', 'solo', 10000, 1, 0, 30),
+('Team', 'team', 20000, 10, 0, 30),
+('Pro', 'pro', 25000, 20, 500, 30)
+ON CONFLICT (slug) DO NOTHING;
+```
+
+Add `subscription_tier_id` and `is_founding_tenant` columns to the companies table. Founding tenants (first 10) get 90-day trial, all others get 30-day trial.
+
+---
+
+**Fix 10 — Update outreach pitch copy:**
+
+Find any hardcoded pitch copy in the app referencing "$200/month" or "50 employees" or "14-day trial" and update to reflect new pricing. Specifically update:
+
+- Onboarding wizard welcome copy
+- Any marketing-facing pages within the app
+- Super Admin portal tenant overview
+
+New default pitch copy: "Qleno starts at $100/month for solo operators, $200/month for teams up to 10, and $250/month for growing businesses up to 20 technicians. First month free."
+
+---
+
+**Fix 11 — New tenant default add-on pricing:**
+
+When a new tenant is created, seed their pricing_addons with the standard add-on names and types but all values set to $0.00 or 0%. They configure their own pricing from there. Do not copy Phes pricing values to new tenants.
+
+---
+
+**After all fixes run these verification tests:**
+
+| Test | Expected |
+|---|---|
+| V1: Zip 60805 zone check | inZone: true, oak_lawn |
+| V2: Zip 60453 zone check | inZone: true, oak_lawn |
+| V3: Zip 60173 zone check | inZone: true, schaumburg |
+| V4: Zip 99999 zone check | inZone: false |
+| V5: Online Booking tab | Loads without error |
+| V6: Service Zones tab | Loads without error |
+| V7: Oven add-on price | $50.00, show_online toggle visible |
+| V8: Windows add-on | 15% of base, show_online toggle visible |
+| V9: Baseboards | $30.00, show_online = off by default, toggle available |
+| V10: Manual Adjustment | No show_online toggle |
+| V11: Recurring in Pricing & Scopes | One accordion, three tabs inside |
+| V12: Create custom add-on | Modal opens, saves, appears in list |
+| V13: Custom add-on with show_online on | Appears in booking widget Step 3 |
+| V14: subscription_tiers table | 3 rows — Solo $100, Team $200, Pro $250 |
+| V15: Solo tier company | Employees section hidden or locked |
+| V16: Scope 11 | Not visible in Company Settings |
+| V17: Commercial Cleaning scope group | Shows "Commercial" |
+
+Do not close until all 17 tests pass. Report exact actual values for any failure and fix before moving on.
