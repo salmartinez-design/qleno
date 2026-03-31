@@ -1,0 +1,103 @@
+Save this and run it after the engine is built:
+
+---
+
+**REPLIT PROMPT — FOLLOW-UP ENGINE TEST:**
+
+Run a full end-to-end test of the follow-up sequence engine. Do not modify any production data. Use the PHES tenant only.
+
+**TEST 1 — Quote Follow-Up Sequence**
+
+1. Find the most recent lead in the leads table with status 'follow_up' or create a test lead with first_name 'Test', last_name 'Lead', email 'test-followup@phes.io', phone '7737067777', company_id = PHES company ID, status = 'quoted'
+
+2. Confirm a row was automatically created in follow_up_enrollments for this lead with sequence_type = 'quote_followup' and next_fire_at <= NOW()
+
+3. Manually trigger the cron function directly — do not wait for the scheduled run
+
+4. Confirm Step 1 fired:
+   - A row exists in message_log with status = 'sent', channel = 'email', recipient = 'test-followup@phes.io'
+   - The enrollment row now shows current_step = 2 and next_fire_at = enrolled_at + 24 hours
+
+5. Now change the test lead status to 'booked'
+
+6. Confirm the enrollment row now has stopped_at populated and stopped_reason = 'booked'
+
+7. Trigger the cron again — confirm no additional messages were sent for this enrollment
+
+---
+
+**TEST 2 — Post-Job Retention Sequence**
+
+1. Find a completed job in the jobs table for a client who has no future scheduled jobs and no active recurring_schedule. Note the client_id.
+
+2. Manually set that job status to 'completed' if not already, or create a test job with status = 'completed' for a one-time client
+
+3. Confirm a row was created in follow_up_enrollments for that client_id with sequence_type = 'post_job_retention' and next_fire_at = job completed_at + 2 hours
+
+4. Manually set next_fire_at to NOW() on that enrollment row so the cron picks it up immediately
+
+5. Trigger the cron directly
+
+6. Confirm Step 1 fired:
+   - message_log row exists with channel = 'sms', status = 'sent' or 'failed' (failed is acceptable in test mode if Twilio test credentials are used)
+   - enrollment current_step = 2, next_fire_at = NOW() + 720 hours
+
+7. Now create a future scheduled job for that same client
+
+8. Confirm the enrollment row shows stopped_at populated and stopped_reason = 'rebooked'
+
+---
+
+**TEST 3 — Recurring Client Guard**
+
+1. Find a client who has an active recurring_schedule record and at least one future job
+
+2. Attempt to manually enroll that client in the post_job_retention sequence
+
+3. Confirm the system blocks the enrollment — no row created in follow_up_enrollments, and a console log or error message states 'client has active recurring schedule — enrollment skipped'
+
+---
+
+**TEST 4 — Deduplication Guard**
+
+1. Take the test lead from Test 1 (reset status back to 'quoted')
+
+2. Trigger the enrollment logic twice in quick succession
+
+3. Confirm only one row exists in follow_up_enrollments for that lead — no duplicate enrollment
+
+---
+
+**TEST 5 — Settings UI**
+
+1. Log in as salmartinez@phes.io
+
+2. Navigate to Company Settings → Follow-Up Sequences tab
+
+3. Confirm both sequences appear — quote_followup and post_job_retention
+
+4. Edit the Step 2 SMS template for quote_followup — change the text slightly and save
+
+5. Confirm the updated template is stored in follow_up_steps and the next cron run would use the new text
+
+---
+
+**TEST 6 — Message Log Report**
+
+1. Navigate to Reports → Message Log
+
+2. Confirm all messages sent during Tests 1 and 2 appear with correct metadata — date, recipient name, channel, sequence name, step number, status
+
+3. Filter by channel = 'email' — confirm only email rows show
+
+4. Filter by date = today — confirm results narrow correctly
+
+---
+
+After all 6 tests pass, report back:
+- How many rows are in message_log
+- Whether any sends failed and why
+- Whether the cron is running on schedule or needs a manual trigger adjustment
+- Any enrollment rows in unexpected states
+
+Do not delete test data after the run — leave it so the results can be reviewed.

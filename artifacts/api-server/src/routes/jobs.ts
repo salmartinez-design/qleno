@@ -131,6 +131,12 @@ router.post("/", requireAuth, async (req, res) => {
       .returning();
 
     const jobId = newJob[0].id;
+    // Stop any active post_job_retention enrollment for this client (non-blocking)
+    if (client_id) {
+      import("../services/followUpService.js").then(({ stopEnrollmentsForClient }) => {
+        stopEnrollmentsForClient(client_id, "rebooked", "post_job_retention").catch(() => {});
+      });
+    }
     let geoAddress: string | null = null;
     let geoZip: string | null = null;
     let displayClientName = "";
@@ -907,6 +913,13 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       }).catch((npsErr: Error) => console.error("NPS send error (non-fatal):", npsErr));
     }
     // ─────────────────────────────────────────────────────────────────────
+
+    // ── post_job_retention enrollment (non-blocking) ──────────────────────
+    if (completedJob.client_id) {
+      import("../services/followUpService.js").then(({ enrollForJobComplete }) => {
+        enrollForJobComplete(req.auth!.companyId, jobId, completedJob.client_id).catch(() => {});
+      });
+    }
 
     // ── job_completed notification (non-blocking) ─────────────────────────
     const companyId = req.auth!.companyId;

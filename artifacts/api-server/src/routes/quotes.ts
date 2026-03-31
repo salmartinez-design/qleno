@@ -223,6 +223,17 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       .returning();
     if (!q) return res.status(404).json({ error: "Not found" });
     console.log(`[QUOTE SENT] id=${id} lead_email=${q.lead_email}`);
+    // Enroll in quote_followup sequence (non-blocking)
+    import("../services/followUpService.js").then(({ enrollForQuoteSent }) => {
+      enrollForQuoteSent(
+        companyId,
+        id,
+        (q as any).client_id ?? null,
+        (q as any).lead_name?.split(" ")[0] || "",
+        (q as any).lead_email ?? null,
+        (q as any).lead_phone ?? null,
+      ).catch(() => {});
+    });
     // fire quote_sent notification (non-blocking)
     import("../services/notificationService.js").then(({ sendNotification }) => {
       const mv = {
@@ -250,6 +261,10 @@ router.post("/:id/accept", requireAuth, requireRole("owner", "admin", "office"),
       .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, req.auth!.companyId)))
       .returning();
     if (!q) return res.status(404).json({ error: "Not found" });
+    // Stop quote_followup enrollment (non-blocking)
+    import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
+      stopEnrollmentsForQuote(id, "booked").catch(() => {});
+    });
     return res.json({ success: true, quote: q });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
@@ -264,6 +279,10 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, req.auth!.companyId)))
       .returning();
     if (!q) return res.status(404).json({ error: "Not found" });
+    // Stop quote_followup enrollment (non-blocking)
+    import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
+      stopEnrollmentsForQuote(id, "booked").catch(() => {});
+    });
     return res.json({ success: true, quote: q, message: "Quote converted. Create a job to complete." });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });

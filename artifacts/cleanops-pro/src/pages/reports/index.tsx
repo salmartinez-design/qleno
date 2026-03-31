@@ -45,6 +45,7 @@ const REPORT_GROUPS = [
     color: "#8B5CF6",
     reports: [
       { title: "Upsell Conversion",    desc: "Deep Clean to recurring conversion rates, rate lock health, and trend data.", url: "/reports/upsell-conversion", icon: RefreshCw },
+      { title: "Message Log",          desc: "All automated follow-up messages sent via SMS and email, with status and sequence details.", url: "/reports/message-log", icon: FileText },
     ],
   },
 ];
@@ -55,7 +56,7 @@ export default function ReportsIndexPage() {
       <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1917' }}>Reports</h1>
-          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>16 reports covering financials, operations, client quality, and growth.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>17 reports covering financials, operations, client quality, and growth.</p>
         </div>
 
         {REPORT_GROUPS.map(group => (

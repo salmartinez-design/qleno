@@ -59,6 +59,7 @@ import pricingRouter from "./pricing.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
 import bundlesRouter from "./bundles.js";
+import followUpRouter from "./follow-up.js";
 
 const router: IRouter = Router();
 
@@ -122,5 +123,6 @@ router.use("/pricing", pricingRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/public", publicRouter);
 router.use("/integrations/quickbooks", quickbooksRouter);
+router.use("/follow-up", followUpRouter);
 
 export default router;

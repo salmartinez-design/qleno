@@ -37,6 +37,15 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.upsell_cadence_selected", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected TEXT" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
+    { label: "jobs.booking_location",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_location TEXT" },
+    { label: "jobs.booking_street",            stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_street TEXT" },
+    { label: "jobs.booking_unit",              stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_unit TEXT" },
+    { label: "jobs.booking_city",              stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_city TEXT" },
+    { label: "jobs.booking_state",             stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_state TEXT" },
+    { label: "jobs.booking_zip",               stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_zip TEXT" },
+    { label: "jobs.booking_apt",               stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_apt TEXT" },
+    // ── service_zones extra columns ─────────────────────────────────────────
+    { label: "service_zones.location",         stmt: "ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'oak_lawn'" },
     // ── rate_locks table ────────────────────────────────────────────────────
     { label: "CREATE rate_locks", stmt: `
       CREATE TABLE IF NOT EXISTS rate_locks (
@@ -98,6 +107,64 @@ async function runBookingSchemaGuard(): Promise<void> {
         message        TEXT,
         condition_flag TEXT,
         created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    // ── follow_up_sequences table ────────────────────────────────────────────
+    { label: "CREATE follow_up_sequences", stmt: `
+      CREATE TABLE IF NOT EXISTS follow_up_sequences (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL,
+        sequence_type TEXT NOT NULL,
+        name          TEXT NOT NULL,
+        is_active     BOOLEAN NOT NULL DEFAULT true,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    // ── follow_up_steps table ────────────────────────────────────────────────
+    { label: "CREATE follow_up_steps", stmt: `
+      CREATE TABLE IF NOT EXISTS follow_up_steps (
+        id               SERIAL PRIMARY KEY,
+        sequence_id      INTEGER NOT NULL,
+        step_number      INTEGER NOT NULL,
+        delay_hours      INTEGER NOT NULL,
+        channel          TEXT NOT NULL,
+        subject          TEXT,
+        message_template TEXT NOT NULL,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    // ── follow_up_enrollments table ──────────────────────────────────────────
+    { label: "CREATE follow_up_enrollments", stmt: `
+      CREATE TABLE IF NOT EXISTS follow_up_enrollments (
+        id             SERIAL PRIMARY KEY,
+        company_id     INTEGER NOT NULL,
+        sequence_id    INTEGER NOT NULL,
+        quote_id       INTEGER,
+        client_id      INTEGER,
+        current_step   INTEGER NOT NULL DEFAULT 1,
+        enrolled_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        next_fire_at   TIMESTAMPTZ NOT NULL,
+        completed_at   TIMESTAMPTZ,
+        stopped_at     TIMESTAMPTZ,
+        stopped_reason TEXT
+      )
+    ` },
+    // ── message_log table ────────────────────────────────────────────────────
+    { label: "CREATE message_log", stmt: `
+      CREATE TABLE IF NOT EXISTS message_log (
+        id              SERIAL PRIMARY KEY,
+        company_id      INTEGER NOT NULL,
+        enrollment_id   INTEGER NOT NULL,
+        client_id       INTEGER,
+        channel         TEXT NOT NULL,
+        recipient_phone TEXT,
+        recipient_email TEXT,
+        subject         TEXT,
+        body            TEXT NOT NULL,
+        status          TEXT NOT NULL,
+        sequence_name   TEXT,
+        step_number     INTEGER,
+        sent_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
   ];
@@ -1424,5 +1491,74 @@ async function runNotificationTemplateSeed() {
     console.log(`TEMPLATE SYSTEM READY \u2014 ${ec} email templates, ${sc} SMS templates active for PHES tenant`);
   } catch (err) {
     console.error("[notification-templates] Seed error (non-fatal):", err);
+  }
+
+  // ── Follow-Up Sequence Seed (PHES) ────────────────────────────────────────
+  try {
+    const existing = await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt FROM follow_up_sequences WHERE company_id = ${PHES}
+    `);
+    if ((existing.rows[0] as any).cnt > 0) {
+      console.log("[follow-up-seed] Sequences already seeded — skipping.");
+      return;
+    }
+
+    // Sequence A — quote_followup
+    const seqA = await db.execute(sql`
+      INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+      VALUES (${PHES}, 'quote_followup', 'Quote Follow-Up', true)
+      RETURNING id
+    `);
+    const seqAId = (seqA.rows[0] as any).id;
+
+    const quoteSteps = [
+      { step_number: 1, delay_hours: 0,   channel: 'email', subject: 'Your Phes Cleaning Estimate',
+        message_template: 'Hi {{first_name}}, thank you for reaching out to Phes. Your estimate is attached. We would love to get you scheduled — reply to this email or call us at (773) 706-6000 with any questions.' },
+      { step_number: 2, delay_hours: 24,  channel: 'sms', subject: null,
+        message_template: 'Hi {{first_name}}, this is the Phes office checking in on your cleaning estimate. Any questions? Reply here or call (773) 706-6000.' },
+      { step_number: 3, delay_hours: 72,  channel: 'email', subject: 'Still thinking it over?',
+        message_template: 'Hi {{first_name}}, we wanted to follow up on your estimate. We have availability coming up and would love to hold a spot for you. Reply here or call us at (773) 706-6000.' },
+      { step_number: 4, delay_hours: 168, channel: 'sms', subject: null,
+        message_template: 'Hi {{first_name}}, last check-in from Phes. We are still here when you are ready — call or text (773) 706-6000 anytime.' },
+    ];
+    for (const st of quoteSteps) {
+      await db.execute(sql`
+        INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+        VALUES (${seqAId}, ${st.step_number}, ${st.delay_hours}, ${st.channel}, ${st.subject ?? null}, ${st.message_template})
+      `);
+    }
+
+    // Sequence B — post_job_retention
+    const seqB = await db.execute(sql`
+      INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+      VALUES (${PHES}, 'post_job_retention', 'Post-Job Retention', true)
+      RETURNING id
+    `);
+    const seqBId = (seqB.rows[0] as any).id;
+
+    const retentionSteps = [
+      { step_number: 1, delay_hours: 2,    channel: 'sms', subject: null,
+        message_template: 'Hi {{first_name}}, your Phes team just finished up. How did everything look? Reply here and let us know.' },
+      { step_number: 2, delay_hours: 720,  channel: 'email', subject: 'Time for your next clean?',
+        message_template: 'Hi {{first_name}}, it has been about a month since your last Phes cleaning. Ready to get back on the schedule? Reply here or book online at phes.io.' },
+      { step_number: 3, delay_hours: 1440, channel: 'sms', subject: null,
+        message_template: 'Hi {{first_name}}, it has been about two months since your last clean. We would love to have you back — call or text us at (773) 706-6000.' },
+      { step_number: 4, delay_hours: 2160, channel: 'email', subject: 'We miss you',
+        message_template: 'Hi {{first_name}}, it has been three months since your last Phes cleaning. We would love to reconnect and get your home back on schedule. Reply here or call (773) 706-6000.' },
+      { step_number: 5, delay_hours: 4320, channel: 'sms', subject: null,
+        message_template: 'Hi {{first_name}}, six months is a long time between cleans. We are here whenever you are ready — (773) 706-6000.' },
+      { step_number: 6, delay_hours: 8760, channel: 'email', subject: 'It has been a year',
+        message_template: 'Hi {{first_name}}, it has been a full year since your last Phes cleaning. We would love to earn your business back. Reply here or call (773) 706-6000 — we will make it right.' },
+    ];
+    for (const st of retentionSteps) {
+      await db.execute(sql`
+        INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+        VALUES (${seqBId}, ${st.step_number}, ${st.delay_hours}, ${st.channel}, ${st.subject ?? null}, ${st.message_template})
+      `);
+    }
+
+    console.log("[follow-up-seed] Sequences A+B seeded for PHES.");
+  } catch (err) {
+    console.error("[follow-up-seed] Seed error (non-fatal):", err);
   }
 }

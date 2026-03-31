@@ -4,6 +4,7 @@ import { runRecurringJobGeneration, startRecurringJobCron } from "./lib/recurrin
 import { runPhesDataMigration } from "./phes-data-migration";
 import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
+import { processDueEnrollments } from "./services/followUpService.js";
 
 const rawPort = process.env["PORT"];
 
@@ -95,6 +96,18 @@ function startNotificationCron() {
   console.log("[Qleno] Notification cron scheduler started (CT timezone)");
 }
 
+// ── Follow-up sequence cron (every 30 minutes) ───────────────────────────────
+function startFollowUpCron() {
+  const run = () => {
+    processDueEnrollments().catch((e: Error) =>
+      console.error("[cron] follow_up error:", e));
+  };
+  // Delay initial run by 60 s so schema guard finishes before first tick
+  setTimeout(run, 60_000);
+  setInterval(run, 30 * 60 * 1000);
+  console.log("[Qleno] Follow-up sequence cron started (every 30 min)");
+}
+
 // ── Startup ──────────────────────────────────────────────────────────────────
 // Start listening immediately so health checks pass, then seed in the background
 app.listen(port, () => {
@@ -107,4 +120,5 @@ app.listen(port, () => {
     });
   startRecurringJobCron();
   startNotificationCron();
+  startFollowUpCron();
 });

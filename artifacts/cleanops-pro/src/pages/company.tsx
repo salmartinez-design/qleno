@@ -4,12 +4,12 @@ import { useGetMyCompany, useUpdateMyCompany } from "@workspace/api-client-react
 import { getAuthHeaders } from "@/lib/auth";
 import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2 } from "lucide-react";
+import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2, Mail, MessageSquare, ChevronDown, ChevronUp, Edit2, Save } from "lucide-react";
 import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
 import { PricingTab } from "./company/pricing";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'online-booking' | 'service-zones';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'online-booking' | 'service-zones' | 'follow-up';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -17,6 +17,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'pricing', label: 'Pricing & Scopes' },
   { id: 'online-booking', label: 'Online Booking' },
   { id: 'service-zones', label: 'Service Zones' },
+  { id: 'follow-up', label: 'Follow-Up Sequences' },
   { id: 'notifications', label: 'Notifications' },
   { id: 'clock-inout', label: 'Clock In/Out' },
   { id: 'invoicing', label: 'Invoicing' },
@@ -75,6 +76,7 @@ export default function CompanyPage() {
         {activeTab === 'pricing' && <PricingTab />}
         {activeTab === 'online-booking' && <OnlineBookingTab />}
         {activeTab === 'service-zones' && <ServiceZonesTab />}
+        {activeTab === 'follow-up' && <FollowUpSequencesTab />}
         {activeTab === 'hr-policies' && <HRPoliciesTab />}
         {activeTab === 'documents' && <DocumentsTab />}
       </div>
@@ -1896,6 +1898,285 @@ function ServiceZonesTab() {
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─── Follow-Up Sequences Tab ──────────────────────────────────────────────────
+interface FuStep {
+  id: number;
+  step_number: number;
+  delay_hours: number;
+  channel: string;
+  subject: string | null;
+  message_template: string;
+}
+
+interface FuSequence {
+  id: number;
+  sequence_type: string;
+  name: string;
+  is_active: boolean;
+  steps: FuStep[];
+}
+
+const SEQ_LABELS: Record<string, string> = {
+  quote_followup: "Quote Follow-Up",
+  post_job_retention: "Post-Job Retention",
+};
+
+const SEQ_DESCS: Record<string, string> = {
+  quote_followup: "Sent automatically after a quote is emailed to a prospect. Stops when the quote is accepted or converted.",
+  post_job_retention: "Sent after a job is marked complete to re-engage one-time clients. Stops if the client books a new job.",
+};
+
+function delayLabel(hours: number): string {
+  if (hours < 24) return `${hours}h after trigger`;
+  const d = Math.floor(hours / 24);
+  return `Day ${d}`;
+}
+
+function FollowUpSequencesTab() {
+  const FFF = "'Plus Jakarta Sans', sans-serif";
+  const FU_API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { toast } = useToast();
+
+  const [sequences, setSequences] = useState<FuSequence[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedSeq, setExpandedSeq] = useState<number | null>(null);
+  const [editingStep, setEditingStep] = useState<number | null>(null);
+  const [editTemplate, setEditTemplate] = useState("");
+  const [editSubject, setEditSubject] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${FU_API}/api/follow-up/sequences`, { headers: getAuthHeaders() as any });
+      if (!res.ok) throw new Error("Failed");
+      setSequences(await res.json());
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Could not load sequences." });
+    } finally {
+      setLoading(false);
+    }
+  }, [FU_API]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleActive = async (seq: FuSequence) => {
+    try {
+      const res = await fetch(`${FU_API}/api/follow-up/sequences/${seq.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders() as any, "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: !seq.is_active }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setSequences(prev => prev.map(s => s.id === seq.id ? { ...s, is_active: !s.is_active } : s));
+      toast({ title: seq.is_active ? "Sequence paused" : "Sequence activated" });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Could not update sequence." });
+    }
+  };
+
+  const startEditStep = (step: FuStep) => {
+    setEditingStep(step.id);
+    setEditTemplate(step.message_template);
+    setEditSubject(step.subject ?? "");
+  };
+
+  const saveStep = async (seqId: number, stepId: number) => {
+    setSaving(true);
+    try {
+      const res = await fetch(`${FU_API}/api/follow-up/steps/${stepId}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders() as any, "Content-Type": "application/json" },
+        body: JSON.stringify({ message_template: editTemplate, subject: editSubject || null }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      setSequences(prev => prev.map(s =>
+        s.id === seqId
+          ? { ...s, steps: s.steps.map(st => st.id === stepId ? { ...st, message_template: editTemplate, subject: editSubject || null } : st) }
+          : s
+      ));
+      setEditingStep(null);
+      toast({ title: "Step saved" });
+    } catch {
+      toast({ variant: "destructive", title: "Error", description: "Could not save step." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", fontFamily: FFF, fontSize: 13, color: "#1A1917",
+    background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6,
+    padding: "8px 12px", outline: "none", boxSizing: "border-box",
+  };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontFamily: FFF }}>Loading sequences...</div>;
+
+  return (
+    <div style={{ maxWidth: 760 }}>
+      <p style={{ fontFamily: FFF, fontSize: 13, color: "#6B6860", marginBottom: 24 }}>
+        Automated follow-up messages sent via SMS and email. Each sequence runs independently.
+        Toggle a sequence on or off without losing your message templates.
+      </p>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {sequences.map(seq => {
+          const isExpanded = expandedSeq === seq.id;
+          return (
+            <div key={seq.id} style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+              {/* Header */}
+              <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+                {/* Toggle */}
+                <div
+                  onClick={() => toggleActive(seq)}
+                  style={{
+                    width: 40, height: 22, borderRadius: 11, cursor: "pointer", position: "relative", flexShrink: 0,
+                    background: seq.is_active ? "var(--brand)" : "#D1D5DB", transition: "background 0.2s",
+                  }}
+                >
+                  <div style={{
+                    position: "absolute", top: 3, left: seq.is_active ? 21 : 3,
+                    width: 16, height: 16, borderRadius: "50%", background: "#FFFFFF",
+                    transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                  }} />
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontFamily: FFF, fontWeight: 600, fontSize: 15, color: "#1A1917" }}>
+                      {SEQ_LABELS[seq.sequence_type] ?? seq.name}
+                    </span>
+                    <span style={{
+                      padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600, fontFamily: FFF,
+                      background: seq.is_active ? "#DCFCE7" : "#F3F4F6",
+                      color: seq.is_active ? "#166534" : "#6B7280",
+                    }}>
+                      {seq.is_active ? "ACTIVE" : "PAUSED"}
+                    </span>
+                  </div>
+                  <p style={{ fontFamily: FFF, fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>
+                    {SEQ_DESCS[seq.sequence_type] ?? ""}
+                  </p>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontFamily: FFF, fontSize: 12, color: "#9E9B94" }}>
+                    {seq.steps.length} step{seq.steps.length !== 1 ? "s" : ""}
+                  </span>
+                  <button
+                    onClick={() => setExpandedSeq(isExpanded ? null : seq.id)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4, display: "flex" }}
+                  >
+                    {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Steps */}
+              {isExpanded && (
+                <div style={{ borderTop: "1px solid #F0EDE8" }}>
+                  {seq.steps.map((step, idx) => {
+                    const isEditing = editingStep === step.id;
+                    return (
+                      <div key={step.id} style={{
+                        padding: "14px 20px",
+                        borderBottom: idx < seq.steps.length - 1 ? "1px solid #F7F6F3" : "none",
+                        background: isEditing ? "#FFFBF5" : "transparent",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+                          {/* Step number */}
+                          <div style={{
+                            width: 26, height: 26, borderRadius: "50%", background: "#F0EDE8",
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            fontFamily: FFF, fontSize: 11, fontWeight: 700, color: "#6B6860", flexShrink: 0,
+                          }}>
+                            {step.step_number}
+                          </div>
+
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                              {step.channel === "email"
+                                ? <Mail size={13} color="#2D6A4F" />
+                                : <MessageSquare size={13} color="#1D4ED8" />}
+                              <span style={{ fontFamily: FFF, fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
+                                {step.channel === "email" ? "Email" : "SMS"} — {delayLabel(step.delay_hours)}
+                              </span>
+                            </div>
+
+                            {isEditing ? (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {step.channel === "email" && (
+                                  <div>
+                                    <label style={{ fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>SUBJECT</label>
+                                    <input
+                                      value={editSubject}
+                                      onChange={e => setEditSubject(e.target.value)}
+                                      style={inputStyle}
+                                    />
+                                  </div>
+                                )}
+                                <div>
+                                  <label style={{ fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>MESSAGE</label>
+                                  <textarea
+                                    value={editTemplate}
+                                    onChange={e => setEditTemplate(e.target.value)}
+                                    rows={4}
+                                    style={{ ...inputStyle, resize: "vertical" }}
+                                  />
+                                  <p style={{ fontFamily: FFF, fontSize: 10, color: "#9E9B94", margin: "4px 0 0" }}>
+                                    Variables: {"{{client_name}}"} {"{{company_name}}"} {"{{phone}}"} {"{{quote_link}}"}
+                                  </p>
+                                </div>
+                                <div style={{ display: "flex", gap: 8 }}>
+                                  <button
+                                    onClick={() => saveStep(seq.id, step.id)}
+                                    disabled={saving}
+                                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, fontFamily: FFF, fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: saving ? 0.7 : 1 }}
+                                  >
+                                    <Save size={12} />
+                                    {saving ? "Saving..." : "Save"}
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingStep(null)}
+                                    style={{ padding: "7px 14px", background: "none", border: "1px solid #E5E2DC", borderRadius: 6, fontFamily: FFF, fontSize: 12, color: "#6B6860", cursor: "pointer" }}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                {step.subject && (
+                                  <p style={{ fontFamily: FFF, fontSize: 11, color: "#6B6860", margin: "0 0 2px", fontStyle: "italic" }}>
+                                    Subject: {step.subject}
+                                  </p>
+                                )}
+                                <p style={{ fontFamily: FFF, fontSize: 12, color: "#1A1917", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
+                                  {step.message_template}
+                                </p>
+                                <button
+                                  onClick={() => startEditStep(step)}
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, padding: "4px 10px", background: "none", border: "1px solid #E5E2DC", borderRadius: 5, fontFamily: FFF, fontSize: 11, color: "#6B6860", cursor: "pointer" }}
+                                >
+                                  <Edit2 size={10} /> Edit
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
