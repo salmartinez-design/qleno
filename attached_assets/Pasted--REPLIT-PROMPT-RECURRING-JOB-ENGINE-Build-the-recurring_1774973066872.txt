@@ -1,0 +1,131 @@
+**REPLIT PROMPT — RECURRING JOB ENGINE:**
+
+Build the recurring job engine. This is the highest priority item in the entire codebase. There are 86 imported recurring schedules in the `recurring_schedules` table that are not generating any future jobs. On April 12 the dispatch board must show jobs for all active recurring clients. Without this engine it will be empty.
+
+---
+
+**STEP 1 — READ THE SCHEMA FIRST**
+
+Before writing any code, read these tables in full and report back their exact columns:
+
+- `recurring_schedules`
+- `recurring_schedule_technicians`
+- `jobs`
+- `job_technicians`
+- `clients`
+
+Also read the current `recurring_schedules` data — show the first 10 rows including frequency, day_of_week, scheduled_time, service_address, scope, status, and client_id columns.
+
+---
+
+**STEP 2 — ENGINE LOGIC**
+
+Build a function `generateRecurringJobs(companyId, daysAhead = 60)` that:
+
+1. Fetches all `recurring_schedules` where `status = 'active'` and `company_id = companyId`
+
+2. For each schedule, determines the next occurrence dates based on frequency:
+   - `weekly` — every 7 days from the anchor date
+   - `biweekly` — every 14 days from the anchor date
+   - `every_4_weeks` — every 28 days from the anchor date
+   - `monthly` — same day of month each month
+
+3. The anchor date logic:
+   - If the schedule has a `next_scheduled_date` column, use that
+   - If not, use the schedule's `created_at` date as the anchor, then calculate forward to the next future occurrence from today
+   - Never generate a job for a date in the past
+
+4. For each occurrence date within the next `daysAhead` days:
+   - Check if a job already exists for this `recurring_schedule_id` on that date — if yes, skip it (no duplicates)
+   - If no job exists, create a job record with:
+     - `company_id` from the schedule
+     - `client_id` from the schedule
+     - `recurring_schedule_id` linking back to the schedule
+     - `scheduled_date` = the calculated occurrence date
+     - `scheduled_time` from the schedule
+     - `scope` from the schedule
+     - `service_address` from the schedule
+     - `status` = 'scheduled'
+     - `booking_location` = derive from the service address zip code — check `service_zones` table for the matching zone and its location field
+     - `created_at` = NOW()
+
+5. After creating the job record, copy technician assignments:
+   - Read all rows from `recurring_schedule_technicians` where `recurring_schedule_id` matches
+   - Insert a row into `job_technicians` for each technician, linking to the new job_id
+   - For schedules with no technician assigned (9 exist), create the job with status = 'scheduled' and leave technicians unassigned — do not skip these
+
+6. Return a summary: `{ jobs_created: N, schedules_processed: N, skipped_duplicates: N, unassigned_jobs: N }`
+
+---
+
+**STEP 3 — CRON JOB**
+
+Add this to the nightly cron that already runs for rate locks and follow-up sequences:
+
+```javascript
+// Run at 2:00 AM nightly
+// Generate jobs 60 days out for all active companies
+const companies = await db.select().from(companiesTable)
+  .where(eq(companiesTable.is_active, true));
+
+for (const company of companies) {
+  await generateRecurringJobs(company.id, 60);
+}
+```
+
+The window is rolling — every night it looks 60 days ahead and fills in any missing jobs. If a job was already created it gets skipped. This means the cron is safe to run multiple times without creating duplicates.
+
+---
+
+**STEP 4 — INITIAL BACKFILL**
+
+After building the engine, run it immediately for the PHES company ID to generate all jobs from today through 60 days out. Report how many jobs were created.
+
+Then run it a second time and confirm the duplicate check works — second run should return `jobs_created: 0`.
+
+---
+
+**STEP 5 — RESCHEDULE HANDLING**
+
+When a job is rescheduled (its `scheduled_date` is changed manually), do NOT touch the parent `recurring_schedule`. The schedule continues generating future jobs on the original cadence. The rescheduled job is a one-time exception — it keeps its `recurring_schedule_id` but its date is now independent.
+
+When a job is cancelled:
+- If `cancel_this_job_only` — mark that job `status = 'cancelled'`, leave the schedule active
+- If `cancel_recurring_service` — mark that job cancelled AND set `recurring_schedules.status = 'inactive'` for that schedule. The engine will no longer generate future jobs for an inactive schedule.
+
+Add these two cancellation options to the job detail page cancel button — a dropdown with "Cancel this visit only" and "Cancel recurring service."
+
+---
+
+**STEP 6 — DISPATCH BOARD VERIFICATION**
+
+After the backfill runs, open the dispatch board and confirm:
+
+1. Jobs appear for the next 7 days for active recurring clients
+2. Each job shows the correct technician assignment
+3. Unassigned jobs (9 schedules with no tech) appear on the board with "Unassigned" status
+4. Jobs are correctly tagged as Oak Lawn or Schaumburg based on their zip code
+5. The location filter on the dispatch board correctly separates Oak Lawn vs Schaumburg jobs
+
+---
+
+**STEP 7 — ADMIN TRIGGER IN COMPANY SETTINGS**
+
+In Company Settings, add a button under a new "Scheduling" section: "Generate Upcoming Jobs." When clicked it calls `generateRecurringJobs` for that company and shows a toast: "X jobs generated for the next 60 days." This lets Sal manually trigger a backfill without touching the cron.
+
+---
+
+**VERIFICATION**
+
+After building, confirm:
+
+1. `recurring_schedules` table has 86 active rows for PHES
+2. Initial backfill created jobs for all 86 schedules covering today through 60 days out
+3. Second run returns `jobs_created: 0` — no duplicates
+4. Dispatch board shows jobs for this week
+5. 9 unassigned jobs appear as unassigned on the board
+6. Cancellation dropdown works — "Cancel this visit only" vs "Cancel recurring service"
+7. Company Settings Scheduling tab shows "Generate Upcoming Jobs" button
+8. Nightly cron includes the recurring job generation step
+
+Report the exact number of jobs created in the initial backfill before closing.
