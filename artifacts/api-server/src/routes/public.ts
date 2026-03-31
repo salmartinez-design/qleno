@@ -352,6 +352,43 @@ export async function runCalculate(params: {
     }
   }
 
+  // ── Bundle discounts ─────────────────────────────────────────────────────
+  let bundle_discount = 0;
+  const bundle_breakdown: Array<{ name: string; discount: number }> = [];
+  if (Array.isArray(addon_ids) && addon_ids.length > 0) {
+    const { sql: drSql2 } = await import("drizzle-orm");
+    const validIds = addon_ids.map((id: any) => parseInt(String(id))).filter((n: number) => !isNaN(n));
+    if (validIds.length > 0) {
+      const bundleResult = await db.execute(drSql2`
+        SELECT ab.id, ab.name, ab.discount_type, ab.discount_value,
+               array_agg(abi.addon_id) as required_ids
+          FROM addon_bundles ab
+          JOIN addon_bundle_items abi ON abi.bundle_id = ab.id
+         WHERE ab.company_id = ${company_id} AND ab.active = true
+         GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
+      `);
+      const bundles = (bundleResult as any).rows ?? [];
+      for (const bundle of bundles) {
+        const required: number[] = (bundle.required_ids ?? []).map((x: any) => parseInt(String(x)));
+        const matched = required.filter(rid => validIds.includes(rid));
+        if (matched.length === required.length && matched.length > 0) {
+          const dv = parseFloat(String(bundle.discount_value));
+          let disc = 0;
+          if (bundle.discount_type === "flat_per_item") {
+            disc = dv * matched.length;
+          } else if (bundle.discount_type === "flat") {
+            disc = dv;
+          } else if (bundle.discount_type === "percentage") {
+            disc = (dv / 100) * base_price;
+          }
+          bundle_discount += disc;
+          bundle_breakdown.push({ name: bundle.name, discount: Math.round(disc * 100) / 100 });
+        }
+      }
+    }
+  }
+  addons_total -= bundle_discount;
+
   let subtotal = base_price + addons_total;
   let discount_amount = 0;
   let final_total = subtotal;
@@ -390,6 +427,8 @@ export async function runCalculate(params: {
     minimum_applied,
     addons_total: Math.round(addons_total * 100) / 100,
     addon_breakdown,
+    bundle_discount: Math.round(bundle_discount * 100) / 100,
+    bundle_breakdown,
     subtotal: Math.round(subtotal * 100) / 100,
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,

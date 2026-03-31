@@ -1,0 +1,65 @@
+REPLIT PROMPT — PRICING AUDIT:
+Run a full pricing audit on the Qleno booking widget pricing engine. This is a read-and-test-only operation — fix any failures found, do not touch anything else.
+STEP 1 — READ THE PRICING ENGINE FIRST
+Before running any tests, read these files in full:
+
+The pricing calculation function (likely in server/services/pricing.ts or similar)
+The pricing_scopes table — confirm use_frequency_hourly_rates is true for PHES
+The pricing_tiers table — read all tier rows for the Deep Clean scope
+The pricing_addons table — read all addon rows and their prices
+The public /api/public/calculate endpoint
+
+Report back what you find before running any tests.
+
+STEP 2 — RUN THESE 16 TESTS AGAINST THE LIVE PRICING ENGINE
+Call /api/public/calculate directly for each test. Show the request payload and the actual price returned for every single test. Do not skip any.
+Deep Clean — One Time:
+T1:  scope=Deep Clean, sqft=1000, cadence=one_time, addons=none
+T2:  scope=Deep Clean, sqft=1500, cadence=one_time, addons=none → EXPECTED $434.00
+T3:  scope=Deep Clean, sqft=2000, cadence=one_time, addons=none → EXPECTED $630.00
+T4:  scope=Deep Clean, sqft=2500, cadence=one_time, addons=none
+T5:  scope=Deep Clean, sqft=3000, cadence=one_time, addons=none
+Deep Clean — With Add-ons:
+T6:  scope=Deep Clean, sqft=1500, cadence=one_time, addons=[oven, fridge]
+     EXPECTED: $434.00 + oven price + fridge price - $20 bundle discount
+T7:  scope=Deep Clean, sqft=2000, cadence=one_time, addons=[oven, fridge]
+     EXPECTED: $630.00 + oven price + fridge price - $20 bundle discount
+Recurring — No Add-ons:
+T8:  scope=Recurring, sqft=1500, cadence=weekly        → EXPECTED $198.00
+T9:  scope=Recurring, sqft=1500, cadence=biweekly      → EXPECTED $224.25
+T10: scope=Recurring, sqft=1500, cadence=every_4_weeks → EXPECTED $247.80
+T11: scope=Recurring, sqft=2000, cadence=weekly
+T12: scope=Recurring, sqft=2000, cadence=biweekly
+Recurring — With Add-ons:
+T13: scope=Recurring, sqft=1500, cadence=weekly,    addons=[windows]
+     EXPECTED: $198.00 + 15% of $198.00 base
+T14: scope=Recurring, sqft=1500, cadence=biweekly,  addons=[basement]
+     EXPECTED: $224.25 + 15% of $224.25 base
+One-Time Standard:
+T15: scope=One-Time Standard, sqft=1500, cadence=one_time, addons=none
+The Known Discrepancy — Test This Explicitly:
+T16: Simulate the exact flow where:
+     - User selects Deep Clean on Step 2
+     - Then switches to Recurring via the upsell card
+     - Cadence selected: Weekly, sqft=1500
+     EXPECTED price: $198.00
+     CONFIRM: The calculation uses $60/hr recurring rate, 
+     NOT the Deep Clean $70/hr rate
+     CONFIRM: scope resets completely when switching from 
+     Deep Clean to Recurring
+
+STEP 3 — REPORT FORMAT
+Output a table with these columns for every test:
+| Test | Scope | Sqft | Cadence | Add-ons | Expected | Actual | Pass/Fail |
+
+STEP 4 — FIX ALL FAILURES
+For every test that fails:
+
+Identify exactly which function, table row, or calculation step is producing the wrong number
+Fix it
+Rerun that test and confirm it now passes
+Do not move on until every test passes
+
+
+STEP 5 — FINAL CONFIRMATION
+After all fixes, rerun all 16 tests in one final pass and output the complete results table showing all 16 as PASS before closing. Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.
