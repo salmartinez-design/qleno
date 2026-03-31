@@ -354,6 +354,11 @@ export default function BookPage() {
     service_gap_days: number;
   } | null>(null);
 
+  // Very Dirty callback form state
+  const [vdMessage, setVdMessage] = useState("");
+  const [vdSubmitting, setVdSubmitting] = useState(false);
+  const [vdSubmitted, setVdSubmitted] = useState(false);
+
   // Upsell state (Deep Clean recurring upsell)
   const [upsellCadence, setUpsellCadence] = useState("");
   const [upsellAccepted, setUpsellAccepted] = useState(false);
@@ -1547,11 +1552,96 @@ export default function BookPage() {
                         ))}
                       </div>
                       {showVeryDirtyCard && (
-                        <div style={{ marginTop: 12, background: "#FFF8F0", border: "1.5px solid #F59E0B", borderRadius: 10, padding: 16 }}>
-                          <p style={{ margin: "0 0 4px", fontSize: 12, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.07em" }}>Custom Quote Required</p>
-                          <p style={{ margin: 0, fontSize: 14, color: "#78350F", lineHeight: 1.5 }}>
-                            Heavily soiled homes require an in-person assessment before we can book online. Our office team will reach out to get you scheduled right away.
+                        <div style={{ marginTop: 12, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
+                          <p style={{ margin: "0 0 8px", fontSize: 16, fontWeight: 600, color: "#1A1917" }}>Let's make sure we get this right</p>
+                          <p style={{ margin: "0 0 16px", fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
+                            Homes that need extra attention are our specialty — we just want to make sure we send the right team. Give us a call or leave your info below and we'll reach out within one business day.
                           </p>
+                          {vdSubmitted ? (
+                            <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "14px 16px", fontSize: 14, color: "#166534", fontWeight: 500 }}>
+                              Got it — we'll be in touch within one business day.
+                            </div>
+                          ) : (
+                            <>
+                              <a
+                                href="tel:7737066000"
+                                style={{ display: "block", width: "100%", boxSizing: "border-box", background: brand, color: "#FFFFFF", textAlign: "center", padding: "12px 0", borderRadius: 8, fontSize: 15, fontWeight: 600, textDecoration: "none", marginBottom: 16 }}
+                              >
+                                Call (773) 706-6000
+                              </a>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                  <div>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>Name</label>
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={`${firstName} ${lastName}`.trim()}
+                                      style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#1A1917", background: "#F7F6F3" }}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>Phone</label>
+                                    <input
+                                      type="text"
+                                      readOnly
+                                      value={phone}
+                                      style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#1A1917", background: "#F7F6F3" }}
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>Email</label>
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={email}
+                                    style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#1A1917", background: "#F7F6F3" }}
+                                  />
+                                </div>
+                                <div>
+                                  <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 4 }}>Tell us a bit about your home</label>
+                                  <textarea
+                                    rows={3}
+                                    value={vdMessage}
+                                    onChange={e => setVdMessage(e.target.value)}
+                                    placeholder="Tell us a bit about your home"
+                                    style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#1A1917", resize: "vertical", fontFamily: "inherit" }}
+                                  />
+                                </div>
+                                <button
+                                  disabled={vdSubmitting}
+                                  onClick={async () => {
+                                    setVdSubmitting(true);
+                                    try {
+                                      const apiBase = import.meta.env.BASE_URL.replace(/\/$/, "");
+                                      await fetch(`${apiBase}/api/public/leads`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({
+                                          company_id: 1,
+                                          first_name: firstName,
+                                          last_name: lastName,
+                                          phone,
+                                          email,
+                                          sqft,
+                                          address: addressLine,
+                                          message: vdMessage,
+                                          condition_flag: "very_dirty",
+                                        }),
+                                      });
+                                      setVdSubmitted(true);
+                                    } catch {
+                                      setVdSubmitting(false);
+                                    }
+                                  }}
+                                  style={{ width: "100%", background: vdSubmitting ? "#9CA3AF" : brand, color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px 0", fontSize: 15, fontWeight: 600, cursor: vdSubmitting ? "not-allowed" : "pointer" }}
+                                >
+                                  {vdSubmitting ? "Sending…" : "Request a Callback"}
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>

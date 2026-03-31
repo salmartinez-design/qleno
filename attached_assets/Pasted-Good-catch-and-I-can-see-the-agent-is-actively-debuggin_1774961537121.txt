@@ -1,0 +1,53 @@
+Good catch — and I can see the agent is actively debugging the pricing issue. Two things to fix:
+
+**Issue 1 — "Very Dirty" message is wrong**
+Currently showing: "CUSTOM QUOTE REQUIRED — Heavily soiled homes require an in-person assessment before we can book online."
+
+This is wrong on two levels:
+- We never said "in-person assessment"
+- The correct behavior is: block booking, show office contact card, we reach out to them
+
+**Issue 2 — $347.20 is still wrong for 1,500 sqft Deep Clean**
+Should be $434.00. Agent is investigating — let it finish before sending another prompt.
+
+---
+
+**REPLIT PROMPT — FIX VERY DIRTY MESSAGING:**
+
+In the booking widget, when "3 — Very Dirty" is selected, replace the current "CUSTOM QUOTE REQUIRED" card with the correct office contact card.
+
+Remove entirely:
+- "CUSTOM QUOTE REQUIRED" heading
+- "Heavily soiled homes require an in-person assessment" — never use this language
+- Any reference to in-person assessment
+
+Replace with this card (`#FFFFFF` background, `3px solid var(--brand)` left border, `1px solid #E5E2DC` full border, 20px padding):
+
+**Heading** (`#1A1917`, 16px, semi-bold): "Let's make sure we get this right"
+
+**Body** (`#6B6860`, 14px, line-height 1.6):
+"Homes that need extra attention are our specialty — we just want to make sure we send the right team. Give us a call or leave your info below and we'll reach out within one business day."
+
+**Option A — Call button:**
+Full width button, `var(--brand)` background, white text: "Call (773) 706-6000"
+`href="tel:7737066000"`
+
+**Option B — Callback request form (inline):**
+- Name: pre-filled from Step 1
+- Phone: pre-filled from Step 1
+- Email: pre-filled from Step 1
+- Message: textarea, placeholder "Tell us a bit about your home"
+- Submit button: "Request a Callback" — `var(--brand)` background, white text
+
+On submit:
+- Send Resend email to `info@phes.io`
+- Subject: "Callback Request — Needs Assessment: [Client Name]"
+- Body: name, phone, email, sqft, address, message
+- Show confirmation: "Got it — we'll be in touch within one business day."
+- Store as a `leads` record with `condition_flag: 'very_dirty'`
+
+**Continue button:** disabled when "3 — Very Dirty" is selected. Customer cannot proceed to booking on this path under any circumstance.
+
+Do not use the words "assessment", "in-person", "inspection", or "custom quote" anywhere in this flow.
+
+Republish after fix.

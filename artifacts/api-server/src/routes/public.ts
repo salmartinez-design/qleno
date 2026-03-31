@@ -947,4 +947,56 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
   }
 });
 
+// ── POST /api/public/leads ────────────────────────────────────────────────────
+// Stores a callback request lead and sends an alert email to info@phes.io
+router.post("/leads", rateLimit, async (req, res) => {
+  try {
+    const { company_id, first_name, last_name, phone, email, sqft, address, message, condition_flag } = req.body;
+    if (!company_id || !first_name || !phone) {
+      return res.status(400).json({ error: "company_id, first_name, and phone are required" });
+    }
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    await db.execute(drizzleSql`
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, sqft, address, message, condition_flag, created_at)
+      VALUES (${company_id}, ${first_name || null}, ${last_name || null}, ${phone || null}, ${email || null},
+              ${sqft || null}, ${address || null}, ${message || null}, ${condition_flag || null}, NOW())
+    `);
+
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(resendKey);
+        await resend.emails.send({
+          from: "Qleno <noreply@phes.io>",
+          to: ["info@phes.io"],
+          subject: `Callback Request — Needs Attention: ${first_name} ${last_name || ""}`.trim(),
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
+<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
+<div style="background:#5B9BD5;padding:16px 24px;border-radius:4px;margin-bottom:24px;">
+  <span style="color:#fff;font-size:18px;font-weight:bold;">Phes — Callback Request</span>
+</div>
+<table style="width:100%;border-collapse:collapse;font-size:14px;color:#1A1917;">
+  <tr><td style="padding:8px 0;color:#6B6860;width:140px;">Name</td><td style="padding:8px 0;font-weight:600;">${first_name} ${last_name || ""}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Phone</td><td style="padding:8px 0;">${phone}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Email</td><td style="padding:8px 0;">${email || "Not provided"}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Home Size</td><td style="padding:8px 0;">${sqft ? sqft + " sqft" : "Not provided"}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Address</td><td style="padding:8px 0;">${address || "Not provided"}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Flag</td><td style="padding:8px 0;font-weight:600;color:#DC2626;">${condition_flag || "—"}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;vertical-align:top;">Message</td><td style="padding:8px 0;">${message || "No message provided"}</td></tr>
+</table>
+</div></div>`,
+        });
+      } catch (emailErr) {
+        console.error("[leads] Resend error:", emailErr);
+      }
+    }
+
+    return res.status(201).json({ ok: true });
+  } catch (err: any) {
+    console.error("POST /public/leads:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;

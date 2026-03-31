@@ -84,6 +84,22 @@ async function runBookingSchemaGuard(): Promise<void> {
         updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+    // ── leads table ─────────────────────────────────────────────────────────
+    { label: "CREATE leads", stmt: `
+      CREATE TABLE IF NOT EXISTS leads (
+        id             SERIAL PRIMARY KEY,
+        company_id     INTEGER NOT NULL,
+        first_name     TEXT,
+        last_name      TEXT,
+        phone          TEXT,
+        email          TEXT,
+        sqft           INTEGER,
+        address        TEXT,
+        message        TEXT,
+        condition_flag TEXT,
+        created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
   ];
 
   for (const { label, stmt } of guards) {
