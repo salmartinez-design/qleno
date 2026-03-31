@@ -1,0 +1,135 @@
+The address field is accepting text ("3165 west" is typed) but the Google Places dropdown isn't appearing. This is almost certainly the `VITE_` prefix issue — Replit needs the key exposed to the frontend with the `VITE_` prefix.
+
+**REPLIT PROMPT — FIX GOOGLE MAPS AUTOCOMPLETE NOT LOADING:**
+
+The Google Maps Places autocomplete dropdown is not appearing when typing in the Service Address field. The `GOOGLE_MAPS_API_KEY` is in Replit Secrets but the frontend can't access it.
+
+**Fix 1 — Add VITE_ prefixed secret:**
+
+In Replit Secrets, add a second entry:
+- Key: `VITE_GOOGLE_MAPS_API_KEY`
+- Value: same API key value as `GOOGLE_MAPS_API_KEY`
+
+Vite requires the `VITE_` prefix for any environment variable accessed on the client side via `import.meta.env`. Without this prefix the key is undefined in the browser and Google Maps never loads.
+
+**Fix 2 — Verify the script load:**
+
+In the booking widget component, add a console log to confirm the key is being read and the script is loading:
+
+```javascript
+useEffect(() => {
+  const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  console.log('[Maps] API key present:', !!apiKey);
+  
+  if (!apiKey) {
+    console.error('[Maps] VITE_GOOGLE_MAPS_API_KEY is not set');
+    return;
+  }
+
+  if (window.google?.maps?.places) {
+    console.log('[Maps] Already loaded');
+    initAutocomplete();
+    return;
+  }
+
+  const script = document.createElement('script');
+  script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&callback=initMap`;
+  script.async = true;
+  script.defer = true;
+  
+  window.initMap = () => {
+    console.log('[Maps] Script loaded successfully');
+    initAutocomplete();
+  };
+  
+  script.onerror = () => {
+    console.error('[Maps] Failed to load Google Maps script');
+  };
+  
+  document.head.appendChild(script);
+}, []);
+```
+
+**Fix 3 — Verify initAutocomplete runs after script loads:**
+
+```javascript
+const initAutocomplete = () => {
+  const input = addressInputRef.current;
+  if (!input) {
+    console.error('[Maps] Address input ref not found');
+    return;
+  }
+
+  console.log('[Maps] Initializing autocomplete on input:', input);
+
+  const autocomplete = new window.google.maps.places.Autocomplete(input, {
+    componentRestrictions: { country: 'us' },
+    fields: ['address_components', 'formatted_address', 'geometry'],
+    types: ['address']
+  });
+
+  autocomplete.addListener('place_changed', () => {
+    const place = autocomplete.getPlace();
+    console.log('[Maps] Place selected:', place.formatted_address);
+    
+    if (!place.address_components) return;
+
+    const get = (type) =>
+      place.address_components.find(c => c.types.includes(type))?.long_name || '';
+    const shortGet = (type) =>
+      place.address_components.find(c => c.types.includes(type))?.short_name || '';
+
+    const addressData = {
+      formatted: place.formatted_address,
+      street: `${get('street_number')} ${get('route')}`.trim(),
+      city: get('locality'),
+      state: shortGet('administrative_area_level_1'),
+      zip: get('postal_code'),
+      lat: place.geometry.location.lat(),
+      lng: place.geometry.location.lng(),
+      verified: true
+    };
+
+    setServiceAddress(addressData.formatted);
+    setAddressComponents(addressData);
+    setZipCode(addressData.zip);
+    setAddressVerified(true);
+    checkServiceZone(addressData.zip);
+  });
+};
+```
+
+**Fix 4 — Ensure input ref is attached correctly:**
+
+The `addressInputRef` must be attached to the actual DOM input element. Confirm:
+
+```jsx
+<input
+  ref={addressInputRef}
+  type="text"
+  value={serviceAddress}
+  onChange={(e) => setServiceAddress(e.target.value)}
+  placeholder="Start typing your address..."
+  autoComplete="off"
+/>
+```
+
+The `autoComplete="off"` attribute is critical — without it, the browser's native autocomplete can block Google Places from showing.
+
+**Fix 5 — Add VITE_GOOGLE_MAPS_API_KEY to Replit Secrets via code:**
+
+In the server startup or vite.config, ensure the variable is passed through:
+
+```javascript
+// vite.config.ts
+export default defineConfig({
+  define: {
+    'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': 
+      JSON.stringify(process.env.GOOGLE_MAPS_API_KEY)
+  }
+})
+```
+
+This ensures even if `VITE_GOOGLE_MAPS_API_KEY` is not separately set in Secrets, it falls back to `GOOGLE_MAPS_API_KEY`.
+
+Republish after changes. Open browser DevTools console on `/book/phes-cleaning` and report what the `[Maps]` log lines show — that will tell us exactly where the loading is failing.

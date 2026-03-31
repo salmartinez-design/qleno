@@ -444,7 +444,7 @@ export default function BookPage() {
     if (!key) return;
     const s = document.createElement("script");
     s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places&loading=async`;
     s.async = true;
     s.defer = true;
     s.onload = () => setMapsReady(true);
@@ -1188,7 +1188,7 @@ export default function BookPage() {
                       border: `1.5px solid ${errors.address ? "#EF4444" : addressVerified ? "#2D6A4F" : "#E5E2DC"}`,
                       paddingRight: addressVerified ? 40 : undefined,
                     }}
-                    autoComplete="new-address"
+                    autoComplete="off"
                   />
                   {addressVerified && (
                     <span style={{

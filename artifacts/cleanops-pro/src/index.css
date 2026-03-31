@@ -216,7 +216,8 @@
   border-radius: 8px !important;
   box-shadow: 0 4px 16px rgba(0,0,0,0.08) !important;
   margin-top: 4px !important;
-  z-index: 9999 !important;
+  z-index: 99999 !important;
+  pointer-events: auto !important;
 }
 .pac-item {
   padding: 10px 16px !important;
