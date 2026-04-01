@@ -327,10 +327,10 @@ export default function BookPage() {
   // Step 1: Scope + Home Details
   const [scopeId, setScopeId] = useState<number | null>(null);
   const [sqft, setSqft] = useState(0);
-  const [bedrooms, setBedrooms] = useState(2);
-  const [bathrooms, setBathrooms] = useState(1);
+  const [bedrooms, setBedrooms] = useState(0);
+  const [bathrooms, setBathrooms] = useState(0);
   const [halfBaths, setHalfBaths] = useState(0);
-  const [floors, setFloors] = useState(1);
+  const [floors, setFloors] = useState(0);
   const [people, setPeople] = useState(0);
   const [pets, setPets] = useState(0);
   const [cleanliness, setCleanliness] = useState(0);
@@ -1719,10 +1719,10 @@ export default function BookPage() {
 
                   <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 8 }}>
                     {([
-                      ["Bedrooms", bedrooms, setBedrooms, 1],
-                      ["Full Bathrooms", bathrooms, setBathrooms, 1],
+                      ["Bedrooms", bedrooms, setBedrooms, 0],
+                      ["Full Bathrooms", bathrooms, setBathrooms, 0],
                       ["Half Bathrooms", halfBaths, setHalfBaths, 0],
-                      ["Floors", floors, setFloors, 1],
+                      ["Floors", floors, setFloors, 0],
                       ["People in Household", people, setPeople, 0],
                       ["Pets", pets, setPets, 0],
                     ] as [string, number, (v: number) => void, number][]).map(([label, val, setter, minVal]) => (
