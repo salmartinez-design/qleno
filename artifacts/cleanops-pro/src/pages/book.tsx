@@ -98,6 +98,7 @@ function SimpleCalendar({
   leadDays,
   maxAdvanceDays,
   availableDays,
+  minDateStr,
 }: {
   selected: string;
   onSelect: (d: string) => void;
@@ -105,6 +106,7 @@ function SimpleCalendar({
   leadDays?: number;
   maxAdvanceDays?: number;
   availableDays?: AvailableDays;
+  minDateStr?: string;
 }) {
   const effectiveLeadDays = leadDays ?? 7;
   const effectiveMaxAdvanceDays = maxAdvanceDays ?? 60;
@@ -113,8 +115,9 @@ function SimpleCalendar({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const minDate = new Date(today);
-  minDate.setDate(minDate.getDate() + effectiveLeadDays);
+  const minDate = minDateStr
+    ? (() => { const d = new Date(minDateStr + "T12:00:00"); d.setHours(0,0,0,0); return d; })()
+    : (() => { const d = new Date(today); d.setDate(d.getDate() + effectiveLeadDays); return d; })();
 
   const maxDate = new Date(today);
   maxDate.setDate(maxDate.getDate() + effectiveMaxAdvanceDays);
@@ -374,6 +377,7 @@ export default function BookPage() {
   const [upsellDeclined, setUpsellDeclined] = useState(false);
   const [upsellTermsOpen, setUpsellTermsOpen] = useState(false);
   const [upsellCadenceError, setUpsellCadenceError] = useState(false);
+  const [recurringDate, setRecurringDate] = useState("");
 
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
@@ -729,6 +733,8 @@ export default function BookPage() {
             upsell_deferred: upsellDeclined && !upsellAccepted,
             upsell_cadence_selected: upsellAccepted ? upsellCadence : null,
             upsell_locked_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.recurringRate : null,
+            upsell_first_visit_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.firstVisitRate : null,
+            recurring_date: upsellAccepted ? recurringDate : null,
             property_vacant: isMoveInOut,
             move_in_notes: (isMoveInOut || isDeepClean || isOneTimeStandard) && moveInNotes.trim() ? moveInNotes.trim() : null,
             address: addressComponents?.formatted ?? address,
@@ -903,6 +909,16 @@ export default function BookPage() {
 
   // Synchronous upsell price — instant, zero network dependency
   const upsellPriceResult = calculateUpsellPrice(sqft, upsellCadence, offerSettings?.upsell_discount_percent ?? 15);
+
+  // Compute the minimum allowed recurring date (Deep Clean date + one cadence interval)
+  const cadenceIntervalDays: Record<string, number> = { weekly: 7, every_2_weeks: 14, every_4_weeks: 28 };
+  const recurringMinDateStr = (() => {
+    if (!selectedDate || !upsellCadence) return "";
+    const days = cadenceIntervalDays[upsellCadence] ?? 14;
+    const d = new Date(selectedDate + "T12:00:00");
+    d.setDate(d.getDate() + days);
+    return d.toISOString().split("T")[0];
+  })();
 
   const scopeNameLower = (selectedScope?.name ?? "").toLowerCase();
   const showCleanlinessQ = !isCommercial && !!scopeId && (
@@ -1117,8 +1133,23 @@ export default function BookPage() {
             {priceBreakdownRows}
           </div>
           {upsellAccepted && upsellPriceResult && (
-            <div style={{ marginBottom: 10, padding: "10px 12px", background: `${brand}0D`, borderRadius: 8, border: `1px solid ${brand}25` }}>
-              <Row label={`Recurring ${upsellCadence.charAt(0).toUpperCase() + upsellCadence.slice(1)} from visit 2`} value={`$${upsellPriceResult.recurringRate.toFixed(2)}`} />
+            <div style={{ marginBottom: 10, padding: "10px 12px", background: `${brand}0D`, borderRadius: 8, border: `1px solid ${brand}25`, display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: "#6B6860" }}>First Recurring Visit (15% off)</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ fontSize: 11, color: "#9E9B94", textDecoration: "line-through" }}>${upsellPriceResult.recurringRate.toFixed(2)}</span>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: brand }}>${upsellPriceResult.firstVisitRate.toFixed(2)}</span>
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: 10, color: "#6B6860" }}>
+                Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+              </p>
+              <p style={{ margin: 0, fontSize: 10, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
+              {recurringDate && (
+                <p style={{ margin: 0, fontSize: 10, color: brand, fontWeight: 600 }}>
+                  First recurring: {new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                </p>
+              )}
             </div>
           )}
           <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 8, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
@@ -1205,8 +1236,23 @@ export default function BookPage() {
                   <span style={{ fontSize: 13, color: "#6B6860" }}>First Visit Total</span>
                   <span style={{ fontSize: 18, fontWeight: 800, color: "#1A1917" }}>${(calcResult.final_total - bundleSavings).toFixed(2)}</span>
                 </div>
-                <div style={{ marginTop: 10, padding: "10px 12px", background: `${brand}0D`, borderRadius: 8, border: `1px solid ${brand}25` }}>
-                  <Row label={`Recurring ${upsellCadence.charAt(0).toUpperCase() + upsellCadence.slice(1)} from visit 2`} value={`$${upsellPriceResult.recurringRate.toFixed(2)}`} />
+                <div style={{ marginTop: 10, padding: "10px 12px", background: `${brand}0D`, borderRadius: 8, border: `1px solid ${brand}25`, display: "flex", flexDirection: "column", gap: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: 13, color: "#6B6860" }}>First Recurring Visit (15% off)</span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <span style={{ fontSize: 12, color: "#9E9B94", textDecoration: "line-through" }}>${upsellPriceResult.recurringRate.toFixed(2)}</span>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: brand }}>${upsellPriceResult.firstVisitRate.toFixed(2)}</span>
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: 11, color: "#6B6860" }}>
+                    Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+                  </p>
+                  <p style={{ margin: 0, fontSize: 11, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
+                  {recurringDate && (
+                    <p style={{ margin: "2px 0 0", fontSize: 11, color: brand, fontWeight: 600 }}>
+                      First recurring: {new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                    </p>
+                  )}
                 </div>
               </>
             ) : (
@@ -2432,12 +2478,12 @@ export default function BookPage() {
           {/* ── Step 3: Date Selection ────────────────────────────────────────── */}
           {step === 3 && (
             <div style={s.card}>
-              <p style={s.h2}>When would you like your first cleaning?</p>
+              <p style={s.h2}>{upsellAccepted ? "Schedule your Deep Clean" : "When would you like your first cleaning?"}</p>
               <p style={s.sub}>All available dates are shown below. Select your preferred date.</p>
 
               <SimpleCalendar
                 selected={selectedDate}
-                onSelect={setSelectedDate}
+                onSelect={(d) => { setSelectedDate(d); setRecurringDate(""); }}
                 brand={brand}
                 leadDays={bookingSettings?.booking_lead_days ?? 7}
                 maxAdvanceDays={bookingSettings?.max_advance_days ?? 60}
@@ -2456,8 +2502,43 @@ export default function BookPage() {
                 <div style={{ marginTop: 16, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>
                   <Calendar size={16} color={brand} />
                   <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
-                    First Job: {new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                    {upsellAccepted ? "Deep Clean: " : "First Job: "}{new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
                   </span>
+                </div>
+              )}
+
+              {/* ── Second date picker: recurring start date (upsell accepted only) ── */}
+              {upsellAccepted && selectedDate && recurringMinDateStr && (
+                <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #E5E2DC" }}>
+                  <p style={{ ...s.h2, marginTop: 0 }}>When would you like your first recurring cleaning?</p>
+                  <p style={s.sub}>
+                    Must be at least one full {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"} after your Deep Clean.
+                    {recurringMinDateStr && ` Earliest: ${new Date(recurringMinDateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`}
+                  </p>
+                  <SimpleCalendar
+                    selected={recurringDate}
+                    onSelect={setRecurringDate}
+                    brand={brand}
+                    minDateStr={recurringMinDateStr}
+                    maxAdvanceDays={bookingSettings?.max_advance_days ?? 60}
+                    availableDays={bookingSettings ? {
+                      sun: bookingSettings.available_sun,
+                      mon: bookingSettings.available_mon,
+                      tue: bookingSettings.available_tue,
+                      wed: bookingSettings.available_wed,
+                      thu: bookingSettings.available_thu,
+                      fri: bookingSettings.available_fri,
+                      sat: bookingSettings.available_sat,
+                    } : undefined}
+                  />
+                  {recurringDate && (
+                    <div style={{ marginTop: 12, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>
+                      <Calendar size={16} color={brand} />
+                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
+                        First Recurring: {new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2470,8 +2551,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (!selectedDate || walkthroughBooking) ? 0.5 : 1 }}
-                  disabled={!selectedDate || walkthroughBooking}
+                  style={{ ...s.btn(), opacity: (!selectedDate || (upsellAccepted && !recurringDate) || walkthroughBooking) ? 0.5 : 1 }}
+                  disabled={!selectedDate || (upsellAccepted && !recurringDate) || walkthroughBooking}
                   onClick={() => {
                     if (isCommercial && commercialOption === "walkthrough") {
                       submitWalkthroughBooking();

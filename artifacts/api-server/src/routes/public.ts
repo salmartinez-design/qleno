@@ -528,8 +528,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       last_cleaned_response, last_cleaned_flag,
       overage_disclaimer_acknowledged, overage_rate,
       upsell_shown, upsell_accepted, upsell_declined, upsell_deferred,
-      upsell_cadence_selected, upsell_locked_rate,
-      property_vacant,
+      upsell_cadence_selected, upsell_locked_rate, upsell_first_visit_rate,
+      recurring_date,
+      property_vacant, move_in_notes,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
       booking_location,
@@ -683,7 +684,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           address_lat, address_lng, address_verified,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
+          ${company_id}, ${clientId}, ${serviceTypeEnum}, 'unassigned',
           ${preferred_date || null}, ${normalizedFreq},
           ${adjustedTotal}, ${pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
@@ -701,20 +702,23 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
-    // ── Upsell accepted: create recurring_schedule + rate_lock ───────────────
+    // ── Upsell accepted: create Job 2 (recurring start) + recurring_schedule + rate_lock ───
+    let recurringJobId: number | null = null;
     if (upsellAcceptedVal && upsellCadenceVal && upsell_locked_rate) {
       const lockedRate = parseFloat(String(upsell_locked_rate));
-      const lockExpiry = new Date();
+      const firstVisitRate = upsell_first_visit_rate ? parseFloat(String(upsell_first_visit_rate)) : lockedRate;
+      const recurringDateVal = recurring_date || null;
+      const lockStart = recurringDateVal || new Date().toISOString().split("T")[0];
+      const lockExpiry = new Date(lockStart + "T12:00:00");
       lockExpiry.setMonth(lockExpiry.getMonth() + 24);
       const lockExpiryStr = lockExpiry.toISOString().split("T")[0];
-      const todayStr = new Date().toISOString().split("T")[0];
+      const normalizedRecurFreq = normalizeFreq(upsellCadenceVal);
       try {
-        const recurScopeRow = await db.execute(drizzleSql`SELECT id FROM pricing_scopes WHERE company_id = ${company_id} AND name ILIKE '%recurring%' LIMIT 1`);
-        const recurScopeServiceType = "recurring";
+        // Create recurring_schedule with actual start date
         const recurSchedule = await db.execute(
           drizzleSql`
             INSERT INTO recurring_schedules (company_id, customer_id, frequency, start_date, service_type, base_fee, notes, is_active, created_at)
-            VALUES (${company_id}, ${clientId}, ${upsellCadenceVal}::recurring_frequency, ${todayStr}::date, ${recurScopeServiceType}, ${lockedRate}, ${"Upsell accepted from online booking widget."}, true, NOW())
+            VALUES (${company_id}, ${clientId}, ${upsellCadenceVal}::recurring_frequency, ${lockStart}::date, ${"recurring"}, ${lockedRate}, ${"Upsell accepted from online booking widget."}, true, NOW())
             RETURNING id
           `
         );
@@ -722,12 +726,38 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         await db.execute(
           drizzleSql`
             INSERT INTO rate_locks (company_id, client_id, recurring_schedule_id, locked_rate, cadence, lock_start_date, lock_expires_at, active, created_at)
-            VALUES (${company_id}, ${clientId}, ${scheduleId}, ${lockedRate}, ${upsellCadenceVal}, ${todayStr}::date, ${lockExpiryStr}::date, true, NOW())
+            VALUES (${company_id}, ${clientId}, ${scheduleId}, ${lockedRate}, ${upsellCadenceVal}, ${lockStart}::date, ${lockExpiryStr}::date, true, NOW())
           `
         );
-        console.log(`[UPSELL] Rate lock created — client_id=${clientId} rate=${lockedRate} cadence=${upsellCadenceVal} expires=${lockExpiryStr}`);
+        // Create Job 2: first recurring visit (discounted rate, no add-ons)
+        if (recurringDateVal) {
+          const recurJobNotes = `Recurring start (upsell). Rate locked at $${lockedRate}/visit for 24 months. First visit discounted 15% off. Schedule ID: ${scheduleId}. Home ID: ${homeId}.`;
+          const recurJobResult = await db.execute(
+            drizzleSql`
+              INSERT INTO jobs (
+                company_id, client_id, service_type, status,
+                scheduled_date, frequency, base_fee,
+                upsell_shown, upsell_accepted, upsell_cadence_selected,
+                booking_location,
+                address_street, address_city, address_state, address_zip,
+                address_lat, address_lng, address_verified,
+                notes, created_at
+              ) VALUES (
+                ${company_id}, ${clientId}, ${"recurring"}, ${"unassigned"},
+                ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
+                false, false, ${upsellCadenceVal},
+                ${bookLocVal},
+                ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
+                ${addrLat}, ${addrLng}, ${addrVerified},
+                ${recurJobNotes}, NOW()
+              ) RETURNING id
+            `
+          );
+          recurringJobId = (recurJobResult.rows[0] as any).id;
+        }
+        console.log(`[UPSELL] Rate lock + recurring job created — client_id=${clientId} schedule_id=${scheduleId} recurring_job_id=${recurringJobId} rate=${lockedRate} first_visit_rate=${firstVisitRate} cadence=${upsellCadenceVal} expires=${lockExpiryStr}`);
       } catch (upsellErr) {
-        console.error("[UPSELL] Failed to create recurring_schedule/rate_lock:", upsellErr);
+        console.error("[UPSELL] Failed to create recurring_schedule/rate_lock/job2:", upsellErr);
       }
     }
 
@@ -758,6 +788,11 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         const dateStr = preferred_date
           ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
           : "To be scheduled";
+        const recurDateStr = recurring_date
+          ? new Date(recurring_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
+          : null;
+        const recurCadenceLabel = upsellCadenceVal === "weekly" ? "week" : upsellCadenceVal === "every_2_weeks" ? "2 weeks" : "4 weeks";
+        const recurLockedRate = upsell_locked_rate ? parseFloat(String(upsell_locked_rate)).toFixed(2) : null;
         const cardStr = cardLast4 ? `${(cardBrand || "Card").charAt(0).toUpperCase() + (cardBrand || "card").slice(1)} ending in ${cardLast4}` : "Card on file";
         const freqStr = frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "";
 
@@ -773,13 +808,16 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
 </div>
 <p style="color:#1A1917;font-size:15px;margin:0 0 20px;">Your cleaning appointment has been confirmed. Here's a summary:</p>
 <table style="width:100%;border-collapse:collapse;font-size:14px;color:#1A1917;">
-  <tr><td style="padding:8px 0;color:#6B6860;width:160px;">Service</td><td style="padding:8px 0;font-weight:600;">${scopeName}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Frequency</td><td style="padding:8px 0;">${freqStr}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;width:160px;">Service</td><td style="padding:8px 0;font-weight:600;">${scopeName}${upsellAcceptedVal ? " + Recurring" : ""}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
+  ${upsellAcceptedVal && recurDateStr ? `<tr><td style="padding:8px 0;color:#6B6860;">First Recurring</td><td style="padding:8px 0;font-weight:600;">${recurDateStr}</td></tr>` : ""}
+  ${upsellAcceptedVal && recurDateStr && recurLockedRate ? `<tr><td style="padding:8px 0;color:#6B6860;vertical-align:top;">Rate Lock</td><td style="padding:8px 0;">$${recurLockedRate}/visit every ${recurCadenceLabel} — locked for 24 months</td></tr>` : ""}
+  ${!upsellAcceptedVal ? `<tr><td style="padding:8px 0;color:#6B6860;">Frequency</td><td style="padding:8px 0;">${freqStr}</td></tr>` : ""}
   <tr><td style="padding:8px 0;color:#6B6860;">Address</td><td style="padding:8px 0;">${address || "On file"}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Estimated Total</td><td style="padding:8px 0;font-weight:600;">$${adjustedTotal.toFixed(2)}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Payment</td><td style="padding:8px 0;">${cardStr}</td></tr>
 </table>
+${upsellAcceptedVal && recurDateStr ? `<p style="background:#F0F7FF;border-left:3px solid #5B9BD5;padding:10px 14px;font-size:13px;color:#1A1917;margin:20px 0 0;">Your Deep Clean is scheduled for <strong>${dateStr}</strong>. Your first recurring cleaning is scheduled for <strong>${recurDateStr}</strong>, then every ${recurCadenceLabel} from there — your rate is locked at $${recurLockedRate}/visit for 24 months.</p>` : ""}
 <p style="color:#6B6860;font-size:13px;margin:24px 0 0;">Questions? Call us at (773) 706-6000 or reply to this email. We look forward to seeing you!</p>
 </div></div>`,
         });
@@ -788,23 +826,26 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         await resend.emails.send({
           from: "Qleno <noreply@phes.io>",
           to: ["info@phes.io"],
-          subject: `New Online Booking — ${first_name} ${last_name} — Job #${jobId}`,
+          subject: `New Online Booking — ${first_name} ${last_name} — Job #${jobId}${recurringJobId ? ` + #${recurringJobId}` : ""}`,
           html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
 <div style="background:#5B9BD5;padding:16px 24px;border-radius:4px;margin-bottom:24px;">
-  <span style="color:#fff;font-size:18px;font-weight:bold;">New Online Booking — Job #${jobId}</span>
+  <span style="color:#fff;font-size:18px;font-weight:bold;">New Online Booking — Job #${jobId}${recurringJobId ? ` + Recurring #${recurringJobId}` : ""}</span>
 </div>
 <table style="width:100%;border-collapse:collapse;font-size:14px;color:#1A1917;">
   <tr><td style="padding:8px 0;color:#6B6860;width:160px;">Customer</td><td style="padding:8px 0;font-weight:600;">${first_name} ${last_name}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Phone</td><td style="padding:8px 0;">${phone}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Email</td><td style="padding:8px 0;">${email}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Address</td><td style="padding:8px 0;">${address || "Not provided"}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Service</td><td style="padding:8px 0;">${scopeName} — ${sqft} sqft — ${freqStr}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Total</td><td style="padding:8px 0;font-weight:600;">$${adjustedTotal.toFixed(2)}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Service</td><td style="padding:8px 0;">${scopeName}${upsellAcceptedVal ? " + Recurring (upsell)" : ""} — ${sqft} sqft</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
+  ${recurDateStr ? `<tr><td style="padding:8px 0;color:#6B6860;">First Recurring</td><td style="padding:8px 0;font-weight:600;">${recurDateStr}</td></tr>` : ""}
+  ${recurLockedRate ? `<tr><td style="padding:8px 0;color:#6B6860;">Locked Rate</td><td style="padding:8px 0;">$${recurLockedRate}/visit every ${recurCadenceLabel} for 24 months</td></tr>` : ""}
+  <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Total</td><td style="padding:8px 0;font-weight:600;">$${adjustedTotal.toFixed(2)}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Payment</td><td style="padding:8px 0;">${cardStr}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Client ID</td><td style="padding:8px 0;">#${clientId}</td></tr>
-  <tr><td style="padding:8px 0;color:#6B6860;">Job ID</td><td style="padding:8px 0;">#${jobId}</td></tr>
+  <tr><td style="padding:8px 0;color:#6B6860;">Job #1 (Deep Clean)</td><td style="padding:8px 0;">#${jobId} — UNASSIGNED</td></tr>
+  ${recurringJobId ? `<tr><td style="padding:8px 0;color:#6B6860;">Job #2 (Recurring)</td><td style="padding:8px 0;">#${recurringJobId} — UNASSIGNED</td></tr>` : ""}
 </table>
 </div></div>`,
         });
@@ -813,11 +854,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       }
     }
 
-    console.log(`[STRIPE] Booking confirmed — client_id=${clientId} job_id=${jobId} PM=${payment_method_id} card=${cardBrand} *${cardLast4}`);
+    console.log(`[STRIPE] Booking confirmed — client_id=${clientId} job_id=${jobId}${recurringJobId ? ` recurring_job_id=${recurringJobId}` : ""} PM=${payment_method_id} card=${cardBrand} *${cardLast4}`);
     return res.status(201).json({
       ok: true,
       client_id: clientId,
       job_id: jobId,
+      recurring_job_id: recurringJobId,
       home_id: homeId,
       pricing,
       card_last4: cardLast4,

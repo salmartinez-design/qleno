@@ -1,0 +1,53 @@
+This prompt covers four separate fixes to the booking widget at /book/phes-cleaning. Complete all four before confirming done.
+
+FIX 1 — Special Notes textarea (Step 2)
+The "Special notes or anything you'd like us to know" textarea currently only renders when Move In / Move Out is selected. Change the condition so it renders for Deep Clean and One-Time Standard Clean as well. Do NOT show it for Commercial Cleaning.
+Do not show the "Before we confirm your booking" Move In/Move Out acknowledgment checkbox for Deep Clean or Standard Clean — those scopes do not require it. The textarea alone is sufficient for those two scopes. No other changes to Step 2 layout or copy.
+
+FIX 2 — Price Summary sidebar breakdown when recurring upsell is accepted
+When a client selects "Yes — lock in my rate" on the Deep Clean recurring upsell, the Price Summary sidebar must update to show all of the following line items clearly:
+Deep Clean (First Visit) · [sqft]        $XXX.00
+[Any add-ons selected]                  +$XX.00
+─────────────────────────────────────────────────
+First Visit Total                        $XXX.00
+
+First Recurring Visit (15% off)         $XXX.00  ← show full price struck through, discounted price in brand color
+Then every [cadence]: $XXX.00/visit — rate locked 24 months
+Add-ons selected apply to the first visit only and do NOT carry into the recurring rate. Add a single line of small secondary text below the recurring rate line that reads exactly: "Add-ons apply to first visit only." This prevents billing expectation disputes.
+If the client clicks "No thanks, just the Deep Clean" the recurring rows do not appear — show only the Deep Clean total and any add-ons.
+
+FIX 3 — Book both the Deep Clean and the recurring start date
+When a client accepts the recurring upsell ("Yes — lock in my rate"), they need to be able to book both appointments in Step 4.
+After the client selects their Deep Clean date, show a second date picker section below with:
+
+Section label: "When would you like your first recurring cleaning?"
+Default the suggested date to exactly one cadence interval after the Deep Clean date (e.g., Deep Clean April 15 + Every 2 Weeks = default April 29)
+Client can adjust the date forward only — cannot select a date before the Deep Clean or before one full cadence interval has passed
+Show the selected recurring start date in the Price Summary sidebar below the rate lock line: "First recurring: [date]"
+If the client selected "No thanks, just the Deep Clean" this second date picker does not appear
+
+Apply the same 7-day lead time and 60-day horizon rules to both pickers. Do not change any other date picker logic or styling.
+
+FIX 4 — Both jobs land on the dispatch board as unassigned after Stripe authorization
+When the Stripe SetupIntent completes successfully in Step 5, the system must create two separate job records and push both to the dispatch board. Specific requirements:
+
+Job 1 — Deep Clean: Create a job record with scope = deep_clean, date = Deep Clean date selected in Step 4, status = unassigned, technician = null, service address from Step 1, square footage and home details from Step 2, add-ons attached, price = First Visit Total. Source = online_booking.
+Job 2 — Recurring Start: If the client accepted the recurring upsell, create a second job record with scope matching the selected cadence (weekly / every_2_weeks / every_4_weeks), date = recurring start date selected in Step 4, status = unassigned, technician = null, same service address and home details, price = recurring rate (no add-ons), rate_lock = true, rate_lock_duration = 24 months. Source = online_booking. This job also creates or links to a recurring_schedule record so the engine can generate future jobs from this cadence forward.
+Both jobs must appear on the Dispatch Board under their respective scheduled dates with an UNASSIGNED badge, visible to any owner or office staff logged in.
+Neither job is assigned to a technician at creation. The office team reviews availability and assigns technicians manually through the existing dispatch board workflow.
+The confirmation email sent to the client after successful payment must list both dates:
+
+"Your Deep Clean is scheduled for [date]."
+"Your first recurring cleaning is scheduled for [date], then [cadence] from there — your rate is locked at $XXX.00/visit for 24 months."
+
+
+If the Stripe SetupIntent fails, neither job record is created. The client is returned to Step 5 with an error message.
+
+
+After completing all four fixes, confirm:
+
+Special notes textarea appears for Deep Clean and One-Time Standard Clean only
+Price summary shows correct breakdown with first visit total, discounted recurring line, and "Add-ons apply to first visit only" note
+Two date pickers appear in Step 4 when recurring upsell is accepted, with correct interval defaulting
+After Stripe authorization, two unassigned jobs appear on the dispatch board on their respective dates, confirmation email lists both dates, and a recurring_schedule record is created for the ongoing cadence
+Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.
