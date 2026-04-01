@@ -149,6 +149,24 @@ function SimpleCalendar({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // FIX 10: Auto-advance to next month when current viewDate month has no selectable dates
+  useEffect(() => {
+    const yr = viewDate.getFullYear();
+    const mo = viewDate.getMonth();
+    const dim = new Date(yr, mo + 1, 0).getDate();
+    let hasAny = false;
+    for (let d = 1; d <= dim; d++) {
+      if (!isDisabledDate(new Date(yr, mo, d))) { hasAny = true; break; }
+    }
+    const maxYr = maxDate.getFullYear();
+    const maxMo = maxDate.getMonth();
+    const canNext = yr < maxYr || (yr === maxYr && mo < maxMo);
+    if (!hasAny && canNext) {
+      setViewDate(new Date(yr, mo + 1, 1));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewDate]);
+
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
@@ -235,36 +253,36 @@ function SimpleCalendar({
 type UpsellTier = { min: number; max: number; price: number };
 const UPSELL_TIERS: Record<string, UpsellTier[]> = {
   weekly: [
-    { min: 0,    max: 749,   price: 174.00 },
-    { min: 750,  max: 999,   price: 174.60 },
-    { min: 1000, max: 1249,  price: 180.00 },
-    { min: 1250, max: 1499,  price: 190.80 },
-    { min: 1500, max: 1749,  price: 198.00 },
-    { min: 1750, max: 1999,  price: 229.20 },
-    { min: 2000, max: 2249,  price: 240.00 },
-    { min: 2250, max: 2499,  price: 270.00 },
-    { min: 2500, max: 2749,  price: 300.00 },
-    { min: 2750, max: 3499,  price: 327.00 },
-    { min: 3500, max: 3749,  price: 327.00 },
-    { min: 3750, max: 3999,  price: 420.00 },
-    { min: 4000, max: 4999,  price: 570.00 },
-    { min: 5000, max: 99999, price: 660.00 },
+    { min: 0,    max: 749,   price: 185.40 },
+    { min: 750,  max: 999,   price: 185.40 },
+    { min: 1000, max: 1249,  price: 192.00 },
+    { min: 1250, max: 1499,  price: 207.00 },
+    { min: 1500, max: 1749,  price: 212.40 },
+    { min: 1750, max: 1999,  price: 250.80 },
+    { min: 2000, max: 2249,  price: 272.40 },
+    { min: 2250, max: 2499,  price: 300.00 },
+    { min: 2500, max: 2749,  price: 327.00 },
+    { min: 2750, max: 3499,  price: 360.00 },
+    { min: 3500, max: 3749,  price: 396.00 },
+    { min: 3750, max: 3999,  price: 480.00 },
+    { min: 4000, max: 4999,  price: 630.00 },
+    { min: 5000, max: 99999, price: 780.00 },
   ],
   biweekly: [
-    { min: 0,    max: 749,   price: 195.00 },
-    { min: 750,  max: 999,   price: 195.00 },
-    { min: 1000, max: 1249,  price: 201.50 },
-    { min: 1250, max: 1499,  price: 212.55 },
-    { min: 1500, max: 1749,  price: 224.25 },
-    { min: 1750, max: 1999,  price: 260.00 },
-    { min: 2000, max: 2249,  price: 265.85 },
-    { min: 2250, max: 2499,  price: 305.50 },
-    { min: 2500, max: 2749,  price: 342.55 },
-    { min: 2750, max: 3499,  price: 364.00 },
-    { min: 3500, max: 3749,  price: 403.00 },
-    { min: 3750, max: 3999,  price: 472.55 },
-    { min: 4000, max: 4999,  price: 650.00 },
-    { min: 5000, max: 99999, price: 780.00 },
+    { min: 0,    max: 749,   price: 200.85 },
+    { min: 750,  max: 999,   price: 200.85 },
+    { min: 1000, max: 1249,  price: 208.00 },
+    { min: 1250, max: 1499,  price: 224.25 },
+    { min: 1500, max: 1749,  price: 230.10 },
+    { min: 1750, max: 1999,  price: 271.70 },
+    { min: 2000, max: 2249,  price: 295.10 },
+    { min: 2250, max: 2499,  price: 325.00 },
+    { min: 2500, max: 2749,  price: 354.25 },
+    { min: 2750, max: 3499,  price: 390.00 },
+    { min: 3500, max: 3749,  price: 429.00 },
+    { min: 3750, max: 3999,  price: 520.00 },
+    { min: 4000, max: 4999,  price: 682.50 },
+    { min: 5000, max: 99999, price: 845.00 },
   ],
   monthly: [
     { min: 0,    max: 749,   price: 216.30 },
@@ -378,6 +396,9 @@ export default function BookPage() {
   const [upsellTermsOpen, setUpsellTermsOpen] = useState(false);
   const [upsellCadenceError, setUpsellCadenceError] = useState(false);
   const [recurringDate, setRecurringDate] = useState("");
+
+  // Step 3: Arrival window (time range)
+  const [arrivalWindow, setArrivalWindow] = useState<"morning" | "afternoon" | "">("");
 
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
@@ -735,6 +756,7 @@ export default function BookPage() {
             upsell_locked_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.recurringRate : null,
             upsell_first_visit_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.firstVisitRate : null,
             recurring_date: upsellAccepted ? recurringDate : null,
+            arrival_window: arrivalWindow || null,
             property_vacant: isMoveInOut,
             move_in_notes: (isMoveInOut || isDeepClean || isOneTimeStandard) && moveInNotes.trim() ? moveInNotes.trim() : null,
             address: addressComponents?.formatted ?? address,
@@ -911,7 +933,8 @@ export default function BookPage() {
   const upsellPriceResult = calculateUpsellPrice(sqft, upsellCadence, offerSettings?.upsell_discount_percent ?? 15);
 
   // Compute the minimum allowed recurring date (Deep Clean date + one cadence interval)
-  const cadenceIntervalDays: Record<string, number> = { weekly: 7, every_2_weeks: 14, every_4_weeks: 28 };
+  // Keys match upsellCadence values: weekly / biweekly / monthly
+  const cadenceIntervalDays: Record<string, number> = { weekly: 7, biweekly: 14, monthly: 28 };
   const recurringMinDateStr = (() => {
     if (!selectedDate || !upsellCadence) return "";
     const days = cadenceIntervalDays[upsellCadence] ?? 14;
@@ -2483,7 +2506,7 @@ export default function BookPage() {
 
               <SimpleCalendar
                 selected={selectedDate}
-                onSelect={(d) => { setSelectedDate(d); setRecurringDate(""); }}
+                onSelect={(d) => { setSelectedDate(d); setRecurringDate(""); setArrivalWindow(""); }}
                 brand={brand}
                 leadDays={bookingSettings?.booking_lead_days ?? 7}
                 maxAdvanceDays={bookingSettings?.max_advance_days ?? 60}
@@ -2498,22 +2521,52 @@ export default function BookPage() {
                 } : undefined}
               />
 
+              {/* FIX 11: Arrival window pills — shown after date selection */}
               {selectedDate && (
-                <div style={{ marginTop: 16, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ marginTop: 16 }}>
+                  <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Preferred Arrival Window</p>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    {([
+                      { key: "morning",   label: "Morning",   sub: "9 AM – 12 PM" },
+                      { key: "afternoon", label: "Afternoon", sub: "12 PM – 2 PM" },
+                    ] as const).map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => setArrivalWindow(opt.key)}
+                        style={{
+                          flex: 1, padding: "10px 12px", borderRadius: 10,
+                          border: `2px solid ${arrivalWindow === opt.key ? brand : "#E5E2DC"}`,
+                          background: arrivalWindow === opt.key ? `${brand}12` : "#fff",
+                          cursor: "pointer", textAlign: "left" as const,
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{opt.label}</p>
+                        <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>{opt.sub}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {selectedDate && arrivalWindow && (
+                <div style={{ marginTop: 12, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>
                   <Calendar size={16} color={brand} />
                   <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
                     {upsellAccepted ? "Deep Clean: " : "First Job: "}{new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                    {" · "}{arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"}
                   </span>
                 </div>
               )}
 
               {/* ── Second date picker: recurring start date (upsell accepted only) ── */}
-              {upsellAccepted && selectedDate && recurringMinDateStr && (
+              {upsellAccepted && selectedDate && arrivalWindow && recurringMinDateStr && (
                 <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #E5E2DC" }}>
                   <p style={{ ...s.h2, marginTop: 0 }}>When would you like your first recurring cleaning?</p>
                   <p style={s.sub}>
-                    Must be at least one full {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"} after your Deep Clean.
-                    {recurringMinDateStr && ` Earliest: ${new Date(recurringMinDateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}.`}
+                    Must be at least one full {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"} after your Deep Clean.
+                    {" Earliest: "}{new Date(recurringMinDateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}{"."}
                   </p>
                   <SimpleCalendar
                     selected={recurringDate}
@@ -2531,11 +2584,15 @@ export default function BookPage() {
                       sat: bookingSettings.available_sat,
                     } : undefined}
                   />
+                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.5 }}>
+                    Your recurring visits will continue every {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"} from this date forward — rate locked for {offerSettings?.rate_lock_duration_months ?? 24} months.
+                  </p>
                   {recurringDate && (
                     <div style={{ marginTop: 12, padding: "12px 16px", background: `${brand}12`, borderRadius: 10, border: `1px solid ${brand}`, display: "flex", alignItems: "center", gap: 10 }}>
                       <Calendar size={16} color={brand} />
                       <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
                         First Recurring: {new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+                        {" · "}{arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"}
                       </span>
                     </div>
                   )}
@@ -2551,8 +2608,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
                 <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (!selectedDate || (upsellAccepted && !recurringDate) || walkthroughBooking) ? 0.5 : 1 }}
-                  disabled={!selectedDate || (upsellAccepted && !recurringDate) || walkthroughBooking}
+                  style={{ ...s.btn(), opacity: (!selectedDate || !arrivalWindow || (upsellAccepted && !recurringDate) || walkthroughBooking) ? 0.5 : 1 }}
+                  disabled={!selectedDate || !arrivalWindow || (upsellAccepted && !recurringDate) || walkthroughBooking}
                   onClick={() => {
                     if (isCommercial && commercialOption === "walkthrough") {
                       submitWalkthroughBooking();
@@ -2611,6 +2668,7 @@ export default function BookPage() {
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
                   {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
+                  {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
                   {address && <Row label="Address" value={address} />}
                   {calcResult && <Row label="Total" value={`$${((calcResult.final_total - bundleSavings) * conditionMultiplier).toFixed(2)}`} bold />}
                 </div>
@@ -2681,6 +2739,8 @@ export default function BookPage() {
                   {!isCommercial && frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {isCommercial && commercialOption === "single" && <Row label="Rate" value="$180 for up to 3 hrs · $60/additional hr" />}
                   {selectedDate && <Row label="First Cleaning" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
+                  {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
+                  {upsellAccepted && recurringDate && <Row label="First Recurring" value={new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                   {bookResult.pricing?.final_total !== undefined && <Row label="Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
                 </div>
               </div>

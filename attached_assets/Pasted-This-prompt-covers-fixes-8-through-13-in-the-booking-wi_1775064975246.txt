@@ -1,0 +1,87 @@
+This prompt covers fixes 8 through 13 in the booking widget. Complete every section in order before confirming done.
+
+FIX 8 — Recurring pricing tier table boundary bug
+The Every 4 Weeks recurring rate is $70/hr. Update the tier table to match these exact values:
+0–749 sqft:       3.09 hrs × $70 = $216.30
+750–999 sqft:     3.09 hrs × $70 = $216.30
+1000–1249 sqft:   3.20 hrs × $70 = $224.00
+1250–1499 sqft:   3.45 hrs × $70 = $241.50
+1500–1749 sqft:   3.54 hrs × $70 = $247.80
+1750–1999 sqft:   4.18 hrs × $70 = $292.60
+2000–2249 sqft:   4.54 hrs × $70 = $317.80
+2250–2499 sqft:   5.00 hrs × $70 = $350.00
+2500–2749 sqft:   5.45 hrs × $70 = $381.50
+2750–3499 sqft:   6.00 hrs × $70 = $420.00
+3500–3749 sqft:   6.60 hrs × $70 = $462.00
+3750–3999 sqft:   8.00 hrs × $70 = $560.00
+4000–4999 sqft:  10.50 hrs × $70 = $735.00
+5000–5499 sqft:  13.00 hrs × $70 = $910.00
+Apply the same hour values to Every 2 Weeks at $65/hr and Weekly at $60/hr. Do not change the hour values — only the hourly rate differs by cadence. Verify no sqft value produces a lower price than a smaller sqft value in the same cadence — prices must increase monotonically. Run the full 72-test pricing audit suite after fixing and confirm all tests pass.
+
+FIX 9 — Cadence interval calculation for recurring date picker
+The minimum selectable date for the recurring start picker must use the actual selected cadence interval:
+
+Weekly = Deep Clean date + 7 days
+Every 2 Weeks = Deep Clean date + 14 days
+Every 4 Weeks = Deep Clean date + 28 days
+
+Test case: Deep Clean April 22 + Every 4 Weeks = earliest May 20. The guidance text must update dynamically: "Must be at least one full [cadence] after your Deep Clean. Earliest: [date]."
+
+FIX 10 — Recurring calendar auto-advance
+When the recurring date picker renders and the current calendar month contains no selectable dates, automatically advance the calendar to the month containing the earliest selectable date. Never render a fully grayed-out month — the client must always land on a month with at least one selectable date visible.
+
+FIX 11 — Time range selector on both calendars
+Add a time range selector below each calendar — both the Deep Clean calendar and the recurring start calendar. Display exactly two pill buttons below each calendar:
+Morning      9:00 AM – 12:00 PM
+Afternoon    12:00 PM – 2:00 PM
+Rules:
+
+No default pre-selected — client must actively choose one
+Continue button stays disabled until both a date AND a time range are selected for each applicable calendar
+Selected range stored on both job records
+Price Summary sidebar shows: "Arrival window: Morning (9 AM – 12 PM)"
+Confirmation email references range only, never a specific time: "Your arrival window is 9:00 AM – 12:00 PM. Our office will confirm your technician the day before."
+No times outside these two ranges available anywhere in the widget
+
+
+FIX 12 — Both jobs created as unassigned on dispatch board after Stripe auth
+When Stripe SetupIntent completes successfully:
+
+Job 1 — Deep Clean: status = unassigned, technician = null, scope = deep_clean, date = Deep Clean date, arrival_window = selected range, service address from Step 1, sqft and home details from Step 2, add-ons attached, price = First Visit Total, source = online_booking
+Job 2 — Recurring Start (if recurring accepted): status = unassigned, technician = null, scope = cadence selected, date = recurring start date, arrival_window = selected range, same address and home details, price = recurring rate (no add-ons), rate_lock = true, rate_lock_duration = 24 months, source = online_booking. Also create or link a recurring_schedule record so the recurring engine generates future jobs from this cadence forward.
+Both jobs appear on the Dispatch Board under their scheduled dates with UNASSIGNED badge
+Neither job assigned to a technician at creation — office assigns manually
+If Stripe fails — neither job record is created, client returned to Step 5 with error message
+
+Confirmation email to client must include:
+
+"Your Deep Clean is scheduled for [date]. Arrival window: [range]."
+If recurring accepted: "Your first recurring cleaning is scheduled for [date]. Arrival window: [range]. Your rate is locked at $XXX.00/visit for 24 months."
+"Our office will confirm your technician the day before your appointment."
+
+Internal office notification fires immediately after Stripe auth — both SMS and email:
+
+SMS to (773) 786-9902: "New online booking — [First Last] — [scope] — [date] — [arrival window] — Unassigned. Review dispatch board."
+Email to info@phes.io subject: "New Booking: [First Last]" — include name, scope, Deep Clean date, arrival window, recurring start date if applicable, address, phone, total amount
+
+
+FIX 13 — Recurring start date default and flexibility
+The recurring start date picker must work as follows:
+
+Default: Pre-select the earliest available date based on the cadence interval (Weekly = Deep Clean + 7 days, Every 2 Weeks = Deep Clean + 14 days, Every 4 Weeks = Deep Clean + 28 days). This is a suggestion, not a lock.
+Minimum: Client cannot select a date earlier than one full cadence interval after the Deep Clean date.
+Maximum: Client can select any date up to 60 days from today — same outer horizon as the Deep Clean picker.
+The client can freely adjust the recurring start date forward from the default. Only dates before the minimum are grayed out — all dates between the minimum and the 60-day horizon are selectable.
+Below the recurring start calendar add a single line of small secondary text: "This is when your recurring service begins. You can start later if needed — your rate is locked either way."
+The selected recurring start date updates dynamically in the Price Summary sidebar and in the confirmation email.
+
+
+CONFIRM AFTER ALL FIXES:
+
+1,433 sqft and 1,444 sqft both return $241.50 at Every 4 Weeks, 72-test suite passes
+Every 4 Weeks + April 22 Deep Clean → earliest recurring May 20, guidance text correct. Every 2 Weeks → May 6. Weekly → April 29.
+Recurring calendar auto-advances to first month with selectable dates — never renders a fully grayed month
+Two time range pills below each calendar, Continue disabled until date and range both selected, range stored on job records, shown in sidebar and confirmation email, no specific times referenced anywhere
+Two unassigned jobs on dispatch board after Stripe auth with correct dates, arrival windows, and amounts. Confirmation email lists both dates and windows. Office notification fires via SMS and email immediately.
+Recurring start date defaults to earliest valid date but client can push it forward freely up to 60 days. Only dates before the minimum are grayed. Secondary text "This is when your recurring service begins. You can start later if needed — your rate is locked either way." visible below the recurring calendar.
+Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.

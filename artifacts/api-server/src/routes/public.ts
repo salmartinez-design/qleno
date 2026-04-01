@@ -530,6 +530,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       upsell_shown, upsell_accepted, upsell_declined, upsell_deferred,
       upsell_cadence_selected, upsell_locked_rate, upsell_first_visit_rate,
       recurring_date,
+      arrival_window,
       property_vacant, move_in_notes,
       address, preferred_date,
       payment_method_id, stripe_customer_id,
@@ -658,6 +659,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const upsellDeferredVal = upsell_deferred === true || upsell_deferred === "true" ? true : false;
     const upsellCadenceVal = upsell_cadence_selected || null;
     const propertyVacantVal = property_vacant === true || property_vacant === "true" ? true : false;
+    const arrivalWindowVal = (arrival_window === "morning" || arrival_window === "afternoon") ? arrival_window : null;
 
     const bookLocVal = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
     const addrStreet = address_street || null;
@@ -678,7 +680,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           last_cleaned_response, last_cleaned_flag,
           overage_disclaimer_acknowledged, overage_rate,
           upsell_shown, upsell_accepted, upsell_declined, upsell_deferred, upsell_cadence_selected,
-          property_vacant,
+          property_vacant, arrival_window,
           booking_location,
           address_street, address_city, address_state, address_zip,
           address_lat, address_lng, address_verified,
@@ -692,7 +694,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${lastCleanedResp}, ${lastCleanedFl},
           ${overageAck}, ${overageRateVal},
           ${upsellShownVal}, ${upsellAcceptedVal}, ${upsellDeclinedVal}, ${upsellDeferredVal}, ${upsellCadenceVal},
-          ${propertyVacantVal},
+          ${propertyVacantVal}, ${arrivalWindowVal},
           ${bookLocVal},
           ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
           ${addrLat}, ${addrLng}, ${addrVerified},
@@ -738,6 +740,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 company_id, client_id, service_type, status,
                 scheduled_date, frequency, base_fee,
                 upsell_shown, upsell_accepted, upsell_cadence_selected,
+                arrival_window,
                 booking_location,
                 address_street, address_city, address_state, address_zip,
                 address_lat, address_lng, address_verified,
@@ -746,6 +749,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 ${company_id}, ${clientId}, ${"recurring"}, ${"unassigned"},
                 ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
                 false, false, ${upsellCadenceVal},
+                ${arrivalWindowVal},
                 ${bookLocVal},
                 ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
                 ${addrLat}, ${addrLng}, ${addrVerified},
@@ -812,7 +816,8 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         const recurDateStr = recurring_date
           ? new Date(recurring_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
           : null;
-        const recurCadenceLabel = upsellCadenceVal === "weekly" ? "week" : upsellCadenceVal === "every_2_weeks" ? "2 weeks" : "4 weeks";
+        const recurCadenceLabel = upsellCadenceVal === "weekly" ? "week" : upsellCadenceVal === "biweekly" ? "2 weeks" : "4 weeks";
+        const arrivalWindowLabel = arrivalWindowVal === "morning" ? "9 AM – 12 PM" : arrivalWindowVal === "afternoon" ? "12 PM – 2 PM" : null;
         const recurLockedRate = upsell_locked_rate ? parseFloat(String(upsell_locked_rate)).toFixed(2) : null;
         const cardStr = cardLast4 ? `${(cardBrand || "Card").charAt(0).toUpperCase() + (cardBrand || "card").slice(1)} ending in ${cardLast4}` : "Card on file";
         const freqStr = frequency ? frequency.charAt(0).toUpperCase() + frequency.slice(1) : "";
@@ -831,6 +836,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
 <table style="width:100%;border-collapse:collapse;font-size:14px;color:#1A1917;">
   <tr><td style="padding:8px 0;color:#6B6860;width:160px;">Service</td><td style="padding:8px 0;font-weight:600;">${scopeName}${upsellAcceptedVal ? " + Recurring" : ""}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
+  ${arrivalWindowLabel ? `<tr><td style="padding:8px 0;color:#6B6860;">Arrival Window</td><td style="padding:8px 0;">${arrivalWindowLabel}</td></tr>` : ""}
   ${upsellAcceptedVal && recurDateStr ? `<tr><td style="padding:8px 0;color:#6B6860;">First Recurring</td><td style="padding:8px 0;font-weight:600;">${recurDateStr}</td></tr>` : ""}
   ${upsellAcceptedVal && recurDateStr && recurLockedRate ? `<tr><td style="padding:8px 0;color:#6B6860;vertical-align:top;">Rate Lock</td><td style="padding:8px 0;">$${recurLockedRate}/visit every ${recurCadenceLabel} — locked for 24 months</td></tr>` : ""}
   ${!upsellAcceptedVal ? `<tr><td style="padding:8px 0;color:#6B6860;">Frequency</td><td style="padding:8px 0;">${freqStr}</td></tr>` : ""}
@@ -860,6 +866,7 @@ ${upsellAcceptedVal && recurDateStr ? `<p style="background:#F0F7FF;border-left:
   <tr><td style="padding:8px 0;color:#6B6860;">Address</td><td style="padding:8px 0;">${address || "Not provided"}</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Service</td><td style="padding:8px 0;">${scopeName}${upsellAcceptedVal ? " + Recurring (upsell)" : ""} — ${sqft} sqft</td></tr>
   <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Date</td><td style="padding:8px 0;font-weight:600;">${dateStr}</td></tr>
+  ${arrivalWindowLabel ? `<tr><td style="padding:8px 0;color:#6B6860;">Arrival Window</td><td style="padding:8px 0;">${arrivalWindowLabel}</td></tr>` : ""}
   ${recurDateStr ? `<tr><td style="padding:8px 0;color:#6B6860;">First Recurring</td><td style="padding:8px 0;font-weight:600;">${recurDateStr}</td></tr>` : ""}
   ${recurLockedRate ? `<tr><td style="padding:8px 0;color:#6B6860;">Locked Rate</td><td style="padding:8px 0;">$${recurLockedRate}/visit every ${recurCadenceLabel} for 24 months</td></tr>` : ""}
   <tr><td style="padding:8px 0;color:#6B6860;">Deep Clean Total</td><td style="padding:8px 0;font-weight:600;">$${adjustedTotal.toFixed(2)}</td></tr>
@@ -873,6 +880,34 @@ ${upsellAcceptedVal && recurDateStr ? `<p style="background:#F0F7FF;border-left:
       } catch (emailErr) {
         console.error("[confirm] Resend error:", emailErr);
       }
+    }
+
+    // ── Office SMS notification on confirm ───────────────────────────────────
+    try {
+      const accountSid = process.env.TWILIO_ACCOUNT_SID;
+      const authToken  = process.env.TWILIO_AUTH_TOKEN;
+      const fromNum    = process.env.TWILIO_FROM_NUMBER;
+      if (accountSid && authToken && fromNum) {
+        const dateStr2 = preferred_date
+          ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+          : "TBD";
+        const windowLabel = arrivalWindowVal === "morning" ? "9AM–12PM" : arrivalWindowVal === "afternoon" ? "12PM–2PM" : "";
+        const smsBody = `📋 New Booking — ${first_name} ${last_name} | ${scopeName} | ${sqft} sqft | ${dateStr2}${windowLabel ? ` ${windowLabel}` : ""} | Job #${jobId}${recurringJobId ? ` + #${recurringJobId}` : ""}`;
+        const smsRes = await fetch(
+          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: new URLSearchParams({ To: "+17737869902", From: fromNum, Body: smsBody }).toString(),
+          }
+        );
+        if (!smsRes.ok) console.error("[confirm] Twilio SMS failed:", await smsRes.text());
+      }
+    } catch (smsErr) {
+      console.error("[confirm] Office SMS error:", smsErr);
     }
 
     console.log(`[STRIPE] Booking confirmed — client_id=${clientId} job_id=${jobId}${recurringJobId ? ` recurring_job_id=${recurringJobId}` : ""} PM=${payment_method_id} card=${cardBrand} *${cardLast4}`);
