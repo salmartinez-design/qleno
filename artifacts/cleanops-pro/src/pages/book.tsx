@@ -1126,10 +1126,16 @@ export default function BookPage() {
   // ── Shared price breakdown content (used in sidebar + mobile) ────────────
   const priceBreakdownRows = calcResult ? (
     <>
-      <Row
-        label={`${upsellAccepted ? "Deep Clean (First Visit)" : calcResult.scope_name}${sqft > 0 ? ` · ${sqft.toLocaleString()} sqft` : ""}`}
-        value={`$${calcResult.base_price.toFixed(2)}`}
-      />
+      {/* FIX 3: scope name truncates; sqft always visible on its own line below */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, width: "100%" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 13, color: "#6B6860", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            {upsellAccepted ? "Deep Clean (First Visit)" : calcResult.scope_name}
+          </span>
+          {sqft > 0 && <span style={{ fontSize: 11, color: "#9E9B94", display: "block", marginTop: 1 }}>{sqft.toLocaleString()} sqft</span>}
+        </div>
+        <span style={{ flexShrink: 0, fontSize: 13, color: "#1A1917", whiteSpace: "nowrap", paddingLeft: 4 }}>${calcResult.base_price.toFixed(2)}</span>
+      </div>
       {calcResult.addon_breakdown.filter(a => a.amount !== 0).map(a => (
         <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${Math.abs(a.amount).toFixed(2)}`} />
       ))}
@@ -1165,7 +1171,7 @@ export default function BookPage() {
                 </span>
               </div>
               <p style={{ margin: 0, fontSize: 10, color: "#6B6860" }}>
-                Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+                Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
               </p>
               <p style={{ margin: 0, fontSize: 10, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
               {recurringDate && (
@@ -1176,7 +1182,7 @@ export default function BookPage() {
             </div>
           )}
           <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 8, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <span style={{ fontSize: 13, color: "#6B6860" }}>{upsellAccepted ? "First Visit Total" : "Total"}</span>
+            <span style={{ fontSize: 13, color: "#6B6860" }}>First Visit Total</span>
             <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${(calcResult.final_total - bundleSavings).toFixed(2)}</span>
           </div>
         </div>
@@ -1210,7 +1216,8 @@ export default function BookPage() {
   };
   const rightPanel = (
     <div className="bw-sidebar" style={{ width: 300, flexShrink: 0 }}>
-      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+      {/* FIX 6: maxHeight + overflowY so all content is reachable without clipping */}
+      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14, maxHeight: "calc(100vh - 48px)", overflowY: "auto", paddingRight: 4 }}>
 
         {/* Section 1 — Contact Information + Business Hours merged */}
         <div style={s.card}>
@@ -1268,7 +1275,7 @@ export default function BookPage() {
                     </span>
                   </div>
                   <p style={{ margin: 0, fontSize: 11, color: "#6B6860" }}>
-                    Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "every_2_weeks" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
+                    Then every {upsellCadence === "weekly" ? "week" : upsellCadence === "biweekly" ? "2 weeks" : "4 weeks"}: ${upsellPriceResult.recurringRate.toFixed(2)}/visit — rate locked {offerSettings?.rate_lock_duration_months ?? 24} months
                   </p>
                   <p style={{ margin: 0, fontSize: 11, color: "#9E9B94", fontStyle: "italic" }}>Add-ons apply to first visit only.</p>
                   {recurringDate && (
@@ -2028,7 +2035,7 @@ export default function BookPage() {
                               {!upsellCadence || upsellPriceResult ? "Yes — lock in my rate" : "Enter your home size to continue"}
                             </button>
                             <button
-                              onClick={() => { setUpsellDeclined(true); setUpsellAccepted(false); }}
+                              onClick={() => { setUpsellDeclined(true); setUpsellAccepted(false); setRecurringDate(""); setFrequencyStr(""); }}
                               style={{ padding: "12px 20px", background: "#FFFFFF", color: "#6B6860", border: "1px solid #6B6860", borderRadius: 8, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                             >
                               No thanks, just the Deep Clean
@@ -2045,7 +2052,7 @@ export default function BookPage() {
                             First visit: <strong style={{ color: brand }}>${upsellPriceResult?.firstVisitRate?.toFixed(2) ?? "--"}</strong> ({offerSettings?.upsell_discount_percent ?? 15}% off applied).
                           </p>
                           <button
-                            onClick={() => { setUpsellAccepted(false); setUpsellDeclined(false); setUpsellCadence(""); }}
+                            onClick={() => { setUpsellAccepted(false); setUpsellDeclined(false); setUpsellCadence(""); setRecurringDate(""); setFrequencyStr(""); }}
                             style={{ background: "none", border: "none", padding: 0, fontSize: 12, color: "#6B6860", textDecoration: "underline", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                           >
                             Change selection
@@ -2532,6 +2539,7 @@ export default function BookPage() {
                     ] as const).map(opt => (
                       <button
                         key={opt.key}
+                        disabled={false}
                         onClick={() => setArrivalWindow(opt.key)}
                         style={{
                           flex: 1, padding: "10px 12px", borderRadius: 10,
@@ -2539,7 +2547,7 @@ export default function BookPage() {
                           background: arrivalWindow === opt.key ? `${brand}12` : "#fff",
                           cursor: "pointer", textAlign: "left" as const,
                           fontFamily: "'Plus Jakarta Sans', sans-serif",
-                          transition: "all 0.15s",
+                          transition: "all 0.15s", opacity: 1,
                         }}
                       >
                         <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{opt.label}</p>
@@ -2668,11 +2676,25 @@ export default function BookPage() {
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
                   {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
+                  {/* FIX 5: First Recurring Date row (only when recurring accepted) */}
+                  {upsellAccepted && recurringDate && (
+                    <Row label="First Recurring Date" value={new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />
+                  )}
                   {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
                   {address && <Row label="Address" value={address} />}
-                  {calcResult && <Row label="Total" value={`$${((calcResult.final_total - bundleSavings) * conditionMultiplier).toFixed(2)}`} bold />}
+                  {/* FIX 4: "Total" relabeled to "First Visit Total" */}
+                  {calcResult && <Row label="First Visit Total" value={`$${((calcResult.final_total - bundleSavings) * conditionMultiplier).toFixed(2)}`} bold />}
                 </div>
               </div>
+
+              {/* FIX 5: Card-on-file disclaimer — only when recurring accepted */}
+              {upsellAccepted && (
+                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#0369A1", lineHeight: 1.6 }}>
+                    The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office.
+                  </p>
+                </div>
+              )}
 
               {bookError && (
                 <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#DC2626" }}>

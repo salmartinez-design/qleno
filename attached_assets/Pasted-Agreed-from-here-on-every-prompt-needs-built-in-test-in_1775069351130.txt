@@ -1,0 +1,83 @@
+Agreed — from here on every prompt needs built-in test instructions the agent runs before triggering a deploy. Here's the full prompt:
+
+---
+
+**Fix six issues on the booking widget Step 4 and Step 5. After completing all fixes, run every test listed at the bottom before deploying. Do not trigger a deployment until all tests pass.**
+
+---
+
+**FIX 1 — Sidebar cadence label pulling wrong value**
+
+The Price Summary sidebar recurring line reads "Then every 4 weeks" regardless of cadence selected. Fix the cadence string to pull dynamically from booking state:
+- Weekly selected → "Then every week: $XXX.00/visit — rate locked 24 months"
+- Every 2 Weeks selected → "Then every 2 weeks: $XXX.00/visit — rate locked 24 months"
+- Every 4 Weeks selected → "Then every 4 weeks: $XXX.00/visit — rate locked 24 months"
+
+Trace where the cadence string is being rendered in the sidebar component and confirm it is reading from state, not hardcoded. Fix the reference.
+
+---
+
+**FIX 2 — Afternoon arrival window unavailable on certain dates**
+
+On some dates only "Morning (9 AM – 12 PM)" is selectable and "Afternoon (12 PM – 2 PM)" is grayed out or missing. Both time range pills must always be available on every selectable date — Morning and Afternoon. Neither pill should ever be disabled, hidden, or grayed out based on the date selected. The office manages actual availability internally — the widget must never restrict time range options based on date. Remove any logic that conditionally disables or hides the Afternoon pill.
+
+---
+
+**FIX 3 — sqft label truncating in Price Summary sidebar**
+
+"1,23..." must never truncate. Fix the label so the full sqft number always displays. If space is constrained, truncate the scope name ("Deep Clean") with an ellipsis before ever truncating the sqft number. The sqft figure is financially material — the scope label is not. Apply this fix to all steps where the Price Summary sidebar renders.
+
+---
+
+**FIX 4 — Booking Summary "Total" relabeled**
+
+In the Booking Summary panel on Step 5, the "Total" row must be relabeled "First Visit Total" to match sidebar language and prevent the client from misreading it as their ongoing charge.
+
+---
+
+**FIX 5 — Recurring start date in Booking Summary + card-on-file disclaimer**
+
+Two changes to the Booking Summary panel on Step 5:
+
+First — if the client accepted recurring, add a row below "First Date" labeled "First Recurring Date" showing the selected recurring start date. This must be visible before the client hits Confirm & Book.
+
+Second — if the client accepted recurring, add a disclaimer below the Booking Summary fields and above the Confirm & Book button. Display it in a lightly bordered info box. Text must read exactly:
+
+"The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office."
+
+This disclaimer only appears when a recurring schedule has been accepted. It does not appear for one-time Deep Clean only bookings.
+
+---
+
+**FIX 6 — Price Summary sidebar card overflowing its container**
+
+The Price Summary card is clipping content at the bottom. Fix the card so it expands to fit all content — base price, add-ons, First Visit Total, First Recurring Visit with struck-through price, cadence line, "Add-ons apply to first visit only" note, and "First recurring: [date]" — fully visible on a standard 1280px desktop viewport without clipping or scrolling. Use auto height on the card, not a fixed height.
+
+---
+
+## TESTS TO RUN BEFORE DEPLOYING
+
+Run every test below and confirm each passes before triggering a deployment. Report the result of each test explicitly.
+
+**Test 1 — Cadence label:**
+Complete Step 2 selecting Deep Clean, accept recurring upsell with Every 2 Weeks cadence. Advance to Step 3. Confirm sidebar reads "Then every 2 weeks: $XXX.00/visit — rate locked 24 months." Then go back, change cadence to Weekly. Confirm sidebar updates to "Then every week." Then change to Every 4 Weeks. Confirm "Then every 4 weeks." All three must match.
+
+**Test 2 — Afternoon pill availability:**
+Select any date on the Deep Clean calendar. Confirm both Morning and Afternoon pills are visible and selectable. Select a different date. Confirm both pills still available. Repeat for the recurring start calendar on at least 3 different dates including dates in future months.
+
+**Test 3 — sqft display:**
+Enter 1,233 in the sqft field. Advance to Step 3. Confirm Price Summary sidebar shows "Deep Clean (First Visit) · 1,233 sqft" without any truncation on a 1280px viewport.
+
+**Test 4 — Booking Summary label:**
+Advance to Step 5. Confirm the total row reads "First Visit Total — $XXX.XX" not "Total."
+
+**Test 5 — Recurring date and disclaimer:**
+Complete a full flow with recurring accepted, recurring start date set to a date other than the default. Advance to Step 5. Confirm Booking Summary shows both "First Date" and "First Recurring Date" rows with correct dates. Confirm the card-on-file disclaimer box appears below the summary fields. Then go back, select "No thanks, just the Deep Clean." Advance to Step 5. Confirm the disclaimer does NOT appear and "First Recurring Date" row does NOT appear.
+
+**Test 6 — Sidebar card height:**
+On Step 5 with recurring accepted and two add-ons selected, confirm all Price Summary line items are fully visible — no clipping at the bottom of the card on a 1280px desktop viewport.
+
+**Test 7 — Full end-to-end smoke test:**
+Complete the full 5-step flow: contact info → Deep Clean scope → accept recurring Every 2 Weeks → select add-ons Oven and Windows → select Deep Clean date and Morning window → select recurring start date and Afternoon window → confirm all fields in Booking Summary → enter test card 4242 4242 4242 4242 exp 12/29 CVC 123 → click Confirm & Book → confirm success screen appears → confirm two unassigned jobs appear on the dispatch board with correct dates and arrival windows → confirm confirmation email fires.
+
+Only deploy after all 7 tests pass and are explicitly confirmed.
