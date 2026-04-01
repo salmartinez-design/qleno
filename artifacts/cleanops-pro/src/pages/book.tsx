@@ -1276,7 +1276,7 @@ export default function BookPage() {
           .bw-scope-grid { grid-template-columns: 1fr !important; }
           .bw-consent { font-size: 13px !important; line-height: 1.6 !important; }
           .bw-root input:not([type="checkbox"]):not([type="radio"]), .bw-root select, .bw-root textarea { min-height: 48px !important; font-size: 16px !important; }
-          .bw-nav { flex-direction: column !important; gap: 8px !important; }
+          .bw-nav { flex-direction: column-reverse !important; gap: 8px !important; }
           .bw-nav button { width: 100% !important; min-height: 52px !important; font-size: 15px !important; }
           .bw-nav-end button { width: 100% !important; min-height: 52px !important; font-size: 15px !important; }
           .bw-nav-end { justify-content: stretch !important; }
@@ -2049,6 +2049,7 @@ export default function BookPage() {
               )}
 
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+                <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (() => {
                     if (isCommercial) return !commercialOption ? 0.5 : 1;
@@ -2077,7 +2078,6 @@ export default function BookPage() {
                 >
                   Continue
                 </button>
-                <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
               </div>
             </div>
           )}
@@ -2417,6 +2417,7 @@ export default function BookPage() {
               )}
 
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+                <button style={s.btn(false)} onClick={() => setStep(1)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (isRecurringScope && !frequencyStr) ? 0.5 : 1 }}
                   disabled={isRecurringScope && !frequencyStr}
@@ -2424,7 +2425,6 @@ export default function BookPage() {
                 >
                   Continue
                 </button>
-                <button style={s.btn(false)} onClick={() => setStep(1)}>Back</button>
               </div>
             </div>
           )}
@@ -2468,6 +2468,7 @@ export default function BookPage() {
               )}
 
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 24 }}>
+                <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (!selectedDate || walkthroughBooking) ? 0.5 : 1 }}
                   disabled={!selectedDate || walkthroughBooking}
@@ -2481,7 +2482,6 @@ export default function BookPage() {
                 >
                   {walkthroughBooking ? "Scheduling..." : (isCommercial && commercialOption === "walkthrough") ? "Schedule Walkthrough" : "Continue"}
                 </button>
-                <button style={s.btn(false)} onClick={() => isCommercial ? setStep(1) : setStep(2)}>Back</button>
               </div>
             </div>
           )}
@@ -2542,6 +2542,7 @@ export default function BookPage() {
               )}
 
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
+                <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
                   disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
@@ -2549,7 +2550,6 @@ export default function BookPage() {
                 >
                   {booking ? "Processing..." : (stripeSetupLoading || stripeEnabled === null) ? "Setting up..." : stripeEnabled ? "Confirm & Book" : "Book It"}
                 </button>
-                <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
               </div>
             </div>
           )}
