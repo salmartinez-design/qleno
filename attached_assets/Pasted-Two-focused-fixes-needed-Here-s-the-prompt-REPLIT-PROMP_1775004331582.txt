@@ -1,0 +1,49 @@
+Two focused fixes needed. Here’s the prompt:
+
+REPLIT PROMPT — CALLBACK BUTTON FIX + BOOKING SUMMARY CLEANUP:
+Fix these two issues on the live production booking widget. Verify on https://clean-ops-pro.replit.app/book/phes-cleaning after each fix.
+
+Fix 1 — Request a Callback button not working:
+The “Request a Callback” button on the Very Dirty flow is not clickable. Read the onClick handler for this button in book.tsx. The button is either:
+	∙	Missing an onClick handler entirely
+	∙	Has a handler that’s failing silently
+	∙	Is being blocked by a parent element
+Fix it so clicking “Request a Callback” submits Name, Phone, Email, and “Tell us a bit about your home” to the leads table with:
+	∙	status = ‘needs_contacted’
+	∙	source = ‘booking_widget’
+	∙	cleanliness_flag = ‘very_dirty’
+On success show: “Thank you — someone from our office will reach out within one business day.” Name and Phone are required. Email is optional on this form only.
+Production verify: Go to booking widget, enter a valid in-zone zip, select Very Dirty on Step 2, fill in Name and Phone, tap Request a Callback. Confirm it submits and shows the confirmation message.
+
+Fix 2 — Booking Summary and Payment step cleanup:
+The booking summary on Step 5 has these issues:
+	1.	Address text cuts off screen — wrap it properly, allow two lines if needed
+	2.	“Frequency” shows “onetime” — display as “One Time” for one-time bookings, “Weekly” for weekly, “Every 2 Weeks” for biweekly, “Every 4 Weeks” for monthly
+	3.	Price summary sticky bar text still overflowing — apply this fix to every line in both the sticky bar and the Step 5 summary:
+
+/* Row container */
+display: flex;
+align-items: flex-start;
+gap: 8px;
+width: 100%;
+
+/* Label */
+flex: 1;
+overflow-wrap: break-word;
+word-break: break-word;
+min-width: 0;
+
+/* Price */
+flex-shrink: 0;
+white-space: nowrap;
+padding-left: 8px;
+
+
+	4.	Clean up the booking summary layout — each row should be two columns: label on left in secondary color, value on right in primary color, right-aligned. Address gets full width below the label row. Apply consistent spacing between rows.
+	5.	“Cook County,” prefix in the address — remove “Cook County, “ from the display. Show only the street address, city, state, zip. The Google Places autocomplete is prepending the county — strip it from the display value before storing and showing.
+Production verify: Go through full booking flow on phone, reach Step 5. Confirm:
+	∙	Address shows without county prefix and without cutting off
+	∙	Frequency shows human-readable label not “onetime”
+	∙	No text overflowing in sticky bar or booking summary
+	∙	All text fits within screen width
+Do not close until both fixes confirmed working on production URL.​​​​​​​​​​​​​​​​

@@ -360,6 +360,7 @@ export default function BookPage() {
   const [vdMessage, setVdMessage] = useState("");
   const [vdSubmitting, setVdSubmitting] = useState(false);
   const [vdSubmitted, setVdSubmitted] = useState(false);
+  const [vdError, setVdError] = useState("");
 
   // House rules accordion state
   const [mobilePoliciesOpen, setMobilePoliciesOpen] = useState(false);
@@ -504,7 +505,8 @@ export default function BookPage() {
         lng: place.geometry?.location?.lng?.() ?? 0,
         verified: true,
       };
-      setAddressField(data.formatted);
+      const cleanAddr = [data.street, data.city, data.state && data.zip ? `${data.state} ${data.zip}` : (data.state || data.zip)].filter(Boolean).join(", ");
+      setAddressField(cleanAddr || data.formatted);
       setAddressComponents(data);
       if (data.zip) setZip(data.zip);
       setAddressVerified(true);
@@ -1817,29 +1819,32 @@ export default function BookPage() {
                                     style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, color: "#1A1917", resize: "vertical", fontFamily: "inherit" }}
                                   />
                                 </div>
+                                {vdError && (
+                                  <p style={{ margin: "0 0 8px", fontSize: 13, color: "#DC2626" }}>{vdError}</p>
+                                )}
                                 <button
                                   disabled={vdSubmitting}
                                   onClick={async () => {
+                                    setVdError("");
                                     setVdSubmitting(true);
                                     try {
-                                      const apiBase = import.meta.env.BASE_URL.replace(/\/$/, "");
-                                      await fetch(`${apiBase}/api/public/leads`, {
+                                      await pubFetch("/api/public/leads", {
                                         method: "POST",
-                                        headers: { "Content-Type": "application/json" },
                                         body: JSON.stringify({
-                                          company_id: 1,
+                                          company_id: company?.id ?? 1,
                                           first_name: firstName,
                                           last_name: lastName,
                                           phone,
                                           email,
                                           sqft,
-                                          address: addressLine,
+                                          address: address,
                                           message: vdMessage,
                                           condition_flag: "very_dirty",
                                         }),
                                       });
                                       setVdSubmitted(true);
                                     } catch {
+                                      setVdError("Something went wrong. Please try calling us directly.");
                                       setVdSubmitting(false);
                                     }
                                   }}
@@ -2518,7 +2523,7 @@ export default function BookPage() {
                   <Row label="Phone" value={phone} />
                   <Row label="Service" value={selectedScope?.name ?? ""} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
-                  <Row label="Frequency" value={frequencyStr} />
+                  {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
                   {address && <Row label="Address" value={address} />}
                   {calcResult && <Row label="Total" value={`$${(calcResult.final_total * conditionMultiplier).toFixed(2)}`} bold />}
@@ -2587,7 +2592,7 @@ export default function BookPage() {
                   {address && <Row label="Address" value={address} />}
                   <Row label="Service" value={selectedScope?.name ?? ""} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft · ${bedrooms}br / ${bathrooms}ba`} />}
-                  {!isCommercial && <Row label="Frequency" value={frequencyStr} />}
+                  {!isCommercial && frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {isCommercial && commercialOption === "single" && <Row label="Rate" value="$180 for up to 3 hrs · $60/additional hr" />}
                   {selectedDate && <Row label="First Cleaning" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                   {bookResult.pricing?.final_total !== undefined && <Row label="Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
@@ -2598,7 +2603,7 @@ export default function BookPage() {
                 <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16, marginBottom: 24 }}>
                   <p style={{ margin: "0 0 12px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>Add-ons</p>
                   {bookResult.pricing.addon_breakdown.map((a: any) => (
-                    <Row key={a.id} label={a.name} value={`$${a.amount.toFixed(2)}`} />
+                    <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`$${a.amount.toFixed(2)}`} />
                   ))}
                 </div>
               )}
