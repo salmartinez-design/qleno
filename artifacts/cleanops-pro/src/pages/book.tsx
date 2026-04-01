@@ -1089,7 +1089,7 @@ export default function BookPage() {
         value={`$${calcResult.base_price.toFixed(2)}`}
       />
       {calcResult.addon_breakdown.filter(a => a.amount !== 0).map(a => (
-        <Row key={a.id} label={a.name.split(" — ")[0].trim()} value={`+$${Math.abs(a.amount).toFixed(2)}`} />
+        <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${Math.abs(a.amount).toFixed(2)}`} />
       ))}
       {(calcResult.bundle_discount || 0) > 0 && (
         <Row label="Appliance Bundle Discount" value={`-$${(calcResult.bundle_discount).toFixed(2)}`} green />
@@ -2129,24 +2129,23 @@ export default function BookPage() {
 
               {/* Add-ons grid — explicit hardcoded cards, one SVG per card */}
               {(() => {
-                // Resolve DB addon IDs by known IDs — display is always shown regardless
-                const dbById = (id: number) => addons.find(a => a.id === id);
-                const ovenDb   = dbById(8);
-                const fridgeDb = dbById(10);
-                const cabDb    = dbById(12);
-                const winDb    = dbById(16);
-                const basDb    = dbById(19);
+                // Resolve DB addon records by name — never by hardcoded ID
+                const ovenDb   = addons.find(a => /oven/i.test(a.name) && !/hourly/i.test(a.name));
+                const fridgeDb = addons.find(a => /refrigerator/i.test(a.name) && !/hourly/i.test(a.name));
+                const cabDb    = addons.find(a => /cabinet/i.test(a.name) && !/hourly/i.test(a.name));
+                const winDb    = addons.find(a => /window/i.test(a.name) && !/hourly/i.test(a.name));
+                const basDb    = addons.find(a => /basement/i.test(a.name) && !/hourly/i.test(a.name) && !/recurring/i.test(a.name));
 
                 const deepBase = calcResult?.base_price ?? 0;
                 const dynPrice = (deepBase > 0 && sqft > 0)
                   ? Math.round(deepBase * 0.15 * 100) / 100
                   : null;
 
-                const ovenSel  = selectedAddonIds.includes(ovenDb?.id ?? 8);
-                const fridgeSel = selectedAddonIds.includes(fridgeDb?.id ?? 10);
-                const cabSel   = selectedAddonIds.includes(cabDb?.id ?? 12);
-                const winSel   = selectedAddonIds.includes(winDb?.id ?? 16);
-                const basSel   = selectedAddonIds.includes(basDb?.id ?? 19);
+                const ovenSel   = !!(ovenDb   && selectedAddonIds.includes(ovenDb.id));
+                const fridgeSel = !!(fridgeDb && selectedAddonIds.includes(fridgeDb.id));
+                const cabSel    = !!(cabDb    && selectedAddonIds.includes(cabDb.id));
+                const winSel    = !!(winDb    && selectedAddonIds.includes(winDb.id));
+                const basSel    = !!(basDb    && selectedAddonIds.includes(basDb.id));
 
                 const applianceActive  = ovenSel && fridgeSel;
                 const bundleDisc = parseFloat(activeBundle?.discount_value ?? "0");
@@ -2240,7 +2239,7 @@ export default function BookPage() {
                       {/* Card 1 — Oven Cleaning */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(ovenSel)} onClick={() => toggle(ovenDb?.id ?? 8)}>
+                          <div style={cardStyle(ovenSel)} onClick={() => ovenDb && toggle(ovenDb.id)}>
                             <div style={iconAreaStyle(ovenSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="8" y="8" width="48" height="48" rx="4" stroke="currentColor" strokeWidth="2.5"/>
@@ -2270,7 +2269,7 @@ export default function BookPage() {
                       {/* Card 2 — Refrigerator Cleaning */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(fridgeSel)} onClick={() => toggle(fridgeDb?.id ?? 10)}>
+                          <div style={cardStyle(fridgeSel)} onClick={() => fridgeDb && toggle(fridgeDb.id)}>
                             <div style={iconAreaStyle(fridgeSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="12" y="4" width="40" height="56" rx="4" stroke="currentColor" strokeWidth="2.5"/>
@@ -2298,7 +2297,7 @@ export default function BookPage() {
                       {/* Card 3 — Kitchen Cabinets */}
                       {showFlatCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(cabSel)} onClick={() => toggle(cabDb?.id ?? 12)}>
+                          <div style={cardStyle(cabSel)} onClick={() => cabDb && toggle(cabDb.id)}>
                             <div style={iconAreaStyle(cabSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="4" y="8" width="26" height="48" rx="2" stroke="currentColor" strokeWidth="2.5"/>
@@ -2326,7 +2325,7 @@ export default function BookPage() {
                       {/* Card 4 — Windows */}
                       {showDynCards && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(winSel)} onClick={() => toggle(winDb?.id ?? 16)}>
+                          <div style={cardStyle(winSel)} onClick={() => winDb && toggle(winDb.id)}>
                             <div style={iconAreaStyle(winSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <rect x="6" y="6" width="52" height="52" rx="3" stroke="currentColor" strokeWidth="2.5"/>
@@ -2352,7 +2351,7 @@ export default function BookPage() {
                       {/* Card 5 — Clean Basement */}
                       {showBasCard && (
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          <div style={cardStyle(basSel)} onClick={() => toggle(basDb?.id ?? 19)}>
+                          <div style={cardStyle(basSel)} onClick={() => basDb && toggle(basDb.id)}>
                             <div style={iconAreaStyle(basSel)}>
                               <svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ color: brand }}>
                                 <path d="M4 28 L32 8 L60 28" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>

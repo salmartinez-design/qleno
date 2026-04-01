@@ -1,0 +1,98 @@
+REPLIT PROMPT — FIX ADD-ON ID MAPPING IN BOOKING WIDGET:
+Before making any changes, read these files in full: the add-on seed file, book.tsx add-on rendering section, and /api/public/addons endpoint. Report what you find in each before writing a single line of code. Do not fix anything until you have shown me the diagnosis from all three files.
+
+Step 1 — Read the production add-on IDs:
+Run this on the PRODUCTION database:
+
+SELECT id, name, price_type, price_value, show_online 
+FROM pricing_addons 
+WHERE company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning')
+AND show_online = true
+ORDER BY id;
+
+
+Show all results — the actual IDs in production.
+Step 2 — Find where add-ons are rendered in the widget:
+Read the add-on rendering code in book.tsx. Find where add-on cards are displayed and where their IDs are being passed to the calculate endpoint. Check if:
+	∙	Add-ons are being fetched from /api/public/addons dynamically
+	∙	Or if any add-on IDs are hardcoded anywhere in the widget code
+	∙	Or if add-ons are being matched by array index position instead of by ID
+Step 3 — Find the calculate endpoint:
+Read /api/public/calculate. Check how it receives add-on selections from the widget. Is it receiving:
+	∙	An array of add-on IDs (correct)
+	∙	An array of add-on names (fragile)
+	∙	An array of indexes (broken)
+Step 4 — Report before fixing:
+After reading all three — the seed file, book.tsx, and the calculate endpoint — report:
+	∙	Which add-on IDs exist in production with show_online = true
+	∙	How the widget is referencing those add-ons when building the calculate request
+	∙	Whether there is a mismatch between what the widget sends and what the DB has
+	∙	Which seed file or migration is resetting add-on values on every deploy
+Do not write any fix code until this diagnosis is reported.
+
+Step 5 — Fix the mismatch:
+After diagnosis, fix so that:
+	∙	The widget fetches add-ons dynamically from /api/public/addons?companySlug=phes-cleaning
+	∙	Each add-on card uses its actual id field from the API response
+	∙	When the user selects an add-on card, that add-on’s exact id is sent to /api/public/calculate
+	∙	No hardcoded add-on IDs anywhere in the widget code
+	∙	Add-ons are never matched by position or array index
+Step 6 — Fix the seed file permanently:
+Find every file in the codebase containing “Baseboards” or any add-on name being inserted. Update the seed using INSERT … ON CONFLICT DO UPDATE so it never creates duplicates — only corrects existing records:
+	∙	Oven Cleaning: flat, $50, show_online = true
+	∙	Refrigerator Cleaning: flat, $50, show_online = true
+	∙	Kitchen Cabinets: flat, $50, show_online = true
+	∙	Windows (inside panes only): percentage, 15, show_online = true
+	∙	Clean Basement: percentage, 15, show_online = true
+	∙	Baseboards: flat, $30, show_online = false — never show online, ever
+	∙	Parking Fee: flat, $20, show_online = false
+	∙	Manual Adjustment: show_online = false
+	∙	All add-ons with “loyalty”, “promo”, “discount”, “second appointment”, or “commercial adjust” in the name: show_online = false
+Step 7 — Fix mobile price summary overflow:
+The price summary sticky bar at the bottom of the mobile booking widget has text going off screen. Apply this to every price row in the summary:
+
+.price-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.price-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.price-amount {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+
+Also shorten add-on display names in the price summary — strip everything after the first dash:
+	∙	“Windows (inside panes) — Standard / Recurring” → “Windows”
+	∙	“Clean Basement — Deep / Standard” → “Clean Basement”
+	∙	“Baseboards — Deep Clean (Sq Ft %)” → never shows, it’s hidden
+Step 8 — Switch back to test Stripe keys:
+The live Stripe keys are causing card failures because the account is not fully activated — no bank account connected yet. Switch back to test keys temporarily:
+	∙	STRIPE_SECRET_KEY → original sk_test_… value
+	∙	VITE_STRIPE_PUBLISHABLE_KEY → original pk_test_… value
+We will switch to live keys after Stripe activation is confirmed with bank account connected.
+Step 9 — Verify on production after deploy:
+Go to https://clean-ops-pro.replit.app/book/phes-cleaning on a real phone and test each of these — report actual result for each:
+
+
+
+|Test|Action                          |Expected                                                                                         |
+|----|--------------------------------|-------------------------------------------------------------------------------------------------|
+|A1  |Deep Clean 1500 sqft, no add-ons|$434.00 base only                                                                                |
+|A2  |Select Oven Cleaning            |Price summary shows “Oven Cleaning +$50.00” only                                                 |
+|A3  |Select Refrigerator Cleaning    |Shows “Refrigerator Cleaning +$50.00” and bundle “-$20.00”                                       |
+|A4  |Select Windows                  |Shows “Windows +$65.10” (15% of $434)                                                            |
+|A5  |Select Clean Basement           |Shows “Clean Basement +$65.10”                                                                   |
+|A6  |Step 3 add-on cards visible     |Oven, Fridge, Kitchen Cabinets, Windows, Clean Basement only — no Baseboards, no Loyalty Discount|
+|A7  |Price summary on mobile         |No text overflowing off screen                                                                   |
+|A8  |Stripe card input               |Accepts test card 4242 4242 4242 4242                                                            |
+
+Do not close until all 8 tests pass on the live production URL. Report the diagnosis from Step 4 before any fix code is written.​​​​​​​​​​​​​​​​

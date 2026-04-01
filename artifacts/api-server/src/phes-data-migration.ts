@@ -257,10 +257,14 @@ async function runScopeZoneFix(): Promise<void> {
 // Idempotent: hides admin-only and discount add-ons from the online widget,
 // and ensures correct prices for the 5 customer-facing add-ons.
 async function runAddonFix(): Promise<void> {
-  // Hide baseboards (all variants)
+  // Hide baseboards (all variants) + correct price to $30
+  await db.execute(sql`
+    UPDATE pricing_addons SET show_online = false, price_value = 30
+    WHERE company_id = ${PHES} AND name ILIKE '%baseboard%' AND price_type = 'flat'
+  `);
   await db.execute(sql`
     UPDATE pricing_addons SET show_online = false
-    WHERE company_id = ${PHES} AND name ILIKE '%baseboard%'
+    WHERE company_id = ${PHES} AND name ILIKE '%baseboard%' AND price_type != 'flat'
   `);
   // Hide loyalty, promo, discount, adjustment, second-appointment, commercial, parking
   await db.execute(sql`
@@ -720,7 +724,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD, HS].filter(Boolean),
           price_type: "time_only", price_value: 0,
           time_minutes: 45, time_unit: "each",
-          is_itemized: false, show_office: true, show_online: true, show_portal: true, sort_order: 11,
+          is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 11,
         },
         {
           name: "Refrigerator Cleaning",
@@ -736,7 +740,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD, HS].filter(Boolean),
           price_type: "time_only", price_value: 0,
           time_minutes: 45, time_unit: "each",
-          is_itemized: false, show_office: true, show_online: true, show_portal: true, sort_order: 21,
+          is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 21,
         },
         {
           name: "Kitchen Cabinets (must be empty upon arrival)",
@@ -752,15 +756,15 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD, HS].filter(Boolean),
           price_type: "time_only", price_value: 0,
           time_minutes: 45, time_unit: "each",
-          is_itemized: false, show_office: true, show_online: true, show_portal: true, sort_order: 31,
+          is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 31,
         },
         {
           name: "Baseboards",
           addon_type: "cleaning_extras",
           scope_ids: [S].filter(Boolean),
-          price_type: "flat", price_value: 50,
+          price_type: "flat", price_value: 30,
           time_minutes: 45, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 40,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 40,
         },
         {
           name: "Baseboards — Deep Clean (Sq Ft %)",
@@ -768,7 +772,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD].filter(Boolean),
           price_type: "sqft_pct", price_value: 12,
           time_minutes: 45, time_unit: "sqft",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 41,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 41,
         },
         // Windows — 3 variants
         {
@@ -793,7 +797,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD, HS].filter(Boolean),
           price_type: "time_only", price_value: 0,
           time_minutes: 45, time_unit: "each",
-          is_itemized: false, show_office: true, show_online: true, show_portal: true, sort_order: 52,
+          is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 52,
         },
         // Clean Basement — 3 variants
         {
@@ -818,7 +822,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD, HS].filter(Boolean),
           price_type: "time_only", price_value: 0,
           time_minutes: 0, time_unit: "each",
-          is_itemized: false, show_office: true, show_online: true, show_portal: true, sort_order: 62,
+          is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 62,
         },
         // Parking Fee — all scopes
         {
@@ -827,7 +831,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [D, MIO, S, R, HD, HS, C, P].filter(Boolean),
           price_type: "flat", price_value: 20,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 70,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 70,
         },
         // Manual Adjustment (replaces MC $1 increment hack)
         {
@@ -845,7 +849,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [D, MIO, S, R, HS, P].filter(Boolean),
           price_type: "flat", price_value: -100,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 110,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 110,
         },
         {
           name: "Loyalty Discount — $50",
@@ -853,7 +857,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [D, MIO, S, R, HD, HS, P].filter(Boolean),
           price_type: "flat", price_value: -50,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 111,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 111,
         },
         {
           name: "Loyalty Discount — 20% Off",
@@ -861,7 +865,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HD].filter(Boolean),
           price_type: "percentage", price_value: -20,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 112,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 112,
         },
         {
           name: "Promo Discount — 10% Off",
@@ -869,7 +873,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [S, R, HD, HS, P].filter(Boolean),
           price_type: "percentage", price_value: -10,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 120,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 120,
         },
         {
           name: "Promo Discount — 15% Off",
@@ -877,7 +881,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [S, HD].filter(Boolean),
           price_type: "percentage", price_value: -15,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 121,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 121,
         },
         {
           name: "Second Appointment Discount — 15% Off",
@@ -885,7 +889,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [S, HD].filter(Boolean),
           price_type: "percentage", price_value: -15,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 130,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 130,
         },
         {
           name: "Second Appointment — +15% (markup)",
@@ -893,7 +897,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [HS].filter(Boolean),
           price_type: "percentage", price_value: 15,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 131,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 131,
         },
         // Commercial Adjustment
         {
@@ -902,7 +906,7 @@ export async function runPhesDataMigration(): Promise<void> {
           scope_ids: [C].filter(Boolean),
           price_type: "percentage", price_value: -100,
           time_minutes: 0, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 140,
+          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 140,
         },
       ];
 
