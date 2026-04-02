@@ -117,6 +117,29 @@ router.get("/companies", ...isSuperAdmin, async (req, res) => {
   }
 });
 
+/* ── TENANT SUMMARY LIST ──────────────────────────────────────── */
+router.get("/tenants", ...isSuperAdmin, async (_req, res) => {
+  try {
+    const rows = await db.execute(sql`
+      SELECT
+        c.id, c.name, c.subscription_status, c.plan, c.early_tenant,
+        c.trial_ends_at, c.stripe_customer_id, c.created_at,
+        t.name AS tier_name, t.slug AS tier_slug, t.price_monthly,
+        (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.role='technician' AND u.is_active=true) AS active_techs,
+        (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.role IN ('office','admin') AND u.is_active=true) AS active_office,
+        (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.is_active=true) AS total_users,
+        CASE WHEN c.subscription_status='active' THEN COALESCE(t.price_monthly::numeric, 0) ELSE 0 END AS mrr
+      FROM companies c
+      LEFT JOIN subscription_tiers t ON t.id=c.tier_id
+      ORDER BY c.id
+    `);
+    return res.json({ data: (rows as any).rows ?? [] });
+  } catch (err) {
+    console.error("GET admin/tenants error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 /* ── COMPANY UPDATE ───────────────────────────────────────────── */
 router.patch("/companies/:id", ...isSuperAdmin, async (req, res) => {
   try {

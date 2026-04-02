@@ -15,6 +15,116 @@ interface DashboardData {
   flagged: Array<{ id: number; name: string; status: string }>;
 }
 
+interface TenantRow {
+  id: number;
+  name: string;
+  subscription_status: string;
+  plan: string;
+  tier_name: string | null;
+  tier_slug: string | null;
+  price_monthly: string | null;
+  active_techs: number;
+  active_office: number;
+  total_users: number;
+  mrr: string | number;
+  early_tenant: boolean;
+  trial_ends_at: string | null;
+  created_at: string;
+}
+
+function TierBadge({ tier, slug }: { tier: string | null; slug: string | null }) {
+  const colors: Record<string, { color: string; bg: string }> = {
+    solo:  { color: "#374151", bg: "#F3F4F6" },
+    team:  { color: "#1D4ED8", bg: "#DBEAFE" },
+    pro:   { color: "#7C3AED", bg: "#F5F3FF" },
+  };
+  const c = colors[slug ?? "solo"] ?? { color: "#374151", bg: "#F3F4F6" };
+  return (
+    <span style={{ background: c.bg, color: c.color, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999 }}>
+      {tier ?? "—"}
+    </span>
+  );
+}
+
+function SubStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { color: string; bg: string }> = {
+    active:    { color: "#059669", bg: "#ECFDF5" },
+    trialing:  { color: "#1D4ED8", bg: "#DBEAFE" },
+    past_due:  { color: "#D97706", bg: "#FFFBEB" },
+    canceled:  { color: "#DC2626", bg: "#FEF2F2" },
+  };
+  const c = map[status] ?? { color: "#6B7280", bg: "#F9FAFB" };
+  return (
+    <span style={{ background: c.bg, color: c.color, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999 }}>
+      {status.replace("_", " ")}
+    </span>
+  );
+}
+
+function TenantList() {
+  const [tenants, setTenants] = useState<TenantRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch("/api/admin/tenants", { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => { setTenants(d.data ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const totalMRR = tenants.reduce((s, t) => s + parseFloat(String(t.mrr || 0)), 0);
+
+  return (
+    <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
+      <div style={{ padding: "16px 20px", borderBottom: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <p style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917", margin: 0 }}>All Tenants</p>
+          <p style={{ fontSize: "12px", color: "#9E9B94", margin: "2px 0 0" }}>{tenants.length} companies · ${totalMRR.toLocaleString()} MRR</p>
+        </div>
+      </div>
+      {loading ? (
+        <div style={{ padding: "32px 20px", color: "#9E9B94", textAlign: "center" }}>Loading tenants…</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
+            <thead>
+              <tr style={{ background: "#FAFAF9" }}>
+                {["ID","Company","Tier","Status","Techs","Office","Total Users","MRR","Early","Created"].map(h => (
+                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #F0EEE9", whiteSpace: "nowrap" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tenants.map((t, i) => (
+                <tr key={t.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#FAFAF9", borderBottom: "1px solid #F5F3F0" }}>
+                  <td style={{ padding: "10px 16px", color: "#9E9B94", fontWeight: 500 }}>#{t.id}</td>
+                  <td style={{ padding: "10px 16px", fontWeight: 600, color: "#1A1917", whiteSpace: "nowrap" }}>
+                    {t.name}
+                  </td>
+                  <td style={{ padding: "10px 16px" }}><TierBadge tier={t.tier_name} slug={t.tier_slug} /></td>
+                  <td style={{ padding: "10px 16px" }}><SubStatusBadge status={t.subscription_status ?? "unknown"} /></td>
+                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.active_techs}</td>
+                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.active_office}</td>
+                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.total_users}</td>
+                  <td style={{ padding: "10px 16px", fontWeight: 600, color: "#059669" }}>${parseFloat(String(t.mrr || 0)).toLocaleString()}</td>
+                  <td style={{ padding: "10px 16px" }}>
+                    {t.early_tenant ? (
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#7C3AED", background: "#F5F3FF", padding: "2px 7px", borderRadius: 999 }}>Early</span>
+                    ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                  </td>
+                  <td style={{ padding: "10px 16px", color: "#6B7280", whiteSpace: "nowrap" }}>
+                    {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PURPLE = "#7F77DD";
 const PURPLE_RGB = "127, 119, 221";
 
@@ -102,6 +212,9 @@ export default function AdminDashboard() {
               </div>
             </div>
           )}
+
+          {/* Tenant List */}
+          <TenantList />
         </div>
       ) : (
         <div style={{ color: "#DC2626", textAlign: "center", paddingTop: "60px" }}>Failed to load dashboard data.</div>

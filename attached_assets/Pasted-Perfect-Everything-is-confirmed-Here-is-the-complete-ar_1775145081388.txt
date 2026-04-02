@@ -1,0 +1,668 @@
+Perfect. Everything is confirmed. Here is the complete architecture prompt covering the multi-tenant SaaS engine, pricing tiers, seat management, billing, and all remaining items. This is the longest and most architectural prompt we have written — paste it as one complete agent run.
+
+---
+
+**This prompt covers the full multi-tenant SaaS architecture, subscription billing engine, seat management, feature gating, and all remaining build items from Sprints 5 through 14. Sprints 1 through 4 are confirmed complete. Do not change anything in Phes's existing settings, pricing, or configuration — those are locked. Complete every section in order. Do not deploy until all tests pass. Report status of every section before deploying.**
+
+---
+
+## SPRINT 5 — NOTIFICATIONS AND SMS TEMPLATES
+
+**5.1 — Populate all SMS bodies**
+
+reminder_3day:
+"Hi {{first_name}}, just a reminder — your {{service_type}} with Phes is coming up on {{appointment_date}}. Questions? Call us at {{office_phone}}."
+{{office_phone}} is location-aware: Oak Lawn zone = (773) 706-6000, Schaumburg zone = (847) 538-3729. Pulls from company settings for the relevant location at send time.
+
+reminder_1day:
+"Hi {{first_name}}, your Phes cleaning is tomorrow, {{appointment_date}}. Your arrival window is {{arrival_window}}. See you then!"
+
+on_my_way:
+"Hi {{first_name}}, your Phes team is on the way! {{tech_first_names}} will arrive within {{arrival_alert_window}} minutes. Thank you!"
+{{tech_first_names}} = first names only of all techs assigned to the job, comma separated. {{arrival_alert_window}} pulls from the Arrival Alert Window setting in Notifications tab (default 45).
+
+job_started (NEW — does not exist yet, must be created):
+"Hi {{first_name}}, your cleaning has started! {{tech_first_names}} just checked in and are getting to work. Thank you for choosing Phes!"
+Trigger: fires automatically when any assigned technician clocks in to the job via mobile My Jobs view. Logs to message_log with job_id and client_id.
+
+job_completed:
+"Hi {{first_name}}, your cleaning is complete! How did we do today? Please reply with:
+4 - Great!
+3 - Good
+2 - We have some concerns
+1 - I need to speak with someone
+Your feedback helps us improve!"
+
+review_request:
+"Hi {{first_name}}, thank you so much for your feedback! We'd love it if you took a moment to share your experience on Google — it means the world to our team: {{google_review_link}}. Thank you — Phes"
+{{google_review_link}} pulls from Google Review Link field in Company Settings General tab. If field is empty, do not send this SMS and log a warning to notification log.
+
+Invoice Sent SMS:
+"Hi {{first_name}}, your invoice for ${{amount}} from Phes is ready. Questions? Call {{office_phone}}."
+
+Remove Payment Received SMS entirely — payment is processed via Stripe automatically. No SMS needed for this event.
+
+**5.2 — Fix email templates**
+Replace all instances of {{time}} with {{arrival_window}} in Job Scheduled email and Job Reminder 24h before email. Both must reference arrival window only — never a specific time.
+
+**5.3 — job_started notification trigger**
+Build new notification trigger: job_started. Fires when any technician clocks in to a job via the mobile My Jobs clock-in button. Sends job_started SMS to the client linked to that job. Logs to message_log with job_id, client_id, and list of tech names. This trigger must appear in the Notifications tab alongside all other notification triggers so office can toggle it on/off and test it.
+
+---
+
+## SPRINT 6 — TWILIO INBOUND WEBHOOK AND SCORECARD SYSTEM
+
+**6.1 — Inbound SMS webhook**
+Build inbound webhook endpoint at /api/sms/inbound. Configure this URL in Twilio for Oak Lawn number (773) 786-9902 and Schaumburg number (847) 538-3729.
+
+On receipt of any inbound SMS:
+- Match sender phone number to most recent job_completed SMS sent to that number within last 48 hours
+- If no match found: do not respond, log inbound message to message_log as unmatched
+- If match found: parse reply body, trim whitespace, extract first character
+- Accept only: 1, 2, 3, or 4
+- Invalid reply → respond immediately: "Please reply with 1, 2, 3, or 4 to rate your cleaning."
+- Valid reply → write to scorecard table, trigger scoring logic, trigger review request logic
+
+**6.2 — Scorecard table**
+Create table if not exists:
+id, company_id, job_id, client_id, employee_ids (array), rating (integer 1-4), weight (decimal), excluded (boolean default false), excluded_reason (text), excluded_by (user_id), created_at
+
+**6.3 — Score weights**
+4 = 100%, 3 = 75%, 2 = 40%, 1 = 0%
+Store in scorecard_settings table per company so owner can configure. Default values as above.
+
+**6.4 — Score calculation**
+Per technician, rolling weighted average of all non-excluded ratings:
+Formula: sum(weight for each non-excluded rating) ÷ count(non-excluded ratings) = score as decimal, display as percentage.
+Score applies equally to all technicians listed in employee_ids on the scored job record.
+Excluded ratings removed from calculation retroactively — recalculate score each time exclusion is added or removed.
+
+**6.5 — 95% floor enforcement**
+After every new scorecard record is written and score recalculated, check if any affected tech's score dropped below 95%.
+
+If below 95%:
+- Create ticket on tech's employee profile: "Scorecard Alert — current score: {{score}}%. Dropped below 95% threshold."
+- Send SMS to tech's phone: "Hi {{first_name}}, your recent client feedback score has dropped below our standard. Please connect with the office team."
+- Create ticket in office queue: "{{tech_name}} scorecard below 95% — current score: {{score}}%. Review recommended."
+
+If score recovers above 95%: auto-resolve the scorecard alert ticket. Do not re-send SMS unless score drops below 95% again.
+Setting: "Scorecard Floor %" in HR Policies — default 95%, owner-only editable.
+
+**6.6 — Quality complaint trigger**
+Rating of 1 or 2 = one quality complaint against all techs on that job. Track per technician in rolling 30-day window. When count reaches 2 within 30 days → trigger Quality Probation (Sprint 9.6). Quality complaint counter visible on employee profile: "Quality Complaints (last 30 days): X"
+
+**6.7 — Review request automation**
+- Rating 4 → send review_request SMS immediately
+- Rating 3 → schedule review_request SMS after 24-hour delay
+- Rating 2 → no review SMS. Create office queue ticket: "Client concern — {{client_name}} — rated 2 on job #{{job_id}}. Follow up recommended."
+- Rating 1 → no review SMS. Create office queue ticket with urgent flag. Send SMS to assigned techs: "Hi {{first_name}}, a client concern was raised after your recent job. Please connect with the office team."
+
+If Google Review Link field empty → do not send review SMS. Log warning to notification log.
+All review_request SMS logged to message_log with client_id attached.
+
+**6.8 — Scorecard cadence per client**
+Add "Scorecard Frequency" to client profile. Options: Every Visit (default), Monthly, Quarterly, Suspended.
+Cadence follows client — not employee. Changing tech assignment does not reset cadence.
+
+**6.9 — Scorecard section on employee profile**
+Add Scorecard tab to employee profile. Three view tabs: Weekly, Quarterly, Annual.
+Each shows: average score, total ratings, total excluded, job-by-job table with Date, Client, Rating, Weight, Score contribution, Excluded status, Excluded reason.
+Office and owner can flag ratings as excluded directly from this table.
+
+---
+
+## SPRINT 7 — LEAD PIPELINE
+
+**7.1 — Status pills**
+Order: All, Needs Contacted, Contacted, Quoted, Follow Up, Booked, No Response, Not Interested.
+Colors: Needs Contacted = red, Contacted = yellow, Quoted = blue, Follow Up = orange, Booked = green, No Response = gray, Not Interested = gray.
+Remove Closed Won and Closed Lost entirely.
+
+**7.2 — Table columns**
+Name (clickable, opens drawer) | Phone (below name, small text) | Address | Zip | Source | Status | Created | Last Contacted | Quoted | Booked | Assigned To | Agreement | Actions
+
+Source pill colors: Google Local Services = blue, Google Search = light blue, Facebook = indigo, Referral = green, Realtor = teal, Online Booking = mint, Very Dirty Callback = orange, Manual = gray.
+
+**7.3 — Lead detail drawer**
+Four tabs: Overview, Activity, Messages, Jobs.
+Footer: Convert to Client, Close Lead (reason: No Answer / Not Interested / Price / Booked Elsewhere / Duplicate), Delete (owner only).
+
+**7.4 — Booking widget to lead pipeline wiring**
+Step 1 submitted → write to abandoned_bookings immediately.
+Stripe success → delete abandoned, create lead (booked), create both jobs, enroll sequences appropriately.
+Very Dirty callback → lead (needs_contacted), office notification, enroll Lead Nurture if no office action within 2 hours.
+Abandoned after 30 min → lead (needs_contacted), enroll Lead Nurture sequence.
+
+**7.5 — Office notifications on every new lead**
+SMS to correct location number and email to info@phes.io for every new lead. Oak Lawn zone → (773) 786-9902. Schaumburg zone → (847) 538-3729. Unknown zone → Oak Lawn default.
+
+**7.6 — Sidebar**
+Leads under GROW. Owner/Admin/Office only. Technician role: not in nav, 403 if accessed directly. Badge showing Needs Contacted count only.
+
+---
+
+## SPRINT 8 — FOLLOW-UP SEQUENCE ENGINE
+
+**8.1 — Lead Nurture sequence**
+Replace existing 4-touch Quote Follow-Up with new 10-touch Lead Nurture sequence. Fires for ALL leads regardless of source. Source tag records origin but sequence is identical for all.
+
+| Touch | Timing | SMS | Email |
+|---|---|---|---|
+| 1 | 30 min | ✓ | |
+| 2 | 24 hrs | ✓ | ✓ |
+| 3 | 48 hrs | ✓ | |
+| 4 | 1 week | ✓ | ✓ |
+| 5 | 2 weeks | ✓ | |
+| 6 | 1 month | ✓ | ✓ |
+| 7 | 60 days | ✓ | |
+| 8 | 90 days | ✓ | ✓ |
+| 9 | 6 months | ✓ | |
+| 10 | 1 year | ✓ | ✓ |
+
+Stop conditions: STOP reply → opt out permanently. Unsubscribe click → same. Status = Booked → disenroll. Status = Not Interested → disenroll. All 10 touches with zero response → status auto-moves to No Response.
+Deduplication: one active enrollment per lead at any time.
+Recurring client guard: never enroll a lead with an active recurring_schedule record.
+
+**8.2 — No Engagement flag**
+After Touch 4 with zero email opens and zero SMS replies → add "No Engagement" badge to lead row. Signals office to attempt manual phone call.
+
+**8.3 — Post-Job Retention sequence unchanged**
+Keep existing 6-touch sequence exactly as built. Do not modify.
+
+**8.4 — Sequence display in Follow-Up Sequences tab**
+Both sequences appear in Company Settings. Owner can toggle on/off. Office role can view but not edit or toggle.
+
+---
+
+## SPRINT 9 — EMPLOYEE COMPENSATION AND PAYROLL
+
+**9.1 — Residential compensation**
+Pay = Residential Tech Pay % (default 35%) of job total ÷ number of techs assigned. Equal split always. Setting: "Residential Tech Pay %" in Payroll Options.
+
+**9.2 — Commercial compensation**
+Pay = Commercial Hourly Rate (default $20/hr) × hours.
+Company default: Allowed Hours. Toggle per job: Allowed Hours or Worked Hours.
+Settings: "Commercial Hourly Rate" = $20.00, "Commercial Pay Default" = Allowed Hours.
+
+**9.3 — Training pay**
+Training status flag on employee profile with start and end date (default hire date + 21 days). While active: flat $20/hr, no commission. Auto-expires on end date. Manually extendable by office or owner. Setting: "Training Pay Rate" = $20/hr.
+
+**9.4 — 3-hour pay minimum**
+Every dispatched job — including re-clean and recovery tech assignments — guarantees minimum 3 hours of pay at the applicable rate. At Close Day: if actual hours < 3, system pays 3 hours. If actual hours > 3, system pays actual hours. Setting: "Minimum Job Pay Hours" = 3.
+
+**9.5 — Re-clean and recovery job types**
+When valid quality complaint filed on completed job, office triggers Re-Clean workflow from job record. Three options:
+
+**Option A — Original tech returns:**
+- Original job pay reclassifies from commission to Re-Clean Tech Rate ($20/hr) × hours worked on original job
+- Return visit = $0 additional pay. Returning to fix substandard work is a job obligation covered by the original job compensation. It is not a separately compensated event.
+- Re-Clean job record created and linked to original job for tracking and dispatch purposes only — no pay record attached to original tech for the return visit
+- Both records on dispatch board: original flagged Quality Issue, re-clean flagged Re-Clean type
+- Original job payroll record updated: "Pay reclassified — quality issue, tech returned"
+
+**Option B — Original tech refuses:**
+- Original job pay reclassifies to $18/hr floor (company pay floor) × hours worked on original job
+- Insubordination flag auto-added to employee profile with date, job record link, timestamp
+- Office alert: "{{tech_name}} refused re-clean on job #{{job_id}}. Insubordination flag added to profile."
+- Recovery tech assigned to new Re-Clean job record
+- Recovery tech pay = Re-Clean Tech Rate ($20/hr) × whichever is greater: actual hours on site OR Minimum Job Pay Hours (default 3). Recovery tech on site 1 hour = paid 3 hours = $60.00 minimum.
+- Recovery tech Re-Clean job on dispatch board as separate record with Re-Clean badge
+
+**Option C — Original tech unavailable (not refusal — not disciplinary):**
+- Original job pay reclassifies from commission to Re-Clean Tech Rate ($20/hr) × hours worked on original job
+- No insubordination flag
+- Recovery tech assigned, same pay rules as Option B
+- Recovery tech Re-Clean job on dispatch board
+
+**Settings in Payroll Options:**
+- "Re-Clean Tech Rate" = $20/hr — floor rate, never a ceiling. If tech's normal rate is higher, pay higher.
+- "Company Pay Floor" = $18/hr — used for insubordination reclassification in Option B
+- "Unavailable Reclassification Rate" = $20/hr (same as Re-Clean Tech Rate, displayed separately for clarity)
+
+All re-clean records labeled on dispatch board and payroll with Re-Clean badge and linked original job number.
+
+**9.6 — Quality Probation**
+Triggered when tech accumulates 2 quality complaints in rolling 30-day window.
+
+When triggered:
+- Quality Probation status flag on employee profile with start date
+- Pay switches to Quality Probation Pay Rate ($20/hr flat) for all subsequent jobs — no commission
+- Office notified: "{{tech_name}} entered Quality Probation as of {{date}}. Pay switched to $20/hr."
+- Tech SMS: "Hi {{first_name}}, your account has been placed on Quality Probation. Please connect with the office team."
+
+Exit: 30 consecutive days zero complaints → auto-exit. Pay reverts to commission-eligible. Office notified.
+Probation history remains on employee profile permanently.
+Settings: "Quality Probation Threshold" = 2/30 days, "Quality Probation Pay Rate" = $20/hr.
+
+**9.7 — Skip/Lockout fee tech comp override**
+Fee rule tech comp (flat $60 default) overrides residential % for that job only. If multiple techs assigned, split $60 equally.
+
+**9.8 — Weekly minimum pay floor check**
+The $18/hr floor is a weekly safety net — not a per-job calculation.
+
+At the end of each pay week (Sunday through Saturday), when office runs payroll:
+1. Sum all earnings for the tech that week: commission + tips + additional pay (all types combined)
+2. Sum total hours worked that week across all jobs (clock-in to clock-out)
+3. Calculate effective weekly rate: total earnings ÷ total hours worked
+4. If effective rate ≥ $18/hr → pay as normal, no adjustment
+5. If effective rate < $18/hr → calculate shortfall: ($18 × total hours) − total earnings = top-up amount
+6. Add top-up as "Minimum Pay Adjustment" line item on payroll summary
+7. Grand total for week is never below $18 × total hours worked
+
+Example: Tech works 40 hours, earns $600 commission + $50 tips = $650 total. Effective rate = $650 ÷ 40 = $16.25/hr. Below $18 floor. Shortfall = ($18 × 40) − $650 = $720 − $650 = $70 top-up. Tech paid $720. Payroll shows: Commission $600 + Tips $50 + Minimum Pay Adjustment $70 = $720 grand total.
+
+This check runs automatically before Close Week can be finalized. Office must acknowledge any top-up adjustments before closing the pay period.
+
+Setting: "Company Pay Floor" = $18.00/hr, editable by owner only.
+
+**9.9 — Payroll Options settings UI**
+New section "Technician Compensation" in Payroll Options. All fields read from payroll_settings table at runtime. Owner only — office sees values but cannot edit:
+
+- Residential Tech Pay %: [35]
+- Commercial Hourly Rate: [$20.00]
+- Commercial Pay Default: [Allowed Hours / Worked Hours toggle]
+- Training Pay Rate: [$20.00]
+- Minimum Job Pay Hours: [3]
+- Re-Clean Tech Rate: [$20.00]
+- Company Pay Floor: [$18.00] per hour — weekly safety net
+- Quality Probation Threshold: [2] complaints within [30] days
+- Quality Probation Pay Rate: [$20.00]
+
+Changes affect future payroll immediately. Never retroactive on closed pay periods.
+
+---
+
+## SPRINT 10 — WEEKLY PAYROLL SUMMARY
+
+Per job row: Date, Client name, Scope, Job total, Commission earned, Pay type label (Commission / Training / Probation / Re-Clean / Recovery / Fee Rule), Hours scheduled, Hours worked, Effective hourly rate (informational only — never affects pay), Tips, Mileage reimbursement (auto-calculated).
+
+Period totals: Total commission, Total tips, Total mileage, Additional pay items each as separate labeled line items (Sick time, PTO, Holiday pay, Reimbursements, Cash advance as negative, other negative adjustments), Minimum Pay Adjustment (if applicable), Grand total.
+
+Rules: Effective rate informational only. Negatives reduce grand total. Owner/Admin/Office see all techs. Tech sees own only.
+
+---
+
+## SPRINT 11 — HR AND ATTENDANCE SYSTEM
+
+**11.1 — Benefit Year**
+Hire date on every profile. Benefit Year shown. All counters reset on work anniversary.
+
+**11.2 — Tardiness tracking**
+Grace period 9:00–9:20 AM non-recordable. Tardy = clock-in after 9:20 AM.
+Scale: 1–3 recorded no action, 4th = Final Written Warning ticket + office alert, 5th = termination flag + immediate office alert.
+PLAWA-protected tardiness never counts. Office marks protection on individual tardy record.
+Settings: Grace Period End = 9:20 AM, Tardy Final Warning = 4, Tardy Termination = 5.
+
+**11.3 — Absence tracking**
+1–4 recorded no action. 5th = termination flag + immediate office alert.
+Setting: Absence Termination Threshold = 5.
+
+**11.4 — PLAWA balance**
+40 hours front-loaded after 90 days. No carryover. No payout. Never counts toward absence thresholds. Display: "PLAWA Balance: X / 40 hours." Setting: "PLAWA Annual Hours" = 40.
+
+**11.5 — PTO accrual engine**
+Separate from PLAWA. Display: "PTO Balance: X / 80 hours."
+Year 1 anniversary: credit 40 hours (if below 40). Year 2+: credit up to 80-hour cap. Carryover up to cap only.
+Payout on separation: system calculates accrued PTO × final pay rate, flags for final paycheck, office must confirm before adding to payroll. Required by Illinois law — system cannot skip this step.
+Settings: PTO Year 1 Credit = 40hrs, PTO Maximum Cap = 80hrs.
+
+**11.6 — Paid holidays**
+6 pre-loaded: New Year's Day, Memorial Day, July 4, Labor Day, Thanksgiving, Christmas.
+Plus 1 birthday holiday per employee. 2-week advance request required. Weekend birthday: Friday before or Monday after.
+Setting: "Holiday Pay Hours" = 8.
+
+**11.7 — Mileage auto-tracking**
+No manual entry. Calculated automatically from GPS clock data.
+- Clock-out of Job A → capture GPS coordinates
+- Clock-in to Job B same day → capture GPS coordinates
+- Calculate distance between the two points → apply IRS mileage rate
+- First job of day: $0 mileage. Last job of day: $0 mileage.
+- Calculated mileage auto-appears on employee payroll record
+- Office can view, adjust, or remove any entry with required note
+- Mileage is non-wage reimbursement — separate line in payroll summary
+Setting: "Mileage Reimbursement Rate" = $0.70/mile, editable annually by owner.
+
+---
+
+## SPRINT 12 — QUICK QUOTE BUTTON
+
+**12.1 — Persistent button**
+"+ Quick Quote" always visible: desktop top bar right side, mobile floating or top bar. Opens right-side slide-over modal. Does not navigate away. Draft auto-saves if closed.
+
+**12.2 — Office pricing engine**
+Same pricing tables as booking widget — one engine, two permission layers.
+Office layer adds: all scopes including PPM/Commercial/Hourly, Baseboards, all 6 discount codes, manual adjustment field, fee rules, price override with reason note.
+Change in settings cascades to both surfaces simultaneously.
+
+**12.3 — Quick Quote actions and lead enrollment**
+Three options: Save to lead, Send to client (email or SMS, logged to message_log), Convert to job on dispatch board.
+Every lead created through Quick Quote automatically enrolls in the 10-touch Lead Nurture sequence. Source = manual. Sequence behavior identical to all other lead sources. No lead falls through regardless of how it was created.
+
+---
+
+## SPRINT 13 — CORE KPIs
+
+**13.1 — Top Performers filter**
+Technician role only throughout entire app. Francisco Estevez and Maribel Castillo never appear in any performance ranking anywhere.
+
+---
+
+## SPRINT 14 — OFFICE TEAM SETTINGS AND ACCESS
+
+**14.1 — Re-Clean workflow access**
+Office role can: file quality complaint on completed jobs, trigger Re-Clean workflow with all three options, assign recovery tech (technician role only), view re-clean history on job record, view insubordination flags (read only).
+
+**14.2 — Office payroll access**
+Office role can: view any tech's payroll summary, add all additional pay types, add negative adjustments with required note, review and adjust mileage entries with required note, acknowledge minimum wage floor flags before Close Week. Cannot edit Payroll Options settings.
+
+**14.3 — Office scorecard access**
+Office role can: flag ratings as excluded with required reason, view all employee scorecard history, change scorecard frequency per client, suspend/resume scorecard per client. Cannot change weights or floor threshold.
+
+**14.4 — Office lead pipeline access**
+Office role can: create leads, change status, assign leads, log calls/notes, send SMS/email from drawer, convert to client, close with reason. Cannot delete leads.
+
+**14.5 — Office notification access**
+Office role can: view notification log, use Test button on any template. Cannot edit template content.
+
+**14.6 — Owner-only settings locked**
+Locked from office role (visible read-only with lock icon and tooltip): all Payroll Options, all HR Policies, all Pricing & Scopes, Online Booking settings, scorecard weights and floor, notification template content, delete actions, Super Admin portal, billing settings, branding settings.
+
+**14.7 — Lock icon UI**
+Owner-only fields show lock icon when viewed by office role. Hover tooltip: "This setting can only be changed by the account owner." All inputs disabled. No edit buttons appear.
+
+---
+
+## SPRINT 15 — MULTI-TENANT SAAS ARCHITECTURE
+
+This sprint builds the subscription engine, seat management, feature gating, and tenant isolation layer. Nothing in Phes's existing configuration changes. All new architecture is additive and tenant-aware.
+
+**15.1 — Subscription tiers table**
+Create or update subscription_tiers table with these exact tier definitions:
+
+```
+Solo:
+  price_monthly: $100.00
+  office_staff_included: 0
+  technicians_included: 0
+  office_staff_overage_per_user: $0
+  technician_overage_per_user: $0
+  max_technicians: 0
+  features: see feature gate table below
+
+Team:
+  price_monthly: $200.00
+  office_staff_included: 3
+  technicians_included: 10
+  office_staff_overage_per_user: $20.00
+  technician_overage_per_user: $10.00
+  max_technicians: no hard cap (overage applies above 10)
+  features: full feature set
+
+Pro:
+  price_monthly: $250.00
+  office_staff_included: 3
+  technicians_included: 50
+  office_staff_overage_per_user: $20.00
+  technician_overage_per_user: $10.00
+  max_technicians: no hard cap (overage applies above 50)
+  features: full feature set identical to Team
+```
+
+**15.2 — Seat counting rules**
+Active seat counts are calculated at billing cycle and in real time for display purposes.
+
+Technician seats: count of employees with role = technician AND status = active for this company. Terminated, inactive, or suspended employees do not count. When an employee is marked inactive or terminated, their seat is freed immediately.
+
+Office staff seats: count of users with role = office or role = admin for this company (excluding owner). Owner always has a free seat not counted against any limit.
+
+These two pools are completely independent — technician count never affects office staff count and vice versa.
+
+**15.3 — Seat enforcement rules**
+When a new user is invited or an employee is activated:
+- System checks current seat count against tier limit
+- If within limit: allow, no charge until next billing cycle
+- If at or above limit: show upgrade prompt OR allow with overage notification
+
+When seat count exceeds included limit:
+- Calculate overage: (current active count − included count) × overage rate
+- Add overage to next month's Stripe invoice automatically
+- Show current overage amount in Company Settings Billing tab in real time
+
+Office staff and technician overages are calculated and billed independently.
+
+**15.4 — Role enforcement — office staff cannot be technicians**
+At the database and API level, enforce that a user with role = office or role = admin cannot:
+- Be assigned to a job as a technician
+- Appear on the dispatch board as a worker
+- Clock in or out of a job
+- Appear in any technician-facing mobile views
+- Be counted in technician seat counts
+
+This enforcement is permanent and cannot be bypassed by office staff. Only owner or Super Admin can change a user's role. If an office staff user attempts to access any technician function, return a 403 with message: "This action is restricted to technician accounts."
+
+**15.5 — Feature gate table**
+Build a feature_gates table per company. Each feature has a boolean enabled field. Gates are set automatically based on tier at signup and can be overridden by Super Admin per tenant.
+
+Feature gates by tier:
+
+```
+SOLO tier — enabled:
+  booking_widget: true
+  client_management: true
+  job_management: true
+  dispatch_board: true
+  basic_invoicing: true
+  basic_reports: true
+  lead_pipeline: true
+  follow_up_sequences: true
+  quick_quote: true
+
+SOLO tier — disabled (show upgrade CTA):
+  employee_management: false
+  payroll: false
+  scorecard: false
+  attendance_tracking: false
+  service_zones: false
+  quickbooks_sync: false
+  multi_location: false
+  re_clean_workflow: false
+  quality_probation: false
+  hr_compliance: false
+  rate_increase_tool: false
+  client_portal: false
+  api_access: false
+
+TEAM and PRO — all features enabled: true
+```
+
+When a Solo user attempts to access a gated feature, show a full-page or inline upgrade CTA: "This feature is available on Team and Pro plans. Upgrade to unlock employee management, payroll, scorecard, and more." Button: "Upgrade to Team — $200/mo."
+
+**15.6 — Upgrade prompt at seat threshold**
+When a Team tenant's active technician count reaches 12 (out of 10 included), show a persistent banner in the app:
+"You're approaching the point where Pro saves you money. At 15 technicians, Pro ($250/mo with up to 50 techs) costs the same as your current Team plan with overages. Upgrade now and scale without limits."
+
+Banner appears for owner and admin roles only. Dismissible but reappears on next login if still at 12+ techs. At 14 techs, banner becomes non-dismissible until owner takes action (upgrade or acknowledge).
+
+**15.7 — Stripe Billing integration**
+Build subscription management using Stripe Billing:
+
+Subscription creation:
+- Tenant selects tier at signup
+- Stripe subscription created with the base plan price
+- Card on file via Stripe SetupIntent
+- Subscription starts immediately, first charge on signup date, renews monthly
+
+Overage billing:
+- At each billing cycle, system calculates: (active techs − included techs) × tech overage rate + (active office staff − included office staff) × office overage rate
+- If overage > $0: add as a metered line item to the Stripe invoice for that cycle
+- Overage is calculated based on the maximum seat count reached during the billing period, not just the count at billing time — prevents gaming by deactivating employees at billing date and reactivating after
+
+Free period handling:
+- First 10 tenants: 3 months free — Stripe trial period of 90 days, no charge until day 91
+- All subsequent tenants: 1 month free — Stripe trial period of 30 days
+
+Subscription management in Company Settings Billing tab:
+- Current plan name and price
+- Next billing date
+- Current active seat counts vs included seats
+- Current overage amount (real-time calculation)
+- Projected next invoice total
+- Upgrade/downgrade button
+- Cancel subscription button (with confirmation and data retention notice)
+
+**15.8 — Tenant data isolation**
+Every database table with company_id enforces RLS (Row Level Security) policies ensuring tenants can only read and write their own data. Verify RLS policies are active and correct on all tables including:
+- clients, jobs, employees, invoices, payroll records, scorecard, leads, recurring_schedules, message_log, notification_log, pricing_scopes, pricing_tiers, pricing_addons, service_zones, booking_settings, company_settings, follow_up_enrollments, follow_up_sequences, abandoned_bookings
+
+No tenant can ever access another tenant's data through any API endpoint. All API routes must validate company_id from the authenticated JWT before returning any data.
+
+**15.9 — Compliance settings per tenant**
+Build a compliance_settings table per company with the following configurable fields (all editable by owner, none hardcoded to any state or jurisdiction):
+
+- minimum_wage_floor: $18.00 (company policy floor — already above legal minimum at Phes locations)
+- state_minimum_wage: $14.00 (Illinois default — tenant sets their own)
+- local_minimum_wage: $16.20 (Chicago default — tenant sets their own, leave blank if not applicable)
+- plawa_enabled: true (Illinois-specific — tenant toggles based on their state)
+- plawa_annual_hours: 40
+- pto_enabled: true
+- pto_year1_credit: 40
+- pto_max_cap: 80
+- pto_payout_on_separation: true (Illinois law — tenant sets based on their state)
+- holiday_pay_enabled: true
+- holiday_pay_hours: 8
+- mileage_reimbursement_enabled: true
+- mileage_rate: 0.70
+- quality_probation_enabled: true (Phes-specific feature — other tenants can turn off)
+- re_clean_workflow_enabled: true (Phes-specific — other tenants can turn off)
+- insubordination_reclassification_enabled: true (Phes-specific — other tenants can turn off)
+- scorecard_enabled: true
+- scorecard_floor_pct: 95
+- three_hour_minimum_enabled: true
+- minimum_job_pay_hours: 3
+
+New tenants get sensible defaults. Phes keeps all current values. Owner can adjust all fields. Super Admin can set any field for any tenant from the admin portal.
+
+**15.10 — Pricing model selection per tenant**
+Build a pricing_model field on the companies table. Options:
+- sqft_tiered_hourly (default — what Phes uses)
+- flat_per_bedroom_bathroom
+- straight_hourly
+- flat_per_visit
+
+During tenant onboarding, owner selects their pricing model. The Company Settings Pricing & Scopes tab renders the appropriate configuration UI based on the selected model. The booking widget adapts to show correct inputs for the model.
+
+Phes is on sqft_tiered_hourly — nothing changes. New tenants configure their own model. Do not modify any of Phes's existing pricing tables, tiers, or rates.
+
+**15.11 — Super Admin tenant management**
+In the Super Admin portal at /admin, add a Tenants section with:
+
+Per-tenant controls:
+- View current tier, seat counts, billing status
+- Override any feature gate (enable or disable any feature for any tenant)
+- Override any compliance setting for any tenant
+- View tenant's subscription status in Stripe
+- Manually apply free trial extension
+- Suspend or reactivate a tenant account
+- View tenant's active user list with roles
+- Cannot view or access tenant's client, job, or financial data — data isolation is absolute even for Super Admin
+
+Tenant list shows: company name, tier, active techs, active office staff, monthly MRR (base + overage), trial status, created date, last active date.
+
+---
+
+## TESTS TO RUN BEFORE DEPLOYING
+
+**T1 — Pricing math:**
+- 1,990 sqft Every 2 Weeks → $260.00, 15% off = $221.00
+- 1,990 sqft Every 4 Weeks → $292.60, 15% off = $248.71
+- 1,990 sqft Weekly → $229.20, 15% off = $194.82
+- 1,433 sqft Every 4 Weeks → $241.50
+- 1,444 sqft Every 4 Weeks → $241.50
+- 1,500 sqft One-Time Standard → 3.30hrs × $65 = $214.50
+- 1,500 sqft Move In/Move Out + Windows → Move In/Out tier × 0.15
+- 72-test suite → all 72 pass
+
+**T2 — Bundle:**
+Fridge then Oven → $40 each, $20 saved. Oven then Fridge → same. Only one → $50. Change setting to $15 → $35 each without deploy.
+
+**T3 — Full booking widget end-to-end:**
+Deep Clean 1,990 sqft → Every 2 Weeks → Oven + Fridge + Windows → both calendars both pills → recurring 7 days minimum → Step 5 all correct → test card → success → two unassigned jobs on dispatch → confirmation email → office SMS to correct number.
+
+**T4 — Standard Clean advisory:**
+Moderately Clean → advisory with two buttons. Very Dirty → Standard blocked.
+
+**T5 — Recurring upsell on Standard and Move In/Out:**
+Both scopes show correct upsell copy. Both create second date picker with 7-day minimum.
+
+**T6 — Scorecard flow:**
+Reply 4 → review SMS immediate. Reply 3 → 24hr delay. Reply 2 → office ticket only. Reply 1 → ticket + tech SMS. Reply X → correction prompt.
+
+**T7 — Lead pipeline:**
+All status pills correct. No Closed Won/Lost. Columns correct. Manual lead from Quick Quote → enrolls in 10-touch sequence → Touch 1 fires within 30 min.
+
+**T8 — Re-Clean workflow:**
+Option A: original job reclassifies to $20/hr, return visit $0, Re-Clean record created.
+Option B: original job reclassifies to $18/hr floor, insubordination flag added, recovery tech paid $20/hr × max(actual, 3hrs).
+Option C: original job reclassifies to $20/hr, no flag, recovery tech paid same as B.
+
+**T9 — Weekly pay floor:**
+Tech works 40 hrs, earns $600 commission + $50 tips = $650. Effective rate = $16.25/hr. Below $18 floor. System adds $70 top-up. Grand total = $720. Office must acknowledge before Close Week finalizes.
+Tech works 40 hrs, earns $900 commission. Effective rate = $22.50/hr. Above floor. No adjustment. Grand total = $900.
+
+**T10 — Seat management:**
+Create Team tenant. Add 10 techs — no overage. Add 11th tech — overage of $10/mo shows in Billing tab.
+Create Pro tenant. Add 50 techs — no overage. Add 51st tech — overage of $10/mo shows.
+Add 4th office staff to Team tenant — overage of $20/mo shows.
+Mark a tech inactive — seat freed immediately, overage recalculates.
+
+**T11 — Role enforcement:**
+Log in as office staff user. Attempt to be assigned to a job — blocked. Attempt to clock in to a job — blocked. Attempt to access mobile My Jobs — blocked. Confirm 403 returned for all technician functions.
+
+**T12 — Feature gating:**
+Log in as Solo tenant. Attempt to access Employees — upgrade CTA shows. Attempt to access Payroll — upgrade CTA shows. All Solo-enabled features accessible normally.
+Log in as Team tenant. All features accessible. No upgrade CTAs for gated features.
+
+**T13 — Upgrade banner:**
+Set Team tenant to 12 active techs. Confirm upgrade banner appears for owner. Dismiss it. Re-login — banner reappears. Set to 14 techs — confirm banner is non-dismissible.
+
+**T14 — Stripe Billing:**
+Create new test tenant on Team tier. Confirm Stripe subscription created. Confirm trial period of 30 days (non-early tenant). Add 5 tech overages. Confirm overage of $50 appears in Stripe invoice preview. Confirm billing tab shows correct projected invoice total.
+
+**T15 — Tenant data isolation:**
+Log in as Tenant A. Confirm zero access to Tenant B's clients, jobs, employees, or financial data via any API endpoint. Attempt direct API calls with Tenant A's JWT for Tenant B's company_id — confirm 403 returned on all.
+
+**T16 — Compliance settings per tenant:**
+Open Company Settings HR Policies as Phes owner. Confirm all compliance fields present with Phes values. Change quality_probation_enabled to false — confirm quality probation logic does not trigger for that tenant. Re-enable.
+Create test tenant — confirm default compliance values are set correctly. Change state_minimum_wage to $15 — confirm floor calculation uses $18 (company floor is higher than state minimum, so company floor wins).
+
+**T17 — Pricing model selection:**
+Confirm Phes is on sqft_tiered_hourly and no existing settings have changed.
+Create test tenant, select flat_per_bedroom_bathroom — confirm Pricing & Scopes tab shows the bedroom/bathroom configuration UI, not the sqft tier table.
+
+**T18 — Super Admin tenant management:**
+Log in as Super Admin. Open /admin Tenants section. Confirm Phes appears with correct tier, seat counts, and MRR. Override a feature gate for a test tenant — confirm feature enables/disables immediately. Confirm Super Admin cannot view Phes client or job data.
+
+**T19 — Mileage auto-tracking:**
+Clock tech out of Job A → clock in to Job B same workday → confirm mileage calculated between the two GPS coordinates → confirm appears on payroll record. First job: $0 mileage. Last job: $0 mileage.
+
+**T20 — Location-aware SMS:**
+Oak Lawn booking → office SMS to (773) 786-9902. Schaumburg booking → office SMS to (847) 538-3729.
+
+**T21 — job_started SMS:**
+Clock tech in via mobile My Jobs → confirm job_started SMS fires to client with tech first name → confirm logged to message_log.
+
+**T22 — PLAWA and PTO display:**
+Employee profile shows two separate balances: "PLAWA Balance: X/40 hours" and "PTO Balance: X/80 hours." Both labeled and visually distinct.
+
+**T23 — PTO separation payout:**
+Mark a test employee as terminated with 60 hours PTO balance. Confirm system calculates 60 × final pay rate = payout amount. Confirm it flags for final paycheck. Confirm office cannot finalize without acknowledging.
+
+**T24 — Office role locks:**
+Log in as office role. Open Payroll Options — all fields visible, all disabled, lock icon on each. Open Pricing & Scopes — rates visible, no edit. Open Notifications — Test button works, Edit button absent.
+
+**T25 — 72-test pricing suite:**
+All 72 tests pass after all DB changes. Report any failure by name and exact value.
+
+---
+
+Deploy only after all 25 tests pass and are explicitly confirmed in the agent response.

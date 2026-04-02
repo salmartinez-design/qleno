@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useGetMyCompany, useUpdateMyCompany } from "@workspace/api-client-react";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { applyTenantColor } from "@/lib/tenant-brand";
 import { useToast } from "@/hooks/use-toast";
-import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2, Mail, MessageSquare, ChevronDown, ChevronUp, Edit2, Save } from "lucide-react";
+import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2, Mail, MessageSquare, ChevronDown, ChevronUp, Edit2, Save, Lock } from "lucide-react";
 import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
 import { PricingTab } from "./company/pricing";
@@ -728,36 +728,80 @@ function PayrollOptionsTab() {
   const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
   const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
   const { toast } = useToast();
-  const [mileageRate, setMileageRate] = useState('');
+  const [mileageRate, setMileageRate] = useState('0.700');
   const [resTechPayPct, setResTechPayPct] = useState('35');
   const [commercialHourlyRate, setCommercialHourlyRate] = useState('20');
   const [commercialCompMode, setCommercialCompMode] = useState('allowed_hours');
+  const [trainingPayRate, setTrainingPayRate] = useState('20');
+  const [minJobPayHours, setMinJobPayHours] = useState('3');
+  const [recleanTechRate, setRecleanTechRate] = useState('20');
+  const [companyPayFloor, setCompanyPayFloor] = useState('18');
+  const [unavailableReclassRate, setUnavailableReclassRate] = useState('20');
+  const [qpThreshold, setQpThreshold] = useState('2');
+  const [qpWindowDays, setQpWindowDays] = useState('30');
+  const [qpPayRate, setQpPayRate] = useState('20');
   const [saving, setSaving] = useState(false);
   const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const role = getTokenRole();
+  const isOwner = role === 'owner' || role === 'super_admin';
 
   useEffect(() => {
-    if (company?.data?.mileage_rate != null) setMileageRate(String(company.data.mileage_rate));
     const c = company?.data as any;
     if (c?.res_tech_pay_pct != null) setResTechPayPct(String(Math.round(parseFloat(c.res_tech_pay_pct) * 100)));
     if (c?.commercial_hourly_rate != null) setCommercialHourlyRate(String(c.commercial_hourly_rate));
     if (c?.commercial_comp_mode != null) setCommercialCompMode(c.commercial_comp_mode);
+    // Load detailed payroll settings from payroll_settings table
+    fetch(`${BASE}/api/payroll-settings`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const ps = d?.data;
+        if (!ps) return;
+        if (ps.res_tech_pay_pct != null) setResTechPayPct(String(ps.res_tech_pay_pct));
+        if (ps.commercial_hourly_rate != null) setCommercialHourlyRate(String(ps.commercial_hourly_rate));
+        if (ps.commercial_pay_default != null) setCommercialCompMode(ps.commercial_pay_default);
+        if (ps.training_pay_rate != null) setTrainingPayRate(String(ps.training_pay_rate));
+        if (ps.minimum_job_pay_hours != null) setMinJobPayHours(String(ps.minimum_job_pay_hours));
+        if (ps.reclean_tech_rate != null) setRecleanTechRate(String(ps.reclean_tech_rate));
+        if (ps.company_pay_floor != null) setCompanyPayFloor(String(ps.company_pay_floor));
+        if (ps.unavailable_reclassification_rate != null) setUnavailableReclassRate(String(ps.unavailable_reclassification_rate));
+        if (ps.quality_probation_threshold_complaints != null) setQpThreshold(String(ps.quality_probation_threshold_complaints));
+        if (ps.quality_probation_window_days != null) setQpWindowDays(String(ps.quality_probation_window_days));
+        if (ps.quality_probation_pay_rate != null) setQpPayRate(String(ps.quality_probation_pay_rate));
+        if (ps.mileage_rate != null) setMileageRate(String(ps.mileage_rate));
+      });
   }, [company?.data]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await Promise.all([
-        updateCompany.mutateAsync({ body: { mileage_rate: mileageRate } as any }),
-        fetch(`${BASE}/api/companies/me`, {
-          method: 'PATCH',
-          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            res_tech_pay_pct: parseFloat(resTechPayPct) / 100,
-            commercial_hourly_rate: parseFloat(commercialHourlyRate),
-            commercial_comp_mode: commercialCompMode,
-          }),
+      await fetch(`${BASE}/api/payroll-settings`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          res_tech_pay_pct: parseFloat(resTechPayPct),
+          commercial_hourly_rate: parseFloat(commercialHourlyRate),
+          commercial_pay_default: commercialCompMode,
+          training_pay_rate: parseFloat(trainingPayRate),
+          minimum_job_pay_hours: parseFloat(minJobPayHours),
+          reclean_tech_rate: parseFloat(recleanTechRate),
+          company_pay_floor: parseFloat(companyPayFloor),
+          unavailable_reclassification_rate: parseFloat(unavailableReclassRate),
+          quality_probation_threshold_complaints: parseInt(qpThreshold),
+          quality_probation_window_days: parseInt(qpWindowDays),
+          quality_probation_pay_rate: parseFloat(qpPayRate),
+          mileage_rate: parseFloat(mileageRate),
         }),
-      ]);
+      });
+      // Also sync to companies table for backward compat
+      await fetch(`${BASE}/api/companies/me`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          res_tech_pay_pct: parseFloat(resTechPayPct) / 100,
+          commercial_hourly_rate: parseFloat(commercialHourlyRate),
+          commercial_comp_mode: commercialCompMode,
+        }),
+      });
       toast({ title: 'Payroll settings saved' });
     } catch {
       toast({ title: 'Failed to save', variant: 'destructive' });
@@ -771,12 +815,24 @@ function PayrollOptionsTab() {
   const fieldInput: React.CSSProperties = { padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF2, background: '#fff', color: '#1A1917', width: 160, outline: 'none' };
   const sectionCard: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
 
+  const inputStyle = (base: React.CSSProperties): React.CSSProperties =>
+    isOwner ? base : { ...base, background: '#F9FAFB', color: '#9CA3AF', cursor: 'not-allowed' };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 640 }}>
       <div>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Payroll Options</h3>
         <p style={{ fontSize: 13, color: '#6B7280', margin: 0, fontFamily: FF2 }}>Configure pay cadence, reimbursement, and technician compensation.</p>
       </div>
+
+      {!isOwner && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px' }}>
+          <Lock size={14} color="#D97706" />
+          <span style={{ fontSize: 13, color: '#92400E', fontFamily: FF2 }}>
+            Payroll settings are <strong>read-only</strong> for your role. Contact your owner to make changes.
+          </span>
+        </div>
+      )}
 
       <div style={sectionCard}>
         <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 16px', fontFamily: FF2 }}>Residential Tech Commission</p>
@@ -785,7 +841,8 @@ function PayrollOptionsTab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <input
               type="number" step="1" min="1" max="100" value={resTechPayPct}
-              onChange={e => setResTechPayPct(e.target.value)} style={fieldInput} placeholder="35"
+              onChange={e => setResTechPayPct(e.target.value)} style={inputStyle(fieldInput)} placeholder="35"
+              disabled={!isOwner}
             />
             <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>%</span>
           </div>
@@ -848,13 +905,86 @@ function PayrollOptionsTab() {
         </div>
       </div>
 
-      <button
-        onClick={handleSave}
-        disabled={saving}
-        style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer', alignSelf: 'flex-start' }}
-      >
-        {saving ? 'Saving...' : 'Save Payroll Settings'}
-      </button>
+      <div style={sectionCard}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Training Pay</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>While training status is active (default hire date + 21 days), tech earns this flat rate — no commission.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={fieldLabel}>Training Pay Rate</label>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+          <input type="number" step="0.25" min="0" value={trainingPayRate} onChange={e => setTrainingPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+        </div>
+      </div>
+
+      <div style={sectionCard}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Minimum Job Pay</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Every dispatched job guarantees this many hours of pay. If actual hours are less, the minimum is paid.</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={fieldLabel}>Minimum Job Pay Hours</label>
+          <input type="number" step="0.5" min="1" value={minJobPayHours} onChange={e => setMinJobPayHours(e.target.value)} style={fieldInput} placeholder="3" />
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours</span>
+        </div>
+      </div>
+
+      <div style={sectionCard}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Re-Clean & Recovery Pay</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Rates used when jobs are reclassified due to quality issues. Pay floor is a weekly safety net — not per job.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ ...fieldLabel, width: 220 }}>Re-Clean Tech Rate</label>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+            <input type="number" step="0.25" min="0" value={recleanTechRate} onChange={e => setRecleanTechRate(e.target.value)} style={fieldInput} placeholder="20.00" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ ...fieldLabel, width: 220 }}>Company Pay Floor (weekly)</label>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+            <input type="number" step="0.25" min="0" value={companyPayFloor} onChange={e => setCompanyPayFloor(e.target.value)} style={fieldInput} placeholder="18.00" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ ...fieldLabel, width: 220 }}>Unavailable Reclassification Rate</label>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+            <input type="number" step="0.25" min="0" value={unavailableReclassRate} onChange={e => setUnavailableReclassRate(e.target.value)} style={fieldInput} placeholder="20.00" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+          </div>
+        </div>
+      </div>
+
+      <div style={sectionCard}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Quality Probation</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>Triggered when a tech accumulates N complaints within a rolling window. Pay switches to probation rate — no commission.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ ...fieldLabel, width: 220 }}>Probation Threshold (complaints)</label>
+            <input type="number" step="1" min="1" value={qpThreshold} onChange={e => setQpThreshold(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="2" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>in</span>
+            <input type="number" step="1" min="1" value={qpWindowDays} onChange={e => setQpWindowDays(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="30" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>days</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <label style={{ ...fieldLabel, width: 220 }}>Quality Probation Pay Rate</label>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+            <input type="number" step="0.25" min="0" value={qpPayRate} onChange={e => setQpPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr flat</span>
+          </div>
+        </div>
+      </div>
+
+      {isOwner ? (
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer', alignSelf: 'flex-start' }}
+        >
+          {saving ? 'Saving...' : 'Save Payroll Settings'}
+        </button>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9CA3AF', fontSize: 12, fontFamily: FF2 }}>
+          <Lock size={12} />
+          <span>Owner-only — read-only view</span>
+        </div>
+      )}
     </div>
   );
 }

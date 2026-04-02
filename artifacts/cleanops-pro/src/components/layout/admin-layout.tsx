@@ -3,7 +3,7 @@ import { useLocation, Link } from "wouter";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import {
   LayoutDashboard, Building2, CreditCard, BookOpen,
-  LogOut, X, Menu, ArrowLeft
+  LogOut, X, Menu, ArrowLeft, Shield
 } from "lucide-react";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
 

@@ -59,21 +59,30 @@ interface ActivityEntry {
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   needs_contacted: { label: "Needs Contacted", color: "#DC2626", bg: "#FEF2F2" },
   contacted:       { label: "Contacted",        color: "#D97706", bg: "#FFFBEB" },
-  quoted:          { label: "Quoted",           color: "#7C3AED", bg: "#F5F3FF" },
+  quoted:          { label: "Quoted",           color: "#2563EB", bg: "#EFF6FF" },
+  follow_up:       { label: "Follow Up",        color: "#EA580C", bg: "#FFF7ED" },
   booked:          { label: "Booked",           color: "#059669", bg: "#ECFDF5" },
-  closed_won:      { label: "Closed Won",       color: "#0369A1", bg: "#EFF6FF" },
-  closed_lost:     { label: "Closed Lost",      color: "#6B7280", bg: "#F9FAFB" },
+  no_response:     { label: "No Response",      color: "#6B7280", bg: "#F9FAFB" },
+  not_interested:  { label: "Not Interested",   color: "#6B7280", bg: "#F3F4F6" },
 };
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  manual:          { label: "Manual",           color: "#374151", bg: "#F3F4F6" },
-  booking_widget:  { label: "Booking Widget",   color: "#0369A1", bg: "#EFF6FF" },
-  very_dirty:      { label: "Very Dirty",       color: "#DC2626", bg: "#FEF2F2" },
-  contact_form:    { label: "Contact Form",     color: "#7C3AED", bg: "#F5F3FF" },
-  quote_request:   { label: "Quote Request",    color: "#D97706", bg: "#FFFBEB" },
+  google_local_services: { label: "Google Local Services", color: "#1D4ED8", bg: "#DBEAFE" },
+  google_search:         { label: "Google Search",         color: "#3B82F6", bg: "#EFF6FF" },
+  facebook:              { label: "Facebook",              color: "#4338CA", bg: "#EEF2FF" },
+  referral:              { label: "Referral",              color: "#059669", bg: "#ECFDF5" },
+  realtor:               { label: "Realtor",               color: "#0D9488", bg: "#F0FDFA" },
+  online_booking:        { label: "Online Booking",        color: "#10B981", bg: "#F0FDF4" },
+  very_dirty_callback:   { label: "Very Dirty Callback",   color: "#EA580C", bg: "#FFF7ED" },
+  booking_widget:        { label: "Booking Widget",        color: "#0369A1", bg: "#EFF6FF" },
+  very_dirty:            { label: "Very Dirty",            color: "#DC2626", bg: "#FEF2F2" },
+  contact_form:          { label: "Contact Form",          color: "#7C3AED", bg: "#F5F3FF" },
+  quote_request:         { label: "Quote Request",         color: "#D97706", bg: "#FFFBEB" },
+  manual:                { label: "Manual",                color: "#374151", bg: "#F3F4F6" },
 };
 
-const ALL_STATUSES = Object.keys(STATUS_CONFIG);
+const STATUS_ORDER = ['needs_contacted', 'contacted', 'quoted', 'follow_up', 'booked', 'no_response', 'not_interested'];
+const ALL_STATUSES = STATUS_ORDER;
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] || { label: status, color: "#374151", bg: "#F3F4F6" };

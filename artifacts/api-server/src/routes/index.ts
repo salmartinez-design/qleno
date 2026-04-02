@@ -62,6 +62,9 @@ import bundlesRouter from "./bundles.js";
 import followUpRouter from "./follow-up.js";
 import leadsRouter from "./leads.js";
 import smsInboundRouter from "./sms-inbound.js";
+import payrollSettingsRouter from "./payroll-settings.js";
+import complianceSettingsRouter from "./compliance-settings.js";
+import subscriptionRouter from "./subscription.js";
 
 const router: IRouter = Router();
 
@@ -128,5 +131,8 @@ router.use("/integrations/quickbooks", quickbooksRouter);
 router.use("/follow-up", followUpRouter);
 router.use("/leads", leadsRouter);
 router.use("/sms/inbound", smsInboundRouter);
+router.use("/payroll-settings", payrollSettingsRouter);
+router.use("/compliance-settings", complianceSettingsRouter);
+router.use("/subscription", subscriptionRouter);
 
 export default router;
