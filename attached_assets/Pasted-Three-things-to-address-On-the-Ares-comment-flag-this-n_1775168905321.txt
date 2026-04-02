@@ -1,0 +1,242 @@
+Three things to address:
+
+**On the Ares comment** — flag this now. That PDF shows Phes clients (Jim Schultz, KMA, Cucci, all familiar names) with the footer "PHES Recurring Service Management." That is NOT Ares. Ares is a completely separate business — never mix those. This PDF looks like it came from Qleno itself or an export tool. Confirm before using any data from it.
+
+**On job history** — it's in the queue but it comes after UI and schedules. The order is: UI fix → schedule import → job history import. Running job history into a broken UI with empty schedules makes no sense. We stay in order.
+
+**On PPM and Cucci** — the PDF actually helps. It shows exactly how they're currently named in Qleno: `PPM | 3510 N Pine Grove Ave`, `Cucci Property Management - 10410 Moody Avenue`, `Cucci Realty Palos Hills`, `Cucci Realty 10418 S Keating`, `Cucci Realty 11901-05 South Lawndale`, `Cucci Realty Chicago Ridge`. These are already split into individual property accounts. Good — the Accounts migration has a clear map now.
+
+---
+
+Here are both prompts in order:
+
+---
+
+**PROMPT 1 — Run first: UI Redesign**
+
+```
+This is a UI redesign. Do not change any database schema or 
+data. Frontend changes only.
+
+Complete the following in this exact order and confirm each 
+step before moving to the next.
+
+═══════════════════════════════════════
+PART 1 — GLOBAL SIDEBAR
+═══════════════════════════════════════
+
+Find the main sidebar/nav component used across all pages.
+
+Reduce its default width to 56px. In this collapsed state 
+show icons only — no text labels.
+
+On hover expand to 220px with labels sliding in smoothly 
+(CSS transition 200ms ease). The expansion should not 
+push page content — use absolute positioning over content.
+
+On mobile (max-width 768px): hide the sidebar entirely. 
+Replace with a fixed bottom navigation bar containing 
+4 icon buttons: Dashboard, Customers, Jobs, More.
+
+The currently active route should highlight its icon 
+with var(--brand) color regardless of collapsed/expanded state.
+
+When navigating between pages the sidebar must stay mounted 
+and not remount — preserve its state.
+
+═══════════════════════════════════════
+PART 2 — CLIENT PROFILE PAGE REDESIGN
+═══════════════════════════════════════
+
+Redesign /customers/:id completely. 
+
+Design tokens (non-negotiable):
+- Background: #F7F6F3
+- Cards: #FFFFFF  
+- Primary text: #1A1917
+- Secondary text: #6B6860
+- Borders: #E5E2DC
+- Accent: var(--brand)
+- Font: Plus Jakarta Sans only
+- No emojis, no dark mode
+
+Remove all existing left-section navigation anchors and 
+tabbed content panels on the profile page. Replace with 
+a single scrollable canvas structured as follows:
+
+─── SECTION A: HERO STRIP (sticky, z-index 10) ──────────
+
+Full width strip, white background, 1px bottom border #E5E2DC.
+Padding 16px 24px. Does not scroll away.
+
+Left side:
+- Avatar circle 40px diameter, background var(--brand), 
+  white initials text, font-size 14px semibold
+- Client full name, 20px semibold, #1A1917
+- Status badge: ACTIVE (green #16a34a bg, white text) or 
+  INACTIVE (gray #6B6860 bg, white text) or 
+  PAUSED (yellow #ca8a04 bg, white text)
+- Frequency badge if recurring: pill with border, 
+  var(--brand) text, transparent bg — e.g. WEEKLY
+- Client ID below name: CL-XXXX in 11px #6B6860
+
+Right side (flex row, gap 12px, align-items center):
+- LTV block: large number in var(--brand) 22px semibold, 
+  label "LIFETIME VALUE" in 10px uppercase #6B6860 below.
+  LTV = SUM of revenue from job_history where client_id matches.
+  If no history show $0.00.
+- Button row: 
+  "Schedule Job" — filled var(--brand) bg, white text, 
+  border-radius 8px, padding 8px 16px
+  "Send Message" — ghost, var(--brand) border and text
+  "Create Invoice" — ghost
+  "Edit Profile" — ghost, icon only on mobile
+
+Below name/badge row on a second line:
+LAST CLEANING: [date or "Never"] — separator dot — 
+NEXT CLEANING: [date or "Not scheduled"]
+Both in 12px #6B6860. Dates in brand color if upcoming.
+
+─── SECTION B: SCROLLABLE CANVAS ────────────────────────
+
+Max-width 800px, centered, padding 24px 24px 80px.
+Cards have border-radius 12px, border 1px #E5E2DC, 
+background #FFFFFF, padding 20px, margin-bottom 16px.
+Each card has a title row: label in 11px uppercase 
+tracking-wider #6B6860, and an edit pencil icon right-aligned
+that opens an inline edit drawer.
+
+CARD 1 — ACCESS & ENTRY
+Only render this card if at least one of these fields 
+is non-null: access_entry_method, access_alarm_code, 
+access_garage_code, access_additional_notes.
+If all are null show a subtle ghost card with text 
+"Add access instructions" that opens the edit drawer.
+
+When populated show a 2x2 grid of labeled fields:
+- Entry Method (access_entry_method)
+- Alarm Code (access_alarm_code) — show as ●●●●●● 
+  with an eye icon to reveal. Log reveals to audit_log.
+- Garage / Door Code (access_garage_code) — same masking
+- Additional Notes (access_additional_notes)
+
+CARD 2 — RECURRING SCHEDULE
+Only render if a recurring_schedule exists for this client 
+(join on recurring_schedules.customer_id = clients.id 
+where is_active = true, limit 1).
+
+Show 6 stat boxes in a flex-wrap row, each box 
+min-width 100px with label above and value below:
+FREQUENCY | DAY | START TIME | BASE FEE | HOURS | SCOPE
+
+Below the stat boxes: assigned tech as an avatar chip —
+circle with initials + full name text. If no tech assigned 
+show "Unassigned" in secondary color.
+
+Below tech: RATE HISTORY section. Query for any rate 
+change history. Show last 3 as a timeline: 
+"[date] → $[amount]". If none show "No rate changes recorded."
+
+If no recurring schedule exists show:
+"No recurring schedule" text + "Add Schedule" ghost button.
+
+BUMPS / MOVES / SKIPS row below the card (not inside):
+Three inline stats in 12px: "3 bumps · 1 move · 8 skips 
+(last 12 months)". Calculate from job_history where 
+client_id matches and status IN ('bumped','moved','skipped') 
+and job_date >= now() - interval '12 months'.
+
+CARD 3 — NEXT JOB
+Query jobs table for the next pending job for this client 
+(job_date >= today, status = 'pending', order by job_date 
+asc, limit 1).
+
+Show: date in large text, day of week, scheduled time, 
+assigned tech avatar + name, status badge.
+Full card is tappable — navigates to /jobs/:id.
+If no upcoming job: "No jobs scheduled" + Schedule Job button.
+
+CARD 4 — HOME DETAILS
+Two-column layout on desktop, single column mobile.
+Left column: Square Footage, Bedrooms, Bathrooms, 
+Client Since, Referral Source.
+Right column: Pet Instructions (pet_instructions field), 
+Zone name (join to zones).
+Show — for any null fields. Never hide the card.
+
+CARD 5 — BILLING
+Three stat boxes: 
+TOTAL PAID (sum from invoices paid), 
+LAST PAYMENT (most recent paid invoice date),
+PAYMENT METHOD (card_brand + last 4 or "None on file")
+
+Below: compact table of last 5 invoices.
+Columns: Date | Invoice # | Amount | Status badge
+"View all invoices" link at bottom right.
+
+Below invoices: QuickBooks connection status badge.
+Green "Connected" if qbo_customer_id is set, 
+gray "Not connected" if null.
+
+CARD 6 — INTERNAL MEMO
+Title with a lock icon. 
+Label below title: "Office only — not visible to clients 
+or technicians"
+Textarea, auto-saves on blur with a subtle "Saved" 
+confirmation. Shows "Last edited [time]" below textarea.
+Maps to internal_memo column.
+
+CARD 7 — CLIENT NOTES  
+Label: "Visible to technicians on job worksheet"
+Textarea, auto-saves on blur.
+Maps to notes column.
+
+CARDS 8–16 — COLLAPSED ACCORDIONS
+Render these as collapsed rows at the bottom.
+Each row: chevron icon left, label, count badge right 
+(if applicable). Click to expand inline.
+
+Order:
+- Scorecards ([count])
+- Contact Tickets ([count])
+- Quotes
+- Agreements  
+- Contacts & Notifications ([count])
+- Technician Preferences ([count])
+- Inspections
+- Attachments
+- Home Images
+- Job History (full paginated table when expanded —
+  columns: Date, Service Type, Tech, Duration, Amount, Status)
+
+═══════════════════════════════════════
+PART 3 — NAVIGATION FIX
+═══════════════════════════════════════
+
+Fix the customer list so that clicking a client row 
+loads the profile without losing sidebar state or 
+scrolling position of the list.
+
+The back arrow "← Clients" on the profile page must 
+return to the list at the same scroll position.
+
+═══════════════════════════════════════
+PART 4 — VERIFY
+═══════════════════════════════════════
+
+After completing parts 1–3, navigate to /customers/23 
+(Jim Schultz) in the preview and take a screenshot.
+
+Show me the screenshot so I can verify the layout 
+before we proceed to data import.
+```
+
+---
+
+**PROMPT 2 — Run second: Recurring Schedule Import**
+
+Paste the long import prompt I wrote above. Don't run prompt 2 until you've reviewed the layout screenshot from prompt 1.
+
+---
+
+What was the Ares comment about — did you accidentally upload the wrong file?
