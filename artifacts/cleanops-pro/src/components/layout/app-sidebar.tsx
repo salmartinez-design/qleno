@@ -9,6 +9,35 @@ import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
+import { useEffect, useState, useCallback } from "react";
+
+function useNeedsContactedCount(role: string | undefined) {
+  const [count, setCount] = useState<number>(0);
+  const token = useAuthStore(state => state.token);
+
+  const eligible = role && ["owner", "admin", "office"].includes(role);
+
+  const fetchCount = useCallback(async () => {
+    if (!eligible || !token) return;
+    try {
+      const res = await fetch("/api/leads/status-counts", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data: { status: string; count: string }[] = await res.json();
+      const row = data.find(r => r.status === "needs_contacted");
+      setCount(row ? parseInt(row.count, 10) : 0);
+    } catch { /* silent */ }
+  }, [eligible, token]);
+
+  useEffect(() => {
+    fetchCount();
+    const id = setInterval(fetchCount, 30_000);
+    return () => clearInterval(id);
+  }, [fetchCount]);
+
+  return eligible ? count : 0;
+}
 
 const NAV_SECTIONS = [
   {
@@ -33,7 +62,7 @@ const NAV_SECTIONS = [
   {
     label: "Grow",
     items: [
-      { title: "Leads",     url: "/leads",             icon: UserPlus,   roles: ["owner", "admin", "office"] },
+      { title: "Leads",     url: "/leads",             icon: UserPlus,   roles: ["owner", "admin", "office"], badge: "needs_contacted" },
       { title: "Reports",   url: "/reports",           icon: BarChart2,  roles: ["owner", "admin", "office"] },
       { title: "Core KPIs", url: "/reports/insights",  icon: TrendingUp, roles: ["owner", "admin", "office"] },
     ],
@@ -78,6 +107,8 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
       };
     } catch { /* empty */ }
   }
+
+  const needsContactedCount = useNeedsContactedCount(userInfo?.role);
 
   const initials = userInfo
     ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
@@ -171,6 +202,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
               .map(item => {
                 const active = isActive(item.url);
                 const Icon = item.icon;
+                const badgeCount = item.badge === "needs_contacted" ? needsContactedCount : 0;
                 return (
                   <Link key={item.title + item.url} href={item.url} onClick={mobile ? onClose : undefined}>
                     <div
@@ -189,7 +221,24 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
                       }}
                     >
                       <Icon size={16} style={{ flexShrink: 0, color: 'inherit' }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</span>
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{item.title}</span>
+                      {badgeCount > 0 && (
+                        <span style={{
+                          backgroundColor: 'var(--brand)',
+                          color: '#FFFFFF',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          borderRadius: 10,
+                          padding: '1px 6px',
+                          minWidth: 18,
+                          textAlign: 'center',
+                          flexShrink: 0,
+                          lineHeight: '16px',
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        }}>
+                          {badgeCount > 99 ? '99+' : badgeCount}
+                        </span>
+                      )}
                     </div>
                   </Link>
                 );

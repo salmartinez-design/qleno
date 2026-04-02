@@ -471,12 +471,12 @@ export async function seedIfNeeded() {
     // ── Ensure office user credentials (always runs) ──────────────────────────
     const officeHash = await bcrypt.hash("phes1234", 10);
     await db.update(usersTable)
-      .set({ password_hash: officeHash, role: "admin" } as any)
+      .set({ password_hash: officeHash, role: "office" } as any)
       .where(eq(usersTable.email, "info@phes.io"));
     await db.update(usersTable)
-      .set({ password_hash: officeHash } as any)
+      .set({ password_hash: officeHash, role: "office" } as any)
       .where(eq(usersTable.email, "franciscojestevezs@gmail.com"));
-    console.log("[seed] Office user credentials ensured (info@phes.io → admin, phes1234)");
+    console.log("[seed] Office user credentials ensured (info@phes.io → office, phes1234)");
 
   } catch (err) {
     console.error("[seed] Seed error (non-fatal):", err);

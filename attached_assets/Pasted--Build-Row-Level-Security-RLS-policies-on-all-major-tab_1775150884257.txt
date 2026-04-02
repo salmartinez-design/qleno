@@ -1,0 +1,184 @@
+---
+
+**Build Row Level Security (RLS) policies on all major tables in Supabase. This is a one-time security hardening build. Complete every step in order. Do not skip any table. Report status of each table after policies are applied.**
+
+---
+
+## STEP 1 — Enable RLS on all tables
+
+Run the following in the Supabase SQL editor. Enable RLS on every table that contains company-specific data:
+
+```sql
+-- Core operations
+ALTER TABLE clients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE recurring_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_history ENABLE ROW LEVEL SECURITY;
+
+-- Money
+ALTER TABLE payroll_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE additional_pay ENABLE ROW LEVEL SECURITY;
+
+-- Pricing
+ALTER TABLE pricing_scopes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_tiers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_addons ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_frequencies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_fee_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_discounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE addon_bundles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE addon_bundle_items ENABLE ROW LEVEL SECURITY;
+
+-- Booking
+ALTER TABLE booking_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE abandoned_bookings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE rate_locks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE lead_activity_log ENABLE ROW LEVEL SECURITY;
+
+-- Communication
+ALTER TABLE message_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE notification_log ENABLE ROW LEVEL SECURITY;
+ALTER TABLE follow_up_sequences ENABLE ROW LEVEL SECURITY;
+ALTER TABLE follow_up_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE follow_up_enrollments ENABLE ROW LEVEL SECURITY;
+
+-- HR and attendance
+ALTER TABLE scorecard ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scorecard_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE compliance_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_records ENABLE ROW LEVEL SECURITY;
+
+-- Settings
+ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_zones ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feature_gates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE subscription_tiers ENABLE ROW LEVEL SECURITY;
+
+-- Any other table with a company_id column not listed above
+-- Run this query to find any missed tables:
+SELECT table_name 
+FROM information_schema.columns 
+WHERE column_name = 'company_id' 
+AND table_schema = 'public'
+ORDER BY table_name;
+```
+
+Report which tables were found with company_id that are not in the list above. Add ENABLE ROW LEVEL SECURITY to those as well.
+
+---
+
+## STEP 2 — Create the JWT company_id helper function
+
+This function extracts the company_id from the authenticated JWT token so RLS policies can use it:
+
+```sql
+CREATE OR REPLACE FUNCTION auth.company_id()
+RETURNS integer AS $$
+  SELECT NULLIF(current_setting('request.jwt.claims', true)::json->>'company_id', '')::integer;
+$$ LANGUAGE sql STABLE;
+```
+
+If the JWT stores company_id as a string or UUID instead of integer, adjust the return type accordingly. Check the JWT structure in the codebase to confirm the exact field name and type used for company_id before creating this function.
+
+---
+
+## STEP 3 — Create RLS policies for every table
+
+Apply the following policy pattern to every table enabled in Step 1. The pattern gives authenticated users access only to rows matching their company_id, and gives the service role (used by the backend) unrestricted access:
+
+```sql
+-- Template for each table (replace TABLE_NAME with actual table name):
+
+-- Policy 1: Authenticated users see only their company's data
+CREATE POLICY "tenant_isolation_select" ON TABLE_NAME
+  FOR SELECT
+  USING (company_id = auth.company_id());
+
+-- Policy 2: Authenticated users can only insert their own company's data  
+CREATE POLICY "tenant_isolation_insert" ON TABLE_NAME
+  FOR INSERT
+  WITH CHECK (company_id = auth.company_id());
+
+-- Policy 3: Authenticated users can only update their own company's data
+CREATE POLICY "tenant_isolation_update" ON TABLE_NAME
+  FOR UPDATE
+  USING (company_id = auth.company_id())
+  WITH CHECK (company_id = auth.company_id());
+
+-- Policy 4: Authenticated users can only delete their own company's data
+CREATE POLICY "tenant_isolation_delete" ON TABLE_NAME
+  FOR DELETE
+  USING (company_id = auth.company_id());
+
+-- Policy 5: Service role bypass — backend API has full access
+CREATE POLICY "service_role_bypass" ON TABLE_NAME
+  FOR ALL
+  USING (auth.role() = 'service_role');
+```
+
+Apply this pattern to every table listed in Step 1. Run them all as a single SQL transaction so if any fail, none are applied:
+
+```sql
+BEGIN;
+-- paste all CREATE POLICY statements here
+COMMIT;
+```
+
+---
+
+## STEP 4 — Verify policies are working
+
+Run these verification tests after applying all policies:
+
+**Test 1 — Tenant isolation:**
+Using a test JWT for a non-Phes tenant, attempt to SELECT from the clients table. Confirm zero rows are returned even though Phes has 1,231+ client records.
+
+**Test 2 — Own data accessible:**
+Using the Phes JWT, SELECT from clients. Confirm Phes client records are returned correctly.
+
+**Test 3 — Insert isolation:**
+Attempt to INSERT a client record with a different company_id than the authenticated JWT. Confirm the insert is rejected with a policy violation error.
+
+**Test 4 — Service role bypass:**
+Using the service role key (used by the Express backend), confirm full read/write access to all tables. This is required for the backend API to function.
+
+**Test 5 — No broken API routes:**
+After applying RLS, open the live app and confirm the following pages load correctly with real data: Dashboard, Dispatch Board, Customers, Employees, Invoices, Payroll, Leads. If any page shows empty data that should have data, report which table's RLS policy is blocking the backend and fix it.
+
+---
+
+## STEP 5 — Fix any broken queries
+
+If any API route returns empty data after RLS is applied, it means that route is using the anon key instead of the service role key for its database queries. For any broken route:
+
+1. Identify which Supabase client instance it is using
+2. Confirm the backend Express API is using the service role key (SUPABASE_SERVICE_ROLE_KEY) for all server-side queries — not the anon key
+3. If SUPABASE_SERVICE_ROLE_KEY is not in Replit Secrets, add it now — find it in Supabase dashboard → Settings → API → service_role key
+4. Update any broken routes to use the service role client
+
+The anon key should only be used for public-facing endpoints like the booking widget zone check. All authenticated backend routes must use the service role key.
+
+---
+
+## STEP 6 — Super Admin bypass
+
+The Super Admin role at /admin needs to read tenant list data without being scoped to a single company_id. Ensure the Super Admin API routes use the service role key exclusively — never the anon key. Confirm /api/admin/tenants returns all tenants correctly after RLS is applied.
+
+---
+
+## AFTER ALL STEPS COMPLETE — CONFIRM:
+
+1. RLS is enabled on every table with a company_id column — list all tables confirmed
+2. auth.company_id() function created and tested
+3. Four policies (select, insert, update, delete) + service role bypass applied to every table
+4. All 5 verification tests pass
+5. All app pages load correctly with real data — no pages showing empty due to RLS
+6. Super Admin tenant list still returns all tenants correctly
+7. Booking widget public endpoints still function (zone check, pricing — these use anon key and must not be broken)
+8. Report any tables where RLS could not be applied and why
+
+Do not deploy until all 8 confirmations are complete.

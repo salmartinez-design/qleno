@@ -1,0 +1,94 @@
+Correct call. Punchlist first, then accounts migration.
+
+Here's the full bundle prompt for items 1–9. Paste this as one single agent run:
+
+---
+
+**Complete all 9 items in order. Do not skip any. Report status of each item before moving to the next. Do not deploy until all 9 are complete and confirmed.**
+
+---
+
+**ITEM 1 — K9: SPA catch-all route**
+
+In `artifacts/api-server/src/index.ts`, after all API routes and before the server listen call, add the following:
+
+```typescript
+import path from 'path';
+
+app.use(express.static(path.join(__dirname, '../../client/dist')));
+
+app.get('*', (req, res) => {
+  if (!req.path.startsWith('/api')) {
+    res.sendFile(path.join(__dirname, '../../client/dist/index.html'));
+  }
+});
+```
+
+Confirm this is placed after all /api routes. Do not change any existing routes.
+
+---
+
+**ITEM 2 — B4: Seed discount codes**
+
+Seed the following 6 records into the pricing_discounts table for Phes company_id. Use ON CONFLICT DO UPDATE — never plain INSERT:
+
+```
+Manager50 — percentage — 50 — is_online: false — active: true
+Manager25 — percentage — 25 — is_online: false — active: true
+Compass — percentage — 15 — is_online: false — active: true
+Law Enforcement — percentage — 12 — is_online: false — active: true
+Senior — percentage — 12 — is_online: false — active: true
+Realtor — percentage — 12 — is_online: false — active: true
+```
+
+Confirm all 6 appear in Company Settings → Pricing & Scopes → Discount Codes. Confirm none appear in the public booking widget at /book/phes-cleaning.
+
+---
+
+**ITEM 3 — G2: Remove dummy test clients**
+
+First show me the exact list of records you are about to delete — names, emails, IDs. Do not delete anything until the list is shown and confirmed in this response. Then delete only records matching: email contains test@phes.io, test-e2e@phes.io, test-retention@phes.io, or names starting with "walktest" or emails starting with "test.walk." Report count removed.
+
+---
+
+**ITEM 4 — H1: Set invoice sequence to 6082**
+
+Set the invoice number sequence so the next invoice created receives number 6082. Use a Postgres sequence or update the max invoice number tracking — whichever is currently in use. After setting, confirm by checking the current sequence value. Do not delete or modify any existing invoice records.
+
+---
+
+**ITEM 5 — B12: Trim Lead Nurture to 10 steps**
+
+The Lead Nurture follow-up sequence currently has 15 steps. Remove the 5 extra steps. The correct 10 touches in order are: 30 minutes, 24 hours, 48 hours, 1 week, 2 weeks, 1 month, 60 days, 90 days, 6 months, 1 year. Delete any steps beyond these 10. Do not touch the Post-Job Retention sequence. Confirm Lead Nurture shows exactly 10 steps in Company Settings → Follow-Up Sequences.
+
+---
+
+**ITEM 6 — B13: new_client_welcome SMS body**
+
+The new_client_welcome SMS template has an empty body. Update it with this exact content:
+
+"Hi {{first_name}}, welcome to Phes! We're looking forward to your upcoming cleaning. If you have any questions before your appointment, call us at {{office_phone}}. See you soon!"
+
+Confirm the template body is saved and the Test button sends correctly.
+
+---
+
+**ITEM 7 — D9: Needs Contacted badge on sidebar Leads link**
+
+Add a live count badge to the Leads item in the left sidebar navigation. The badge must show the count of leads with status = needs_contacted for the logged-in company. Updates in real time when lead status changes. Visible to Owner, Admin, Office roles only. Badge must not appear for technician role. Style the badge consistent with the existing design system — small, brand color background, white text.
+
+---
+
+**ITEM 8 — E2: Confirm Maribel Castillo role**
+
+Check Maribel Castillo's current role in the users or employees table. If her role is admin, change it to office. Francisco Estevez should also be role = office. Confirm both Francisco Estevez and Maribel Castillo have role = office after this change. Confirm neither appears in the Top Performers widget on Core KPIs after the role change.
+
+---
+
+**ITEM 9 — L3: Add migration_source column**
+
+Add a migration_source column (TEXT, nullable) to the clients table if it does not already exist. Use ALTER TABLE with IF NOT EXISTS to avoid errors. After adding the column, update all existing client records that were imported from MaidCentral to have migration_source = 'mc_import'. These are identifiable by their sequential import IDs or by created_at timestamps matching the import date. Do not update any clients created after the import. Report how many records were tagged.
+
+---
+
+**After all 9 items complete, confirm each with PASS or FAIL and trigger a new deployment. Verify the live URL at clean-ops-pro.replit.app loads correctly on non-root paths (/dashboard, /dispatch, /leads) without 404 errors.**
