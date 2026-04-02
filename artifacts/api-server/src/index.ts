@@ -6,17 +6,7 @@ import { runReminderCron, runReviewRequestCron } from "./services/notificationSe
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 
-const rawPort = process.env["PORT"];
-
-if (!rawPort) {
-  throw new Error("PORT environment variable is required but was not provided.");
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
+const port = Number(process.env.PORT) || 3000;
 
 // ── Environment Variable Validation ─────────────────────────────────────────
 console.log("[Qleno] Starting server...");
@@ -111,7 +101,7 @@ function startFollowUpCron() {
 // ── Startup ──────────────────────────────────────────────────────────────────
 // Start listening immediately so health checks pass, then seed in the background
 app.listen(port, "0.0.0.0", () => {
-  console.log(`Server listening on port ${port}`);
+  console.log("Server running on port", process.env.PORT || 3000);
   seedIfNeeded()
     .then(() => runPhesDataMigration())
     .then(() => runRecurringJobGeneration())
