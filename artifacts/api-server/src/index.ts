@@ -110,7 +110,7 @@ function startFollowUpCron() {
 
 // ── Startup ──────────────────────────────────────────────────────────────────
 // Start listening immediately so health checks pass, then seed in the background
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`Server listening on port ${port}`);
   seedIfNeeded()
     .then(() => runPhesDataMigration())
