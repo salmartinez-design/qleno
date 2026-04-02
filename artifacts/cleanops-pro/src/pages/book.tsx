@@ -2151,7 +2151,7 @@ export default function BookPage() {
                         </div>
                         <span style={{ fontWeight: 700, fontSize: 15, color: "#1A1917" }}>Single Visit Cleaning</span>
                       </div>
-                      <p style={{ margin: "0 0 0 28px", fontSize: 13, color: "#6B6860" }}>$180 for up to 3 hours. Each additional hour is $60.</p>
+                      <p style={{ margin: "0 0 0 28px", fontSize: 13, color: "#6B6860" }}>$195 for up to 3 hours. Each additional hour is $65.</p>
                     </div>
 
                     {/* Cleaning Walkthrough */}
