@@ -2994,6 +2994,333 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
   );
 }
 
+// ─── Loyalty Program Card ──────────────────────────────────────────────────────
+function LoyaltyProgramCard({ clientId, loyaltyRecord, loyaltyTiers, loyaltyStats, effectiveTierName, loyaltyTierBadge, refetch, showToast }: {
+  clientId: number;
+  loyaltyRecord: any;
+  loyaltyTiers: any[];
+  loyaltyStats: any;
+  effectiveTierName: string;
+  loyaltyTierBadge: (name: string) => { bg: string; color: string };
+  refetch: () => void;
+  showToast: (msg: string, type?: "success" | "error") => void;
+}) {
+  const [showAddPoints, setShowAddPoints] = useState(false);
+  const [showSetTier, setShowSetTier] = useState(false);
+  const [pointsInput, setPointsInput] = useState("");
+  const [reasonInput, setReasonInput] = useState("");
+  const [tierInput, setTierInput] = useState("");
+  const [notes, setNotes] = useState(loyaltyRecord?.notes || "");
+  const [saving, setSaving] = useState(false);
+
+  const CS2: React.CSSProperties = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "18px 20px", marginBottom: 14 };
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const pointsBalance = loyaltyRecord?.points_balance || 0;
+  const totalEarned = loyaltyRecord?.total_points_earned || 0;
+  const visits = Number(loyaltyStats?.total_visits || 0);
+  const rev = Number(loyaltyStats?.lifetime_revenue || 0);
+
+  const nextTier = (() => {
+    if (!loyaltyTiers.length) return null;
+    for (const t of loyaltyTiers) {
+      if (visits < (t.min_visits || 0) || rev < (t.min_lifetime_revenue || 0)) return t;
+    }
+    return null;
+  })();
+  const progressPct = nextTier ? Math.min(100, Math.round((visits / (nextTier.min_visits || 1)) * 100)) : 100;
+
+  async function handleAddPoints() {
+    if (!pointsInput || isNaN(parseInt(pointsInput))) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/clients/${clientId}/loyalty/points`, { method: "POST", body: JSON.stringify({ points: parseInt(pointsInput), reason: reasonInput }) });
+      showToast(`${pointsInput} points added`);
+      setShowAddPoints(false);
+      setPointsInput(""); setReasonInput("");
+      refetch();
+    } catch { showToast("Failed to add points", "error"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleSetTier() {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/clients/${clientId}/loyalty`, { method: "PATCH", body: JSON.stringify({ tier_override: tierInput || null }) });
+      showToast("Tier updated");
+      setShowSetTier(false);
+      refetch();
+    } catch { showToast("Failed to update tier", "error"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleSaveNotes() {
+    try {
+      await apiFetch(`/api/clients/${clientId}/loyalty`, { method: "PATCH", body: JSON.stringify({ tier_override: loyaltyRecord?.tier_override || null, notes }) });
+    } catch { /* silent */ }
+  }
+
+  return (
+    <div style={CS2}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 14 }}>Loyalty Program</div>
+
+      {/* Tier row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: "#6B6860" }}>Current Tier</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {effectiveTierName ? (
+            <span style={{ fontSize: 12, fontWeight: 700, borderRadius: 4, padding: "3px 8px", background: loyaltyTierBadge(effectiveTierName).bg, color: loyaltyTierBadge(effectiveTierName).color }}>
+              {effectiveTierName}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 700, borderRadius: 4, padding: "3px 8px", background: "#E5E2DC", color: "#6B6860" }}>No Tier</span>
+          )}
+          {loyaltyRecord?.tier_override && <span style={{ fontSize: 10, color: "#9E9B94" }}>Set Manually</span>}
+        </div>
+      </div>
+
+      {/* Points row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, padding: "8px 0", borderTop: "1px solid #F0EEE9", borderBottom: "1px solid #F0EEE9" }}>
+        <span style={{ fontSize: 12, color: "#6B6860" }}>Points Balance: <strong style={{ color: "#1A1917" }}>{pointsBalance} pts</strong></span>
+        <span style={{ fontSize: 12, color: "#6B6860" }}>Total Earned: <strong style={{ color: "#1A1917" }}>{totalEarned} pts</strong></span>
+      </div>
+
+      {/* Progress bar */}
+      {loyaltyTiers.length > 0 ? (
+        nextTier ? (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: "#6B6860", marginBottom: 4 }}>
+              {visits} of {nextTier.min_visits} visits to {nextTier.tier_name}
+            </div>
+            <div style={{ height: 6, background: "#F0EEE9", borderRadius: 3, overflow: "hidden" }}>
+              <div style={{ height: "100%", width: `${progressPct}%`, background: "var(--brand)", borderRadius: 3, transition: "width 0.4s" }} />
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 11, color: "#16A34A", fontWeight: 600, marginBottom: 12 }}>Top Tier</div>
+        )
+      ) : (
+        <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 12 }}>
+          No loyalty tiers configured yet. Set up tiers in Company Settings.
+        </div>
+      )}
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <button onClick={() => setShowAddPoints(true)} style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "1px solid var(--brand)", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>
+          + Add Points
+        </button>
+        <button onClick={() => { setTierInput(loyaltyRecord?.tier_override || ""); setShowSetTier(true); }} style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>
+          Set Tier Manually
+        </button>
+      </div>
+
+      {/* Notes */}
+      <textarea
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+        onBlur={handleSaveNotes}
+        placeholder="Loyalty notes..."
+        style={{ width: "100%", resize: "vertical" as const, minHeight: 60, border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#FAFAF8", boxSizing: "border-box" as const }}
+      />
+
+      {/* Add Points Modal */}
+      {showAddPoints && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 360, fontFamily: FF }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Add Points</div>
+            <div style={{ marginBottom: 10 }}>
+              <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Points</label>
+              <input type="number" value={pointsInput} onChange={e => setPointsInput(e.target.value)} style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Reason</label>
+              <input type="text" value={reasonInput} onChange={e => setReasonInput(e.target.value)} style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowAddPoints(false)} style={{ padding: "8px 14px", fontSize: 13, border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={handleAddPoints} disabled={saving} style={{ padding: "8px 14px", fontSize: 13, background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Set Tier Modal */}
+      {showSetTier && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 360, fontFamily: FF }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Set Tier Manually</div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Tier</label>
+              <select value={tierInput} onChange={e => setTierInput(e.target.value)} style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, background: "#FFFFFF", boxSizing: "border-box" as const }}>
+                <option value="">— Remove Override —</option>
+                {loyaltyTiers.map((t: any) => <option key={t.id} value={t.tier_name}>{t.tier_name}</option>)}
+                {!loyaltyTiers.length && ["Bronze", "Silver", "Gold"].map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowSetTier(false)} style={{ padding: "8px 14px", fontSize: 13, border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={handleSetTier} disabled={saving} style={{ padding: "8px 14px", fontSize: 13, background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Referrals Card ────────────────────────────────────────────────────────────
+function ReferralsCard({ clientId, referrals, refetch, showToast }: {
+  clientId: number;
+  referrals: any[];
+  refetch: () => void;
+  showToast: (msg: string, type?: "success" | "error") => void;
+}) {
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState({ referred_name: "", referred_phone: "", referred_email: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const CS2: React.CSSProperties = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "18px 20px", marginBottom: 14 };
+
+  const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
+    pending:     { bg: "#FEF3C7", color: "#D97706" },
+    booked:      { bg: "#DBEAFE", color: "#2563EB" },
+    completed:   { bg: "#DCFCE7", color: "#16A34A" },
+    reward_paid: { bg: "#EDE9FE", color: "#7C3AED" },
+    declined:    { bg: "#FEE2E2", color: "#DC2626" },
+  };
+
+  async function handleCreate() {
+    if (!form.referred_name.trim()) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/clients/${clientId}/referrals`, { method: "POST", body: JSON.stringify(form) });
+      showToast("Referral logged");
+      setShowModal(false);
+      setForm({ referred_name: "", referred_phone: "", referred_email: "", notes: "" });
+      refetch();
+    } catch { showToast("Failed to save referral", "error"); }
+    finally { setSaving(false); }
+  }
+
+  async function handleStatusChange(id: number, status: string) {
+    try {
+      await apiFetch(`/api/referrals/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      refetch();
+    } catch { showToast("Failed to update status", "error"); }
+  }
+
+  async function handleRewardPaid(id: number) {
+    try {
+      await apiFetch(`/api/referrals/${id}`, { method: "PATCH", body: JSON.stringify({ status: "reward_paid", reward_issued: true }) });
+      refetch();
+    } catch { showToast("Failed to mark reward paid", "error"); }
+  }
+
+  return (
+    <div style={CS2}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Referrals</span>
+          {referrals.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, background: "#E5E2DC", color: "#6B6860", borderRadius: 10, padding: "1px 7px" }}>{referrals.length}</span>}
+        </div>
+        <button onClick={() => setShowModal(true)} style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, fontFamily: FF }}>
+          + Log Referral
+        </button>
+      </div>
+
+      {referrals.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#9E9B94", textAlign: "center" as const, padding: "16px 0" }}>
+          No referrals on record.<br />
+          <span style={{ fontSize: 11 }}>Referrals submitted through the client portal appear here automatically.</span>
+        </div>
+      ) : (
+        <div style={{ overflowX: "auto" as const }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" as const, fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid #E5E2DC" }}>
+                {["Name", "Phone", "Date", "Source", "Status", "Actions"].map(h => (
+                  <th key={h} style={{ padding: "4px 8px 8px", textAlign: "left" as const, fontWeight: 600, color: "#6B6860", fontSize: 11 }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {referrals.map((r: any) => {
+                const sc = STATUS_COLORS[r.status] || { bg: "#E5E2DC", color: "#6B6860" };
+                const srcBadge = r.source === "portal" ? { bg: "var(--brand)", color: "#FFFFFF" } : { bg: "#E5E2DC", color: "#6B6860" };
+                return (
+                  <tr key={r.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
+                    <td style={{ padding: "6px 8px", fontWeight: 600, color: "#1A1917" }}>{r.referred_name}</td>
+                    <td style={{ padding: "6px 8px", color: "#6B6860" }}>{r.referred_phone || "—"}</td>
+                    <td style={{ padding: "6px 8px", color: "#6B6860" }}>{r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 4, padding: "2px 6px", background: srcBadge.bg, color: srcBadge.color, textTransform: "capitalize" as const }}>
+                        {r.source || "manual"}
+                      </span>
+                    </td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, borderRadius: 4, padding: "2px 6px", background: sc.bg, color: sc.color, textTransform: "capitalize" as const }}>
+                        {(r.status || "pending").replace("_", " ")}
+                      </span>
+                    </td>
+                    <td style={{ padding: "6px 8px" }}>
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <select
+                          value={r.status || "pending"}
+                          onChange={e => handleStatusChange(r.id, e.target.value)}
+                          style={{ fontSize: 11, border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 4px", background: "#FFFFFF", fontFamily: FF, cursor: "pointer" }}
+                        >
+                          {["pending", "booked", "completed", "reward_paid", "declined"].map(s => (
+                            <option key={s} value={s}>{s.replace("_", " ")}</option>
+                          ))}
+                        </select>
+                        {r.status === "completed" && !r.reward_issued && (
+                          <button
+                            onClick={() => handleRewardPaid(r.id)}
+                            style={{ fontSize: 10, fontWeight: 600, color: "#7C3AED", background: "#EDE9FE", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" as const }}
+                          >Mark Reward Paid</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Log Referral Modal */}
+      {showModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 420, fontFamily: FF }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Log Referral</div>
+            {[
+              { label: "Referred Name *", key: "referred_name", type: "text" },
+              { label: "Phone", key: "referred_phone", type: "tel" },
+              { label: "Email", key: "referred_email", type: "email" },
+              { label: "Notes", key: "notes", type: "text" },
+            ].map(f => (
+              <div key={f.key} style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>{f.label}</label>
+                <input
+                  type={f.type}
+                  value={(form as any)[f.key]}
+                  onChange={e => setForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }}
+                />
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setShowModal(false)} style={{ padding: "8px 14px", fontSize: 13, border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={handleCreate} disabled={saving || !form.referred_name.trim()} style={{ padding: "8px 14px", fontSize: 13, background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Profile Page ─────────────────────────────────────────────────────────
 const PROFILE_TABS = [
   { id: "client",   label: "Client"   },
@@ -3035,6 +3362,20 @@ export default function CustomerProfilePage() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["client-profile", clientId] }); refetchProfile(); },
   });
 
+  const { data: loyaltyData, refetch: refetchLoyalty } = useQuery<any>({
+    queryKey: ["client-loyalty", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/loyalty`),
+    enabled: clientId > 0,
+    staleTime: 30000,
+  });
+
+  const { data: referrals = [], refetch: refetchReferrals } = useQuery<any[]>({
+    queryKey: ["client-referrals", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/referrals`),
+    enabled: clientId > 0,
+    staleTime: 30000,
+  });
+
   const isMobile = useIsMobile();
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [showMessageDrawer, setShowMessageDrawer] = useState(false);
@@ -3065,6 +3406,32 @@ export default function CustomerProfilePage() {
     ? (FREQ_LABELS[recurringSchedule.frequency] || recurringSchedule.frequency)
     : (profile.frequency ? (FREQ_LABELS[profile.frequency] || freqLabel(profile.frequency)) : null);
   const invoices = profile.invoices || [];
+
+  // ─── Loyalty computed values ───────────────────────────────────────────────
+  const loyaltyRecord = loyaltyData?.loyalty || null;
+  const loyaltyTiers = loyaltyData?.tiers || [];
+  const loyaltyStats = loyaltyData?.stats || { total_visits: 0, lifetime_revenue: 0 };
+  const effectiveTierName: string = (() => {
+    if (loyaltyRecord?.tier_override) return loyaltyRecord.tier_override;
+    if (loyaltyTiers.length > 0) {
+      const visits = Number(loyaltyStats.total_visits || 0);
+      const rev = Number(loyaltyStats.lifetime_revenue || 0);
+      let best: any = null;
+      for (const t of loyaltyTiers) {
+        if (visits >= (t.min_visits || 0) && rev >= (t.min_lifetime_revenue || 0)) best = t;
+      }
+      if (best) return best.tier_name;
+    }
+    return "";
+  })();
+
+  function loyaltyTierBadge(name: string) {
+    const lower = name.toLowerCase();
+    if (lower.includes("gold")) return { bg: "#FEF9C3", color: "#CA8A04" };
+    if (lower.includes("silver")) return { bg: "#F1F5F9", color: "#64748B" };
+    if (lower.includes("bronze")) return { bg: "#FEF3C7", color: "#D97706" };
+    return { bg: "#E5E2DC", color: "#6B6860" };
+  }
 
   // ─── Shared card style ────────────────────────────────────────────────────
   const CS: React.CSSProperties = {
@@ -3205,6 +3572,18 @@ export default function CustomerProfilePage() {
             color={profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626"}
           />
         )}
+        {/* Loyalty Tier */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0EEE9" }}>
+          <span style={{ fontSize: 12, color: "#6B6860" }}>Loyalty Tier</span>
+          {effectiveTierName ? (
+            <span style={{ fontSize: 11, fontWeight: 700, borderRadius: 4, padding: "2px 7px", background: loyaltyTierBadge(effectiveTierName).bg, color: loyaltyTierBadge(effectiveTierName).color }}>
+              {effectiveTierName}
+              {loyaltyRecord?.tier_override && <span style={{ fontWeight: 400, marginLeft: 4 }}>(manual)</span>}
+            </span>
+          ) : (
+            <span style={{ fontSize: 12, color: "#9E9B94" }}>No Tier</span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3258,6 +3637,18 @@ export default function CustomerProfilePage() {
                 );
               })()}
             </div>
+
+            {/* Loyalty Program */}
+            <LoyaltyProgramCard
+              clientId={clientId}
+              loyaltyRecord={loyaltyRecord}
+              loyaltyTiers={loyaltyTiers}
+              loyaltyStats={loyaltyStats}
+              effectiveTierName={effectiveTierName}
+              loyaltyTierBadge={loyaltyTierBadge}
+              refetch={refetchLoyalty}
+              showToast={showToast}
+            />
           </div>
 
           {/* Right column */}
@@ -3432,6 +3823,14 @@ export default function CustomerProfilePage() {
                 <SectionHead title="Contacts & Notifications" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>} />
                 <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
               </div>
+
+              {/* Referrals */}
+              <ReferralsCard
+                clientId={clientId}
+                referrals={referrals}
+                refetch={refetchReferrals}
+                showToast={showToast}
+              />
             </div>
 
             {/* Right column */}
@@ -3441,7 +3840,7 @@ export default function CustomerProfilePage() {
                 <SectionHead title="Technician Preferences" />
                 {(profile.tech_preferences || []).some((p: any) => p.preference === "do_not_schedule") && (
                   <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 10 }}>
-                    Do Not Schedule preferences are enforced on the dispatch board.
+                    Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
                   </div>
                 )}
                 <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
@@ -3452,16 +3851,23 @@ export default function CustomerProfilePage() {
                 <SectionHead title="Contact Tickets" />
                 <ContactTicketsSection clientId={clientId} />
               </div>
+
+              {/* Agreements */}
+              <div style={CS}>
+                <SectionHead title="Agreements" action={
+                  <button
+                    onClick={() => apiFetch(`/api/clients/${clientId}/agreements/send`, { method: "POST", body: JSON.stringify({}) }).then(() => { refetchProfile(); showToast("Agreement sent"); }).catch(() => showToast("Failed to send", "error"))}
+                    style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >Send Agreement</button>
+                } />
+                <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
+              </div>
             </div>
           </div>
 
           {/* Full-width collapsibles */}
-          <CollapsibleSection title="Quotes" defaultOpen>
+          <CollapsibleSection title="Quotes">
             <QuotesTab clientId={clientId} client={profile} />
-          </CollapsibleSection>
-
-          <CollapsibleSection title="Agreements" count={(profile.agreements || []).length || undefined} defaultOpen>
-            <AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} />
           </CollapsibleSection>
 
           <CollapsibleSection title="Attachments">

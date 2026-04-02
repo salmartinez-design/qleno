@@ -40,15 +40,28 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 - **Hero Strip** (sticky, full width): breadcrumb, avatar, name, ACTIVE/RECURRING/freq badges, LTV dark box, action buttons, then 4-tab bar
 - **Left Stats Panel** (260px, `position: sticky`, `top: 0`, `height: calc(100vh - 64px)`, ALWAYS VISIBLE on all tabs): Client Stats card — Client Since, Last/Next Cleaning (brand color if within 7 days), LTV, Last 12mo, Avg Bill, Total Visits, Pending, Skips, Bumps, eCard Rate, Tech Consistency ("X techs / Y visits")
 - **Tab Content Area** (flex: 1, no max-width cap, scrolls independently) — 4 semantic tabs:
-  - **CLIENT** (2-col grid): Left — Contact & Basic Info + Billing & Payments (`CardOnFileTab`). Right — Invoices table (`BillingTab`) + QuickBooks (`QuickBooksTab`)
+  - **CLIENT** (2-col grid): Left — Contact & Basic Info + Billing & Payments + Loyalty Program card (tier badge, points balance, progress bar to next tier, Add Points modal, Set Tier Manually modal, auto-save notes). Right — Invoices table (`BillingTab`) + QuickBooks (`QuickBooksTab`)
   - **PROPERTY** (2-col grid): Left — Service Addresses + Access & Entry (alarm code in yellow warning box) + Client Notes (auto-saves on blur). Right — Recurring Schedule (`ServiceDetailsSection`) + Rate History + Rate Locks (`OverviewTab`) + Home Images (`HomeImagesSection`)
   - **JOBS** (single column, full width): Job History table + Scorecards + Inspections + Communication Log
-  - **ADMIN** (2-col grid top + full-width collapsibles): Top-left — Client Portal + Contacts & Notifications. Top-right — Tech Preferences (with Do Not Schedule warning banner) + Contact Tickets. Below — Quotes (open), Agreements (open), Attachments (collapsed)
+  - **ADMIN** (2-col grid top + full-width collapsibles): Left — Client Portal + Contacts & Notifications + Referrals card (Log Referral modal, status badges, Mark Reward Paid). Right — Tech Preferences (Do Not Schedule warning) + Contact Tickets + Agreements. Below (collapsed by default) — Quotes + Attachments
 - Mobile: compact hero + Next/Visits summary row + horizontally scrollable tab bar + no side stats panel
 - Default tab on load: `"client"` — `useState<ProfileTab>("client")`
 - Sub-components in `customer-profile.tsx` (lines 1-2999); `PROFILE_TABS` const + `CustomerProfilePage` export at ~line 3000
 - `CommLogTab` only accepts `{ clientId: number }` — no other props
 - Scroll preservation on customers list via `sessionStorage`
+
+**New tables (created via raw SQL, not drizzle schema):**
+- `loyalty_tiers` (id, company_id INTEGER, tier_name, min_visits, min_lifetime_revenue, reward_description, created_at)
+- `client_loyalty` (id, client_id INTEGER, company_id INTEGER, tier_id→loyalty_tiers, tier_override TEXT, points_balance, total_points_earned, notes, updated_at)
+- `referrals` (id, company_id INTEGER, referrer_client_id INTEGER, referred_name, referred_phone, referred_email, status, reward_issued BOOLEAN, reward_amount, source, notes, created_at, updated_at)
+
+**New API endpoints:**
+- `GET /api/clients/:id/loyalty` — returns `{ loyalty, tiers, stats }` (stats = total_visits + lifetime_revenue for tier calculation)
+- `PATCH /api/clients/:id/loyalty` — upserts loyalty record (tier_override, tier_id, notes)
+- `POST /api/clients/:id/loyalty/points` — adds points to balance
+- `GET /api/clients/:id/referrals` — list referrals for client
+- `POST /api/clients/:id/referrals` — log new referral (source auto-set to 'manual')
+- `PATCH /api/referrals/:id` — update status/reward_issued (in `referrals.ts` route)
 
 **leads table:** All columns present — `status`, `city`, `state`, `zip`, `source`, `scope`, `bedrooms`, `bathrooms`, `notes`, `quote_amount`, `assigned_to`, `updated_at`, `quoted_at`, `contacted_at`, `booked_at`, `closed_reason`, `agreement_signed`, `job_id`
 

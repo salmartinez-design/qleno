@@ -1075,5 +1075,134 @@ router.post("/:id/rate-lock/:lockId/void", requireAuth, async (req, res) => {
   }
 });
 
+
+// ──────────── Client Loyalty ────────────────────────────────────────────────
+router.get("/:id/loyalty", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const clientId = parseInt(req.params.id);
+  try {
+    const loyaltyRes = await db.execute(sql`
+      SELECT cl.* FROM client_loyalty cl
+      WHERE cl.client_id = ${clientId} AND cl.company_id = ${companyId}
+      LIMIT 1
+    `);
+    const tiersRes = await db.execute(sql`
+      SELECT * FROM loyalty_tiers WHERE company_id = ${companyId} ORDER BY min_visits ASC
+    `);
+    const statsRes = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'completed')::int AS total_visits,
+        COALESCE(SUM(CASE WHEN status='completed' THEN total::numeric ELSE 0 END), 0) AS lifetime_revenue
+      FROM jobs WHERE client_id = ${clientId} AND company_id = ${companyId}
+    `);
+    return res.json({
+      loyalty: loyaltyRes.rows[0] || null,
+      tiers: tiersRes.rows,
+      stats: statsRes.rows[0] || { total_visits: 0, lifetime_revenue: 0 },
+    });
+  } catch (err) {
+    console.error("GET loyalty:", err);
+    return res.status(500).json({ error: "Failed to get loyalty data" });
+  }
+});
+
+router.patch("/:id/loyalty", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const clientId = parseInt(req.params.id);
+  const { tier_override, notes, tier_id } = req.body;
+  try {
+    const existing = await db.execute(sql`
+      SELECT id FROM client_loyalty WHERE client_id = ${clientId} AND company_id = ${companyId} LIMIT 1
+    `);
+    if (existing.rows.length > 0) {
+      await db.execute(sql`
+        UPDATE client_loyalty SET
+          tier_override = ${tier_override ?? null},
+          tier_id = ${tier_id ?? null},
+          notes = ${notes ?? null},
+          updated_at = NOW()
+        WHERE client_id = ${clientId} AND company_id = ${companyId}
+      `);
+    } else {
+      await db.execute(sql`
+        INSERT INTO client_loyalty (client_id, company_id, tier_override, tier_id, notes)
+        VALUES (${clientId}, ${companyId}, ${tier_override ?? null}, ${tier_id ?? null}, ${notes ?? null})
+      `);
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("PATCH loyalty:", err);
+    return res.status(500).json({ error: "Failed to update loyalty" });
+  }
+});
+
+router.post("/:id/loyalty/points", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const clientId = parseInt(req.params.id);
+  const { points, reason } = req.body;
+  if (!points || isNaN(parseInt(points))) return res.status(400).json({ error: "Points required" });
+  const pts = parseInt(points);
+  try {
+    const existing = await db.execute(sql`
+      SELECT id, points_balance, total_points_earned FROM client_loyalty
+      WHERE client_id = ${clientId} AND company_id = ${companyId} LIMIT 1
+    `);
+    if (existing.rows.length > 0) {
+      const row = existing.rows[0] as any;
+      const newBalance = (row.points_balance || 0) + pts;
+      const newTotal = (row.total_points_earned || 0) + (pts > 0 ? pts : 0);
+      await db.execute(sql`
+        UPDATE client_loyalty SET points_balance = ${newBalance}, total_points_earned = ${newTotal}, updated_at = NOW()
+        WHERE client_id = ${clientId} AND company_id = ${companyId}
+      `);
+    } else {
+      const bal = pts > 0 ? pts : 0;
+      await db.execute(sql`
+        INSERT INTO client_loyalty (client_id, company_id, points_balance, total_points_earned)
+        VALUES (${clientId}, ${companyId}, ${bal}, ${bal})
+      `);
+    }
+    return res.json({ ok: true, points_added: pts, reason });
+  } catch (err) {
+    console.error("POST loyalty/points:", err);
+    return res.status(500).json({ error: "Failed to add points" });
+  }
+});
+
+// ──────────── Client Referrals ───────────────────────────────────────────────
+router.get("/:id/referrals", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const clientId = parseInt(req.params.id);
+  try {
+    const result = await db.execute(sql`
+      SELECT * FROM referrals
+      WHERE referrer_client_id = ${clientId} AND company_id = ${companyId}
+      ORDER BY created_at DESC
+    `);
+    return res.json(result.rows);
+  } catch (err) {
+    console.error("GET referrals:", err);
+    return res.status(500).json({ error: "Failed to get referrals" });
+  }
+});
+
+router.post("/:id/referrals", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId;
+  const clientId = parseInt(req.params.id);
+  const { referred_name, referred_phone, referred_email, notes } = req.body;
+  if (!referred_name?.trim()) return res.status(400).json({ error: "Referred name required" });
+  try {
+    const result = await db.execute(sql`
+      INSERT INTO referrals (company_id, referrer_client_id, referred_name, referred_phone, referred_email, notes, source, status)
+      VALUES (${companyId}, ${clientId}, ${referred_name.trim()}, ${referred_phone || null}, ${referred_email || null}, ${notes || null}, 'manual', 'pending')
+      RETURNING *
+    `);
+    return res.status(201).json(result.rows[0]);
+  } catch (err) {
+    console.error("POST referrals:", err);
+    return res.status(500).json({ error: "Failed to create referral" });
+  }
+});
+
 export default router;
 

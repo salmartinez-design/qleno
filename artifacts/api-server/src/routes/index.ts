@@ -65,6 +65,7 @@ import smsInboundRouter from "./sms-inbound.js";
 import payrollSettingsRouter from "./payroll-settings.js";
 import complianceSettingsRouter from "./compliance-settings.js";
 import subscriptionRouter from "./subscription.js";
+import referralsRouter from "./referrals.js";
 
 const router: IRouter = Router();
 
@@ -134,5 +135,6 @@ router.use("/sms/inbound", smsInboundRouter);
 router.use("/payroll-settings", payrollSettingsRouter);
 router.use("/compliance-settings", complianceSettingsRouter);
 router.use("/subscription", subscriptionRouter);
+router.use("/referrals", referralsRouter);
 
 export default router;
