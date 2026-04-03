@@ -63,6 +63,18 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 - `POST /api/clients/:id/referrals` — log new referral (source auto-set to 'manual')
 - `PATCH /api/referrals/:id` — update status/reward_issued (in `referrals.ts` route)
 
+**communication_log table** extended with: `source` (staff/system), `sent_by` TEXT, `recipient` TEXT, `subject` TEXT, `body` TEXT, `twilio_message_sid` TEXT, `resend_email_id` TEXT, `delivery_status` TEXT (pending/sent/delivered/undelivered/failed), `opened_at` TIMESTAMPTZ, `clicked_at` TIMESTAMPTZ. New **communication_events** table: (id, communication_log_id→communication_log, event_type, event_data JSONB, occurred_at TIMESTAMPTZ).
+
+**CommLog API (`/api/comms`):**
+- `GET /api/comms?customer_id=&filter=&limit=` — filter values: sms, email, phone, in_person, system, staff, inbound, outbound
+- `GET /api/comms/:id/events` — event trail for a specific log entry
+- `POST /api/comms` — manual staff log entry
+- `POST /api/comms/ingest` — internal: auto-log system messages (SMS/email senders); no JWT auth, uses `x-internal-secret` header
+- `POST /api/comms/sms/status` — Twilio delivery status webhook (updates delivery_status, inserts event)
+- `POST /api/comms/email/webhook` — Resend delivery webhook (updates delivery_status, opened_at, clicked_at, inserts event)
+
+**CommLog2 UI component** (`customer-profile-tabs2.tsx`): Full communication log card in CLIENT tab right column (below QuickBooks). Detail view (default) shows colored-border cards by channel/direction; List view shows sortable table. Features: filter dropdown, pagination, expandable event trail, collapsible manual log form. CommLogTab removed from JOBS tab.
+
 **leads table:** All columns present — `status`, `city`, `state`, `zip`, `source`, `scope`, `bedrooms`, `bathrooms`, `notes`, `quote_amount`, `assigned_to`, `updated_at`, `quoted_at`, `contacted_at`, `booked_at`, `closed_reason`, `agreement_signed`, `job_id`
 
 **Core Functionality & Feature Specifications:**

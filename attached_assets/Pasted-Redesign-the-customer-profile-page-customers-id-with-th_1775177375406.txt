@@ -1,0 +1,565 @@
+Redesign the customer profile page (/customers/:id) with the following 
+complete specification. This replaces all previous versions of this page.
+Keep all existing API endpoints, DB columns, edit flows, and slide-in panels
+unless explicitly told to create new ones below.
+
+═══════════════════════════════════════════════════════════
+OVERALL STRUCTURE
+═══════════════════════════════════════════════════════════
+
+STICKY HERO STRIP (full width, ~64px, unchanged):
+Back button | Avatar initials circle | Client name | ACTIVE / RECURRING / 
+frequency badges | CL-XXXX | Next: [date] in brand color | LTV dark box | 
+Schedule Job (primary) | Message | Invoice | Edit buttons
+
+"Edit" button in hero strip opens slide-in covering ONLY:
+  First Name, Last Name, Phone, Email, Client Since, 
+  Acquisition Source, Internal Notes.
+  Do NOT include Entry Instructions, Alarm Code, or Pets Notes here.
+
+BELOW HERO: Two-panel layout, full viewport width.
+  Left panel: 260px fixed, sticky, does not scroll with main content
+  Right panel: flex: 1, fills ALL remaining width, NO max-width cap
+
+═══════════════════════════════════════════════════════════
+LEFT PANEL — CLIENT STATS (always visible, never scrolls away)
+═══════════════════════════════════════════════════════════
+
+Card titled "CLIENT STATS":
+  Client Since
+  Last Cleaning
+  Next Cleaning          ← brand color if within 7 days
+  Lifetime Revenue
+  Last 12 Months
+  Avg Bill (12mo)
+  Total Visits
+  Pending Jobs
+  Skips
+  Bumps
+  eCard Rate
+  Tech Consistency       ← e.g. "3 techs / 47 visits"
+  Loyalty Tier           ← show tier badge below Tech Consistency
+                            Pull from client_loyalty.tier_override first,
+                            then calculate from loyalty_tiers table,
+                            show "No Tier" in gray if neither exists.
+                            Badge colors:
+                              No Tier = #E5E2DC bg, #6B6860 text
+                              Bronze  = #FEF3C7 bg, #D97706 text
+                              Silver  = #F1F5F9 bg, #64748B text
+                              Gold    = #FEF9C3 bg, #CA8A04 text
+
+No calendar. No other cards in left panel.
+
+═══════════════════════════════════════════════════════════
+RIGHT PANEL — 4 TABS
+═══════════════════════════════════════════════════════════
+Tabs: CLIENT | PROPERTY | JOBS | ADMIN
+Active tab: var(--brand) underline indicator.
+Tab bar is sticky below hero strip — stays visible as user scrolls.
+Default tab on load: CLIENT
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 1: CLIENT
+Who this person is. How to reach them. How they pay.
+How they communicate. What they've bought.
+Layout: grid-template-columns: 1fr 1fr, gap: 24px, full available width.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LEFT COLUMN (top to bottom):
+
+  CONTACT & BASIC INFO card
+    First Name (clients.first_name)
+    Last Name (clients.last_name)
+    Phone (clients.phone) — show "No phone on file" if null
+    Email (clients.email) — show "No email on file" if null
+    Client Since
+    Acquisition Source
+
+  BILLING & PAYMENTS card
+    Payment Method display ("No payment method saved" if none)
+    [Send Card Link via Email] button (primary)
+    [Send Card Link via SMS] button (secondary)
+    Total Paid (All Time)
+    Last Payment date + amount
+    Payment Method on File label
+
+  LOYALTY PROGRAM card
+    Header: "LOYALTY PROGRAM"
+
+    Row 1 — Current Tier:
+      Show tier_override if set, else calculate from total_visits
+      and lifetime_revenue against loyalty_tiers table.
+      Display tier name in colored badge (colors same as left panel).
+      Show "Set Manually" in small secondary text if using override.
+
+    Row 2 — Points:
+      "Points Balance: X pts" left | "Total Earned: X pts" right
+      Pull from client_loyalty table. Show 0 if no record exists.
+
+    Row 3 — Progress bar to next tier (if tiers configured):
+      e.g. "32 of 50 visits to Gold"
+      If already highest tier: show "Top Tier" label.
+      If no tiers configured: "No loyalty tiers configured yet.
+      Set up tiers in Company Settings."
+
+    Row 4 — Actions:
+      [+ Add Points] → modal: Points (number) + Reason (text) + Save
+        Inserts into client_loyalty, updates points_balance
+      [Set Tier Manually] → dropdown of loyalty_tiers + Save
+        Sets client_loyalty.tier_override
+      Notes textarea below actions, auto-saves on blur.
+
+RIGHT COLUMN (top to bottom):
+
+  INVOICES card
+    Table: Date | Invoice # | Amount | Balance | Status
+    Paginated, 10 per page, Prev / Next
+    "No invoices yet" empty state
+
+  QUICKBOOKS card
+    If not connected:
+      Link icon, "Not Connected to QuickBooks" heading,
+      explanatory text, [Link to QBO Customer] + [Create in QBO] buttons
+    If connected:
+      "QuickBooks Connected" green status bar
+      Outstanding Balance
+      Overdue Balance
+      Last Invoice summary (invoice #, date, total, amount due)
+
+  COMMUNICATION LOG card
+    This is a legal audit trail. Every SMS and email sent to or 
+    received from this client must appear here automatically with 
+    full delivery and open tracking.
+
+    Header row:
+      "COMMUNICATION LOG" left
+      Total count right (e.g. "14 entries")
+      View toggle: [Detail View] [List View]
+        Detail View = card format (default)
+        List View = table format
+      Filter dropdown: All | SMS | Email | Phone | In Person |
+        System | Staff | Inbound | Outbound
+
+    ── DETAIL VIEW (default) ──
+
+    Each entry renders as a card with left colored border:
+      Outbound SMS:       border #3B82F6, light blue background
+      Outbound Email:     border #8B5CF6, light purple background
+      Inbound SMS:        border #10B981, light green background
+      Staff manual entry: border #6B7280, white background
+      System automated:   border #F59E0B, light amber background
+
+    Card layout:
+      TOP ROW:
+        Left: Channel icon + label ("Text Message" / "Email" / "Phone Call")
+        Left: Direction pill — "To: [phone/email]" (outbound)
+              or "From: [phone]" (inbound)
+        Right: Source badge — "SYSTEM" dark gray pill
+               or staff name pill (e.g. "M. Castillo")
+
+      MIDDLE:
+        For email: Subject line in bold above body text
+        Full message body (truncated at 3 lines, "Show more" expands)
+
+      BOTTOM ROW:
+        Left: Calendar icon + timestamp (M/D/YYYY H:MM AM/PM)
+        Right: Delivery status badge:
+          pending     = gray pill   "Pending"
+          sent        = blue pill   "Sent"
+          delivered   = green pill  "Delivered"
+          undelivered = red pill    "Undelivered"
+          failed      = red pill    "Failed"
+          (no badge for inbound or manual phone/in-person)
+
+      EVENT TRAIL (click to expand inline below card):
+        Mini table:
+          Event | Clicked URL | Date/Time
+          sent       |  | 3/31/2026 12:02:45 PM
+          delivered  |  | 3/31/2026 12:02:55 PM
+          opened     |  | 3/31/2026 11:11:14 PM
+        "View event trail" link toggles open/closed.
+        Only shown for SMS and email entries.
+
+    ── LIST VIEW ──
+
+    Sortable table:
+      Time (default desc) | Type | Subtype | Note | Contact | Sent By | Status
+      Time: full timestamp
+      Type: "System" or "Staff"
+      Subtype: "Text Message" / "Email" / "Phone Call" / "In Person"
+      Note: message body truncated to 50 chars
+      Contact: recipient phone or email
+      Sent By: staff name or "SYSTEM"
+      Status: delivery status badge
+
+    Records per page: 10 / 25 / 100
+    Search box (searches body text and recipient)
+
+    ── MANUAL LOG ENTRY ──
+
+    Collapsed by default. [+ Log Communication] button expands form:
+      Direction: Inbound / Outbound toggle
+      Channel: Phone | Email | SMS | In Person
+      Date/Time: datetime picker (defaults to now)
+      Recipient/Contact: text field
+      Summary/Notes: textarea
+      Logged by: auto-filled from logged-in user, read-only
+      [Save Entry] button
+        Inserts into communication_log with source = 'staff'
+
+    ── EMPTY STATE ──
+    "No communications logged yet.
+    All SMS and email notifications sent to this client
+    will appear here automatically with delivery status."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 2: PROPERTY
+Where we go and how we get in.
+Layout: grid-template-columns: 1fr 1fr, gap: 24px, full available width.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LEFT COLUMN (top to bottom):
+
+  SERVICE ADDRESSES card
+    List all addresses on file (street, city, state, zip)
+    Show service zone name if assigned
+    [+ Add Another Home] button
+
+  ACCESS & ENTRY card   ← SAFETY CRITICAL
+    Entry Instructions (read-only display, Edit button)
+
+    Alarm / Lockbox Code:
+      Display value in a distinct callout box:
+        background: #FEF3C7
+        border: 1px solid #F59E0B
+        border-radius: 6px
+        padding: 10px 14px
+        font-weight: 600
+        font-size: 15px
+      Show "No code on file" in secondary text if null.
+      This must be immediately visible — do not bury it.
+
+    Pets / Equipment Notes (read-only display, Edit button)
+
+    [Edit Access Details] link → opens edit flow for ONLY:
+      entry_instructions, lockbox_code, pets_notes
+      This is separate from the hero Edit button.
+
+  CLIENT NOTES card
+    Auto-save textarea (saves on blur)
+    Placeholder: "Internal notes about this client..."
+    min-height: 160px
+
+RIGHT COLUMN (top to bottom):
+
+  RECURRING SCHEDULE card
+    Header: "RECURRING SCHEDULE" + [Edit Service Details] button top right
+    Frequency | Start Date | Scope (3 columns)
+    Notes field below
+    "No recurring schedule" empty state
+
+  RATE HISTORY card
+    Table of rate changes with dates
+    "No rate changes recorded" empty state
+    Render EXACTLY ONCE — do not duplicate.
+
+  RATE LOCKS card
+    [Edit] button top right
+    Active rate lock details if any
+    [+ Add Rate Lock] button
+    "No rate locks" empty state
+
+  HOME IMAGES card
+    [Upload Photo] button top right
+    Photo thumbnail grid
+    "No job photos on record. Photos are added by technicians
+    from the mobile app during service visits." empty state
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 3: JOBS
+All job activity for this client.
+Layout: single full-width column.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  JOB HISTORY section
+    Header: "JOB HISTORY" | "X visits · $X total" right-aligned
+    Table: Date | Tech(s) | Scope | Duration | Amount | Status
+    Paginated 10 per page, Prev / Next
+    "No job history records found" empty state
+
+  SCORECARDS section
+    Header: "SCORECARDS" | "X total" right-aligned
+    Table: Job Date | Score | Technician | Comments | Actions
+    "No scorecards yet" empty state
+
+  INSPECTIONS section
+    [+ Create New Inspection] button top right
+    Table: Date | Inspector | Score | Result | Notes
+    "No inspections on record" empty state
+
+  ← Communication Log is NOT in this tab.
+     It lives in the CLIENT tab right column.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TAB 4: ADMIN
+Operational but not part of daily dispatch workflow.
+Layout: grid-template-columns: 1fr 1fr, gap: 24px, full available width.
+Full-width collapsible sections below the 2-column grid.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+LEFT COLUMN (top to bottom):
+
+  CLIENT PORTAL card
+    If no portal access:
+      Globe icon, "No Portal Access" heading
+      "Client does not have a portal account"
+      Explanation of what portal access enables
+      [Send Portal Invitation] button
+      [View Portal] link
+    If portal active:
+      "Portal Active" green status
+      Last login date if available
+      [View Portal] link
+
+  CONTACTS & NOTIFICATIONS card
+    Header: "CONTACTS & NOTIFICATIONS" | "X configured" right-aligned
+    [+ Create Notification] button
+    Notification contacts list
+    "No notification contacts configured" empty state
+
+  REFERRALS card
+    Header: "REFERRALS" | "X total" count badge right-aligned
+    [+ Log Referral] button → modal:
+      Referred Name (required)
+      Phone
+      Email
+      Notes
+      Source: auto-set to "manual"
+      Save → inserts row with status = "pending"
+
+    Referrals table:
+      Columns: Name | Phone | Date | Source | Status | Reward | Actions
+      Source badge:
+        Manual = #E5E2DC bg, #6B6860 text
+        Portal = var(--brand) bg, white text
+      Status badge:
+        pending     = #FEF3C7 / #D97706
+        booked      = #DBEAFE / #2563EB
+        completed   = #DCFCE7 / #16A34A
+        reward_paid = #EDE9FE / #7C3AED
+        declined    = #FEE2E2 / #DC2626
+      Actions: status dropdown to advance status
+        [Mark Reward Paid] button appears when status = completed
+        Clicking sets reward_issued = true, status = reward_paid
+
+    Empty state:
+      "No referrals on record.
+      Referrals submitted through the client portal
+      appear here automatically."
+
+    Portal connection:
+      When a client submits a referral via the client portal:
+      1. Insert into referrals with source = 'portal', 
+         status = 'pending', referrer_client_id = this client
+      2. Also insert into leads table with source = 'referral',
+         referred_by = referrer client name
+      Pipeline: Portal submission → Referrals tile → Leads table
+
+RIGHT COLUMN (top to bottom):
+
+  TECHNICIAN PREFERENCES card
+    Warning banner (amber): "Do Not Schedule preferences are enforced
+    on the dispatch board. A warning will appear before assigning a
+    flagged technician to this client."
+    [+ Create Preference] button
+    Table: Technician | Preference | Notes | Actions
+    "No preferences set" empty state
+
+  CONTACT TICKETS card
+    [+ Create New Ticket] button top right
+    Table: Created | Type | Job ID | Notes | Created By
+    "No tickets yet" empty state
+
+  AGREEMENTS card
+    [Send Agreement] button top right
+    Table: Agreement | Sent | Status | Signed
+    "No agreements sent yet" empty state
+
+FULL WIDTH below 2-column grid (collapsed by default, expand on click):
+
+  QUOTES section
+    [+ New Quote] button
+    Quotes list or "No quotes yet" empty state
+
+  ATTACHMENTS section
+    [Upload File] button
+    Category filter tabs: All | Home Photo | Document |
+      Inspection | Agreement | Other
+    File grid or "No files" empty state
+
+═══════════════════════════════════════════════════════════
+NEW DB TABLES TO CREATE
+═══════════════════════════════════════════════════════════
+
+loyalty_tiers (
+  id SERIAL PRIMARY KEY,
+  company_id UUID REFERENCES companies(id),
+  tier_name TEXT NOT NULL,
+  min_visits INTEGER DEFAULT 0,
+  min_lifetime_revenue NUMERIC DEFAULT 0,
+  reward_description TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+)
+
+client_loyalty (
+  id SERIAL PRIMARY KEY,
+  client_id UUID REFERENCES clients(id),
+  company_id UUID REFERENCES companies(id),
+  tier_id INTEGER REFERENCES loyalty_tiers(id),
+  tier_override TEXT,
+  points_balance INTEGER DEFAULT 0,
+  total_points_earned INTEGER DEFAULT 0,
+  notes TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)
+
+referrals (
+  id SERIAL PRIMARY KEY,
+  company_id UUID REFERENCES companies(id),
+  referrer_client_id UUID REFERENCES clients(id),
+  referred_name TEXT NOT NULL,
+  referred_phone TEXT,
+  referred_email TEXT,
+  status TEXT DEFAULT 'pending',
+  reward_issued BOOLEAN DEFAULT FALSE,
+  reward_amount NUMERIC,
+  source TEXT DEFAULT 'manual',
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+)
+
+communication_log (
+  id SERIAL PRIMARY KEY,
+  company_id UUID REFERENCES companies(id),
+  client_id UUID REFERENCES clients(id),
+  job_id UUID REFERENCES jobs(id) NULL,
+  direction TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  source TEXT NOT NULL,
+  sent_by TEXT,
+  recipient TEXT,
+  subject TEXT,
+  body TEXT,
+  twilio_message_sid TEXT,
+  resend_email_id TEXT,
+  delivery_status TEXT DEFAULT 'pending',
+  opened_at TIMESTAMPTZ,
+  clicked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+)
+
+communication_events (
+  id SERIAL PRIMARY KEY,
+  communication_log_id INTEGER REFERENCES communication_log(id),
+  event_type TEXT NOT NULL,
+  event_data JSONB,
+  occurred_at TIMESTAMPTZ NOT NULL
+)
+
+All tables: RLS policies scoped to company_id.
+Pattern: company_id = (SELECT company_id FROM users WHERE id = auth.uid())
+
+═══════════════════════════════════════════════════════════
+AUTOMATIC COMMUNICATION CAPTURE
+═══════════════════════════════════════════════════════════
+
+Every outbound SMS via Twilio:
+  Insert communication_log row:
+    source='system', channel='sms', direction='outbound'
+    recipient = client phone, body = full SMS text
+    twilio_message_sid = Twilio response SID
+    delivery_status = 'sent'
+
+Every outbound email via Resend:
+  Insert communication_log row:
+    source='system', channel='email', direction='outbound'
+    recipient = client email, subject = email subject
+    body = plain text version of email body
+    resend_email_id = Resend response ID
+    delivery_status = 'sent'
+
+Every inbound SMS from Twilio webhook:
+  Insert communication_log row:
+    direction='inbound', source='system', channel='sms'
+    body = inbound message text
+    delivery_status = 'delivered'
+
+Every manual message sent from the Message button:
+  Insert communication_log row:
+    source='staff', sent_by = logged-in user display name
+    channel = sms or email, direction = 'outbound'
+
+═══════════════════════════════════════════════════════════
+WEBHOOK ENDPOINTS
+═══════════════════════════════════════════════════════════
+
+POST /api/communications/sms/status
+  Receives Twilio delivery status callbacks
+  Updates communication_log.delivery_status
+  Inserts communication_events row
+  Matches by twilio_message_sid
+  Validate using Twilio webhook signature + TWILIO_AUTH_TOKEN
+
+POST /api/communications/email/webhook
+  Receives Resend webhook events:
+    email.sent, email.delivered, email.opened,
+    email.clicked, email.bounced, email.complained
+  Updates communication_log delivery_status, opened_at, clicked_at
+  Inserts communication_events row for each event
+  Matches by resend_email_id
+  Validate using RESEND_WEBHOOK_SECRET (add to Replit Secrets)
+
+Both endpoints:
+  Return HTTP 200 immediately (async processing)
+  No JWT auth required — webhook signature validation only
+  Use Supabase service role key for DB writes (bypass RLS)
+
+═══════════════════════════════════════════════════════════
+MOBILE BEHAVIOR (< 768px)
+═══════════════════════════════════════════════════════════
+Hide left stats panel completely.
+Show compact summary row below hero strip:
+  "Next Job: [date] · LTV: $X · [Tier badge]"
+All tab content: single column.
+Tab bar: horizontally scrollable if tabs overflow viewport.
+Alarm/Lockbox callout box: full width, same amber styling as desktop.
+Communication log cards: full width, event trail expands inline.
+
+═══════════════════════════════════════════════════════════
+DESIGN SYSTEM — NON-NEGOTIABLE
+═══════════════════════════════════════════════════════════
+Background:     #F7F6F3
+Cards:          #FFFFFF
+Primary text:   #1A1917
+Secondary text: #6B6860
+Borders:        #E5E2DC
+Accent:         var(--brand) dynamic per tenant
+Font:           Plus Jakarta Sans ONLY
+No emojis anywhere
+No dark mode
+Light theme only
+
+Left stats panel:
+  position: sticky
+  top: 64px
+  height: calc(100vh - 64px)
+  overflow-y: auto
+
+Main content area:
+  flex: 1
+  width: 100%
+  NO max-width cap
+
+Hero strip: unchanged — do not modify
+All existing edit slide-ins, modals, API calls: unchanged

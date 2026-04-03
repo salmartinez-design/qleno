@@ -11,7 +11,7 @@ import {
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
   MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench,
 } from "lucide-react";
-import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab } from "./customer-profile-tabs2";
+import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -3664,6 +3664,9 @@ export default function CustomerProfilePage() {
               <SectionHead title="QuickBooks" />
               <QuickBooksTab clientId={clientId} client={profile} refetch={refetchProfile} />
             </div>
+
+            {/* Communication Log */}
+            <CommLog2 clientId={clientId} />
           </div>
         </div>
       )}
@@ -3794,11 +3797,6 @@ export default function CustomerProfilePage() {
             <InspectionsSection />
           </div>
 
-          {/* Communication Log */}
-          <div style={CS}>
-            <SectionHead title="Communication Log" />
-            <CommLogTab clientId={clientId} />
-          </div>
         </div>
       )}
 
@@ -3981,10 +3979,6 @@ export default function CustomerProfilePage() {
             {activeTab === "jobs" && (<>
               <div style={CS}>
                 <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
-              </div>
-              <div style={CS}>
-                <div style={CTitle}>Communication Log</div>
-                <CommLogTab clientId={clientId} />
               </div>
             </>)}
             {activeTab === "admin" && (<>

@@ -5,6 +5,8 @@ import {
   Plus, Trash2, Send, Check, X, Upload, FileText, Image, Download,
   RefreshCw, Link, ExternalLink, DollarSign, CreditCard, RotateCcw,
   Clock, AlertCircle, CheckCircle, Eye, File,
+  MessageSquare, Mail, Phone, Users, ChevronDown, ChevronUp, List, LayoutList,
+  Filter, CalendarDays,
 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -658,6 +660,375 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── CommLog2 — Full Communication Log Card ────────────────────────────────────
+const FF2 = "'Plus Jakarta Sans', sans-serif";
+
+function cardStyle(entry: any): React.CSSProperties {
+  const ch = (entry.channel || "").toLowerCase();
+  const dir = (entry.direction || "").toLowerCase();
+  const src = (entry.source || "staff").toLowerCase();
+  if (src === "system" || (ch === "sms" && src === "system")) {
+    if (dir === "inbound") return { borderLeft: "3px solid #10B981", background: "rgba(16,185,129,0.04)" };
+    if (ch === "email") return { borderLeft: "3px solid #8B5CF6", background: "rgba(139,92,246,0.04)" };
+    return { borderLeft: "3px solid #F59E0B", background: "rgba(245,158,11,0.04)" };
+  }
+  if (dir === "inbound") return { borderLeft: "3px solid #10B981", background: "rgba(16,185,129,0.04)" };
+  if (ch === "sms" || ch === "text") return { borderLeft: "3px solid #3B82F6", background: "rgba(59,130,246,0.04)" };
+  if (ch === "email") return { borderLeft: "3px solid #8B5CF6", background: "rgba(139,92,246,0.04)" };
+  return { borderLeft: "3px solid #6B7280", background: "#FFFFFF" };
+}
+
+function channelLabel(ch: string) {
+  const m: Record<string,string> = { sms:"Text Message", text:"Text Message", email:"Email", phone:"Phone Call", in_person:"In Person", other:"Other" };
+  return m[ch?.toLowerCase()] || ch || "Message";
+}
+
+function ChannelIcon({ ch, size = 13 }: { ch: string; size?: number }) {
+  const c = (ch || "").toLowerCase();
+  if (c === "email") return <Mail size={size} />;
+  if (c === "phone") return <Phone size={size} />;
+  if (c === "in_person") return <Users size={size} />;
+  return <MessageSquare size={size} />;
+}
+
+function DeliveryBadge({ status }: { status?: string }) {
+  if (!status || status === "pending") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#E5E2DC", color: "#6B6860", fontWeight: 700 }}>Pending</span>;
+  if (status === "sent") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#DBEAFE", color: "#1D4ED8", fontWeight: 700 }}>Sent</span>;
+  if (status === "delivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#DCFCE7", color: "#16A34A", fontWeight: 700 }}>Delivered</span>;
+  if (status === "undelivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626", fontWeight: 700 }}>Undelivered</span>;
+  if (status === "failed") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626", fontWeight: 700 }}>Failed</span>;
+  return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#E5E2DC", color: "#6B6860", fontWeight: 700 }}>{status}</span>;
+}
+
+function fmtTs(d?: string | null) {
+  if (!d) return "";
+  const dt = new Date(d);
+  return dt.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "numeric" }) +
+    " " + dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+}
+
+function EventTrail({ logId }: { logId: number }) {
+  const { data: events = [], isLoading } = useQuery<any[]>({
+    queryKey: ["comm-events", logId],
+    queryFn: () => apiFetch(`/api/comms/${logId}/events`),
+    staleTime: 60000,
+  });
+  if (isLoading) return <div style={{ fontSize: 11, color: "#9E9B94", padding: "8px 0" }}>Loading events...</div>;
+  if (!events.length) return <div style={{ fontSize: 11, color: "#9E9B94", padding: "8px 0" }}>No events recorded yet.</div>;
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, marginTop: 4 }}>
+      <thead>
+        <tr style={{ borderBottom: "1px solid #E5E2DC" }}>
+          {["Event", "Date / Time"].map(h => <th key={h} style={{ padding: "3px 8px", textAlign: "left", color: "#9E9B94", fontWeight: 600 }}>{h}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {events.map((ev: any) => (
+          <tr key={ev.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
+            <td style={{ padding: "3px 8px", fontWeight: 600, color: "#1A1917", textTransform: "capitalize" }}>{ev.event_type?.replace("email.", "")}</td>
+            <td style={{ padding: "3px 8px", color: "#6B6860" }}>{fmtTs(ev.occurred_at)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function CommLogDetailCard({ entry }: { entry: any }) {
+  const [expanded, setExpanded] = useState(false);
+  const [trailOpen, setTrailOpen] = useState(false);
+  const body = entry.body || entry.summary || "";
+  const hasMore = body.length > 180;
+  const showTrail = (entry.channel === "sms" || entry.channel === "text" || entry.channel === "email") &&
+    (entry.twilio_message_sid || entry.resend_email_id || entry.source === "system");
+
+  return (
+    <div style={{ ...cardStyle(entry), border: "1px solid #E5E2DC", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+      {/* Top row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
+            <ChannelIcon ch={entry.channel} />
+            {channelLabel(entry.channel)}
+          </span>
+          <span style={{ fontSize: 11, color: "#6B6860" }}>
+            {entry.direction === "outbound" ? `To: ${entry.recipient || "—"}` : `From: ${entry.recipient || "—"}`}
+          </span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          {entry.source === "system" ? (
+            <span style={{ fontSize: 10, fontWeight: 700, background: "#374151", color: "#FFFFFF", borderRadius: 4, padding: "2px 6px" }}>SYSTEM</span>
+          ) : entry.sent_by || entry.logged_by_name ? (
+            <span style={{ fontSize: 10, fontWeight: 700, background: "#E5E2DC", color: "#6B6860", borderRadius: 4, padding: "2px 6px" }}>
+              {(entry.sent_by || entry.logged_by_name || "").split(" ").map((w: string) => w[0]).join(". ")}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Subject (email) */}
+      {entry.subject && <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>{entry.subject}</div>}
+
+      {/* Body */}
+      {body && (
+        <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 8 }}>
+          {!expanded && hasMore ? body.substring(0, 180) + "…" : body}
+          {hasMore && (
+            <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontFamily: FF2 }}>
+              {expanded ? "Show less" : "Show more"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Bottom row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "center", gap: 5 }}>
+          <CalendarDays size={11} />
+          {fmtTs(entry.logged_at || entry.created_at)}
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {(entry.source === "system" || entry.delivery_status) && <DeliveryBadge status={entry.delivery_status} />}
+          {showTrail && (
+            <button onClick={() => setTrailOpen(o => !o)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
+              {trailOpen ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+              {trailOpen ? "Hide trail" : "View event trail"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Event trail */}
+      {trailOpen && (
+        <div style={{ borderTop: "1px solid #E5E2DC", marginTop: 8, paddingTop: 8 }}>
+          <EventTrail logId={entry.id} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const FILTERS = [
+  { label: "All", value: "" },
+  { label: "SMS", value: "sms" },
+  { label: "Email", value: "email" },
+  { label: "Phone", value: "phone" },
+  { label: "In Person", value: "in_person" },
+  { label: "System", value: "system" },
+  { label: "Staff", value: "staff" },
+  { label: "Inbound", value: "inbound" },
+  { label: "Outbound", value: "outbound" },
+];
+
+export function CommLog2({ clientId }: { clientId: number }) {
+  const [view, setView] = useState<"detail" | "list">("detail");
+  const [filter, setFilter] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState({ direction: "outbound", channel: "phone", recipient: "", subject: "", body: "", datetime: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+
+  const qk = ["comm-log", clientId, filter];
+  const { data: logs = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: qk,
+    queryFn: () => apiFetch(`/api/comms?customer_id=${clientId}${filter ? `&filter=${filter}` : ""}&limit=200`),
+    staleTime: 30000,
+  });
+
+  async function submitEntry() {
+    if (!formData.body.trim()) return;
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/comms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customer_id: clientId,
+          direction: formData.direction,
+          channel: formData.channel,
+          recipient: formData.recipient || undefined,
+          subject: formData.subject || undefined,
+          body: formData.body,
+          summary: formData.body,
+        }),
+      });
+      setFormData({ direction: "outbound", channel: "phone", recipient: "", subject: "", body: "", datetime: "" });
+      setShowForm(false);
+      refetch();
+    } catch { /* silent */ }
+    finally { setSubmitting(false); }
+  }
+
+  const totalPages = Math.ceil(logs.length / perPage);
+  const paginated = logs.slice((page - 1) * perPage, page * perPage);
+
+  const CS = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "18px 20px", marginBottom: 14 };
+  const inp = { width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "7px 10px", fontSize: 13, fontFamily: FF2, boxSizing: "border-box" as const, background: "#FFFFFF" };
+
+  return (
+    <div style={CS}>
+      {/* Header row */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em" }}>Communication Log</span>
+          <span style={{ fontSize: 11, color: "#9E9B94" }}>{logs.length} {logs.length === 1 ? "entry" : "entries"}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {/* View toggle */}
+          <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 6, overflow: "hidden" }}>
+            {(["detail", "list"] as const).map(v => (
+              <button key={v} onClick={() => { setView(v); setPage(1); }}
+                style={{ padding: "4px 10px", fontSize: 11, fontWeight: 600, background: view === v ? "#1A1917" : "#FFFFFF", color: view === v ? "#FFFFFF" : "#6B6860", border: "none", cursor: "pointer", fontFamily: FF2 }}>
+                {v === "detail" ? "Detail" : "List"}
+              </button>
+            ))}
+          </div>
+          {/* Filter */}
+          <select value={filter} onChange={e => { setFilter(e.target.value); setPage(1); }}
+            style={{ fontSize: 12, border: "1px solid #E5E2DC", borderRadius: 6, padding: "4px 8px", background: "#FFFFFF", fontFamily: FF2, cursor: "pointer" }}>
+            {FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          {/* Log button */}
+          <button onClick={() => setShowForm(f => !f)}
+            style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "none", border: "1px solid var(--brand)", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: FF2 }}>
+            {showForm ? "Cancel" : "+ Log Communication"}
+          </button>
+        </div>
+      </div>
+
+      {/* Manual entry form */}
+      {showForm && (
+        <div style={{ background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>Log Communication</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: "#6B6860", display: "block", marginBottom: 4 }}>Direction</label>
+              <select value={formData.direction} onChange={e => setFormData(p => ({ ...p, direction: e.target.value }))} style={{ ...inp, height: 34 }}>
+                <option value="outbound">Outbound</option>
+                <option value="inbound">Inbound</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: "#6B6860", display: "block", marginBottom: 4 }}>Channel</label>
+              <select value={formData.channel} onChange={e => setFormData(p => ({ ...p, channel: e.target.value }))} style={{ ...inp, height: 34 }}>
+                <option value="phone">Phone</option>
+                <option value="email">Email</option>
+                <option value="sms">SMS</option>
+                <option value="in_person">In Person</option>
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: "#6B6860", display: "block", marginBottom: 4 }}>Recipient / Contact</label>
+              <input value={formData.recipient} onChange={e => setFormData(p => ({ ...p, recipient: e.target.value }))} style={inp} placeholder="Phone or email" />
+            </div>
+            {formData.channel === "email" && (
+              <div>
+                <label style={{ fontSize: 11, color: "#6B6860", display: "block", marginBottom: 4 }}>Subject</label>
+                <input value={formData.subject} onChange={e => setFormData(p => ({ ...p, subject: e.target.value }))} style={inp} placeholder="Email subject" />
+              </div>
+            )}
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 11, color: "#6B6860", display: "block", marginBottom: 4 }}>Summary / Notes</label>
+            <textarea value={formData.body} onChange={e => setFormData(p => ({ ...p, body: e.target.value }))} rows={3}
+              style={{ ...inp, resize: "vertical", padding: "8px 10px" }} placeholder="What was discussed or sent..." />
+          </div>
+          <button onClick={submitEntry} disabled={submitting || !formData.body.trim()}
+            style={{ padding: "7px 14px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF2, opacity: (!formData.body.trim() || submitting) ? 0.5 : 1 }}>
+            {submitting ? "Saving..." : "Save Entry"}
+          </button>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {isLoading && <div style={{ textAlign: "center", color: "#9E9B94", fontSize: 12, padding: "24px 0" }}>Loading...</div>}
+      {!isLoading && logs.length === 0 && (
+        <div style={{ textAlign: "center", color: "#9E9B94", fontSize: 12, padding: "24px 0" }}>
+          No communications logged yet.<br />
+          <span style={{ fontSize: 11 }}>All SMS and email notifications sent to this client will appear here automatically with delivery status.</span>
+        </div>
+      )}
+
+      {/* Detail view */}
+      {!isLoading && logs.length > 0 && view === "detail" && (
+        <>
+          {paginated.map((entry: any) => <CommLogDetailCard key={entry.id} entry={entry} />)}
+          {totalPages > 1 && (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                style={{ fontSize: 12, color: page <= 1 ? "#D0CEC9" : "var(--brand)", background: "none", border: "none", cursor: page <= 1 ? "default" : "pointer", fontFamily: FF2 }}>
+                Previous
+              </button>
+              <span style={{ fontSize: 11, color: "#9E9B94" }}>{page} / {totalPages}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+                style={{ fontSize: 12, color: page >= totalPages ? "#D0CEC9" : "var(--brand)", background: "none", border: "none", cursor: page >= totalPages ? "default" : "pointer", fontFamily: FF2 }}>
+                Next
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* List view */}
+      {!isLoading && logs.length > 0 && view === "list" && (
+        <>
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #E5E2DC", background: "#FAFAF8" }}>
+                  {["Time", "Type", "Subtype", "Note", "Contact", "Sent By", "Status"].map(h => (
+                    <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: "#6B6860", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((entry: any) => (
+                  <tr key={entry.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
+                    <td style={{ padding: "6px 10px", color: "#6B6860", whiteSpace: "nowrap", fontSize: 11 }}>{fmtTs(entry.logged_at || entry.created_at)}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1A1917", textTransform: "capitalize" }}>{entry.source || "staff"}</td>
+                    <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
+                    <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
+                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {(entry.body || entry.summary || "").substring(0, 50)}
+                      </span>
+                    </td>
+                    <td style={{ padding: "6px 10px", color: "#6B6860", fontSize: 11 }}>{entry.recipient || "—"}</td>
+                    <td style={{ padding: "6px 10px", color: "#6B6860" }}>{entry.sent_by || entry.logged_by_name || "SYSTEM"}</td>
+                    <td style={{ padding: "6px 10px" }}><DeliveryBadge status={entry.delivery_status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 11, color: "#9E9B94" }}>Per page:</span>
+              {[10, 25, 100].map(n => (
+                <button key={n} onClick={() => { setPerPage(n); setPage(1); }}
+                  style={{ fontSize: 11, padding: "2px 7px", border: "1px solid #E5E2DC", borderRadius: 4, background: perPage === n ? "#1A1917" : "#FFFFFF", color: perPage === n ? "#FFFFFF" : "#6B6860", cursor: "pointer", fontFamily: FF2 }}>
+                  {n}
+                </button>
+              ))}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                style={{ fontSize: 12, color: page <= 1 ? "#D0CEC9" : "var(--brand)", background: "none", border: "none", cursor: page <= 1 ? "default" : "pointer", fontFamily: FF2 }}>
+                Prev
+              </button>
+              <span style={{ fontSize: 11, color: "#9E9B94" }}>{page} / {totalPages || 1}</span>
+              <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+                style={{ fontSize: 12, color: page >= totalPages ? "#D0CEC9" : "var(--brand)", background: "none", border: "none", cursor: page >= totalPages ? "default" : "pointer", fontFamily: FF2 }}>
+                Next
+              </button>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
