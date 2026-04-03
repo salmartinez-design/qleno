@@ -468,6 +468,119 @@ export async function seedIfNeeded() {
       console.log(`[seed] Real PHES employees OK (${realEmpCount} found) — skipping import`);
     }
 
+    // ── Jim Schultz migration (always runs — fully idempotent) ───────────────
+    // Ensures Jim's full profile + schedule + history + jobs are present in ANY
+    // environment (dev or production) regardless of whether the phes-clients-seed
+    // JSON had his data populated.
+    await db.execute(sql`
+      UPDATE clients SET
+        frequency         = 'weekly',
+        is_active         = true,
+        service_type      = 'recurring',
+        base_fee          = 220.00,
+        allowed_hours     = 4.0,
+        phone             = '708-670-1702',
+        email             = 'shootzy2983@yahoo.com',
+        address           = '11535 Elbridge Ave',
+        city              = 'Palos Park',
+        state             = 'IL',
+        zip               = '60464',
+        client_since      = '2023-07-11',
+        referral_source   = 'client_referral',
+        zone_id           = 21
+      WHERE id = 23 AND company_id = ${companyId}
+    `);
+
+    // Recurring schedule id=52
+    await db.execute(sql`
+      INSERT INTO recurring_schedules
+        (id, company_id, customer_id, frequency, day_of_week, start_date,
+         assigned_employee_id, service_type, duration_minutes, base_fee, notes, is_active, last_generated_date)
+      VALUES
+        (52, ${companyId}, 23, 'weekly', 'thursday', '2026-03-23',
+         32, 'Standard Clean', 240, 220.00,
+         'Service: Hourly Standard Cleaning | Default Start: 08:00 AM | Address: 11535 Elbridge Ave, Palos Park IL 60464 | Zone: Tinley/Orlando/Palos Park',
+         true, '2026-04-02')
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    // Primary home record id=6
+    await db.execute(sql`
+      INSERT INTO client_homes
+        (id, company_id, client_id, name, address, city, state, zip, is_primary)
+      VALUES
+        (6, ${companyId}, 23, 'Main Home', '11535 Elbridge Ave', 'Palos Park', 'IL', '60464', true)
+      ON CONFLICT (id) DO NOTHING
+    `);
+
+    // Job history (16 mc_import records) — insert only if none exist yet
+    const jimHistResult = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM job_history WHERE customer_id = 23 AND company_id = ${companyId}
+    `);
+    const jimHistCount = Number((jimHistResult.rows[0] as any)?.n ?? 0);
+    if (jimHistCount === 0) {
+      await db.execute(sql`
+        INSERT INTO job_history (company_id, customer_id, job_date, revenue, service_type, technician, notes)
+        VALUES
+          (${companyId}, 23, '2025-01-01', 1000.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-02-01',  600.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-03-01',  936.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-04-01',  825.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-05-01', 1100.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-06-01',  900.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-07-01',  900.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-08-01',  650.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-09-01',  875.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-10-01',  800.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-11-01',  600.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2025-12-01',  825.00, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2026-01-01',  962.50, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2026-02-01',  687.50, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2026-03-01',  742.50, 'Standard Clean', 'Norma Puga', 'mc_import'),
+          (${companyId}, 23, '2026-04-02',  220.00, 'Standard Clean', 'Norma Puga', 'mc_import')
+      `);
+      console.log("[seed] Jim Schultz: 16 job_history records inserted");
+    } else {
+      console.log(`[seed] Jim Schultz: job_history already present (${jimHistCount} records) — skipping`);
+    }
+
+    // Thursday jobs Apr 2 → Dec 31 2026 (40 jobs) — insert only if none exist yet
+    {
+      const jimJobResult = await db.execute(sql`
+        SELECT COUNT(*)::int AS n FROM jobs WHERE client_id = 23 AND company_id = ${companyId}
+      `);
+      const existingJobCount = Number((jimJobResult.rows[0] as any)?.n ?? 0);
+      if (existingJobCount === 0) {
+        const today = new Date('2026-04-03');
+        const start = new Date('2026-04-02');
+        const end   = new Date('2026-12-31');
+        const thursdays: string[] = [];
+        const cur = new Date(start);
+        while (cur.getDay() !== 4) cur.setDate(cur.getDate() + 1);
+        while (cur <= end) {
+          thursdays.push(cur.toISOString().split('T')[0]);
+          cur.setDate(cur.getDate() + 7);
+        }
+        for (const d of thursdays) {
+          const isPast = new Date(d) < today;
+          await db.execute(sql`
+            INSERT INTO jobs
+              (company_id, client_id, scheduled_date, scheduled_time, service_type, status,
+               base_fee, assigned_user_id, branch_id,
+               address_street, address_city, address_state, address_zip)
+            VALUES
+              (${companyId}, 23, ${d}, '08:00:00', 'standard_clean',
+               ${isPast ? 'complete' : 'scheduled'},
+               220.00, 32, ${oakLawnBranchId},
+               '11535 Elbridge Ave', 'Palos Park', 'IL', '60464')
+          `);
+        }
+        console.log(`[seed] Jim Schultz migration: client updated, ${thursdays.length} Thursday jobs inserted`);
+      } else {
+        console.log(`[seed] Jim Schultz: ${existingJobCount} jobs already present — skipping insert`);
+      }
+    }
+
     // ── Ensure office user credentials (always runs) ──────────────────────────
     // Migrate Maribel's email from info@phes.io → maribel@phes.io if needed
     await db.execute(sql`
