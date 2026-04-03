@@ -3322,18 +3322,19 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
 }
 
 // ─── Job Calendar ──────────────────────────────────────────────────────────────
-const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; label: string }> = {
-  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Scheduled" },
-  complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Complete" },
-  completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Complete" },
-  invoiced:   { bg: "#EDE9FE", border: "#8B5CF6", text: "#5B21B6", label: "Invoiced" },
-  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancelled" },
-  bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Bumped" },
-  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skipped" },
+const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; label: string; tooltip: string }> = {
+  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Book",  tooltip: "Booked — Service appointment scheduled" },
+  complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  invoiced:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Void",  tooltip: "Void — Appointment cancelled" },
+  bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Moved", tooltip: "Moved — Job rescheduled to another date" },
+  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skip",  tooltip: "Skip — Client skipped this visit" },
+  lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lock",  tooltip: "Lock Out — Technician could not access the property" },
 };
 const RESCHEDULE_REASONS = [
-  "Client request", "Tech unavailable", "Weather", "Holiday conflict",
-  "Emergency", "Client travel", "Schedule optimization", "Other",
+  "Client Request", "Tech Unavailable", "Weather", "Holiday / Observed Holiday",
+  "Emergency", "Client Traveling", "Schedule Optimization", "Other",
 ];
 const DAYS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -3382,7 +3383,7 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
     jobMap.current[ds].push(j);
   }
 
-  const isReadOnly = (j: any) => ["complete","completed","invoiced"].includes(String(j.status));
+  const isReadOnly = (j: any) => ["complete","completed","invoiced","lockout"].includes(String(j.status));
 
   function openReschedule(job: any, targetDate?: string) {
     if (isReadOnly(job)) { setModal({ job }); return; }
@@ -3512,7 +3513,7 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
   }
 
   const statusLegend = Object.entries(STATUS_CHIP).filter(([k]) =>
-    ["scheduled","complete","invoiced","cancelled","bumped","skipped"].includes(k)
+    ["scheduled","complete","cancelled","bumped","skipped","lockout"].includes(k)
   );
 
   return (
@@ -3527,7 +3528,7 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
           {/* Legend */}
           <div style={{ display: "flex", gap: 4, alignItems: "center", marginRight: 8 }}>
             {statusLegend.map(([k, c]) => (
-              <span key={k} style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 3, fontSize: 9, fontWeight: 700, padding: "1px 5px", whiteSpace: "nowrap" as const }}>{c.label}</span>
+              <span key={k} title={c.tooltip} style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 3, fontSize: 9, fontWeight: 700, padding: "1px 5px", whiteSpace: "nowrap" as const, cursor: "help" }}>{c.label}</span>
             ))}
           </div>
           {/* Nav */}

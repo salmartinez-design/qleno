@@ -1,0 +1,63 @@
+"Booked" is 6 letters — it'll clip on small chips the same way "Scheduled" does. Two options:
+
+**Option A:** Use "Book" (4 letters) on the chip, full "Booked" on hover
+**Option B:** Use "Appt" (4 letters) — clear, professional, fits clean
+
+My pick is **Book** on chip, hover shows "Booked / Scheduled." Keeps it recognizable.
+
+Here's the full updated status set:
+
+| Chip | Hover Text | Color |
+|---|---|---|
+| Book | Booked — Service appointment scheduled | blue |
+| Done | Done — Service completed | green |
+| Void | Void — Appointment cancelled | red |
+| Moved | Moved — Job rescheduled to another date | orange |
+| Skip | Skip — Client skipped this visit | gray |
+| Lock | Lock Out — Technician could not access the property | dark red / maroon |
+
+Here's the revised prompt:
+
+---
+
+**On the client profile Jobs tab calendar, make these targeted changes only. Do not touch anything else.**
+
+**1. Rename all status labels on calendar chips and legend:**
+- scheduled → **Book** chip, hover text: "Booked — Service appointment scheduled" (blue)
+- completed → **Done** chip, hover text: "Done — Service completed" (green)
+- cancelled → **Void** chip, hover text: "Void — Appointment cancelled" (red)
+- bumped → **Moved** chip, hover text: "Moved — Job rescheduled to another date" (orange)
+- skipped → **Skip** chip, hover text: "Skip — Client skipped this visit" (gray)
+- lockout → **Lock** chip, hover text: "Lock Out — Technician could not access the property" (maroon #7B2D2D)
+- Remove Invoiced entirely — invoiced jobs render as Done (green)
+
+**2. Add hover tooltips to legend chips:**
+Each chip in the legend is hoverable and shows the same tooltip text as above. Tooltip appears on hover using the existing tooltip pattern in the codebase.
+
+**3. Fix job anchor dates for Jim Schultz (Client ID 23):**
+- DELETE all existing scheduled jobs for Jim Schultz where `scheduled_date > NOW()`
+- Re-INSERT weekly jobs on every **Thursday** from April 9, 2026 through December 31, 2026
+- Confirm dates: April 9, 16, 23, 30 — May 7, 14, 21, 28 — all must land in the **Th** column
+- Rate: $220.00, tech: Norma Guerrero Puga, time: 08:00, address: 11535 Elbridge Ave Palos Park IL 60464
+
+**4. Update the legend:**
+Book | Done | Void | Moved | Skip | Lock
+(6 chips, no Invoiced, all hoverable)
+
+**5. Update reschedule modal Reason dropdown:**
+- Client Request
+- Tech Unavailable
+- Weather
+- Holiday / Observed Holiday
+- Emergency
+- Client Traveling
+- Schedule Optimization
+- Other
+
+**Verify** at https://clean-ops-pro.replit.app/customers/23 — chips show 4-letter labels, hovering shows tooltip, jobs land on Thursdays in Th column, legend has 6 entries, Lock chip is maroon.
+
+Do not push to GitHub until confirmed.
+
+---
+
+Ready to paste?
