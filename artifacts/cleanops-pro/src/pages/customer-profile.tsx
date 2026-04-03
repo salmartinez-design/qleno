@@ -732,7 +732,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
 }
 
 // ─── Homes Tab ────────────────────────────────────────────────────────────────
-function HomesTab({ clientId, homes, refetch }: { clientId: number; homes: any[]; refetch: () => void }) {
+function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId: number; homes: any[]; refetch: () => void; zoneColor?: string; zoneName?: string }) {
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [showAlarm, setShowAlarm] = useState<number | null>(null);
@@ -764,8 +764,10 @@ function HomesTab({ clientId, homes, refetch }: { clientId: number; homes: any[]
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "12px" }}>
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {zoneColor && <span title={zoneName || "Zone"} style={{ width: 10, height: 10, borderRadius: "50%", backgroundColor: zoneColor, display: "inline-block", flexShrink: 0 }} />}
                 <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>{home.name || "Home"}</h3>
                 {home.is_primary && <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Default</span>}
+                {zoneName && <span style={{ fontSize: "10px", fontWeight: 600, color: zoneColor || "#6B7280" }}>{zoneName}</span>}
               </div>
               <p style={{ margin: "4px 0 0", fontSize: "14px", fontWeight: 600, color: "#1A1917" }}>{home.address}</p>
               <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B7280" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
@@ -2014,6 +2016,8 @@ const SOURCE_LABELS: Record<string, string> = {
   google_lsa: "Google Local Services", google_ads: "Google Ads",
   referral: "Referral", yelp: "Yelp", facebook: "Facebook",
   door_to_door: "Door to Door", repeat: "Repeat Customer", other: "Other",
+  client_referral: "Recurring Client", google: "Google", nextdoor: "Nextdoor",
+  door_hanger: "Door Hanger", yard_sign: "Yard Sign", website: "Website",
 };
 
 const DAY_LABELS: Record<string, string> = {
@@ -3859,6 +3863,9 @@ export default function CustomerProfilePage() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
             <span style={{ fontSize: 19, fontWeight: 700, color: "#0A0E1A" }}>{profile.first_name} {profile.last_name}</span>
+            {profile.zone_color && (
+              <span title={profile.zone_name || "Zone"} style={{ width: 9, height: 9, borderRadius: "50%", backgroundColor: profile.zone_color, display: "inline-block", flexShrink: 0, cursor: "default" }} />
+            )}
             <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em", background: profile.is_active !== false ? "#DCFCE7" : "#F3F4F6", color: profile.is_active !== false ? "#166534" : "#6B7280" }}>
               {profile.is_active !== false ? "Active" : "Inactive"}
             </span>
@@ -3881,14 +3888,14 @@ export default function CustomerProfilePage() {
           {jhStats?.ytd_revenue != null && (
             <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#86EFAC", lineHeight: 1 }}>${(jhStats.ytd_revenue as number).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#6B7280", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 1 }}>{new Date().getFullYear()} So Far</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 1 }}>{new Date().getFullYear()} REVENUE</div>
             </div>
           )}
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flexShrink: 0 }}>
           <button onClick={() => navigate(`/dispatch?client_id=${clientId}`)} style={{ padding: "7px 13px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Schedule Job</button>
+          <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Quote</button>
           <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Message</button>
-          <button onClick={() => navigate(`/clients/${clientId}/invoices`)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Invoice</button>
           <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Edit</button>
         </div>
       </div>
@@ -4071,7 +4078,7 @@ export default function CustomerProfilePage() {
             {/* Service Addresses */}
             <div style={CS}>
               <SectionHead title="Service Addresses" />
-              <HomesTab clientId={clientId} homes={profile.homes || []} refetch={refetchProfile} />
+              <HomesTab clientId={clientId} homes={profile.homes || []} refetch={refetchProfile} zoneColor={profile.zone_color} zoneName={profile.zone_name} />
             </div>
 
             {/* Access & Entry — critical for techs */}
@@ -4306,9 +4313,9 @@ export default function CustomerProfilePage() {
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 12 }}>
               <button onClick={() => navigate(`/dispatch?client_id=${clientId}`)} style={{ padding: "9px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Schedule Job</button>
+              <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Quote</button>
               <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Message</button>
-              <button onClick={() => navigate(`/clients/${clientId}/invoices`)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Invoice</button>
-              <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Edit Profile</button>
+              <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Edit</button>
             </div>
             {/* Mobile tab bar */}
             <div style={{ display: "flex", overflowX: "auto" as const, gap: 0, marginLeft: -16, marginRight: -16, paddingLeft: 16 }}>
@@ -4340,7 +4347,7 @@ export default function CustomerProfilePage() {
             {activeTab === "property" && (<>
               <div style={CS}>
                 <div style={CTitle}>Service Addresses</div>
-                <HomesTab clientId={clientId} homes={profile.homes || []} refetch={refetchProfile} />
+                <HomesTab clientId={clientId} homes={profile.homes || []} refetch={refetchProfile} zoneColor={profile.zone_color} zoneName={profile.zone_name} />
               </div>
               {(profile.home_access_notes || profile.alarm_code) && (
                 <div style={CS}>

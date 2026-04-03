@@ -481,7 +481,7 @@ export async function seedIfNeeded() {
       .where(eq(usersTable.email, "maribel@phes.io"));
     await db.update(usersTable)
       .set({ password_hash: officeHash, role: "office" } as any)
-      .where(eq(usersTable.email, "franciscojestevezs@gmail.com"));
+      .where(eq(usersTable.email, "festevez@phes.io"));
     console.log("[seed] Office user credentials ensured (info@phes.io → office, phes1234)");
 
     // ── Ensure Sal (owner) credentials (always runs) ───────────────────────────
