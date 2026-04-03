@@ -1,0 +1,61 @@
+Here's the full prompt:
+
+On the client profile Jobs tab, add a full interactive job calendar ABOVE the existing job history table. Do not remove or modify the job history table. DO NOT change anything else on the client profile — no other tabs, no other sections, no layout changes, no schema changes outside of what is explicitly listed below.
+CALENDAR LAYOUT:
+
+3-month rolling view (previous month, current month, next month)
+Each scheduled job renders as a colored chip on its date showing start time (e.g. "8a")
+Chip colors match job status: scheduled=blue, completed=green, cancelled=red, bumped=orange, skipped=gray
+Below the 3-month view: prev/next navigation arrows to scroll forward/backward by 3 months
+Small color legend below calendar: chip color → status label
+
+CLICK TO RESCHEDULE:
+Every scheduled job chip is clickable. Clicking opens a modal with:
+
+Job date (read-only)
+Client name (read-only)
+Current assigned tech (read-only)
+New Date — date picker (required)
+Reason for Change — dropdown (required): Client Request | Tech Unavailable | Holiday | Weather | Office Change | Other
+Notes — optional free text
+Cancel | Save Change buttons
+Save button disabled until Reason is selected
+
+On Save:
+
+Update scheduled_date on the job record
+Insert audit record with: job_id, old_date, new_date, reason, notes, changed_by, changed_at
+Toast: "Job rescheduled to [new date]"
+Calendar re-renders with job on new date
+
+DRAG AND DROP:
+
+Jobs are draggable to a new date
+On drop, same reschedule modal opens pre-filled with the target date
+User must select reason before Save completes
+If modal is cancelled, job snaps back to original date
+
+READ-ONLY PROTECTION:
+
+Jobs with status = completed or invoiced are NOT draggable
+Clicking a completed/invoiced chip opens a read-only detail view, not the reschedule modal
+
+DESIGN — NON-NEGOTIABLE:
+
+No emojis
+Plus Jakarta Sans only
+Background #F7F6F3, Cards #FFFFFF, Borders #E5E2DC
+Modal follows existing modal pattern in codebase
+
+DO NOT TOUCH:
+
+Client tab
+Property tab
+Admin tab
+Sticky stats panel
+Hero strip
+Job history table (leave exactly as-is)
+Scorecards section
+Inspections section
+Any other page or component in the app
+Any existing DB tables except adding the audit log insert on reschedule

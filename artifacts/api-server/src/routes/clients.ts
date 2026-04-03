@@ -1206,5 +1206,76 @@ router.post("/:id/referrals", requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET CALENDAR JOBS ────────────────────────────────────────────────────────
+router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const { from, to } = req.query as { from?: string; to?: string };
+
+    const rows = await db.execute(sql`
+      SELECT
+        j.id, j.scheduled_date, j.status, j.service_type, j.base_fee,
+        j.billed_amount, j.estimated_hours, j.actual_hours,
+        j.scheduled_time, j.address_street, j.address_city,
+        u.first_name || ' ' || u.last_name AS technician_name,
+        u.id AS technician_id
+      FROM jobs j
+      LEFT JOIN users u ON u.id = j.assigned_user_id
+      WHERE j.client_id = ${clientId}
+        AND j.company_id = ${companyId}
+        ${from ? sql`AND j.scheduled_date >= ${from}::date` : sql``}
+        ${to   ? sql`AND j.scheduled_date <= ${to}::date`   : sql``}
+      ORDER BY j.scheduled_date ASC
+    `);
+    return res.json(rows.rows);
+  } catch (err) {
+    console.error("GET calendar-jobs:", err);
+    return res.status(500).json({ error: "Failed to fetch calendar jobs" });
+  }
+});
+
+// ─── PATCH JOB RESCHEDULE ─────────────────────────────────────────────────────
+router.patch("/:clientId/jobs/:jobId/reschedule", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.jobId);
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
+    const { new_date, reason, notes } = req.body;
+
+    if (!new_date || !reason) {
+      return res.status(400).json({ error: "new_date and reason are required" });
+    }
+
+    const existing = await db.execute(sql`
+      SELECT id, scheduled_date, status FROM jobs
+      WHERE id = ${jobId} AND company_id = ${companyId}
+      LIMIT 1
+    `);
+    if (!existing.rows.length) return res.status(404).json({ error: "Job not found" });
+
+    const job = existing.rows[0] as any;
+    const oldDate = String(job.scheduled_date).split("T")[0];
+
+    if (["complete", "invoiced"].includes(String(job.status))) {
+      return res.status(400).json({ error: "Cannot reschedule a completed or invoiced job" });
+    }
+
+    await db.execute(sql`
+      UPDATE jobs SET scheduled_date = ${new_date}::date WHERE id = ${jobId}
+    `);
+
+    await db.execute(sql`
+      INSERT INTO job_reschedule_log (job_id, company_id, old_date, new_date, reason, notes, changed_by)
+      VALUES (${jobId}, ${companyId}, ${oldDate}::date, ${new_date}::date, ${reason}, ${notes || null}, ${userId})
+    `);
+
+    return res.json({ ok: true, old_date: oldDate, new_date });
+  } catch (err) {
+    console.error("PATCH reschedule:", err);
+    return res.status(500).json({ error: "Failed to reschedule job" });
+  }
+});
+
 export default router;
 

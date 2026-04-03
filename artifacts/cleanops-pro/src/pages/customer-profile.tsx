@@ -3321,6 +3321,344 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
   );
 }
 
+// ─── Job Calendar ──────────────────────────────────────────────────────────────
+const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; label: string }> = {
+  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Scheduled" },
+  complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Complete" },
+  completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Complete" },
+  invoiced:   { bg: "#EDE9FE", border: "#8B5CF6", text: "#5B21B6", label: "Invoiced" },
+  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancelled" },
+  bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Bumped" },
+  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skipped" },
+};
+const RESCHEDULE_REASONS = [
+  "Client request", "Tech unavailable", "Weather", "Holiday conflict",
+  "Emergency", "Client travel", "Schedule optimization", "Other",
+];
+const DAYS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+function toLocalDateStr(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+function addMonths(d: Date, n: number) {
+  const r = new Date(d);
+  r.setDate(1);
+  r.setMonth(r.getMonth() + n);
+  return r;
+}
+function startOfMonth(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function endOfMonth(d: Date)   { return new Date(d.getFullYear(), d.getMonth() + 1, 0); }
+
+function JobCalendar({ clientId, clientName }: { clientId: number; clientName: string }) {
+  const qc = useQueryClient();
+  // anchor = first day of the first visible month
+  const todayRef = useRef(startOfMonth(new Date()));
+  const [anchor, setAnchor] = useState<Date>(todayRef.current);
+  const [dragJobId, setDragJobId] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  const [modal, setModal] = useState<{ job: any; targetDate?: string } | null>(null);
+  const [form, setForm] = useState({ new_date: "", reason: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  const months: Date[] = [anchor, addMonths(anchor, 1), addMonths(anchor, 2)];
+  const from = toLocalDateStr(startOfMonth(months[0]));
+  const to   = toLocalDateStr(endOfMonth(months[2]));
+
+  const { data: calJobs = [], isLoading, refetch } = useQuery<any[]>({
+    queryKey: ["client-calendar-jobs", clientId, from, to],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/calendar-jobs?from=${from}&to=${to}`),
+    enabled: clientId > 0,
+    staleTime: 20000,
+  });
+
+  // Build a map: dateStr → job[]
+  const jobMap = useRef<Record<string, any[]>>({});
+  jobMap.current = {};
+  for (const j of calJobs) {
+    const ds = String(j.scheduled_date).split("T")[0];
+    if (!jobMap.current[ds]) jobMap.current[ds] = [];
+    jobMap.current[ds].push(j);
+  }
+
+  const isReadOnly = (j: any) => ["complete","completed","invoiced"].includes(String(j.status));
+
+  function openReschedule(job: any, targetDate?: string) {
+    if (isReadOnly(job)) { setModal({ job }); return; }
+    setForm({ new_date: targetDate || String(job.scheduled_date).split("T")[0], reason: "", notes: "" });
+    setSaveErr(null);
+    setModal({ job, targetDate });
+  }
+
+  async function handleReschedule() {
+    if (!modal?.job || !form.new_date || !form.reason) return;
+    setSaving(true); setSaveErr(null);
+    try {
+      await apiFetch(`/api/clients/${clientId}/jobs/${modal.job.id}/reschedule`, {
+        method: "PATCH",
+        body: JSON.stringify({ new_date: form.new_date, reason: form.reason, notes: form.notes }),
+      });
+      qc.invalidateQueries({ queryKey: ["client-calendar-jobs", clientId] });
+      qc.invalidateQueries({ queryKey: ["client-job-history", clientId] });
+      refetch();
+      setModal(null);
+    } catch (e: any) {
+      setSaveErr(e.message || "Failed to reschedule");
+    } finally { setSaving(false); }
+  }
+
+  // ── Drag handlers ────────────────────────────────────────────────────────────
+  function onDragStart(e: React.DragEvent, job: any) {
+    if (isReadOnly(job)) { e.preventDefault(); return; }
+    setDragJobId(job.id);
+    e.dataTransfer.effectAllowed = "move";
+  }
+  function onDragOver(e: React.DragEvent, dateStr: string) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver(dateStr);
+  }
+  function onDrop(e: React.DragEvent, dateStr: string) {
+    e.preventDefault();
+    setDragOver(null);
+    if (dragJobId == null) return;
+    const job = calJobs.find(j => j.id === dragJobId);
+    setDragJobId(null);
+    if (!job) return;
+    const current = String(job.scheduled_date).split("T")[0];
+    if (current === dateStr) return;
+    openReschedule(job, dateStr);
+  }
+
+  // ── Month grid renderer ───────────────────────────────────────────────────────
+  function renderMonth(month: Date) {
+    const y = month.getFullYear(), m = month.getMonth();
+    const firstDow = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const todayStr = toLocalDateStr(new Date());
+    const cells: React.ReactNode[] = [];
+
+    // Leading blanks
+    for (let i = 0; i < firstDow; i++) {
+      cells.push(<div key={`blank-${i}`} style={{ minHeight: 56 }} />);
+    }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const ds = `${y}-${String(m + 1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      const jobs = jobMap.current[ds] || [];
+      const isToday = ds === todayStr;
+      const isHover = dragOver === ds;
+      const isPast  = ds < todayStr;
+
+      cells.push(
+        <div
+          key={ds}
+          onDragOver={e => onDragOver(e, ds)}
+          onDragLeave={() => setDragOver(null)}
+          onDrop={e => onDrop(e, ds)}
+          style={{
+            minHeight: 56, padding: "2px 3px", borderRadius: 5,
+            border: isHover ? "2px dashed #3B82F6" : isToday ? "1.5px solid #3B82F6" : "1.5px solid transparent",
+            background: isHover ? "#EFF6FF" : "transparent",
+            transition: "border 0.1s, background 0.1s",
+          }}
+        >
+          <div style={{
+            fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#1D4ED8" : isPast ? "#9E9B94" : "#1A1917",
+            textAlign: "right", marginBottom: 1, lineHeight: "16px",
+          }}>{d}</div>
+          {jobs.map(j => {
+            const chip = STATUS_CHIP[String(j.status)] || STATUS_CHIP.scheduled;
+            const ro = isReadOnly(j);
+            return (
+              <div
+                key={j.id}
+                draggable={!ro}
+                onDragStart={e => onDragStart(e, j)}
+                onClick={() => openReschedule(j)}
+                title={`${chip.label}${j.technician_name ? " · " + j.technician_name : ""}${j.base_fee ? " · $" + Number(j.base_fee).toFixed(0) : ""}`}
+                style={{
+                  background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
+                  borderRadius: 3, fontSize: 10, fontWeight: 600, padding: "1px 4px",
+                  marginBottom: 2, cursor: ro ? "default" : "grab", whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "16px",
+                  userSelect: "none",
+                }}
+              >
+                {chip.label.slice(0,4)}{j.scheduled_time ? " " + String(j.scheduled_time).slice(0,5) : ""}
+              </div>
+            );
+          })}
+        </div>
+      );
+    }
+
+    return (
+      <div key={`${y}-${m}`} style={{ flex: 1, minWidth: 200 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: "#1A1917", marginBottom: 6, textAlign: "center" }}>
+          {MONTH_NAMES[m]} {y}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 1, marginBottom: 3 }}>
+          {DAYS.map(d => (
+            <div key={d} style={{ textAlign: "center", fontSize: 10, fontWeight: 700, color: "#9E9B94", padding: "2px 0", letterSpacing: "0.04em" }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 2 }}>
+          {cells}
+        </div>
+      </div>
+    );
+  }
+
+  const statusLegend = Object.entries(STATUS_CHIP).filter(([k]) =>
+    ["scheduled","complete","invoiced","cancelled","bumped","skipped"].includes(k)
+  );
+
+  return (
+    <div style={{ fontFamily: FF }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: "1px solid #E5E2DC" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>
+          Job Calendar
+          {isLoading && <span style={{ marginLeft: 6, color: "#9E9B94", fontWeight: 400 }}>Loading…</span>}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {/* Legend */}
+          <div style={{ display: "flex", gap: 4, alignItems: "center", marginRight: 8 }}>
+            {statusLegend.map(([k, c]) => (
+              <span key={k} style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text, borderRadius: 3, fontSize: 9, fontWeight: 700, padding: "1px 5px", whiteSpace: "nowrap" as const }}>{c.label}</span>
+            ))}
+          </div>
+          {/* Nav */}
+          <button
+            onClick={() => setAnchor(a => addMonths(a, -1))}
+            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          ><ChevronLeft size={13} /></button>
+          <button
+            onClick={() => setAnchor(todayRef.current)}
+            style={{ padding: "4px 8px", fontSize: 11, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", fontFamily: FF }}
+          >Today</button>
+          <button
+            onClick={() => setAnchor(a => addMonths(a, 1))}
+            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          ><ChevronRight size={13} /></button>
+        </div>
+      </div>
+
+      {/* Three-month grid */}
+      <div style={{ padding: "12px 16px", display: "flex", gap: 16, flexWrap: "wrap" as const }}>
+        {months.map(m => renderMonth(m))}
+      </div>
+
+      {/* Reschedule / Detail Modal */}
+      {modal && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={e => { if (e.target === e.currentTarget) setModal(null); }}
+        >
+          <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 420, maxWidth: "90vw", fontFamily: FF, boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}>
+            {(() => {
+              const j = modal.job;
+              const chip = STATUS_CHIP[String(j.status)] || STATUS_CHIP.scheduled;
+              const ro = isReadOnly(j);
+              const origDate = String(j.scheduled_date).split("T")[0];
+              return (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>
+                        {ro ? "Job Details" : "Reschedule Job"}
+                      </div>
+                      <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 2 }}>{clientName}</div>
+                    </div>
+                    <span style={{ background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text, borderRadius: 5, fontSize: 11, fontWeight: 700, padding: "3px 8px" }}>{chip.label}</span>
+                  </div>
+
+                  {/* Job info rows */}
+                  <div style={{ background: "#FAFAF8", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13 }}>
+                    {[
+                      ["Current date", origDate],
+                      ["Service", j.service_type || "—"],
+                      j.technician_name && ["Technician", j.technician_name],
+                      j.scheduled_time && ["Time", String(j.scheduled_time).slice(0,5)],
+                      (j.base_fee || j.billed_amount) && ["Fee", `$${Number(j.billed_amount || j.base_fee || 0).toFixed(2)}`],
+                    ].filter(Boolean).map((row: any) => (
+                      <div key={row[0]} style={{ display: "flex", justifyContent: "space-between", marginBottom: 4, color: "#1A1917" }}>
+                        <span style={{ color: "#9E9B94" }}>{row[0]}</span>
+                        <span style={{ fontWeight: 600 }}>{row[1]}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {ro ? (
+                    <div style={{ textAlign: "center", fontSize: 12, color: "#9E9B94", marginBottom: 16 }}>
+                      This job is {chip.label.toLowerCase()} and cannot be rescheduled.
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>New Date *</label>
+                        <input
+                          type="date"
+                          value={form.new_date}
+                          onChange={e => setForm(f => ({ ...f, new_date: e.target.value }))}
+                          style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }}
+                        />
+                      </div>
+                      <div style={{ marginBottom: 12 }}>
+                        <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Reason *</label>
+                        <select
+                          value={form.reason}
+                          onChange={e => setForm(f => ({ ...f, reason: e.target.value }))}
+                          style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }}
+                        >
+                          <option value="">Select reason…</option>
+                          {RESCHEDULE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                        </select>
+                      </div>
+                      <div style={{ marginBottom: 16 }}>
+                        <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Notes</label>
+                        <textarea
+                          value={form.notes}
+                          onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+                          rows={2}
+                          placeholder="Optional notes…"
+                          style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const, resize: "vertical" as const }}
+                        />
+                      </div>
+                      {saveErr && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 10 }}>{saveErr}</div>}
+                    </>
+                  )}
+
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button
+                      onClick={() => setModal(null)}
+                      style={{ padding: "8px 16px", fontSize: 13, border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}
+                    >Close</button>
+                    {!ro && (
+                      <button
+                        onClick={handleReschedule}
+                        disabled={saving || !form.new_date || !form.reason}
+                        style={{
+                          padding: "8px 16px", fontSize: 13, fontWeight: 600,
+                          background: saving || !form.new_date || !form.reason ? "#E5E2DC" : "var(--brand)",
+                          color: saving || !form.new_date || !form.reason ? "#9E9B94" : "#FFFFFF",
+                          border: "none", borderRadius: 6, cursor: saving || !form.new_date || !form.reason ? "not-allowed" : "pointer", fontFamily: FF,
+                        }}
+                      >{saving ? "Saving…" : "Reschedule"}</button>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Profile Page ─────────────────────────────────────────────────────────
 const PROFILE_TABS = [
   { id: "client",   label: "Client"   },
@@ -3780,6 +4118,11 @@ export default function CustomerProfilePage() {
          ══════════════════════════════════════════════ */}
       {activeTab === "jobs" && (
         <div>
+          {/* Job Calendar */}
+          <div style={CS}>
+            <JobCalendar clientId={clientId} clientName={`${profile.first_name} ${profile.last_name}`} />
+          </div>
+
           {/* Job History */}
           <div style={CS}>
             <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
@@ -3977,6 +4320,9 @@ export default function CustomerProfilePage() {
               </div>
             </>)}
             {activeTab === "jobs" && (<>
+              <div style={CS}>
+                <JobCalendar clientId={clientId} clientName={`${profile.first_name} ${profile.last_name}`} />
+              </div>
               <div style={CS}>
                 <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
               </div>
