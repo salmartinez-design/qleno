@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Search, User, Briefcase, Users, FileText, X } from "lucide-react";
+import { Search, User, Briefcase, FileText, X } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -26,6 +26,7 @@ export function GlobalSearch({ onClose }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
+  const [highlighted, setHighlighted] = useState(0);
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<any>(null);
@@ -33,6 +34,7 @@ export function GlobalSearch({ onClose }: Props) {
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   useEffect(() => {
+    setHighlighted(0);
     if (query.trim().length < 2) { setResults(null); return; }
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(async () => {
@@ -49,9 +51,27 @@ export function GlobalSearch({ onClose }: Props) {
 
   const go = useCallback((path: string) => {
     navigate(path);
+    setQuery('');
     onClose();
   }, [navigate, onClose]);
 
+  // Build flat list of navigable items from results
+  const items: { path: string }[] = results ? [
+    ...results.clients.map(c => ({ path: `/customers/${c.id}` })),
+    ...results.employees.map(e => ({ path: `/employees/${e.id}` })),
+    ...results.jobs.map(j => ({ path: `/customers/${j.client_id}` })),
+    ...results.invoices.map(i => ({ path: `/invoices` })),
+  ] : [];
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { onClose(); return; }
+    if (items.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlighted(h => Math.min(h + 1, items.length - 1)); }
+    if (e.key === 'ArrowUp')   { e.preventDefault(); setHighlighted(h => Math.max(h - 1, 0)); }
+    if (e.key === 'Enter')     { e.preventDefault(); go(items[highlighted].path); }
+  };
+
+  let itemIndex = 0;
   const totalResults = results ? results.clients.length + results.jobs.length + results.employees.length + results.invoices.length : 0;
 
   return (
@@ -64,6 +84,7 @@ export function GlobalSearch({ onClose }: Props) {
         <div style={{ display:'flex', alignItems:'center', padding:'14px 16px', borderBottom:'1px solid #E5E2DC', gap:10 }}>
           <Search size={18} color="#9E9B94" style={{ flexShrink:0 }}/>
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder="Search clients, jobs, employees, invoices…"
             style={{ flex:1, border:'none', outline:'none', fontSize:15, color:'#1A1917', fontFamily:"'Plus Jakarta Sans', sans-serif", background:'transparent' }}/>
           {query && <button onClick={() => setQuery('')} style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:'#9E9B94' }}><X size={16}/></button>}
@@ -81,76 +102,92 @@ export function GlobalSearch({ onClose }: Props) {
           {!loading && results && results.clients.length > 0 && (
             <div>
               <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.08em', padding:'12px 16px 6px', margin:0 }}>Clients</p>
-              {results.clients.map(c => (
-                <button key={c.id} onClick={() => go(`/customers`)}
-                  style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background:'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                  <div style={{ width:32, height:32, borderRadius:16, background:'#EBF4FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <User size={15} color="#5B9BD5"/>
-                  </div>
-                  <div>
-                    <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{c.first_name} {c.last_name}</p>
-                    <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>{c.address || c.email || c.phone}</p>
-                  </div>
-                </button>
-              ))}
+              {results.clients.map(c => {
+                const idx = itemIndex++;
+                const active = idx === highlighted;
+                return (
+                  <button key={c.id} onClick={() => go(`/customers/${c.id}`)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                    <div style={{ width:32, height:32, borderRadius:16, background:'#EBF4FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <User size={15} color="#5B9BD5"/>
+                    </div>
+                    <div>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{c.first_name} {c.last_name}</p>
+                      <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>{c.address || c.email || c.phone}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
           {!loading && results && results.employees.length > 0 && (
             <div>
               <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.08em', padding:'12px 16px 6px', margin:0 }}>Employees</p>
-              {results.employees.map(e => (
-                <button key={e.id} onClick={() => go(`/employees/${e.id}`)}
-                  style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background:'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                  {e.avatar_url
-                    ? <img src={e.avatar_url} style={{ width:32, height:32, borderRadius:16, objectFit:'cover', flexShrink:0 }}/>
-                    : <div style={{ width:32, height:32, borderRadius:16, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6B7280', flexShrink:0 }}>{e.first_name?.[0]}{e.last_name?.[0]}</div>
-                  }
-                  <div>
-                    <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{e.first_name} {e.last_name}</p>
-                    <p style={{ fontSize:11, color:'#9E9B94', margin:0, textTransform:'capitalize' }}>{e.role?.replace('_', ' ')}</p>
-                  </div>
-                </button>
-              ))}
+              {results.employees.map(e => {
+                const idx = itemIndex++;
+                const active = idx === highlighted;
+                return (
+                  <button key={e.id} onClick={() => go(`/employees/${e.id}`)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                    {e.avatar_url
+                      ? <img src={e.avatar_url} style={{ width:32, height:32, borderRadius:16, objectFit:'cover', flexShrink:0 }}/>
+                      : <div style={{ width:32, height:32, borderRadius:16, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6B7280', flexShrink:0 }}>{e.first_name?.[0]}{e.last_name?.[0]}</div>
+                    }
+                    <div>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{e.first_name} {e.last_name}</p>
+                      <p style={{ fontSize:11, color:'#9E9B94', margin:0, textTransform:'capitalize' }}>{e.role?.replace('_', ' ')}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
           {!loading && results && results.jobs.length > 0 && (
             <div>
               <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.08em', padding:'12px 16px 6px', margin:0 }}>Jobs</p>
-              {results.jobs.map(j => (
-                <button key={j.id} onClick={() => go(`/jobs`)}
-                  style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background:'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                  <div style={{ width:32, height:32, borderRadius:8, background:'#F0FDF4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <Briefcase size={15} color="#16A34A"/>
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{j.client_name}</p>
-                    <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type} · {new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()}</p>
-                  </div>
-                  <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background: j.status==='complete'?'#DCFCE7': j.status==='in_progress'?'#DBEAFE':'#F3F4F6', color: j.status==='complete'?'#166534': j.status==='in_progress'?'#1D4ED8':'#6B7280' }}>
-                    {j.status.toUpperCase().replace('_',' ')}
-                  </span>
-                </button>
-              ))}
+              {results.jobs.map(j => {
+                const idx = itemIndex++;
+                const active = idx === highlighted;
+                return (
+                  <button key={j.id} onClick={() => go(`/customers/${j.client_id}`)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:'#F0FDF4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <Briefcase size={15} color="#16A34A"/>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{j.client_name}</p>
+                      <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type} · {new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()}</p>
+                    </div>
+                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background: j.status==='complete'?'#DCFCE7': j.status==='in_progress'?'#DBEAFE':'#F3F4F6', color: j.status==='complete'?'#166534': j.status==='in_progress'?'#1D4ED8':'#6B7280' }}>
+                      {j.status.toUpperCase().replace('_',' ')}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           )}
 
           {!loading && results && results.invoices.length > 0 && (
             <div>
               <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.08em', padding:'12px 16px 6px', margin:0 }}>Invoices</p>
-              {results.invoices.map(i => (
-                <button key={i.id} onClick={() => go(`/invoices`)}
-                  style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background:'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                  <div style={{ width:32, height:32, borderRadius:8, background:'#FFFBEB', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                    <FileText size={15} color="#D97706"/>
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>INV-{String(i.id).padStart(4,'0')} · {i.client_name}</p>
-                    <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>${parseFloat(i.total || '0').toFixed(2)} · {i.status}</p>
-                  </div>
-                </button>
-              ))}
+              {results.invoices.map(i => {
+                const idx = itemIndex++;
+                const active = idx === highlighted;
+                return (
+                  <button key={i.id} onClick={() => go(`/invoices`)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:'#FFFBEB', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <FileText size={15} color="#D97706"/>
+                    </div>
+                    <div style={{ flex:1 }}>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>INV-{String(i.id).padStart(4,'0')} · {i.client_name}</p>
+                      <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>${parseFloat(i.total || '0').toFixed(2)} · {i.status}</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
 
