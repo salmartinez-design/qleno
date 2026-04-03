@@ -3496,7 +3496,7 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
                 draggable={!ro}
                 onDragStart={e => onDragStart(e, j)}
                 onClick={() => openReschedule(j)}
-                title={`${chip.label}${j.technician_name ? " · " + j.technician_name : ""}${j.base_fee ? " · $" + Number(j.base_fee).toFixed(0) : ""}`}
+                title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
                 style={{
                   background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
                   borderRadius: 3, fontSize: 10, fontWeight: 600, padding: "1px 4px",
@@ -3505,7 +3505,7 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
                   userSelect: "none",
                 }}
               >
-                {chip.label.slice(0,4)}{j.scheduled_time ? " " + String(j.scheduled_time).slice(0,5) : ""}
+                {chip.label}
               </div>
             );
           })}
