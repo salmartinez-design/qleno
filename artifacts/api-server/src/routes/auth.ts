@@ -21,7 +21,7 @@ router.post("/login", async (req, res) => {
     }
 
     const rawResult = await db.execute(
-      sql`SELECT *, COALESCE(is_super_admin, false) AS is_super_admin FROM users WHERE email = ${email.toLowerCase().trim()} LIMIT 1`
+      sql`SELECT * FROM users WHERE email = ${email.toLowerCase().trim()} LIMIT 1`
     );
     const user = rawResult.rows as any[];
 
@@ -40,7 +40,7 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized", message: "Account is inactive" });
     }
 
-    const isSuperAdminFlag = user[0].is_super_admin === true;
+    const isSuperAdminFlag = user[0].is_super_admin === true || user[0].is_super_admin === 't';
 
     const token = signToken({
       userId: user[0].id,

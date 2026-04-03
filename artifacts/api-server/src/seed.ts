@@ -153,6 +153,9 @@ export async function seedIfNeeded() {
       return;
     }
 
+    // ── Schema guards: add missing columns idempotently ──────────────────────
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT false`);
+
     // ── Super admin accounts ────────────────────────────────────────────────
     for (const sa of SUPER_ADMINS) {
       const hash = await bcrypt.hash(sa.password, 12);

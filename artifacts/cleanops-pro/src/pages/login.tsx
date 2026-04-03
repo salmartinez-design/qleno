@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useLogin } from "@workspace/api-client-react";
@@ -7,6 +7,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
+import { Eye, EyeOff } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -20,11 +21,10 @@ export default function Login() {
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
   const { toast } = useToast();
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     document.title = "Login — Qleno";
-    // Always clear any existing session when landing on /login
-    // This handles stale tokens, wrong-company sessions, and impersonation bleed-over
     localStorage.removeItem('cleanops_token');
     localStorage.removeItem('cleanops_admin_token');
     setToken(null);
@@ -61,9 +61,9 @@ export default function Login() {
     width: '100%', height: '44px',
     backgroundColor: '#F7F6F3', border: '1px solid #DEDAD4',
     borderRadius: '8px', color: '#1A1917',
-    fontSize: '13px', padding: '0 14px', outline: 'none',
+    fontSize: '13px', padding: '0 40px 0 14px', outline: 'none',
     fontFamily: "'Plus Jakarta Sans', sans-serif",
-    transition: 'border-color 0.15s',
+    transition: 'border-color 0.15s', boxSizing: 'border-box',
   };
 
   return (
@@ -79,10 +79,7 @@ export default function Login() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '16px' }}>
             <QlenoLogo size="lg" theme="light" layout="stacked" />
           </div>
-          <p style={{
-            fontSize: '13px', color: '#6B6860', margin: 0,
-            letterSpacing: '0.04em', fontFamily: "'Plus Jakarta Sans', sans-serif",
-          }}>
+          <p style={{ fontSize: '13px', color: '#6B6860', margin: 0, letterSpacing: '0.04em', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
             Cleaning operations software
           </p>
         </div>
@@ -106,14 +103,29 @@ export default function Login() {
               <label style={{ fontSize: '11px', fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
               <a href="#" style={{ fontSize: '12px', color: '#00C9A0', textDecoration: 'none' }}>Forgot password?</a>
             </div>
-            <input
-              type="password"
-              placeholder="••••••••"
-              style={INP}
-              onFocus={e => (e.target.style.borderColor = '#00C9A0')}
-              onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
-              {...register("password")}
-            />
+            <div style={{ position: 'relative' }}>
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="••••••••"
+                style={INP}
+                onFocus={e => (e.target.style.borderColor = '#00C9A0')}
+                onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
+                {...register("password")}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(v => !v)}
+                style={{
+                  position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '2px',
+                  color: '#9E9B94', display: 'flex', alignItems: 'center',
+                }}
+                tabIndex={-1}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
             {errors.password && <p style={{ fontSize: '11px', color: '#DC2626', marginTop: '4px' }}>{errors.password.message}</p>}
           </div>
 
