@@ -62,6 +62,9 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
 
     // Send email via Resend if requested
     if (send_email) {
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Payment link email suppressed:", { clientId: client.id });
+      } else {
       const toEmail = client.billing_contact_email || client.email;
       if (!toEmail) {
         return res.status(400).json({ error: "Client has no email address" });
@@ -91,10 +94,14 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           console.error("Email send failed:", err);
         }
       }
+      } // end COMMS_ENABLED else
     }
 
     // Send SMS via Twilio if requested
     if (send_sms) {
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Payment link SMS suppressed:", { clientId: client.id });
+      } else {
       const toPhone = client.billing_contact_phone || client.phone;
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
@@ -121,6 +128,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           console.error("SMS send failed:", err);
         }
       }
+      } // end COMMS_ENABLED else
     }
 
     res.json({ id: link.id, token, url: payUrl, expires_at: expiresAt });

@@ -493,6 +493,9 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
     const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
     if (clientEmail && process.env.RESEND_API_KEY) {
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Invoice reminder email suppressed:", { to: clientEmail, invoiceId });
+      } else {
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
       const payLink = `https://clean-ops-pro.replit.app/pay/${invoiceId}`;
@@ -505,6 +508,7 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
                <p><a href="${payLink}">Pay Now</a></p>
                <p>Thank you,<br>Phes</p>`,
       });
+      }
     }
 
     await db.update(invoicesTable)

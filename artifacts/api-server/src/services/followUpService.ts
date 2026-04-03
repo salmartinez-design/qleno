@@ -13,6 +13,10 @@ function resolveMergeFields(template: string, vars: Record<string, string>): str
 
 // ── Twilio SMS sender ──────────────────────────────────────────────────────────
 async function sendSms(to: string, body: string): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] Follow-up SMS suppressed:", { to, body: body.substring(0, 80) });
+    return;
+  }
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken  = process.env.TWILIO_AUTH_TOKEN;
   const from       = process.env.TWILIO_FROM_NUMBER;
@@ -34,6 +38,10 @@ async function sendSms(to: string, body: string): Promise<void> {
 
 // ── Resend email sender ────────────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, body: string): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
+    return;
+  }
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
   const { Resend } = await import("resend");
@@ -191,6 +199,10 @@ export async function stopEnrollmentsForQuote(
 
 // ── Process due enrollments (cron body) ───────────────────────────────────────
 export async function processDueEnrollments(): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] processDueEnrollments suppressed — COMMS_ENABLED=false");
+    return;
+  }
   try {
     const due = await db.execute(sql`
       SELECT

@@ -1,0 +1,74 @@
+This is urgent. Here’s the prompt — paste it into Replit agent right now:
+
+URGENT — KILL ALL OUTBOUND COMMUNICATIONS IMMEDIATELY.
+
+The app has sent erroneous notifications to real clients. 
+Stop all outbound messaging now and do not re-enable until 
+explicitly instructed.
+
+STEP 1 — DISABLE ALL OUTBOUND SMS (Twilio):
+Find every location in the codebase where Twilio sends an SMS 
+(search for: client.messages.create, twilio, sendSMS, 
+twilioClient, TWILIO_FROM_NUMBER).
+Wrap every single outbound SMS call in this guard:
+
+  const COMMS_ENABLED = process.env.COMMS_ENABLED === 'true';
+  if (!COMMS_ENABLED) {
+    console.log('[COMMS BLOCKED] SMS suppressed:', { to, body });
+    return { status: 'suppressed', reason: 'COMMS_ENABLED=false' };
+  }
+
+STEP 2 — DISABLE ALL OUTBOUND EMAIL (Resend):
+Find every location in the codebase where Resend sends an email
+(search for: resend.emails.send, sendEmail, RESEND_API_KEY, 
+new Resend).
+Wrap every single outbound email call in the same guard:
+
+  const COMMS_ENABLED = process.env.COMMS_ENABLED === 'true';
+  if (!COMMS_ENABLED) {
+    console.log('[COMMS BLOCKED] Email suppressed:', { to, subject });
+    return { status: 'suppressed', reason: 'COMMS_ENABLED=false' };
+  }
+
+STEP 3 — DISABLE ALL AUTOMATED/SCHEDULED JOBS:
+Find every cron job, scheduled task, nightly job, or interval 
+that triggers any communication 
+(search for: cron, setInterval, schedule, nightly, recurring engine,
+follow_up, followup, notification, reminder).
+Add the same COMMS_ENABLED guard at the top of each scheduled 
+function so it exits immediately without executing if false.
+
+STEP 4 — ADD ENVIRONMENT VARIABLE:
+In Replit Secrets, set:
+  COMMS_ENABLED = false
+
+This single variable now controls ALL outbound communications.
+When set to false: zero SMS, zero emails, zero automated notifications.
+When set to true: all communications resume normally.
+
+DO NOT re-enable this variable. Sal will explicitly say 
+"set COMMS_ENABLED to true" when the system is ready for 
+live clients. Until then, every outbound communication must 
+be suppressed and logged to console only.
+
+STEP 5 — ADD VISUAL WARNING IN THE UI:
+In the app top navigation bar or dashboard, show a persistent 
+amber warning banner when COMMS_ENABLED = false:
+
+  "Communications are disabled. All SMS and email notifications 
+   are suppressed. Enable in Company Settings when ready to go live."
+
+This banner must be visible on every page so the team always 
+knows communications are off. Use amber background #FEF3C7, 
+border #F59E0B, text #92400E.
+
+STEP 6 — CONFIRM WHAT WAS FOUND AND BLOCKED:
+After making all changes, provide a complete list of every 
+file and function that was wrapped with the COMMS_ENABLED guard
+so Sal can verify nothing was missed.
+
+Deploy immediately after changes are complete.
+
+
+After you paste that, also go directly to Replit Secrets right now and manually set COMMS_ENABLED = false before the agent even finishes — that way if any automated job fires during the fix it won’t send anything.
+Once the agent responds, share the list of files it found so we can verify nothing slipped through.​​​​​​​​​​​​​​​​

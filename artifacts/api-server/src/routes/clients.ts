@@ -499,7 +499,9 @@ router.post("/:id/communications/sms", requireAuth, async (req, res) => {
     const clientId = parseInt(req.params.id);
     const { to, message } = req.body;
     let twilioResult = null;
-    if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log("[COMMS BLOCKED] Client SMS suppressed:", { to, message: message?.substring(0, 80) });
+    } else if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
       try {
         const fromNum = process.env.TWILIO_FROM_NUMBER || "";
         const url = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`;

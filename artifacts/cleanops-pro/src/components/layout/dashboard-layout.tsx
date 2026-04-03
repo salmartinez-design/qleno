@@ -382,6 +382,22 @@ function useUnreadCount(userId: number | undefined) {
   return count;
 }
 
+// Set to false once COMMS_ENABLED=true is set on the API server
+const COMMS_PAUSED = true;
+
+const CommsPausedBanner = () =>
+  COMMS_PAUSED ? (
+    <div style={{
+      background: '#FEF3C7', borderBottom: '1px solid #F59E0B',
+      padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8,
+      fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: '#92400E', fontWeight: 500,
+      flexShrink: 0,
+    }}>
+      <span style={{ fontSize: 16 }}>⚠️</span>
+      <span><strong>Outbound communications are paused.</strong> SMS, email, and all automated notifications are currently disabled. No messages will be sent to customers or staff.</span>
+    </div>
+  ) : null;
+
 export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
@@ -530,7 +546,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
           </div>
         )}
 
-        <main style={{ padding: '16px 14px 80px' }}>{children}</main>
+        <main style={{ padding: '0 0 80px', display: 'flex', flexDirection: 'column' }}>
+          <CommsPausedBanner />
+          <div style={{ padding: '16px 14px 0' }}>{children}</div>
+        </main>
 
         {/* Bottom nav */}
         <nav style={{
@@ -694,10 +713,14 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         )}
 
         {fullBleed ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>{children}</div>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <CommsPausedBanner />
+            {children}
+          </div>
         ) : (
-          <main style={{ flex: 1, overflowY: 'auto', padding: '28px 28px', backgroundColor: '#F7F6F3' }}>
-            <div style={{ maxWidth: 1400, margin: '0 auto' }}>{children}</div>
+          <main style={{ flex: 1, overflowY: 'auto', backgroundColor: '#F7F6F3', display: 'flex', flexDirection: 'column' }}>
+            <CommsPausedBanner />
+            <div style={{ padding: '28px 28px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>{children}</div>
           </main>
         )}
       </div>

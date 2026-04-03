@@ -813,7 +813,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
 
     // ── Confirmation emails ───────────────────────────────────────────────────
     const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log("[COMMS BLOCKED] Booking confirmation email suppressed:", { to: email, name: `${first_name} ${last_name}` });
+    } else if (resendKey) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
@@ -894,7 +896,9 @@ ${upsellAcceptedVal && recurDateStr ? `<p style="background:#F0F7FF;border-left:
       const accountSid = process.env.TWILIO_ACCOUNT_SID;
       const authToken  = process.env.TWILIO_AUTH_TOKEN;
       const fromNum    = process.env.TWILIO_FROM_NUMBER;
-      if (accountSid && authToken && fromNum) {
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Booking office SMS suppressed:", { first_name, last_name, jobId });
+      } else if (accountSid && authToken && fromNum) {
         const dateStr2 = preferred_date
           ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
           : "TBD";
@@ -1116,7 +1120,9 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
     const jobId = (jobResult.rows[0] as any).id;
 
     const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log("[COMMS BLOCKED] Walkthrough notification email suppressed:", { email, first_name, last_name });
+    } else if (resendKey) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
@@ -1315,7 +1321,9 @@ router.post("/leads", rateLimit, async (req, res) => {
       const authToken  = process.env.TWILIO_AUTH_TOKEN;
       const from       = process.env.TWILIO_FROM_NUMBER;
       const officeNum  = "+17737869902";
-      if (accountSid && authToken && from) {
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Very-dirty lead office SMS suppressed:", { first_name, last_name, phone });
+      } else if (accountSid && authToken && from) {
         const smsRes = await fetch(
           `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
           {
@@ -1338,7 +1346,9 @@ router.post("/leads", rateLimit, async (req, res) => {
     }
 
     const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log("[COMMS BLOCKED] Very-dirty lead office email suppressed:", { first_name, last_name, phone });
+    } else if (resendKey) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);

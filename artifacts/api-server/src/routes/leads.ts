@@ -366,6 +366,10 @@ export async function fireOfficeNotification(
   phone: string | null,
   scope: string | null
 ) {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] Lead office notification suppressed:", { leadId, firstName, lastName });
+    return;
+  }
   const fullName = [firstName, lastName].filter(Boolean).join(" ");
   const smsBody = `New lead — ${fullName} — ${source}${phone ? ` — ${phone}` : ""}. Log in to review.`;
 

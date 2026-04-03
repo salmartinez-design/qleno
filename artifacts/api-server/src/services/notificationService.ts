@@ -46,6 +46,10 @@ ${contentHtml}
 
 // ── Twilio SMS sender ─────────────────────────────────────────────────────────
 async function sendTwilioSms(to: string, body: string): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] SMS suppressed:", { to, body: body.substring(0, 80) });
+    return;
+  }
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken  = process.env.TWILIO_AUTH_TOKEN;
   const from       = process.env.TWILIO_FROM_NUMBER;
@@ -123,6 +127,11 @@ export async function sendNotification(
       const rawHtml  = applyMerge(bodyHtml, fullVars);
       const wrapped  = applyMerge(wrapEmailHtml(rawHtml), fullVars);
 
+      if (process.env.COMMS_ENABLED !== "true") {
+        console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });
+        await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "COMMS_ENABLED=false", fullVars);
+        return;
+      }
       const resend = new Resend(process.env.RESEND_API_KEY);
       await resend.emails.send({
         from:     "info@phes.io",
@@ -189,6 +198,10 @@ async function logNotification(
 
 // ── Job reminder cron ────────────────────────────────────────────────────────
 export async function runReminderCron(daysAhead: number): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] runReminderCron suppressed — COMMS_ENABLED=false");
+    return;
+  }
   try {
     const target = new Date();
     target.setDate(target.getDate() + daysAhead);
@@ -233,6 +246,10 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
 
 // ── Review request cron ──────────────────────────────────────────────────────
 export async function runReviewRequestCron(): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] runReviewRequestCron suppressed — COMMS_ENABLED=false");
+    return;
+  }
   try {
     const cutoffMs  = 24 * 60 * 60 * 1000;
     const now       = new Date();

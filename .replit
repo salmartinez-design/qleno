@@ -34,3 +34,4 @@ channel = "stable-25_05"
 
 [userenv.shared]
 JWT_SECRET = "1ebb40f7a91963a8eebfa32a24aa249fa124e3b74249ac557cacf0b59d2943f675f2a8c9700d79fd6b76a1e91cb8e8ed"
+COMMS_ENABLED = "false"

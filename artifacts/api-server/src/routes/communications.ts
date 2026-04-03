@@ -7,6 +7,10 @@ import { requireAuth } from "../lib/auth.js";
 const router = Router();
 
 async function sendTwilioSms(to: string, from: string, body: string) {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] Manual SMS suppressed:", { to, body: body.substring(0, 80) });
+    return { status: "suppressed", reason: "COMMS_ENABLED=false" };
+  }
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   if (!accountSid || !authToken) throw new Error("Twilio credentials not configured");
