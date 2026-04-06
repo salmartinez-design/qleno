@@ -767,12 +767,12 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>{home.name || "Home"}</h3>
                 {home.is_primary && <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Default</span>}
               </div>
-              <p style={{ margin: "4px 0 0", fontSize: "14px", fontWeight: 600, color: "#1A1917" }}>{home.address}</p>
-              <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B7280" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
+              <p style={{ margin: "4px 0 0", fontSize: "15px", fontWeight: 700, color: "#0A0E1A" }}>{home.address}</p>
+              <p style={{ margin: "2px 0 0", fontSize: "13px", fontWeight: 500, color: "#374151" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
               {zoneColor && zoneName && (
-                <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 5 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: zoneColor, display: "inline-block", flexShrink: 0 }} />
-                  <span style={{ fontSize: "11px", fontWeight: 600, color: zoneColor }}>{zoneName}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: zoneColor, display: "inline-block", flexShrink: 0, boxShadow: `0 0 0 2px ${zoneColor}35` }} />
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: zoneColor }}>{zoneName}</span>
                 </div>
               )}
             </div>

@@ -190,6 +190,32 @@ router.post("/tip", requirePortalAuth, async (req, res) => {
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
+// ── POST /api/portal/profile-picture ────────────────────────────────────────
+router.post("/profile-picture", requirePortalAuth, async (req, res) => {
+  try {
+    const { image_data } = req.body; // base64 data URL e.g. "data:image/jpeg;base64,..."
+    if (!image_data || typeof image_data !== "string") {
+      return res.status(400).json({ error: "image_data is required" });
+    }
+    // Basic validation: must be a data URL
+    if (!image_data.startsWith("data:image/")) {
+      return res.status(400).json({ error: "Invalid image format" });
+    }
+    // Limit to ~2MB base64 (~1.5MB actual image)
+    if (image_data.length > 2_800_000) {
+      return res.status(413).json({ error: "Image too large. Please use an image under 1.5MB." });
+    }
+    await db
+      .update(clientsTable)
+      .set({ profile_picture_url: image_data } as any)
+      .where(and(
+        eq(clientsTable.id, req.portal!.clientId),
+        eq(clientsTable.company_id, req.portal!.companyId),
+      ));
+    return res.json({ success: true });
+  } catch { return res.status(500).json({ error: "Internal Server Error" }); }
+});
+
 router.post("/invite-client", async (req, res) => {
   try {
     const { client_id, company_id, temp_password } = req.body;

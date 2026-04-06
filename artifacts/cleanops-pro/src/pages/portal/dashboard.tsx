@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
-import { Star, Calendar, Clock, ChevronRight, LogOut, Zap, DollarSign } from "lucide-react";
+import { Star, Calendar, Clock, ChevronRight, LogOut, Zap, DollarSign, Camera, User } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -70,6 +70,10 @@ export default function PortalDashboardPage() {
   const [customTip, setCustomTip] = useState('');
   const [tipSent, setTipSent] = useState(false);
 
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const token = localStorage.getItem(`portal_token_${slug}`);
   if (!token) { navigate(`/portal/${slug}/login`); }
 
@@ -98,6 +102,47 @@ export default function PortalDashboardPage() {
       body: JSON.stringify({ job_id: jobId, score: r.score, comment: r.comment || '' }),
     });
     setRatingSubmitted(prev => new Set([...prev, jobId]));
+  }
+
+  async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) { setUploadError('Please select an image file.'); return; }
+    if (file.size > 5 * 1024 * 1024) { setUploadError('Image must be under 5MB.'); return; }
+    setUploadError('');
+    setUploading(true);
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string;
+      try {
+        // Resize to max 400px using canvas
+        const img = new Image();
+        img.onload = async () => {
+          const canvas = document.createElement('canvas');
+          const MAX = 400;
+          const ratio = Math.min(MAX / img.width, MAX / img.height, 1);
+          canvas.width = Math.round(img.width * ratio);
+          canvas.height = Math.round(img.height * ratio);
+          canvas.getContext('2d')!.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.8);
+          const resp = await fetch(`${API}/api/portal/profile-picture`, {
+            method: 'POST',
+            headers: portalHeaders(slug!),
+            body: JSON.stringify({ image_data: compressed }),
+          });
+          if (resp.ok) {
+            setClient((prev: any) => ({ ...prev, profile_picture_url: compressed }));
+          } else {
+            const err = await resp.json();
+            setUploadError(err.error || 'Upload failed');
+          }
+          setUploading(false);
+        };
+        img.src = dataUrl;
+      } catch { setUploadError('Upload failed'); setUploading(false); }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   }
 
   async function sendTip() {
@@ -131,6 +176,7 @@ export default function PortalDashboardPage() {
 
   return (
     <div style={{ minHeight:'100vh', background:'#F7F6F3', fontFamily:"'Plus Jakarta Sans', sans-serif" }}>
+      <style>{`@keyframes spin { from { transform:rotate(0deg) } to { transform:rotate(360deg) } }`}</style>
       {/* Portal Header */}
       <div style={{ background:'#FFFFFF', borderBottom:'1px solid #E5E2DC', padding:'0 24px' }}>
         <div style={{ maxWidth:680, margin:'0 auto', height:60, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
@@ -143,12 +189,41 @@ export default function PortalDashboardPage() {
             }
             <span style={{ fontSize:14, fontWeight:700, color:'#1A1917' }}>{company?.name}</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <span style={{ fontSize:13, color:'#6B7280' }}>Hi, {client?.first_name}</span>
+            {/* Profile picture with upload */}
+            <div style={{ position:'relative', flexShrink:0 }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Change profile photo"
+                style={{ background:'none', border:'none', cursor:'pointer', padding:0, display:'flex', position:'relative', borderRadius:'50%' }}>
+                {client?.profile_picture_url
+                  ? <img src={client.profile_picture_url} alt="Profile" style={{ width:34, height:34, borderRadius:'50%', objectFit:'cover', border:`2px solid ${brandColor}40` }} />
+                  : <div style={{ width:34, height:34, borderRadius:'50%', background:`${brandColor}20`, border:`2px solid ${brandColor}40`, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      <span style={{ fontSize:12, fontWeight:800, color:brandColor }}>
+                        {client ? `${client.first_name?.[0]||''}${client.last_name?.[0]||''}`.toUpperCase() : '?'}
+                      </span>
+                    </div>
+                }
+                <div style={{ position:'absolute', bottom:0, right:0, width:14, height:14, borderRadius:'50%', background:brandColor, display:'flex', alignItems:'center', justifyContent:'center', border:'1.5px solid white' }}>
+                  {uploading
+                    ? <div style={{ width:8, height:8, borderRadius:'50%', border:'1.5px solid white', borderTopColor:'transparent', animation:'spin 0.6s linear infinite' }}/>
+                    : <Camera size={8} color="white" />
+                  }
+                </div>
+              </button>
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display:'none' }} />
+            </div>
             <button onClick={logout} style={{ background:'none', border:'none', cursor:'pointer', color:'#9E9B94', padding:4, display:'flex', alignItems:'center' }}>
               <LogOut size={16}/>
             </button>
           </div>
+          {uploadError && (
+            <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#FEE2E2', color:'#DC2626', padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, zIndex:999 }}>
+              {uploadError}
+              <button onClick={() => setUploadError('')} style={{ marginLeft:8, background:'none', border:'none', cursor:'pointer', color:'#DC2626', fontWeight:800 }}>×</button>
+            </div>
+          )}
         </div>
 
         {/* Tab Bar */}
