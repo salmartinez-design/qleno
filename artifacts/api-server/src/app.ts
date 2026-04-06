@@ -42,11 +42,20 @@ app.use("/api/pdfs", express.static(pdfsDir, { maxAge: "1h" }));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: "Too many login attempts. Please try again in 15 minutes." },
   skip: (req) => req.path === "/logout" || req.path === "/me",
+  keyGenerator: (req: Request): string => {
+    // Rate-limit per email on login so one user's failed attempts
+    // don't lock out other users on the same IP
+    if (req.path === "/login" && req.body?.email) {
+      return `login_email_${String(req.body.email).toLowerCase().trim()}`;
+    }
+    return req.ip ?? "unknown";
+  },
+  validate: { keyGeneratorIpFallback: false },
 });
 
 const userKeyGenerator = (req: Request): string => {
