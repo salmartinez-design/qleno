@@ -404,6 +404,9 @@ export default function BookPage() {
   const [contactMethod, setContactMethod] = useState<"sms" | "call" | "email" | "">("");
   const [contactMethodError, setContactMethodError] = useState(false);
 
+  // Step 0: Address line 2
+  const [addressLine2, setAddressLine2] = useState("");
+
   // Step 2: Frequency + Add-ons
   const [frequencyStr, setFrequencyStr] = useState("");
   const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
@@ -766,6 +769,7 @@ export default function BookPage() {
             recurring_arrival_window: upsellAccepted ? recurringArrivalWindow || null : null,
             arrival_window: arrivalWindow || null,
             preferred_contact_method: contactMethod || null,
+            address_line2: addressLine2.trim() || null,
             property_vacant: isMoveInOut,
             move_in_notes: moveInNotes.trim() ? moveInNotes.trim() : null,
             address: addressComponents?.formatted ?? address,
@@ -808,6 +812,7 @@ export default function BookPage() {
           booking_location: bookingLocation,
           preferred_date: selectedDate,
           preferred_contact_method: contactMethod || null,
+          address_line2: addressLine2.trim() || null,
         }),
       });
       setBookResult(result);
@@ -1512,6 +1517,16 @@ export default function BookPage() {
                     We don't currently service this area. Call (773) 706-6000 to confirm.
                   </p>
                 )}
+              </FieldWrap>
+
+              <FieldWrap label="Unit, Suite, or Additional Access Instructions" error={undefined}>
+                <input
+                  type="text"
+                  value={addressLine2}
+                  onChange={e => setAddressLine2(e.target.value)}
+                  placeholder="e.g. Apt 2B, Suite 100, gate code #1234, ring doorbell on left"
+                  style={s.input}
+                />
               </FieldWrap>
 
               <div style={{ marginBottom: 16 }}>
