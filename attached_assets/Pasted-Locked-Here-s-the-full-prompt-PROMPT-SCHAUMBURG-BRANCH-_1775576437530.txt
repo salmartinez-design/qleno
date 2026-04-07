@@ -1,0 +1,183 @@
+Locked. Here's the full prompt:
+
+---
+
+**PROMPT — SCHAUMBURG BRANCH ISOLATION AUDIT AND IMPLEMENTATION**
+
+Schaumburg is a fully live, active branch in Qleno — equal to Oak Lawn in every operational respect. The dashboard location switcher already exists with Oak Lawn, Schaumburg, and All Locations. This prompt audits and fixes every page and data query in the system to ensure that when Schaumburg is selected, it operates with complete isolation from Oak Lawn, and when All Locations is selected, it shows combined data across both.
+
+Do not touch the pricing engine, discount codes, or Cleancyclopedia — these are intentionally shared across both locations.
+
+---
+
+**ARCHITECTURE RULE — NON-NEGOTIABLE**
+
+Every page, query, and API endpoint that returns operational data must filter by `company_id` using the currently selected location from the location switcher. The selected `company_id` must be passed as context on every request. When "All Locations" is selected, queries must return data for all company IDs belonging to this owner — not just one branch.
+
+There must be zero data bleed between branches. An Oak Lawn job must never appear when Schaumburg is selected, and vice versa.
+
+---
+
+**STEP 1 — CONFIRM COMPANY RECORDS**
+
+Query the `companies` table. Confirm that both of the following exist as separate records with distinct `company_id` values:
+
+- Oak Lawn: name matching "Phes" or "Phes Oak Lawn", with phone 773-706-6000, email info@phes.io
+- Schaumburg: name matching "Phes Schaumburg", with phone 847-538-3729, email schaumburg@phes.io
+
+If either record is missing or has incorrect contact info, fix it now before proceeding. Report both `company_id` values — these are the canonical IDs used throughout this entire prompt.
+
+---
+
+**STEP 2 — AUDIT AND FIX EVERY OPERATIONAL PAGE**
+
+For each page below, audit whether the data query is correctly scoped to the selected `company_id`. Fix any page that is not properly scoped. For All Locations, the query must include all company IDs belonging to this owner.
+
+**2A — Dashboard (`/dashboard`)**
+
+All KPI tiles must reflect the selected location:
+- Today's Status (In Progress, Scheduled, Complete, Flagged, Unassigned)
+- Revenue Booked Today
+- New Jobs Booked (this week)
+- Quotes Given (today)
+- Booked Online (this month)
+- Monthly Revenue
+- Avg Bill
+- Active Clients
+- Clients at Risk
+- Week Revenue
+- Quality Score
+- Revenue Forecast
+- Avg Client LTV
+- High Churn Risk
+- Avg NPS
+- Needs Attention section
+
+When All Locations is selected, every tile must aggregate across both Oak Lawn and Schaumburg company IDs.
+
+**2B — Dispatch Board (`/dispatch`)**
+
+Jobs shown on the Gantt board must be scoped to the selected location. When All Locations is selected, show all jobs from both locations — add a visible location indicator (color tag or label) on each job card so the user can distinguish Oak Lawn vs Schaumburg jobs at a glance.
+
+**2C — Jobs List (`/jobs`)**
+
+Filter jobs by selected `company_id`. All Locations shows all jobs with location indicator on each row.
+
+**2D — Clients / Customers (`/clients`)**
+
+Filter clients by selected `company_id`. All Locations shows all clients with location column visible. New clients created while Schaumburg is selected must be assigned `company_id` = Schaumburg ID. New clients created while Oak Lawn is selected must be assigned `company_id` = Oak Lawn ID.
+
+**2E — Quotes (`/quotes`)**
+
+Filter quotes by selected `company_id`. Quotes submitted through the booking widget must already be tagged with the correct `company_id` via `getBranchByZip` (built in previous prompt). Confirm this is working. All Locations shows all quotes with location column.
+
+**2F — Invoices (`/invoices`)**
+
+Filter invoices by selected `company_id`. All Locations shows all invoices aggregated. Revenue totals must reflect the correct location.
+
+**2G — Employees (`/employees`)**
+
+Filter employees by selected `company_id`. Oak Lawn techs must only appear under Oak Lawn. Schaumburg techs must only appear under Schaumburg. All Locations shows all employees with location column. When creating a new employee, assign them to the currently selected location's `company_id`.
+
+**2H — Payroll (`/payroll`)**
+
+Filter payroll records by selected `company_id`. Oak Lawn payroll and Schaumburg payroll must be completely separate. All Locations shows combined payroll across both locations.
+
+**2I — Recurring Schedules**
+
+Filter recurring schedules by selected `company_id`. Schedules must not bleed between locations.
+
+**2J — Reports**
+
+Every report must respect the selected location. When a specific location is selected, the report runs against that location's data only. When All Locations is selected, the report aggregates across both locations and clearly labels which rows belong to which location. Add a location column or section header to any report that displays row-level data in All Locations mode.
+
+**2K — Close Day Modal**
+
+The Close Day modal must only show jobs for the selected location on the selected date. If Oak Lawn is selected, only Oak Lawn jobs appear. If Schaumburg is selected, only Schaumburg jobs appear.
+
+**2L — Clock Monitor**
+
+Filter clock-in/out entries by selected `company_id`. All Locations shows all active clock entries with location indicator.
+
+**2M — GPS Geofencing**
+
+Confirm that geofencing zone assignments are scoped to the correct `company_id`. Oak Lawn zones must not appear in Schaumburg geofencing, and vice versa.
+
+---
+
+**STEP 3 — COMPANY SETTINGS ISOLATION**
+
+When an owner navigates to Company Settings while Schaumburg is selected, all settings must reflect Schaumburg's configuration:
+- Company name: Phes Schaumburg
+- Phone: 847-538-3729
+- Email: schaumburg@phes.io
+- Address: Schaumburg office address
+- Service zones: Schaumburg zones only
+- Twilio number: +16308844318
+- Square / Stripe credentials: Schaumburg-specific if applicable
+
+When Oak Lawn is selected, Company Settings reflects Oak Lawn configuration. Company Settings must never show one location's settings while the other is selected.
+
+---
+
+**STEP 4 — SERVICE ZONES ISOLATION**
+
+Confirm that the 3 Schaumburg service zones (Barrington/Streamwood/Elgin, Elk Grove/Des Plaines/Buffalo Grove, Schaumburg/Palatine/Arlington Heights) are assigned to the Schaumburg `company_id` only. Confirm that Oak Lawn's 18 zones are assigned to the Oak Lawn `company_id` only.
+
+If any zone is missing a `company_id` assignment or is assigned to the wrong branch, fix it now.
+
+---
+
+**STEP 5 — BOOKING WIDGET ZIP ROUTING CONFIRMATION**
+
+Confirm that the existing `getBranchByZip` function correctly assigns `company_id` on both the client record and the job record at time of booking. Run a dry-run check (no actual booking) for zip 60193 (Schaumburg) and zip 60652 (Oak Lawn) and confirm each resolves to the correct `company_id` from the companies table.
+
+---
+
+**STEP 6 — SHARED ITEMS CONFIRMATION (DO NOT SCOPE THESE)**
+
+Confirm that the following are NOT filtered by `company_id` and remain accessible from both locations:
+
+- Pricing engine (same rates apply at both locations)
+- Discount codes (Manager50, Manager25, Compass, Law Enforcement, Senior, Realtor — shared)
+- Cleancyclopedia
+- Super Admin portal (`/admin`)
+
+---
+
+**STEP 7 — ALL LOCATIONS MODE RULES**
+
+When "All Locations" is selected in the location switcher:
+
+- All queries must use `WHERE company_id IN (oak_lawn_id, schaumburg_id)`
+- Every list view (jobs, clients, quotes, invoices, employees) must include a visible "Location" column showing Oak Lawn or Schaumburg for each row
+- Dashboard KPI tiles must aggregate totals across both locations
+- No create/edit actions should be permitted while All Locations is selected — the user must switch to a specific location before creating any record. If they attempt to create while All Locations is active, show an inline prompt: "Please select a location before adding a record."
+
+---
+
+**STEP 8 — VERIFICATION REPORT**
+
+Report PASS or FAIL for each:
+
+1. Both company records exist with correct contact info and distinct IDs
+2. Dashboard KPIs scoped correctly per location and aggregated for All Locations
+3. Dispatch board scoped per location with location indicator in All Locations mode
+4. Jobs list scoped per location
+5. Clients scoped per location — new client assigned to selected location's company_id
+6. Quotes scoped per location — booking widget zip routing confirmed
+7. Invoices scoped per location
+8. Employees scoped per location — no bleed between branches
+9. Payroll scoped per location
+10. Recurring schedules scoped per location
+11. All reports respect selected location — All Locations aggregates with location column
+12. Close Day modal scoped to selected location
+13. Clock Monitor scoped per location
+14. GPS geofencing zones scoped per location
+15. Company Settings reflect correct location when each branch is selected
+16. Service zones correctly assigned to correct company_id for each branch
+17. Pricing engine, discount codes, and Cleancyclopedia confirmed shared (not scoped)
+18. All Locations mode blocks record creation with inline prompt
+19. Zero data bleed confirmed between Oak Lawn and Schaumburg
+
+Do not wipe or migrate any existing data. Fix scoping queries only. Report build status only — do not run live tests automatically.

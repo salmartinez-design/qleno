@@ -1,0 +1,163 @@
+Here's your full test protocol — two parts, paste the second as a Replit prompt.
+
+---
+
+## PART 1 — MANUAL END-TO-END BOOKING TEST
+
+Run this yourself at `https://clean-ops-pro.replit.app/book/phes-cleaning`
+
+**Test booking data:**
+- First Name: Test / Last Name: Booking
+- Email: salmartinez@phes.io
+- Phone: 773-706-6000
+- Address: 3165 West 83rd Place, Chicago, IL 60652
+- Zip: 60652 (Oak Lawn branch)
+- How did you hear: Google
+- Service: Deep Clean
+- Sqft: 1,233 / Bedrooms: 3 / Full Baths: 2 / Half Baths: 0 / Floors: 1
+- People: 2 / Pets: No / Cleanliness: Moderately Clean
+- Add-ons: Oven Cleaning + Refrigerator Cleaning (triggers Appliance Bundle)
+- Special notes: "Test booking — do not service"
+- Date: first available / Window: Morning
+- Preferred contact: Email
+- Card: your Discover card
+
+**Expected results — check each:**
+- [ ] Confirmation screen appears — no redirect
+- [ ] Confirmation screen shows (773) 706-6000 and info@phes.io (Oak Lawn branch)
+- [ ] Job appears on `/dispatch` under the correct date, status = Scheduled
+- [ ] Client record created at `/clients` — no duplicate if you run twice
+- [ ] Price shown = $444 (Deep Clean $364 + Oven $40 + Fridge $40 - Bundle $20)
+
+Then run a **second booking with a Schaumburg zip:**
+- Same data but Zip: 60193 (Schaumburg)
+- Address: 1 E Woodfield Rd, Schaumburg IL 60193
+- **Expected:** Confirmation screen shows (847) 538-3729 and schaumburg@phes.io
+
+---
+
+## PART 2 — PRICING PARITY PROMPT (paste into Replit agent)
+
+---
+
+**PROMPT — PRICING PARITY AUDIT: BOOKING WIDGET vs OFFICE QUOTE ENGINE**
+
+Run 10 test quotes through both the public booking widget pricing engine and the internal office quote builder. For each variation, calculate the price from both engines and compare them. Report any discrepancy, even $1.
+
+Do not create real client records or jobs. This is a read-only pricing audit — query the pricing engine logic directly, do not submit actual bookings.
+
+---
+
+**THE 10 TEST VARIATIONS:**
+
+**Quote 1 — Deep Clean, Small Home, No Add-ons**
+- Service: Deep Clean
+- Sqft: 800
+- Bedrooms: 1 / Full Baths: 1 / Half Baths: 0 / Floors: 1
+- Cleanliness: Very Clean
+- Add-ons: None
+- Frequency: One-time
+
+**Quote 2 — Deep Clean, Mid Home, Oven + Fridge (Bundle)**
+- Service: Deep Clean
+- Sqft: 1,500
+- Bedrooms: 3 / Full Baths: 2 / Half Baths: 1 / Floors: 2
+- Cleanliness: Moderately Clean
+- Add-ons: Oven Cleaning + Refrigerator Cleaning
+- Frequency: One-time
+- Expected: Bundle discount applies (-$20)
+
+**Quote 3 — Deep Clean, Large Home, All Add-ons**
+- Service: Deep Clean
+- Sqft: 3,200
+- Bedrooms: 4 / Full Baths: 3 / Half Baths: 1 / Floors: 2
+- Cleanliness: Very Dirty
+- Add-ons: Oven, Refrigerator, Kitchen Cabinets, Windows, Clean Basement
+- Frequency: One-time
+
+**Quote 4 — One-Time Standard Clean, Small**
+- Service: One-Time Standard Clean
+- Sqft: 900
+- Bedrooms: 2 / Full Baths: 1 / Half Baths: 0 / Floors: 1
+- Cleanliness: Very Clean
+- Add-ons: None
+- Frequency: One-time
+
+**Quote 5 — One-Time Standard Clean, Mid, With Add-ons**
+- Service: One-Time Standard Clean
+- Sqft: 1,800
+- Bedrooms: 3 / Full Baths: 2 / Half Baths: 1 / Floors: 2
+- Cleanliness: Moderately Clean
+- Add-ons: Kitchen Cabinets + Windows
+- Frequency: One-time
+
+**Quote 6 — Recurring, Biweekly, Small Home**
+- Service: Recurring
+- Sqft: 1,000
+- Bedrooms: 2 / Full Baths: 1 / Half Baths: 0 / Floors: 1
+- Cleanliness: Very Clean
+- Add-ons: None
+- Frequency: Biweekly
+- Expected: Biweekly discount rate applied vs one-time rate
+
+**Quote 7 — Recurring, Weekly, Mid Home, With Add-ons**
+- Service: Recurring
+- Sqft: 1,600
+- Bedrooms: 3 / Full Baths: 2 / Half Baths: 0 / Floors: 1
+- Cleanliness: Moderately Clean
+- Add-ons: Oven Cleaning
+- Frequency: Weekly
+- Expected: Weekly discount rate applied
+
+**Quote 8 — Recurring, Monthly, Large Home**
+- Service: Recurring
+- Sqft: 2,800
+- Bedrooms: 4 / Full Baths: 3 / Half Baths: 1 / Floors: 2
+- Cleanliness: Moderately Clean
+- Add-ons: None
+- Frequency: Monthly
+- Expected: Monthly rate (no discount vs one-time)
+
+**Quote 9 — Move In/Out, Small**
+- Service: Move Out
+- Sqft: 950
+- Bedrooms: 2 / Full Baths: 1 / Half Baths: 0 / Floors: 1
+- Cleanliness: Very Dirty
+- Add-ons: None
+- Frequency: One-time
+
+**Quote 10 — Move In/Out, Large, With Add-ons**
+- Service: Move In
+- Sqft: 2,400
+- Bedrooms: 4 / Full Baths: 2 / Half Baths: 1 / Floors: 2
+- Cleanliness: Very Dirty
+- Add-ons: Oven Cleaning + Refrigerator Cleaning
+- Frequency: One-time
+- Expected: Bundle discount applies (-$20)
+
+---
+
+**WHAT TO BUILD AND REPORT:**
+
+1. Pull the pricing calculation function used by the public booking widget (`/book/phes-cleaning`) for each of the 10 quotes above. Show the calculated price.
+
+2. Pull the pricing calculation function used by the internal office quote builder for the same 10 inputs. Show the calculated price.
+
+3. For each quote, report in a table:
+
+| # | Service | Sqft | Add-ons | Frequency | Widget Price | Office Price | Match? |
+|---|---------|------|---------|-----------|-------------|--------------|--------|
+
+4. If any row shows a mismatch — even $1 — identify exactly which pricing rule, tier, add-on, or discount is calculating differently between the two engines.
+
+5. Confirm that the Appliance Bundle discount (Oven + Refrigerator = -$20) fires correctly in both engines on Quotes 2, 3, and 10.
+
+6. Confirm that recurring frequency discounts (Weekly / Biweekly / Monthly) apply correctly and consistently between both engines on Quotes 6, 7, and 8.
+
+7. Report PASS if all 10 quotes match between engines. Report FAIL with specific line items if any discrepancy exists.
+
+Do not create any client records, job records, or bookings. Read-only pricing audit only.
+
+---
+
+Run Part 1 manually first — get the confirmation screen — then paste Part 2. Don't run Part 2 until the live booking test passes.
