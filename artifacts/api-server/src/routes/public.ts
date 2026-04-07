@@ -14,6 +14,30 @@ import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../l
 
 const router = Router();
 
+// ── Normalize referral_source to match production ENUM values ────────────────
+// Production DB has: google, nextdoor, facebook, yelp, client_referral,
+//                    door_hanger, yard_sign, website, other
+const REFERRAL_MAP: Record<string, string> = {
+  google: "google",
+  facebook: "facebook",
+  instagram: "other",
+  nextdoor: "nextdoor",
+  "friend/family": "client_referral",
+  "client referral": "client_referral",
+  client_referral: "client_referral",
+  yelp: "yelp",
+  door_hanger: "door_hanger",
+  "door hanger": "door_hanger",
+  yard_sign: "yard_sign",
+  "yard sign": "yard_sign",
+  website: "website",
+  other: "other",
+};
+function normalizeReferral(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return REFERRAL_MAP[value.toLowerCase().trim()] ?? "other";
+}
+
 // ── Simple in-memory rate limiter: 30 req/min per IP ────────────────────────
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(req: any, res: any, next: any) {
@@ -619,7 +643,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
             card_last_four, card_brand, card_expiry, card_saved_at, created_at
           ) VALUES (
             ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-            ${referral_source || null},
+            ${normalizeReferral(referral_source)},
             ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
             ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW()
           ) RETURNING id
@@ -858,7 +882,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       people: people ? parseInt(String(people)) : null,
       pets: pets ? parseInt(String(pets)) : null,
       cleanlinessRating: cleanliness ? parseInt(String(cleanliness)) : null,
-      acquisitionSource: referral_source || null,
+      acquisitionSource: normalizeReferral(referral_source),
     };
     if (process.env.COMMS_ENABLED !== "true") {
       console.log("[COMMS BLOCKED] Booking confirmation email suppressed:", { to: email, name: `${first_name} ${last_name}`, branch: branchConfig.branch, jobId });
@@ -978,7 +1002,7 @@ router.post("/book", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, sms_consent, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source || null}, ${sms_consent ? true : false}, NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${sms_consent ? true : false}, NOW())
           RETURNING id
         `
       );
@@ -1093,7 +1117,7 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, address, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source || null}, ${address || null}, NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${address || null}, NOW())
           RETURNING id
         `
       );
@@ -1222,7 +1246,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
       const newClient = await db.execute(
         drizzleSql`
           INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, stripe_customer_id, stripe_payment_method_id, payment_source, card_last_four, card_brand, card_expiry, card_saved_at, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${referral_source || null}, ${stripe_customer_id || null}, ${payment_method_id}, 'stripe', ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW())
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${stripe_customer_id || null}, ${payment_method_id}, 'stripe', ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW())
           RETURNING id
         `
       );
