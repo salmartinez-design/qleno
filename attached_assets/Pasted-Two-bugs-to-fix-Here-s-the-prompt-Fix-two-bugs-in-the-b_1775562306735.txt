@@ -1,0 +1,38 @@
+Two bugs to fix. Here's the prompt:
+
+```
+Fix two bugs in the booking widget at /book/phes-cleaning:
+
+**Bug 1 — Price generating too early on Step 2**
+
+Currently the price is calculating and showing in the Price Summary tile as soon as the user types in the square footage field on Step 2. This is wrong.
+
+The price must NOT calculate or display until ALL of the following conditions are met AND the user clicks Continue:
+- Square footage entered
+- Bedrooms selected
+- Full bathrooms selected
+- "How dirty is your home" question answered (1, 2, or 3 selected)
+
+Only after the user clicks Continue from Step 2 should the base price populate in the Price Summary tile at the top of Step 3. While on Step 2 the Price Summary tile should show the placeholder text "Your price will appear on the next step."
+
+**Bug 2 — Before You Book accordion behavior broken**
+
+The accordion in the Before You Book sidebar panel has two problems:
+
+1. When one section is expanded, the other sections disappear or their text is cut off instead of remaining visible in their collapsed state
+2. The 24-Hour Guarantee section is not working at all — clicking it does nothing or displays no content
+
+Fix the accordion so that:
+- All five sections are always visible in their collapsed state: Cancellation & Rescheduling, Site Requirements, Billing & Pricing, Safety & Exclusions, The 24-Hour Guarantee
+- Clicking any section expands it and shows its full content without affecting the other sections
+- Multiple sections can be open simultaneously
+- The 24-Hour Guarantee section must display its content when clicked — if content is missing, add appropriate placeholder text: "If you are not satisfied with your cleaning we will come back and re-clean the affected areas within 24 hours at no additional charge. Contact us within 24 hours of your cleaning to request a re-clean."
+- No section should disappear or have clipped text under any circumstances
+
+After fixes verify on https://clean-ops-pro.replit.app/book/phes-cleaning:
+1. Type square footage on Step 2 — confirm price does NOT appear yet
+2. Fill all fields and click Continue — confirm price appears at top of Step 3
+3. Click each accordion section — confirm all five remain visible and expand correctly
+4. Click The 24-Hour Guarantee — confirm content displays
+5. Open multiple accordion sections simultaneously — confirm no sections disappear
+```

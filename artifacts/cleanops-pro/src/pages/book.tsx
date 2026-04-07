@@ -620,10 +620,13 @@ export default function BookPage() {
   }, [company, scopeId, sqft, frequencyStr, frequencies, selectedAddonIds]);
 
   useEffect(() => {
+    // Only auto-calculate on step 2+ (add-ons step). On step 1 (home details),
+    // price must NOT show until the user explicitly clicks Continue.
+    if (step === 1) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(runCalc, 200);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds]);
+  }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, step]);
 
 
   // ── Step 0 validation ─────────────────────────────────────────────────────
@@ -1068,21 +1071,9 @@ export default function BookPage() {
     {
       title: "The 24-Hour Guarantee",
       items: [
+        "If you are not satisfied with your cleaning we will come back and re-clean the affected areas within 24 hours at no additional charge.",
+        "Contact us within 24 hours of your cleaning to request a re-clean.",
         "If we miss a spot, contact us within 24 hours. We will return to re-clean the area at no cost.",
-      ],
-    },
-    {
-      title: "Home Access",
-      items: [
-        "Be home: wait for our arrival during the scheduled window.",
-        "Keys or codes: provide a spare key or electronic entry code.",
-        "Secure lockbox: we can provide a master lockbox for $50.00, must be returned upon termination of service or a $75.00 fee applies.",
-      ],
-    },
-    {
-      title: "Non-Solicitation",
-      items: [
-        "By using our services, you agree not to solicit, hire, or contract any Phes staff member privately. Any breach results in immediate termination of your service agreement.",
       ],
     },
   ];
@@ -1218,8 +1209,7 @@ export default function BookPage() {
   };
   const rightPanel = (
     <div className="bw-sidebar" style={{ width: 300, flexShrink: 0 }}>
-      {/* FIX 6: maxHeight + overflowY so all content is reachable without clipping */}
-      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14, maxHeight: "calc(100vh - 48px)", overflowY: "auto", paddingRight: 4 }}>
+      <div style={{ position: "sticky", top: 24, display: "flex", flexDirection: "column", gap: 14, paddingRight: 4 }}>
 
         {/* Section 1 — Contact Information + Business Hours merged */}
         <div style={s.card}>
@@ -1257,7 +1247,12 @@ export default function BookPage() {
 
         {/* Section 2 — Price Summary */}
         {step >= 1 && (
-          calcResult ? (
+          step === 1 ? (
+            <div style={s.card}>
+              <p style={sectionLabel}>Price Summary</p>
+              <p style={{ margin: 0, fontSize: 13, color: "#9E9B94", lineHeight: 1.5 }}>Your price will appear on the next step.</p>
+            </div>
+          ) : calcResult ? (
           <div style={s.card}>
             <p style={sectionLabel}>Price Summary</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -2172,7 +2167,10 @@ export default function BookPage() {
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
                     return false;
                   })()}
-                  onClick={() => isCommercial ? setStep(3) : setStep(2)}
+                  onClick={() => {
+                    if (isCommercial) { setStep(3); }
+                    else { runCalc(); setStep(2); }
+                  }}
                 >
                   Continue
                 </button>
