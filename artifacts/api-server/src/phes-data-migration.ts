@@ -167,6 +167,24 @@ async function runBookingSchemaGuard(): Promise<void> {
         sent_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+
+    // ── clients: card + payment columns ──────────────────────────────────────
+    { label: "clients.card_last_four",           stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_last_four TEXT` },
+    { label: "clients.card_brand",               stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_brand TEXT` },
+    { label: "clients.card_expiry",              stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_expiry TEXT` },
+    { label: "clients.card_saved_at",            stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS card_saved_at TIMESTAMP` },
+    { label: "clients.stripe_payment_method_id", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT` },
+    { label: "clients.payment_source",           stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT` },
+    { label: "clients.referral_source",          stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS referral_source TEXT` },
+
+    // ── leads: extended columns added after initial schema ───────────────────
+    { label: "leads.status",            stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'new'` },
+    { label: "leads.source",            stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS source TEXT` },
+    { label: "leads.updated_at",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ` },
+    { label: "leads.construction_type", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS construction_type TEXT` },
+    { label: "leads.completion_date",   stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS completion_date TEXT` },
+    { label: "leads.lead_type",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT DEFAULT 'standard'` },
+    { label: "leads.notes",             stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT` },
   ];
 
   for (const { label, stmt } of guards) {
