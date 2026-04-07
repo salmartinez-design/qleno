@@ -361,6 +361,8 @@ export default function BookPage() {
 
   // Display scope key — distinguishes Deep Clean vs Move In/Out (same DB scope)
   const [displayScopeKey, setDisplayScopeKey] = useState<string | null>(null);
+  // Maps frequency string → scope_id for split recurring scopes (weekly→4, biweekly→9, monthly→10)
+  const [recurringFreqScopeMap, setRecurringFreqScopeMap] = useState<Record<string, number>>({});
 
   // Post-Construction form state
   const [pcConstructionType, setPcConstructionType] = useState("");
@@ -583,23 +585,60 @@ export default function BookPage() {
     setLastCleanedResponse("");
     setLastCleanedOverride(false);
     setOverageAcknowledged(false);
+    // Detect whether the selected scope is a split recurring scope
+    // (e.g. "Recurring Cleaning - Weekly") or a unified one
+    const selectedScopeName = company?.active_scopes.find((s: any) => s.id === scopeId)?.name?.toLowerCase() ?? "";
+    const isSplitRecurring = selectedScopeName.includes("recurring cleaning");
+
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
       pubFetch(`/api/public/addons/${scopeId}`),
     ]).then(async ([freqs, ads]) => {
-      const filteredFreqs = freqs as PricingFrequency[];
+      let filteredFreqs = freqs as PricingFrequency[];
+      const freqMap: Record<string, number> = {};
+
+      // For split recurring scopes, load frequencies from ALL recurring sibling scopes
+      if (isSplitRecurring && company) {
+        const allRecurringScopes = company.active_scopes.filter(
+          (s: any) => s.name.toLowerCase().includes("recurring cleaning") && s.id !== scopeId
+        );
+        // Map the primary scope's freq first
+        filteredFreqs.forEach((f: PricingFrequency) => { freqMap[f.frequency] = scopeId; });
+        // Load sibling recurring scopes' frequencies and merge
+        const siblingFreqs = await Promise.all(
+          allRecurringScopes.map((s: any) =>
+            pubFetch(`/api/public/frequencies/${s.id}`)
+              .then((sf: PricingFrequency[]) => sf.map(f => ({ ...f, _scopeId: s.id })))
+              .catch(() => [] as any[])
+          )
+        );
+        const merged = siblingFreqs.flat() as (PricingFrequency & { _scopeId: number })[];
+        merged.forEach(f => { freqMap[f.frequency] = f._scopeId; });
+        // Combine all and deduplicate by frequency string
+        const seen = new Set(filteredFreqs.map(f => f.frequency));
+        filteredFreqs = [
+          ...filteredFreqs,
+          ...merged.filter(f => !seen.has(f.frequency)),
+        ];
+        // Sort: weekly → biweekly → monthly
+        const ORDER: Record<string, number> = { weekly: 0, biweekly: 1, monthly: 2, onetime: 3 };
+        filteredFreqs.sort((a, b) => (ORDER[a.frequency] ?? 9) - (ORDER[b.frequency] ?? 9));
+      }
+      setRecurringFreqScopeMap(freqMap);
       setFrequencies(filteredFreqs);
+
       // If this scope has no addons, fall back to deep clean scope's addons
       // so Oven/Fridge/Cabinet/etc. are always available for all residential scopes
       let resolvedAds = ads as any[];
       if (resolvedAds.length === 0 && company) {
-        const dcScope = company.active_scopes.find(s => s.name.toLowerCase() === "deep clean");
+        const dcScope = company.active_scopes.find((s: any) => s.name.toLowerCase() === "deep clean");
         if (dcScope && dcScope.id !== scopeId) {
           try { resolvedAds = await pubFetch(`/api/public/addons/${dcScope.id}`); } catch {}
         }
       }
       setAddons(resolvedAds);
-      // One-time services (Deep Clean, Move In/Out) should default to "onetime"
+
+      // One-time services default to "onetime"; recurring defaults to first freq (weekly)
       const defaultFreq =
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "onetime") ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "weekly") ??
@@ -625,13 +664,16 @@ export default function BookPage() {
     if (!company || !scopeId || !sqft) { setCalcResult(null); return; }
     const hasOnetime = frequencies.some(f => f.frequency === "onetime");
     const effectiveFreq = hasOnetime ? "onetime" : (frequencyStr || frequencies[0]?.frequency || "onetime");
+    // For split recurring scopes (weekly/biweekly/monthly are separate scope IDs),
+    // look up the correct scope_id for the selected frequency
+    const effectiveScopeId = recurringFreqScopeMap[effectiveFreq] ?? scopeId;
     setCalcLoading(true);
     try {
       const result = await pubFetch("/api/public/calculate", {
         method: "POST",
         body: JSON.stringify({
           company_id: company.id,
-          scope_id: scopeId,
+          scope_id: effectiveScopeId,
           sqft,
           frequency: effectiveFreq,
           addon_ids: selectedAddonIds,
@@ -640,7 +682,7 @@ export default function BookPage() {
       setCalcResult(result);
     } catch { /* silent */ }
     finally { setCalcLoading(false); }
-  }, [company, scopeId, sqft, frequencyStr, frequencies, selectedAddonIds]);
+  }, [company, scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, recurringFreqScopeMap]);
 
   useEffect(() => {
     // Only auto-calculate on step 2+ (add-ons step). On step 1 (home details),
@@ -1002,7 +1044,7 @@ export default function BookPage() {
 
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
-  const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase() === "recurring cleaning";
+  const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase().includes("recurring cleaning");
   const isMoveInOut = displayScopeKey === "move_in_out";
   const isDeepClean = displayScopeKey === "deep_clean";
   const isOneTimeStandard = displayScopeKey === "one_time_standard";
@@ -1686,7 +1728,7 @@ export default function BookPage() {
                     scopes: [
                       { key: "deep_clean",       displayName: "Deep Clean",              match: (n) => n === "deep clean" },
                       { key: "move_in_out",       displayName: "Move In / Move Out",      match: (n) => n === "move in / move out" },
-                      { key: "recurring",         displayName: "Recurring Cleaning",      match: (n) => n === "recurring cleaning" },
+                      { key: "recurring",         displayName: "Recurring Cleaning",      match: (n) => n.includes("recurring cleaning") },
                       { key: "one_time_standard", displayName: "One-Time Standard Clean", match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
                     ],
                   },
