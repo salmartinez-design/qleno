@@ -1,0 +1,53 @@
+Exactly right. Right now the widget only captures the **service address zip** (used for branch routing). Stripe needs the **billing zip** from your card separately for AVS verification — these are often different.
+
+Here's the fix prompt:
+
+---
+
+**PROMPT — ADD BILLING ZIP TO STRIPE CARD CAPTURE ON STEP 5**
+
+On Step 5 of the booking widget (`/book/phes-cleaning`), add a billing zip code field directly below the Stripe card element. This is separate from the service address zip captured in Step 1, which is used for branch routing and must not be changed.
+
+**WHAT TO BUILD:**
+
+1. Add a text input field below the Stripe card element labeled "Billing Zip Code" with placeholder "Billing zip on your card". This field is required before Confirm & Book can be submitted.
+
+2. When confirming the Stripe SetupIntent, pass the billing zip to Stripe as part of the payment method billing details:
+
+```javascript
+stripe.confirmCardSetup(clientSecret, {
+  payment_method: {
+    card: cardElement,
+    billing_details: {
+      name: `${first_name} ${last_name}`,
+      email: email,
+      phone: phone,
+      address: {
+        postal_code: billingZip  // from the new billing zip field
+      }
+    }
+  }
+});
+```
+
+3. The billing zip field must:
+   - Accept 5-digit US zip only
+   - Show inline validation if non-numeric or fewer than 5 digits on blur
+   - Be visually consistent with the existing card element styling
+   - Pre-populate with the service address zip from Step 1 as a default (user can override)
+   - Never overwrite the service address zip used for branch routing
+
+4. Do not change any branch routing logic. `getBranchByZip` must continue to use the service address zip from Step 1 — not the billing zip.
+
+**VERIFICATION:**
+- Billing zip field appears below card element on Step 5
+- Field pre-fills with service address zip but is editable
+- Confirm & Book disabled if billing zip is empty or invalid
+- SetupIntent confirm call includes `address.postal_code` from billing zip field
+- Branch routing still uses service address zip — confirmed unchanged
+
+Do not run a live test. Report build status only.
+
+---
+
+Once this is deployed, re-test with your actual card billing zip. That should clear the decline.

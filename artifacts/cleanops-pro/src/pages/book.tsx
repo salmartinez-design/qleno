@@ -341,6 +341,8 @@ export default function BookPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
+  const [billingZip, setBillingZip] = useState("");
+  const [billingZipError, setBillingZipError] = useState("");
   const [referral, setReferral] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
   const [termsConsent, setTermsConsent] = useState(false);
@@ -706,6 +708,11 @@ export default function BookPage() {
     document.head.appendChild(script);
   }, [stripeEnabled, stripeClientSecret, stripePubKey]);
 
+  // ── Pre-populate billing zip from service zip when entering Step 4 ────────
+  useEffect(() => {
+    if (step === 4 && !billingZip && zip) setBillingZip(zip);
+  }, [step]);
+
   // ── Book submission (Stripe path) ─────────────────────────────────────────
   async function submitBooking() {
     if (!company) return;
@@ -716,7 +723,15 @@ export default function BookPage() {
       // If Stripe is enabled, confirm the SetupIntent first
       if (stripeEnabled && stripeInstance && stripeCardElement && stripeClientSecret) {
         const { setupIntent, error } = await stripeInstance.confirmCardSetup(stripeClientSecret, {
-          payment_method: { card: stripeCardElement },
+          payment_method: {
+            card: stripeCardElement,
+            billing_details: {
+              name: `${firstName} ${lastName}`,
+              email,
+              phone,
+              address: { postal_code: billingZip },
+            },
+          },
         });
         if (error) {
           setBookError("We were unable to verify your card. Please check your details or use a different card.");
@@ -2793,6 +2808,19 @@ export default function BookPage() {
                           minHeight: 48,
                         }}
                       />
+                      <div style={{ marginTop: 12 }}>
+                        <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>Billing Zip Code</p>
+                        <input
+                          value={billingZip}
+                          onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setBillingZip(v); if (billingZipError && v.length === 5) setBillingZipError(""); }}
+                          onBlur={() => { if (billingZip.length > 0 && billingZip.length < 5) setBillingZipError("Please enter a valid 5-digit billing zip code."); else setBillingZipError(""); }}
+                          placeholder="Billing zip on your card"
+                          inputMode="numeric"
+                          maxLength={5}
+                          style={{ width: "100%", fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", fontSize: 15, color: "#1A1917", backgroundColor: "#FFFFFF", border: `1px solid ${billingZipError ? "#EF4444" : "#E5E2DC"}`, borderRadius: 8, padding: "14px 16px", outline: "none", boxSizing: "border-box" }}
+                        />
+                        {billingZipError && <p style={{ margin: "6px 0 0", fontSize: 12, color: "#EF4444" }}>{billingZipError}</p>}
+                      </div>
                       <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>
                         Secured by Stripe. Your card details are encrypted and never stored on our servers.
                       </p>
@@ -2841,8 +2869,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
-                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
+                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady) || (stripeEnabled === true && billingZip.length !== 5)) ? 0.7 : 1 }}
+                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady) || (stripeEnabled === true && billingZip.length !== 5)}
                   onClick={submitBooking}
                 >
                   {booking ? "Processing..." : (stripeSetupLoading || stripeEnabled === null) ? "Setting up..." : stripeEnabled ? "Confirm & Book" : "Book It"}
