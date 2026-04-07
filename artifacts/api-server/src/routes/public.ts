@@ -1389,4 +1389,89 @@ router.post("/leads", rateLimit, async (req, res) => {
   }
 });
 
+// ── POST /api/public/leads/post-construction ─────────────────────────────────
+router.post("/leads/post-construction", rateLimit, async (req, res) => {
+  try {
+    const {
+      company_id, first_name, last_name, email, phone,
+      address, sqft, construction_type, completion_date, notes,
+      photos = [],
+    } = req.body as {
+      company_id: number; first_name: string; last_name: string;
+      email: string; phone?: string; address?: string;
+      sqft?: string; construction_type?: string; completion_date?: string; notes?: string;
+      photos?: { name: string; data: string; mimeType: string }[];
+    };
+
+    if (!company_id || !first_name || !email || !construction_type || !completion_date) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    // ── Insert lead ───────────────────────────────────────────────────────────
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    await db.execute(drizzleSql`
+      INSERT INTO leads (company_id, first_name, last_name, email, phone, address, lead_type, source, status, construction_type, completion_date, notes, sqft, created_at, updated_at)
+      VALUES (${company_id}, ${first_name}, ${last_name || null}, ${email}, ${phone || null}, ${address || null},
+              'post_construction', 'widget', 'new', ${construction_type}, ${completion_date}, ${notes || null},
+              ${sqft ? parseInt(sqft) : null}, NOW(), NOW())
+    `);
+
+    // ── Send email to PHES office ─────────────────────────────────────────────
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(resendKey);
+
+        const constructionTypeLabels: Record<string, string> = {
+          new_construction: "New Construction",
+          renovation: "Renovation / Remodel",
+          addition: "Home Addition",
+          commercial_buildout: "Commercial Build-Out",
+          other: "Other",
+        };
+        const ctLabel = constructionTypeLabels[construction_type] ?? construction_type;
+
+        const attachments = (photos as { name: string; data: string; mimeType: string }[])
+          .slice(0, 10)
+          .map(p => ({
+            filename: p.name,
+            content: p.data,
+          }));
+
+        const html = `
+<h2 style="font-family:sans-serif;color:#1A1917;">New Post-Construction Lead</h2>
+<table style="font-family:sans-serif;font-size:14px;border-collapse:collapse;width:100%;max-width:480px;">
+  <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Name</td><td style="padding:6px 0;">${first_name} ${last_name || ""}</td></tr>
+  <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Email</td><td style="padding:6px 0;"><a href="mailto:${email}">${email}</a></td></tr>
+  ${phone ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Phone</td><td style="padding:6px 0;">${phone}</td></tr>` : ""}
+  ${address ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Service Zip/Address</td><td style="padding:6px 0;">${address}</td></tr>` : ""}
+  <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Construction Type</td><td style="padding:6px 0;">${ctLabel}</td></tr>
+  ${sqft ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Square Footage</td><td style="padding:6px 0;">${sqft} sq ft</td></tr>` : ""}
+  <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Completion Date</td><td style="padding:6px 0;">${completion_date}</td></tr>
+  ${notes ? `<tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;vertical-align:top;">Notes</td><td style="padding:6px 0;">${notes.replace(/\n/g, "<br>")}</td></tr>` : ""}
+  <tr><td style="padding:6px 12px 6px 0;color:#6B6860;font-weight:600;">Photos</td><td style="padding:6px 0;">${attachments.length} attached</td></tr>
+</table>
+        `.trim();
+
+        await resend.emails.send({
+          from: "Qleno Leads <noreply@phes.io>",
+          to: ["info@phes.io"],
+          replyTo: email,
+          subject: `Post-Construction Lead: ${first_name} ${last_name || ""} — ${ctLabel}`,
+          html,
+          attachments: attachments.length > 0 ? attachments : undefined,
+        });
+      } catch (emailErr) {
+        console.error("[leads/post-construction] Resend error:", emailErr);
+      }
+    }
+
+    return res.status(201).json({ ok: true });
+  } catch (err: any) {
+    console.error("POST /public/leads/post-construction:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;

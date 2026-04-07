@@ -27,8 +27,8 @@ app.use(
   stripeWebhookRouter
 );
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "25mb" }));
+app.use(express.urlencoded({ extended: true, limit: "25mb" }));
 
 const uploadsDir = path.resolve(__appDir, "../uploads");
 process.env.UPLOADS_DIR = uploadsDir;

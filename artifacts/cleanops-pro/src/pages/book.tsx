@@ -341,8 +341,6 @@ export default function BookPage() {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
-  const [billingZip, setBillingZip] = useState("");
-  const [billingZipError, setBillingZipError] = useState("");
   const [referral, setReferral] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
   const [termsConsent, setTermsConsent] = useState(false);
@@ -363,6 +361,17 @@ export default function BookPage() {
 
   // Display scope key — distinguishes Deep Clean vs Move In/Out (same DB scope)
   const [displayScopeKey, setDisplayScopeKey] = useState<string | null>(null);
+
+  // Post-Construction form state
+  const [pcConstructionType, setPcConstructionType] = useState("");
+  const [pcCompletionDate, setPcCompletionDate] = useState("");
+  const [pcSqft, setPcSqft] = useState("");
+  const [pcNotes, setPcNotes] = useState("");
+  const [pcPhotos, setPcPhotos] = useState<File[]>([]);
+  const [pcPhotoError, setPcPhotoError] = useState("");
+  const [pcSubmitting, setPcSubmitting] = useState(false);
+  const [pcSubmitted, setPcSubmitted] = useState(false);
+  const [pcSubmitError, setPcSubmitError] = useState("");
 
   // Move In/Out acknowledgments
   const [moveInAck, setMoveInAck] = useState(false);
@@ -577,13 +586,20 @@ export default function BookPage() {
     Promise.all([
       pubFetch(`/api/public/frequencies/${scopeId}`),
       pubFetch(`/api/public/addons/${scopeId}`),
-    ]).then(([freqs, ads]) => {
+    ]).then(async ([freqs, ads]) => {
       const filteredFreqs = freqs as PricingFrequency[];
       setFrequencies(filteredFreqs);
-      setAddons(ads);
+      // If this scope has no addons, fall back to deep clean scope's addons
+      // so Oven/Fridge/Cabinet/etc. are always available for all residential scopes
+      let resolvedAds = ads as any[];
+      if (resolvedAds.length === 0 && company) {
+        const dcScope = company.active_scopes.find(s => s.name.toLowerCase() === "deep clean");
+        if (dcScope && dcScope.id !== scopeId) {
+          try { resolvedAds = await pubFetch(`/api/public/addons/${dcScope.id}`); } catch {}
+        }
+      }
+      setAddons(resolvedAds);
       // One-time services (Deep Clean, Move In/Out) should default to "onetime"
-      // so the calculate engine uses the scope's full $70/hr rate, not the
-      // weekly rate_override ($56/hr) which is a recurring-visit rate.
       const defaultFreq =
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "onetime") ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "weekly") ??
@@ -740,10 +756,6 @@ export default function BookPage() {
     };
   }, [stripeEnabled, stripeClientSecret, stripePubKey, step]);
 
-  // ── Pre-populate billing zip from service zip when entering Step 4 ────────
-  useEffect(() => {
-    if (step === 4 && !billingZip && zip) setBillingZip(zip);
-  }, [step]);
 
   // ── Book submission (Stripe path) ─────────────────────────────────────────
   async function submitBooking() {
@@ -762,7 +774,6 @@ export default function BookPage() {
               name: `${firstName} ${lastName}`,
               email,
               phone,
-              address: { postal_code: billingZip },
             },
           },
         });
@@ -922,6 +933,16 @@ export default function BookPage() {
     setLastCleanedResponse(""); setLastCleanedOverride(false); setOverageAcknowledged(false);
   }
 
+  function selectPostConstruction() {
+    setScopeId(null);
+    setDisplayScopeKey("post_construction");
+    setPcConstructionType(""); setPcCompletionDate(""); setPcSqft(""); setPcNotes("");
+    setPcPhotos([]); setPcPhotoError(""); setPcSubmitting(false); setPcSubmitted(false); setPcSubmitError("");
+    setMoveInAck(false); setMoveInNotes(""); setStandardDismissed(false);
+    setUpsellCadence(""); setUpsellAccepted(false); setUpsellDeclined(false);
+    setUpsellTermsOpen(false); setUpsellCadenceError(false);
+  }
+
   // ── Frequency label helper ────────────────────────────────────────────────
   function wLabel(f: string) {
     const m: Record<string, string> = { onetime: "One-Time", weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" };
@@ -985,6 +1006,7 @@ export default function BookPage() {
   const isMoveInOut = displayScopeKey === "move_in_out";
   const isDeepClean = displayScopeKey === "deep_clean";
   const isOneTimeStandard = displayScopeKey === "one_time_standard";
+  const isPostConstruction = displayScopeKey === "post_construction";
   const isDeepCleanScope = selectedScope?.name?.toLowerCase().trim() === "deep clean";
   const getOverageRate = (freq: string) => freq === "weekly" ? 60 : freq === "biweekly" ? 65 : 70;
 
@@ -1657,15 +1679,15 @@ export default function BookPage() {
 
               {/* Scope cards — 5-scope display (Deep Clean + Move In/Out split), name-matched from DB */}
               {(() => {
-                type ScopeDef = { key: string; displayName: string; match: (n: string) => boolean };
+                type ScopeDef = { key: string; displayName: string; virtual?: boolean; match: (n: string) => boolean };
                 const WIDGET_SCOPES: { group: string; scopes: ScopeDef[] }[] = [
                   {
                     group: "Residential",
                     scopes: [
-                      { key: "deep_clean",       displayName: "Deep Clean",           match: (n) => n === "deep clean" },
-                      { key: "move_in_out",       displayName: "Move In / Move Out",   match: (n) => n === "move in / move out" },
+                      { key: "deep_clean",       displayName: "Deep Clean",              match: (n) => n === "deep clean" },
+                      { key: "move_in_out",       displayName: "Move In / Move Out",      match: (n) => n === "move in / move out" },
+                      { key: "recurring",         displayName: "Recurring Cleaning",      match: (n) => n === "recurring cleaning" },
                       { key: "one_time_standard", displayName: "One-Time Standard Clean", match: (n) => n.includes("one-time standard") || n.includes("one time standard") },
-                      { key: "recurring",         displayName: "Recurring Cleaning",   match: (n) => n === "recurring cleaning" },
                     ],
                   },
                   {
@@ -1674,14 +1696,22 @@ export default function BookPage() {
                       { key: "commercial", displayName: "Commercial Cleaning", match: (n) => n.includes("commercial cleaning") },
                     ],
                   },
+                  {
+                    group: "Specialty",
+                    scopes: [
+                      { key: "post_construction", displayName: "Post-Construction Cleaning", virtual: true, match: () => false },
+                    ],
+                  },
                 ];
                 return WIDGET_SCOPES.map(({ group, scopes }) => {
+                  // Virtual tiles always render; DB-backed tiles only render if scope exists
                   const rendered = scopes
                     .map(def => {
+                      if (def.virtual) return { def, dbScope: null };
                       const dbScope = company.active_scopes.find(s => def.match(s.name.toLowerCase()));
                       return dbScope ? { def, dbScope } : null;
                     })
-                    .filter(Boolean) as { def: ScopeDef; dbScope: typeof company.active_scopes[0] }[];
+                    .filter(Boolean) as { def: ScopeDef; dbScope: typeof company.active_scopes[0] | null }[];
                   if (rendered.length === 0) return null;
                   return (
                     <div key={group} style={{ marginBottom: 20 }}>
@@ -1690,7 +1720,7 @@ export default function BookPage() {
                         {rendered.map(({ def, dbScope }) => {
                           const sel = displayScopeKey === def.key;
                           return (
-                            <div key={def.key} style={s.scopeCard(sel)} onClick={() => selectScope(dbScope.id, def.key)}>
+                            <div key={def.key} style={s.scopeCard(sel)} onClick={() => def.virtual ? selectPostConstruction() : selectScope(dbScope!.id, def.key)}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${sel ? brand : "#C4C1BA"}`, background: sel ? brand : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                                   {sel && <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#fff" }} />}
@@ -1706,8 +1736,127 @@ export default function BookPage() {
                 });
               })()}
 
+              {/* ── Post-Construction Inline Lead Form ─────────────────────── */}
+              {isPostConstruction && (
+                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 8 }}>
+                  {pcSubmitted ? (
+                    <div style={{ textAlign: "center", padding: "32px 0" }}>
+                      <div style={{ width: 56, height: 56, borderRadius: "50%", background: `${brand}18`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={brand} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                      </div>
+                      <p style={{ fontWeight: 700, fontSize: 18, color: "#1A1917", margin: "0 0 8px" }}>Request Received!</p>
+                      <p style={{ fontSize: 14, color: "#6B6860", margin: 0 }}>We'll reach out within 1 business day to discuss your post-construction cleaning. Check your email for confirmation.</p>
+                    </div>
+                  ) : (
+                    <>
+                      <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", margin: "0 0 4px" }}>Tell us about the project</p>
+                      <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 20px" }}>Post-construction cleaning requires a custom quote. Fill out the details below and we'll follow up within 1 business day.</p>
+
+                      {/* Construction type */}
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ ...s.label }}>Type of Construction *</p>
+                        <select value={pcConstructionType} onChange={e => setPcConstructionType(e.target.value)} style={{ ...s.input, appearance: "none" as const }}>
+                          <option value="">Select type…</option>
+                          <option value="new_construction">New Construction</option>
+                          <option value="renovation">Renovation / Remodel</option>
+                          <option value="addition">Home Addition</option>
+                          <option value="commercial_buildout">Commercial Build-Out</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+
+                      {/* Square footage */}
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ ...s.label }}>Approximate Square Footage</p>
+                        <input value={pcSqft} onChange={e => setPcSqft(e.target.value.replace(/\D/g, ""))} placeholder="e.g. 2400" inputMode="numeric" style={{ ...s.input }} />
+                      </div>
+
+                      {/* Estimated completion date */}
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ ...s.label }}>Estimated Construction Completion Date *</p>
+                        <input type="date" value={pcCompletionDate} onChange={e => setPcCompletionDate(e.target.value)} style={{ ...s.input }} />
+                      </div>
+
+                      {/* Notes */}
+                      <div style={{ marginBottom: 14 }}>
+                        <p style={{ ...s.label }}>Additional Notes</p>
+                        <textarea value={pcNotes} onChange={e => setPcNotes(e.target.value)} placeholder="Any specific areas of concern, access instructions, materials used, etc." rows={3} style={{ ...s.input, resize: "vertical" as const, minHeight: 80 }} />
+                      </div>
+
+                      {/* Photo upload */}
+                      <div style={{ marginBottom: 20 }}>
+                        <p style={{ ...s.label }}>Photos <span style={{ fontWeight: 400, color: "#9E9B94" }}>(optional — up to 10, jpg/png/heic)</span></p>
+                        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", background: "#F7F6F4", border: "1px dashed #C4C1BA", borderRadius: 8, padding: "10px 16px", fontSize: 13, color: "#6B6860" }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                          Upload photos
+                          <input type="file" accept="image/*,.heic,.heif" multiple style={{ display: "none" }} onChange={e => {
+                            const files = Array.from(e.target.files ?? []);
+                            if (files.length + pcPhotos.length > 10) { setPcPhotoError("Maximum 10 photos allowed."); return; }
+                            setPcPhotoError("");
+                            setPcPhotos(prev => [...prev, ...files].slice(0, 10));
+                            e.target.value = "";
+                          }} />
+                        </label>
+                        {pcPhotoError && <p style={{ fontSize: 12, color: "#EF4444", margin: "6px 0 0" }}>{pcPhotoError}</p>}
+                        {pcPhotos.length > 0 && (
+                          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
+                            {pcPhotos.map((f, i) => (
+                              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "#F7F6F4", borderRadius: 6, padding: "4px 10px", fontSize: 12, color: "#1A1917" }}>
+                                <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{f.name}</span>
+                                <button onClick={() => setPcPhotos(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 0, lineHeight: 1 }}>✕</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      {pcSubmitError && <p style={{ fontSize: 12, color: "#EF4444", marginBottom: 12 }}>{pcSubmitError}</p>}
+
+                      <button
+                        disabled={pcSubmitting || !pcConstructionType || !pcCompletionDate}
+                        onClick={async () => {
+                          setPcSubmitting(true); setPcSubmitError("");
+                          try {
+                            // Read photos as base64
+                            const photoPayloads: { name: string; data: string; mimeType: string }[] = [];
+                            for (const file of pcPhotos) {
+                              const b64 = await new Promise<string>((res, rej) => {
+                                const r = new FileReader();
+                                r.onload = () => res((r.result as string).split(",")[1]);
+                                r.onerror = rej;
+                                r.readAsDataURL(file);
+                              });
+                              photoPayloads.push({ name: file.name, data: b64, mimeType: file.type || "image/jpeg" });
+                            }
+                            const payload = {
+                              company_id: company.id,
+                              first_name: firstName, last_name: lastName,
+                              email, phone,
+                              address: `${zip}`,
+                              sqft: pcSqft, construction_type: pcConstructionType,
+                              completion_date: pcCompletionDate, notes: pcNotes,
+                              photos: photoPayloads,
+                            };
+                            const res = await fetch(`/api/public/leads/post-construction`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+                            if (!res.ok) throw new Error("Server error");
+                            setPcSubmitted(true);
+                          } catch {
+                            setPcSubmitError("Something went wrong. Please try again or call us directly.");
+                          } finally {
+                            setPcSubmitting(false);
+                          }
+                        }}
+                        style={{ ...s.btn(), opacity: (pcSubmitting || !pcConstructionType || !pcCompletionDate) ? 0.6 : 1, width: "100%" }}
+                      >
+                        {pcSubmitting ? "Submitting…" : "Submit Request"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+
               {/* ── Last-Cleaned Question (Recurring only) ──────────────────── */}
-              {isRecurringScope && (() => {
+              {!isPostConstruction && isRecurringScope && (() => {
                 const LAST_CLEANED_OPTS = [
                   { value: "within_2_weeks", label: "Within the last 2 weeks" },
                   { value: "2_4_weeks",      label: "2–4 weeks ago" },
@@ -1833,7 +1982,7 @@ export default function BookPage() {
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     <button
                       onClick={() => {
-                        const dc = scopes.find(s => s.name?.toLowerCase().trim() === "deep clean");
+                        const dc = company.active_scopes.find((s: any) => s.name?.toLowerCase().trim() === "deep clean");
                         if (dc) { setScopeId(dc.id); setDisplayScopeKey("deep_clean"); setStandardDismissed(false); }
                       }}
                       style={{ padding: "12px 20px", background: brand, color: "#fff", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}
@@ -2226,7 +2375,7 @@ export default function BookPage() {
                 </div>
               )}
 
-              <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
+              <div className="bw-nav" style={{ display: isPostConstruction ? "none" : "flex", justifyContent: "space-between", marginTop: 16 }}>
                 <button style={s.btn(false)} onClick={() => setStep(0)}>Back</button>
                 <button
                   style={{ ...s.btn(), opacity: (() => {
@@ -2844,19 +2993,6 @@ export default function BookPage() {
                           minHeight: 48,
                         }}
                       />
-                      <div style={{ marginTop: 12 }}>
-                        <p style={{ margin: "0 0 6px", fontWeight: 700, fontSize: 13, color: "#1A1917" }}>Billing Zip Code</p>
-                        <input
-                          value={billingZip}
-                          onChange={e => { const v = e.target.value.replace(/\D/g, "").slice(0, 5); setBillingZip(v); if (billingZipError && v.length === 5) setBillingZipError(""); }}
-                          onBlur={() => { if (billingZip.length > 0 && billingZip.length < 5) setBillingZipError("Please enter a valid 5-digit billing zip code."); else setBillingZipError(""); }}
-                          placeholder="Billing zip on your card"
-                          inputMode="numeric"
-                          maxLength={5}
-                          style={{ width: "100%", fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", fontSize: 15, color: "#1A1917", backgroundColor: "#FFFFFF", border: `1px solid ${billingZipError ? "#EF4444" : "#E5E2DC"}`, borderRadius: 8, padding: "14px 16px", outline: "none", boxSizing: "border-box" }}
-                        />
-                        {billingZipError && <p style={{ margin: "6px 0 0", fontSize: 12, color: "#EF4444" }}>{billingZipError}</p>}
-                      </div>
                       <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>
                         Secured by Stripe. Your card details are encrypted and never stored on our servers.
                       </p>
@@ -2905,8 +3041,8 @@ export default function BookPage() {
               <div className="bw-nav" style={{ display: "flex", justifyContent: "space-between" }}>
                 <button style={s.btn(false)} onClick={() => setStep(3)}>Back</button>
                 <button
-                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady) || (stripeEnabled === true && billingZip.length !== 5)) ? 0.7 : 1 }}
-                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady) || (stripeEnabled === true && billingZip.length !== 5)}
+                  style={{ ...s.btn(), opacity: (booking || stripeSetupLoading || stripeEnabled === null || (stripeEnabled === true && !stripeCardReady)) ? 0.7 : 1 }}
+                  disabled={booking || stripeSetupLoading || stripeEnabled === null || stripeEnabled === false || (stripeEnabled === true && !stripeCardReady)}
                   onClick={submitBooking}
                 >
                   {booking ? "Processing..." : (stripeSetupLoading || stripeEnabled === null) ? "Setting up..." : stripeEnabled ? "Confirm & Book" : "Book It"}

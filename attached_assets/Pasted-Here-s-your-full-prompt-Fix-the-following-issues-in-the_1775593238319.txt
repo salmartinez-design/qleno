@@ -1,0 +1,39 @@
+Here's your full prompt:
+
+---
+
+Fix the following issues in the booking flow:
+
+**1. Database migrations**
+Run migrations to add missing columns to the clients table: card_last_four, card_brand, card_expiry, card_saved_at, stripe_customer_id, stripe_payment_method_id, payment_source. Also add the missing status column to the leads table.
+
+**2. Remove duplicate zip code field**
+Remove the custom zip code field we added to the payment step. Stripe Elements already renders its own zip code field natively so we currently have two.
+
+**3. Restructure the service selection tiles**
+The service selection step should display tiles in this exact order and layout:
+
+Residential services:
+- Deep Clean
+- Move In / Move Out
+- Recurring Service
+- One-Time Standard Clean
+
+Commercial services (visually separated from residential):
+- Commercial Cleaning
+
+Standalone (separate from both groups):
+- Post-Construction Cleaning
+
+**4. Recurring service step**
+The recurring service frequency selection step is completely missing and needs to be restored. After selecting Recurring Service the client should be able to choose their frequency: weekly, every 2 weeks, every 4 weeks.
+
+**5. Add-ons for all service types**
+Standard Clean, Deep Clean, Move In / Move Out, and Recurring Service should all show the same add-on options: oven cleaning, refrigerator cleaning, kitchen cabinets, and any other existing add-ons. Right now add-ons only appear for Deep Clean.
+
+**6. Post-Construction flow**
+Post-Construction should NOT generate an online quote or go through the normal booking payment flow. Instead after selecting it the form should collect the following information: name, email, phone, service address, square footage, type of construction or renovation, estimated completion date, any special notes. After submitting they should see a confirmation message that says we received their request and will reach out within 24 hours to discuss the details and provide a custom quote. Also send a confirmation email to the client and an internal notification email to info@phes.io with all the submitted details.
+
+---
+
+Paste that in and let it run.
