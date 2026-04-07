@@ -34,6 +34,14 @@ export default defineConfig({
     'import.meta.env.VITE_GOOGLE_MAPS_API_KEY': JSON.stringify(process.env.GOOGLE_MAPS_API_KEY ?? ''),
   },
   plugins: [
+    {
+      name: "strip-use-client",
+      transform(code, id) {
+        if (/\.(tsx?|jsx?)$/.test(id) && code.startsWith('"use client"')) {
+          return { code: code.replace(/^"use client"\s*[\r\n]+/, ""), map: null };
+        }
+      },
+    },
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
@@ -73,7 +81,20 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
-    chunkSizeWarningLimit: 2500,
+    sourcemap: false,
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react":   ["react", "react-dom"],
+          "vendor-query":   ["@tanstack/react-query"],
+          "vendor-charts":  ["recharts"],
+          "vendor-motion":  ["framer-motion"],
+          "vendor-dates":   ["date-fns", "react-day-picker"],
+          "vendor-icons":   ["lucide-react", "react-icons"],
+        },
+      },
+    },
   },
   server: {
     port,
