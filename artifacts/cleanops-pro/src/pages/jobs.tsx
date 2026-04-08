@@ -45,7 +45,8 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; }
+interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -162,6 +163,39 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [smsMessage, setSmsMessage] = useState("");
   const [smsBusy, setSmsBusy] = useState(false);
   const [smsTwilioOk, setSmsTwilioOk] = useState<boolean | null>(null);
+
+  // Commission override state
+  const [commTechs, setCommTechs] = useState<JobTechCommission[]>(job.technicians ?? []);
+  const [overrideOpen, setOverrideOpen] = useState<Record<number, boolean>>({});
+  const [overrideVal, setOverrideVal] = useState<Record<number, string>>({});
+  const [overrideBusy, setOverrideBusy] = useState(false);
+  const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
+
+  async function saveOverride(techId: number) {
+    setOverrideBusy(true);
+    const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+    try {
+      const val = overrideVal[techId];
+      const pay_override = val === "" ? null : parseFloat(val);
+      const r = await fetch(`${API2}/api/jobs/${job.id}/technicians/${techId}/override`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ pay_override }),
+      });
+      const d = await r.json();
+      if (d.data) setCommTechs(d.data);
+      setOverrideOpen(o => ({ ...o, [techId]: false }));
+      toast({ title: "Commission override saved" });
+    } catch {
+      toast({ title: "Error saving override", variant: "destructive" });
+    } finally {
+      setOverrideBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    setCommTechs(job.technicians ?? []);
+  }, [job.id]);
   const _API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
 
   useEffect(() => {
@@ -382,6 +416,73 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ display: "flex", gap: 8 }}>
                 {job.before_photo_count > 0 && <PBadge count={job.before_photo_count} label="before" color="#0284C7" bg="#F0F9FF" border="#BAE6FD" />}
                 {job.after_photo_count > 0 && <PBadge count={job.after_photo_count} label="after" color="#16A34A" bg="#F0FDF4" border="#BBF7D0" />}
+              </div>
+            </PS>
+          )}
+
+          {/* Commission Section — visible to owner/admin/office */}
+          {canManageCommission && (job.estimated_hours ?? 0) > 0 && (
+            <PS label="Commission">
+              {commTechs.length > 0 ? commTechs.map(t => (
+                <div key={t.user_id} style={{ marginBottom: 8 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{t.name}{t.is_primary ? " (primary)" : ""}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12, color: t.pay_override != null ? "#D97706" : "#16A34A", fontWeight: 700 }}>
+                        ${t.final_pay.toFixed(2)}{t.pay_override != null ? " (override)" : ""}
+                      </span>
+                      {userRole === "owner" || userRole === "admin" ? (
+                        <button
+                          onClick={() => { setOverrideOpen(o => ({ ...o, [t.user_id]: !o[t.user_id] })); setOverrideVal(v => ({ ...v, [t.user_id]: t.pay_override != null ? String(t.pay_override) : "" })); }}
+                          style={{ fontSize: 10, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
+                        >
+                          {overrideOpen[t.user_id] ? "Cancel" : "Override"}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9E9B94" }}>Est. {t.est_hours.toFixed(1)} hrs · Calc: ${t.calc_pay.toFixed(2)}</div>
+                  {overrideOpen[t.user_id] && (
+                    <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
+                      <span style={{ fontSize: 11, color: "#6B7280" }}>$</span>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={overrideVal[t.user_id] ?? ""}
+                        onChange={e => setOverrideVal(v => ({ ...v, [t.user_id]: e.target.value }))}
+                        placeholder={String(t.calc_pay.toFixed(2))}
+                        style={{ width: 80, height: 28, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none" }}
+                      />
+                      <button
+                        onClick={() => saveOverride(t.user_id)}
+                        disabled={overrideBusy}
+                        style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: FF }}
+                      >
+                        Save
+                      </button>
+                      {t.pay_override != null && (
+                        <button
+                          onClick={() => { setOverrideVal(v => ({ ...v, [t.user_id]: "" })); saveOverride(t.user_id); }}
+                          disabled={overrideBusy}
+                          style={{ fontSize: 11, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )) : (
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 12, color: "#6B7280" }}>
+                    {assignedEmp?.name || job.assigned_user_name || "Unassigned"} · Est. {(job.est_hours_per_tech ?? job.estimated_hours ?? 0).toFixed(1)} hrs
+                  </span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>
+                    ${(job.est_pay_per_tech ?? ((job.billed_amount ?? job.amount ?? 0) * (job.company_res_pct ?? 0.35))).toFixed(2)} est.
+                  </span>
+                </div>
+              )}
+              <div style={{ marginTop: 4, fontSize: 11, color: "#9E9B94" }}>
+                Pool rate: {((job.company_res_pct ?? 0.35) * 100).toFixed(0)}% of job total
               </div>
             </PS>
           )}
@@ -932,6 +1033,9 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
             ? <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>${job.hourly_rate.toFixed(0)}/hr{job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}</span>
             : <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${(job.billed_amount ?? job.amount ?? 0).toFixed(2)}</span>
           }
+          {job.est_pay_per_tech != null && job.est_pay_per_tech > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>· ${job.est_pay_per_tech.toFixed(2)} comm.</span>
+          )}
           {job.charge_failed_at && !job.charge_succeeded_at && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B" }}>
               <AlertTriangle size={9}/> Charge failed
@@ -1587,6 +1691,19 @@ export default function JobsPage() {
                           {j.frequency && j.frequency !== "on_demand" && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 6px", borderRadius: 4 }}><Repeat size={9} />{j.frequency.replace(/_/g, " ")}</span>}
                           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginLeft: "auto" }}>${(j.amount || 0).toFixed(0)}</div>
                         </div>
+                        {(j.est_hours_per_tech ?? j.estimated_hours) != null && (j.est_hours_per_tech ?? j.estimated_hours ?? 0) > 0 && (
+                          <div style={{ display: "flex", gap: 10, marginTop: 6, alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "center", gap: 3 }}>
+                              <Clock size={10} style={{ color: "#C4C0BB" }} />
+                              Est. {(j.est_hours_per_tech ?? j.estimated_hours ?? 0).toFixed(1)} hrs
+                            </span>
+                            {j.est_pay_per_tech != null && j.est_pay_per_tech > 0 && (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>
+                                · ${j.est_pay_per_tech.toFixed(2)} commission
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

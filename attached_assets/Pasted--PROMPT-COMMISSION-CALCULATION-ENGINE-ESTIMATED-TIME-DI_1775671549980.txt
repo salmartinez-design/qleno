@@ -1,0 +1,306 @@
+---
+
+**PROMPT — COMMISSION CALCULATION ENGINE + ESTIMATED TIME DISPLAY + LABOR HOUR SPLITTING**
+
+---
+
+**CRITICAL — DO NOT TOUCH:**
+- Communications pause flag — leave exactly as is
+- Pricing engine tables — no changes
+- Stripe or payment logic — no changes
+- Existing clock-in/clock-out system — read from it, do not modify it
+
+---
+
+**STEP 1 — DATABASE MIGRATIONS**
+
+```sql
+ALTER TABLE job_technicians
+  ADD COLUMN IF NOT EXISTS pay_type varchar(20) DEFAULT 'commission',
+  ADD COLUMN IF NOT EXISTS commission_rate numeric(5,2) DEFAULT 35.00,
+  ADD COLUMN IF NOT EXISTS hourly_rate numeric(8,2) DEFAULT 20.00,
+  ADD COLUMN IF NOT EXISTS minutes_worked integer DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS calculated_pay numeric(8,2) DEFAULT 0.00,
+  ADD COLUMN IF NOT EXISTS override_pay numeric(8,2),
+  ADD COLUMN IF NOT EXISTS override_by varchar(100),
+  ADD COLUMN IF NOT EXISTS override_at timestamptz,
+  ADD COLUMN IF NOT EXISTS override_note text,
+  ADD COLUMN IF NOT EXISTS final_pay numeric(8,2) DEFAULT 0.00;
+
+ALTER TABLE jobs
+  ADD COLUMN IF NOT EXISTS commission_pool_rate numeric(5,2) DEFAULT 35.00,
+  ADD COLUMN IF NOT EXISTS job_type varchar(20) DEFAULT 'residential',
+  ADD COLUMN IF NOT EXISTS estimated_hours numeric(5,2) DEFAULT 0.00,
+  ADD COLUMN IF NOT EXISTS estimated_hours_per_tech numeric(5,2) DEFAULT 0.00;
+```
+
+---
+
+**STEP 2 — ESTIMATED HOURS AND LABOR SPLITTING**
+
+When a job is created (from booking widget or internally), store the total estimated hours from the pricing engine tier lookup into `jobs.estimated_hours`. This is the total labor hours for the job regardless of how many techs are assigned.
+
+**`estimated_hours_per_tech` calculation:**
+
+This field must recalculate automatically whenever the number of assigned techs changes:
+
+```
+estimated_hours_per_tech = estimated_hours ÷ number_of_techs_assigned
+```
+
+Rules:
+- 1 tech assigned: `estimated_hours_per_tech = estimated_hours` (e.g. 6.2 hrs)
+- 2 techs assigned: `estimated_hours_per_tech = estimated_hours ÷ 2` (e.g. 3.1 hrs)
+- 3 techs assigned: `estimated_hours_per_tech = estimated_hours ÷ 3` (e.g. 2.07 hrs)
+- If job moves from assigned back to unassigned: `estimated_hours_per_tech = estimated_hours` (reset to full hours)
+- Round to 2 decimal places
+
+Trigger this recalculation whenever:
+- A tech is added to the job
+- A tech is removed from the job
+- Job status changes to unassigned
+
+**This is the time shown to technicians on their My Jobs view and on the dispatch board — not the total job hours.**
+
+---
+
+**STEP 3 — COMMISSION CALCULATION FUNCTION**
+
+Create server-side function `calculateTechPay(jobId)`. Run whenever a tech is assigned, removed, clocks in/out, or commission rate is changed.
+
+**RESIDENTIAL JOBS (`job_type = 'residential'`):**
+
+Step A — Commission pool:
+```
+commission_pool = job_total × (commission_rate ÷ 100)
+```
+
+Step B — Minutes worked per tech:
+- Read `clock_in_time` and `clock_out_time` from existing timeclock/job_technicians clock data
+- `minutes_worked = clock_out_time - clock_in_time` for each tech
+- Use the last recorded clock-out on the job as end time for all techs
+- If no clock data yet (job not started): use equal split — `minutes_worked = estimated_hours_per_tech × 60` for each tech
+
+Step C — Proportional split:
+```
+total_minutes = sum of all techs' minutes_worked
+each_tech_pay = (their_minutes ÷ total_minutes) × commission_pool
+```
+
+Round to 2 decimal places. Assign rounding remainder to the tech with the most minutes.
+
+**Verified examples:**
+- 1 tech, $180 job, 35% → $63.00
+- 1 tech, $490 job, 35% → $171.50
+- 2 techs same clock-in, $240 job, 35% → $42.00 each
+- 2 techs, Tech A 360 min, Tech B 350 min, $240 job, 35% pool $84 → Tech A $42.59, Tech B $41.41
+- 3 techs equal time, $741.60 job, 35% → $86.54 each (11.67% each)
+
+**COMMERCIAL JOBS (`job_type = 'commercial'`):**
+
+```
+each_tech_pay = hourly_rate × actual_hours_worked
+```
+
+- Default `hourly_rate = 20.00` per tech
+- Estimated pay = `hourly_rate × estimated_hours_per_tech` until clock-out
+- Finalized at clock-out using actual hours
+- Office can override `hourly_rate` per tech per job
+
+**`final_pay` logic:**
+- If `override_pay` is set → `final_pay = override_pay`
+- Otherwise → `final_pay = calculated_pay`
+
+---
+
+**STEP 4 — JOB TYPE AUTO-DETECTION**
+
+- Booking widget submission → `job_type = 'residential'`
+- Service type is Commercial Cleaning or client linked to commercial account → `job_type = 'commercial'`
+- Default → `'residential'`
+- Office can manually change `job_type` on any job
+
+---
+
+**STEP 5 — DISPATCH BOARD JOB CARD**
+
+Show estimated time per tech and estimated pay on each job card. Use secondary text color `#6B6860`. Keep compact.
+
+1 tech assigned, residential:
+```
+Norma Guerrero Puga
+Est. Time: 6.2 hrs  |  Est. Pay: $84.00 (35%)
+```
+
+2 techs assigned, residential:
+```
+Norma Guerrero Puga    3.1 hrs  |  Est. $42.00
+Diana Vasquez          3.1 hrs  |  Est. $42.00
+35% split · 2 techs
+```
+
+3 techs assigned, residential:
+```
+Norma / Diana / Alma   2.07 hrs each  |  Est. $28.00 each
+35% split · 3 techs
+```
+
+Unassigned job:
+```
+Unassigned
+Est. Time: 6.2 hrs total
+```
+
+Commercial:
+```
+Alma Salinas
+Est. Time: 2.0 hrs  |  Est. Pay: $40.00 ($20/hr)
+```
+
+Override set:
+```
+Norma Guerrero Puga
+Est. Time: 3.1 hrs  |  Pay: $90.00 (override)
+```
+
+---
+
+**STEP 6 — MY JOBS VIEW (TECHNICIAN APP)**
+
+On the technician-facing My Jobs view, show each tech only their own estimated time — not the total job hours and not other techs' pay.
+
+```
+[Client Name]
+[Address]
+[Date] · [Arrival Window]
+Estimated Time: 3.1 hrs
+```
+
+Never show commission amounts, pay rates, or other techs' info to technicians.
+
+---
+
+**STEP 7 — JOB DETAIL PAGE — COMMISSION OVERRIDE UI**
+
+Visible to Owner and Office roles only. Never visible to technicians.
+
+For each assigned tech on residential job:
+```
+[Tech Name]
+Pay Type:         Commission
+Rate:             35%
+Minutes Worked:   360 min (from clock data) or "Pending clock-in"
+Calculated Pay:   $42.59
+Override Pay:     [___________]  [Save Override]
+Override Note:    [___________]
+```
+
+For commercial:
+```
+[Tech Name]
+Pay Type:         Hourly
+Rate:             $20.00/hr  [Edit Rate]
+Est. Hours:       3.1 hrs
+Calculated Pay:   $62.00
+Override Pay:     [___________]  [Save Override]
+Override Note:    [___________]
+```
+
+Commission rate field at job level (residential only):
+```
+Commission Rate:  [35]%   [Apply to all techs on this job]
+```
+
+Changing rate immediately recalculates all tech pay and shows updated estimates.
+
+When override saved:
+- Store `override_pay`, `override_by`, `override_at`, `override_note`
+- Set `final_pay = override_pay`
+- Show: "Override saved — final pay set to $[amount]"
+- Log to audit log
+
+---
+
+**STEP 8 — BOOKING WIDGET — ESTIMATED TIME DISPLAY**
+
+Surface `estimated_hours` in three locations on the booking widget. Hours come from the pricing engine tier lookup — do not add a new calculation.
+
+**Location 1 — Price summary panel (right rail, Steps 3–5)**
+Add above First Visit Total:
+```
+Estimated Time     6.2 hrs
+```
+Updates in real time as sqft changes.
+
+**Location 2 — Step 5 Booking Summary table**
+Add after Arrival Window:
+```
+Estimated Time     6.2 hrs
+```
+
+**Location 3 — Confirmation screen Booking Details**
+Add after Arrival Window:
+```
+Estimated Time     6.2 hrs
+```
+
+For recurring, use frequency-specific hours table. Format always one decimal place (`6.2 hrs`, `3.0 hrs`). Never show minutes.
+
+---
+
+**STEP 9 — INTERNAL QUOTE BUILDER — ESTIMATED TIME DISPLAY**
+
+**Location 1 — Quote preview / price summary:**
+```
+Estimated Time     6.2 hrs
+```
+
+**Location 2 — Quote detail page:**
+```
+Service:           Deep Clean
+Square Footage:    1,500 sqft
+Estimated Time:    6.2 hrs
+```
+
+---
+
+**STEP 10 — PAYROLL INTEGRATION**
+
+Sum `final_pay` from `job_technicians` across all jobs in the pay period per tech. This is the tech's commission/fee pay for the period.
+
+Flag commercial jobs with no clock-out as "Missing clock-out — pay cannot be finalized."
+
+Payroll summary per tech per day must show:
+- Each job row: Customer name | Job fee | Pay type % or $/hr | Actual/Allowed hours | Pay amount
+- Daily total hours and daily total pay
+
+---
+
+**STEP 11 — VERIFICATION REPORT**
+
+Report PASS or FAIL for each:
+
+1. `job_technicians` table has all commission columns including `minutes_worked`
+2. `jobs` table has `commission_pool_rate`, `job_type`, `estimated_hours`, `estimated_hours_per_tech`
+3. 1 tech assigned, 6.2 hr job → `estimated_hours_per_tech = 6.2`
+4. 2 techs assigned, 6.2 hr job → `estimated_hours_per_tech = 3.1` for each
+5. 3 techs assigned, 6.2 hr job → `estimated_hours_per_tech = 2.07` for each
+6. Job moved to unassigned → `estimated_hours_per_tech` resets to `estimated_hours`
+7. 1 tech, $180 job, 35% → `calculated_pay = $63.00`
+8. 1 tech, $490 job, 35% → `calculated_pay = $171.50`
+9. 2 techs same clock-in, $240 job, 35% → $42.00 each
+10. 2 techs, Tech A 360 min / Tech B 350 min, $240 job, 35% → Tech A $42.59, Tech B $41.41
+11. 3 techs equal time, $741.60 job, 35% → $86.54 each
+12. Commercial job $20/hr × 2 hrs → `calculated_pay = $40.00`
+13. Commercial override to $25/hr → `final_pay = $25 × actual_hours`
+14. Dispatch board shows `estimated_hours_per_tech` and `calculated_pay` per tech on card
+15. My Jobs view shows only that tech's `estimated_hours_per_tech` — no pay info
+16. Job detail commission override UI visible to Owner/Office only
+17. Commission rate change recalculates all techs on job immediately
+18. Override saves and sets `final_pay` correctly
+19. Booking widget shows `estimated_hours` in price summary, Step 5 summary, and confirmation screen
+20. Quote builder shows `estimated_hours` on preview and detail page
+21. Recurring booking shows frequency-specific hours
+22. Payroll sums `final_pay` correctly across pay period
+
+Do not run live tests. Report build status only.

@@ -722,7 +722,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           booking_location,
           address_street, address_city, address_state, address_zip,
           address_lat, address_lng, address_verified,
-          branch, reminder_72h_sent, reminder_24h_sent,
+          branch, reminder_72h_sent, reminder_24h_sent, job_type,
           notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
@@ -738,7 +738,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${bookLocVal},
           ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
           ${addrLat}, ${addrLng}, ${addrVerified},
-          ${branchConfig.branch}, false, false,
+          ${branchConfig.branch}, false, false, 'residential',
           ${jobNotes}, NOW()
         ) RETURNING id
       `
@@ -785,7 +785,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 booking_location,
                 address_street, address_city, address_state, address_zip,
                 address_lat, address_lng, address_verified,
-                notes, created_at
+                job_type, notes, created_at
               ) VALUES (
                 ${company_id}, ${clientId}, ${"recurring"}, ${"scheduled"},
                 ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
@@ -794,7 +794,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 ${bookLocVal},
                 ${addrStreet}, ${addrCity}, ${addrState}, ${addrZip},
                 ${addrLat}, ${addrLng}, ${addrVerified},
-                ${recurJobNotes}, NOW()
+                'residential', ${recurJobNotes}, NOW()
               ) RETURNING id
             `
           );
@@ -1061,7 +1061,7 @@ router.post("/book", rateLimit, async (req, res) => {
           address_line2,
           booking_location, address_street, address_city, address_state, address_zip,
           address_lat, address_lng, address_verified,
-          notes, created_at
+          job_type, notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${scopeName}, 'scheduled',
           ${preferred_date || new Date().toISOString().split("T")[0]}, ${legNormFreq}, ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
@@ -1069,7 +1069,7 @@ router.post("/book", rateLimit, async (req, res) => {
           ${address_line2 || null},
           ${legBookLoc}, ${legAddrStreet}, ${legAddrCity}, ${legAddrState}, ${legAddrZip},
           ${legAddrLat}, ${legAddrLng}, ${legAddrVerified},
-          ${jobNotes}, NOW()
+          'residential', ${jobNotes}, NOW()
         ) RETURNING id
       `
     );
@@ -1150,11 +1150,11 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
         INSERT INTO jobs (
           company_id, client_id, service_type, status, scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
           booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
-          notes, created_at
+          job_type, notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 0, 0, 0,
           ${wtBookLoc}, ${wtAddrStreet}, ${wtAddrCity}, ${wtAddrState}, ${wtAddrZip}, ${wtAddrLat}, ${wtAddrLng}, ${wtAddrVerified},
-          ${jobNotes}, NOW()
+          'commercial', ${jobNotes}, NOW()
         ) RETURNING id
       `
     );
@@ -1279,11 +1279,11 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
         INSERT INTO jobs (
           company_id, client_id, service_type, status, scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
           booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
-          notes, created_at
+          job_type, notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 180, 3, 60,
           ${cBookLoc}, ${cAddrStreet}, ${cAddrCity}, ${cAddrState}, ${cAddrZip}, ${cAddrLat}, ${cAddrLng}, ${cAddrVerified},
-          ${jobNotes}, NOW()
+          'commercial', ${jobNotes}, NOW()
         ) RETURNING id
       `
     );

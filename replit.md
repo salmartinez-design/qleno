@@ -77,6 +77,19 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 
 **leads table:** All columns present — `status`, `city`, `state`, `zip`, `source`, `scope`, `bedrooms`, `bathrooms`, `notes`, `quote_amount`, `assigned_to`, `updated_at`, `quoted_at`, `contacted_at`, `booked_at`, `closed_reason`, `agreement_signed`, `job_id`
 
+**Commission Calculation Engine (completed April 2026):**
+- New DB columns: `jobs.job_type` (text, 'residential'/'commercial'), `jobs.commission_pool_rate` (numeric 5,4 override), `jobs.estimated_hours_per_tech` (numeric), `companies.res_tech_pay_pct` (numeric 5,4, default 0.35 = 35%)
+- New table: `job_technicians` (id, job_id, user_id, company_id, is_primary, pay_override, final_pay, created_at)
+- `calculateTechPay(jobId, companyId)` function in `jobs.ts` — computes per-tech pay: `(job total × pool_rate) / num_techs`, respects pay_override, writes final_pay to job_technicians
+- Commission routes on `/api/jobs/:id/technicians`: GET (list), POST (assign), DELETE (remove), PUT `/:techId/override` (set/clear pay_override), PUT `/pool-rate` (override pool rate)
+- Dispatch API (`/api/dispatch`) now returns per-job: `technicians[]`, `est_hours_per_tech`, `est_pay_per_tech`, `company_res_pct`
+- Dispatch board job cards and panel: show Est. hrs + commission amount; owner/admin can override individual tech pay inline
+- My Jobs (`/my-jobs`): tech job cards show `~X.X hrs` next to scheduled time
+- Booking widget (`/book/:slug`): shows "Estimated Time: X.X hrs" in all 3 locations (price sidebar, step 4 review, step 5 confirmation)
+- Quote builder + quote-detail: both show "Est. Hours" in pricing section
+- Payroll `/detail` route: uses `job_technicians.final_pay` when available, falls back to formula
+- All booking confirmations (`/api/public/:slug/confirm`): auto-set `job_type='residential'` or `'commercial'`
+
 **Core Functionality & Feature Specifications:**
 - **Comprehensive Management:** KPI dashboard, dispatch board, employee, customer, and account management.
 - **Financial Tools:** Invoice generation, payroll processing, and quote management.

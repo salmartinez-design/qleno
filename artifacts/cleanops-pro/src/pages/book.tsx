@@ -1285,6 +1285,15 @@ export default function BookPage() {
       {calcResult.minimum_applied && (
         <p style={{ fontSize: 11, color: "#F59E0B", margin: "2px 0 0" }}>Minimum applied</p>
       )}
+      {calcResult.base_hours > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 2 }}>
+          <span style={{ fontSize: 12, color: "#9E9B94", display: "flex", alignItems: "center", gap: 4 }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#9E9B94" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Est. time
+          </span>
+          <span style={{ fontSize: 12, color: "#9E9B94" }}>{calcResult.base_hours.toFixed(1)} hrs</span>
+        </div>
+      )}
     </>
   ) : null;
 
@@ -3099,6 +3108,7 @@ export default function BookPage() {
                   {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
                   {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Arrival Window" value={recurringArrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
                   {address && <Row label="Address" value={address} />}
+                  {calcResult && calcResult.base_hours > 0 && <Row label="Estimated Time" value={`${calcResult.base_hours.toFixed(1)} hrs`} />}
                   {/* FIX 4: "Total" relabeled to "First Visit Total" */}
                   {calcResult && <Row label="First Visit Total" value={`$${(calcResult.final_total * conditionMultiplier).toFixed(2)}`} bold />}
                 </div>
@@ -3195,6 +3205,9 @@ export default function BookPage() {
                   {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "Morning (9 AM – 12 PM)" : "Afternoon (12 PM – 2 PM)"} />}
                   {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Arrival Window" value={recurringArrivalWindow === "morning" ? "Morning (9 AM – 12 PM)" : "Afternoon (12 PM – 2 PM)"} />}
                   {address && <Row label="Address" value={address} />}
+                  {(bookResult.pricing?.base_hours ?? calcResult?.base_hours ?? 0) > 0 && (
+                    <Row label="Estimated Time" value={`${(bookResult.pricing?.base_hours ?? calcResult?.base_hours ?? 0).toFixed(1)} hrs`} />
+                  )}
                   {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
                 </div>
               </div>

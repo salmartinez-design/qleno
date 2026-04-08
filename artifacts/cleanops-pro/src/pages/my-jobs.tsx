@@ -87,6 +87,7 @@ type Job = {
   property_name: string | null;
   access_notes: string | null;
   base_fee: number;
+  estimated_hours: number | null;
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
@@ -374,7 +375,15 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
         {formatServiceType(job.service_type)}
       </p>
       {job.scheduled_time && (
-        <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>{formatTime(job.scheduled_time)}</p>
+        <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
+          {formatTime(job.scheduled_time)}
+          {job.estimated_hours != null && job.estimated_hours > 0 && (
+            <span style={{ marginLeft: 8, color: "#9E9B94" }}>· ~{job.estimated_hours.toFixed(1)} hrs</span>
+          )}
+        </p>
+      )}
+      {!job.scheduled_time && job.estimated_hours != null && job.estimated_hours > 0 && (
+        <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>Est. {job.estimated_hours.toFixed(1)} hrs</p>
       )}
       {job.address && (
         <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>

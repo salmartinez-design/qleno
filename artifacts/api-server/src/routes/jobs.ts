@@ -254,6 +254,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         account_property_id: jobsTable.account_property_id,
         property_name: accountPropertiesTable.property_name,
         access_notes: accountPropertiesTable.access_notes,
+        estimated_hours: jobsTable.estimated_hours,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -306,6 +307,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         job_lat: j.job_lat ? parseFloat(j.job_lat) : null,
         job_lng: j.job_lng ? parseFloat(j.job_lng) : null,
         base_fee: j.base_fee ? parseFloat(j.base_fee) : 0,
+        estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,
         before_photo_count: photoMap.get(j.id)?.before || 0,
         after_photo_count: photoMap.get(j.id)?.after || 0,
         time_clock_entry: clockMap.get(j.id) || null,
@@ -1183,4 +1185,171 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
   }
 });
 
+// ── Commission Engine ──────────────────────────────────────────────────────────
+// Helper: calculate per-tech commission for a job
+async function calculateTechPay(jobId: number, companyId: number): Promise<Array<{
+  user_id: number; name: string; is_primary: boolean; est_hours: number;
+  calc_pay: number; final_pay: number; pay_override: number | null;
+}>> {
+  const jobRows = await db.execute(drizzleSql`
+    SELECT id, base_fee, billed_amount, estimated_hours, assigned_user_id, commission_pool_rate
+    FROM jobs WHERE id = ${jobId} AND company_id = ${companyId}
+  `);
+  if (!jobRows.rows.length) return [];
+  const job = jobRows.rows[0] as any;
+
+  const compRows = await db.execute(drizzleSql`
+    SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1
+  `);
+  const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
+
+  const techRows = await db.execute(drizzleSql`
+    SELECT jt.user_id, jt.is_primary, jt.pay_override, u.first_name, u.last_name
+    FROM job_technicians jt
+    JOIN users u ON u.id = jt.user_id
+    WHERE jt.job_id = ${jobId}
+    ORDER BY jt.is_primary DESC, jt.id
+  `);
+
+  let techs: any[] = techRows.rows;
+
+  if (techs.length === 0 && job.assigned_user_id) {
+    const userRow = await db.execute(drizzleSql`
+      SELECT id, first_name, last_name FROM users WHERE id = ${job.assigned_user_id} LIMIT 1
+    `);
+    if (userRow.rows.length) {
+      const u = userRow.rows[0] as any;
+      techs = [{ user_id: u.id, first_name: u.first_name, last_name: u.last_name, is_primary: true, pay_override: null }];
+    }
+  }
+
+  const numTechs = techs.length || 1;
+  const jobTotal = parseFloat(String(job.billed_amount || job.base_fee || 0));
+  const poolRate = job.commission_pool_rate != null ? parseFloat(String(job.commission_pool_rate)) : resPct;
+  const poolAmount = jobTotal * poolRate;
+  const estHours = parseFloat(String(job.estimated_hours || 0));
+  const estHoursPerTech = numTechs > 0 ? Math.round((estHours / numTechs) * 10) / 10 : estHours;
+
+  return techs.map((t: any) => {
+    const calcPay = Math.round((poolAmount / numTechs) * 100) / 100;
+    const override = t.pay_override != null ? parseFloat(String(t.pay_override)) : null;
+    return {
+      user_id: t.user_id,
+      name: `${t.first_name} ${t.last_name}`,
+      is_primary: !!t.is_primary,
+      est_hours: estHoursPerTech,
+      calc_pay: calcPay,
+      final_pay: override != null ? override : calcPay,
+      pay_override: override,
+    };
+  });
+}
+
+// GET /api/jobs/:id/technicians
+router.get("/:id/technicians", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const result = await calculateTechPay(jobId, companyId);
+    return res.json({ data: result });
+  } catch (err) {
+    console.error("GET /jobs/:id/technicians error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/jobs/:id/technicians — add a tech to the job
+router.post("/:id/technicians", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const { user_id, is_primary } = req.body;
+    if (!user_id) return res.status(400).json({ error: "user_id required" });
+
+    const jobRows = await db.execute(drizzleSql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+
+    await db.execute(drizzleSql`
+      INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+      VALUES (${jobId}, ${user_id}, ${companyId}, ${is_primary ?? false})
+      ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+    `);
+
+    const result = await calculateTechPay(jobId, companyId);
+    return res.json({ data: result });
+  } catch (err) {
+    console.error("POST /jobs/:id/technicians error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE /api/jobs/:id/technicians/:techId
+router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const techId = parseInt(req.params.techId);
+    const companyId = req.auth!.companyId;
+
+    await db.execute(drizzleSql`
+      DELETE FROM job_technicians WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
+    `);
+
+    const result = await calculateTechPay(jobId, companyId);
+    return res.json({ data: result });
+  } catch (err) {
+    console.error("DELETE /jobs/:id/technicians/:techId error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// PUT /api/jobs/:id/technicians/:techId/override — set pay override for a tech
+router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const techId = parseInt(req.params.techId);
+    const companyId = req.auth!.companyId;
+    const { pay_override } = req.body;
+
+    const jobRows = await db.execute(drizzleSql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+
+    const overrideVal = pay_override != null ? parseFloat(String(pay_override)) : null;
+
+    await db.execute(drizzleSql`
+      INSERT INTO job_technicians (job_id, user_id, company_id, pay_override, final_pay)
+      VALUES (${jobId}, ${techId}, ${companyId}, ${overrideVal}, ${overrideVal})
+      ON CONFLICT (job_id, user_id) DO UPDATE SET
+        pay_override = EXCLUDED.pay_override,
+        final_pay = EXCLUDED.final_pay
+    `);
+
+    const result = await calculateTechPay(jobId, companyId);
+    return res.json({ data: result });
+  } catch (err) {
+    console.error("PUT /jobs/:id/technicians/:techId/override error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/jobs/:id/commission/set-pool-rate
+router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const { commission_pool_rate } = req.body;
+
+    await db.execute(drizzleSql`
+      UPDATE jobs SET commission_pool_rate = ${parseFloat(String(commission_pool_rate))}
+      WHERE id = ${jobId} AND company_id = ${companyId}
+    `);
+
+    const result = await calculateTechPay(jobId, companyId);
+    return res.json({ data: result });
+  } catch (err) {
+    console.error("POST /jobs/:id/commission/set-pool-rate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+export { calculateTechPay };
 export default router;

@@ -182,6 +182,32 @@ router.get("/", requireAuth, async (req, res) => {
       if (!clockMap.has(e.job_id) || !e.clock_out_at) clockMap.set(e.job_id, e);
     }
 
+    // Fetch job_technicians for commission display
+    const techRows = await db.execute(sql`
+      SELECT jt.job_id, jt.user_id, jt.is_primary, jt.pay_override, jt.final_pay,
+             u.first_name, u.last_name
+      FROM job_technicians jt
+      JOIN users u ON u.id = jt.user_id
+      WHERE jt.job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
+      ORDER BY jt.job_id, jt.is_primary DESC, jt.id
+    `);
+
+    // Fetch company commission rate
+    const compRows = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
+
+    const techByJob = new Map<number, Array<{ user_id: number; name: string; is_primary: boolean; pay_override: number | null; final_pay: number | null }>>();
+    for (const r of techRows.rows as any[]) {
+      if (!techByJob.has(r.job_id)) techByJob.set(r.job_id, []);
+      techByJob.get(r.job_id)!.push({
+        user_id: r.user_id,
+        name: `${r.first_name} ${r.last_name}`,
+        is_primary: !!r.is_primary,
+        pay_override: r.pay_override != null ? parseFloat(String(r.pay_override)) : null,
+        final_pay: r.final_pay != null ? parseFloat(String(r.final_pay)) : null,
+      });
+    }
+
     const mappedJobs = jobs.map(j => {
       const clock = clockMap.get(j.id);
       const photos = photoMap.get(j.id) || { before: 0, after: 0 };
@@ -190,6 +216,24 @@ router.get("/", requireAuth, async (req, res) => {
       const displayAddress = isCommercial
         ? (j.property_address ? `${j.property_address}${j.property_city ? `, ${j.property_city}` : ""}` : null)
         : (j.address ? `${j.address}${j.city ? `, ${j.city}` : ""}` : null);
+
+      // Build commission data for this job
+      const jobTechs = techByJob.get(j.id) || [];
+      const jobTotal = j.billed_amount ? parseFloat(j.billed_amount) : (j.base_fee ? parseFloat(j.base_fee) : 0);
+      const estHours = j.estimated_hours ? parseFloat(j.estimated_hours) : 0;
+      const numTechs = jobTechs.length || 1;
+      const poolAmount = jobTotal * resPct;
+      const estHoursPerTech = numTechs > 0 ? Math.round((estHours / numTechs) * 10) / 10 : estHours;
+      const technicians = jobTechs.map(t => ({
+        user_id: t.user_id,
+        name: t.name,
+        is_primary: t.is_primary,
+        est_hours: estHoursPerTech,
+        calc_pay: Math.round((poolAmount / numTechs) * 100) / 100,
+        final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : Math.round((poolAmount / numTechs) * 100) / 100),
+        pay_override: t.pay_override,
+      }));
+
       return {
         id: j.id,
         client_id: j.client_id,
@@ -228,6 +272,10 @@ router.get("/", requireAuth, async (req, res) => {
           distance_from_job_ft: clock.distance_from_job_ft ? parseFloat(clock.distance_from_job_ft) : null,
           is_flagged: clock.flagged,
         } : null,
+        technicians,
+        est_hours_per_tech: estHoursPerTech,
+        est_pay_per_tech: numTechs > 0 ? Math.round((poolAmount / numTechs) * 100) / 100 : Math.round(poolAmount * 100) / 100,
+        company_res_pct: resPct,
       };
     });
 

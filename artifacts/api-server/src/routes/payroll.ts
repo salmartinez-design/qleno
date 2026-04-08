@@ -218,9 +218,24 @@ router.get("/detail", requireAuth, async (req, res) => {
       const user = userMap.get(uid) || { first_name: "Unknown", last_name: "" };
       const userAddlPay = addlPay.filter(p => p.user_id === uid);
 
-      const jobRows = userJobs.map(job => {
+      // Fetch job_technicians final_pay for this user's jobs in the period
+    const jobIdList = userJobs.map(j => j.id);
+    const jtMap = new Map<number, number>();
+    if (jobIdList.length > 0) {
+      try {
+        const jtRows = await db.execute(
+          sql`SELECT job_id, final_pay FROM job_technicians WHERE user_id = ${uid} AND job_id = ANY(${jobIdList}::int[])`
+        );
+        for (const r of jtRows.rows as any[]) {
+          if (r.final_pay != null) jtMap.set(r.job_id, parseFloat(String(r.final_pay)));
+        }
+      } catch { /* job_technicians may not exist yet; fallback to formula */ }
+    }
+
+    const jobRows = userJobs.map(job => {
         const jobTotal = parseFloat(String(job.billed_amount || job.base_fee || 0));
-        const commission = Math.round(jobTotal * resPct * 100) / 100;
+        const calcCommission = Math.round(jobTotal * resPct * 100) / 100;
+        const commission = jtMap.has(job.id) ? jtMap.get(job.id)! : calcCommission;
         const allowedHrs = parseFloat(String(job.allowed_hours || 0));
         const workedHrs = parseFloat(String(job.actual_hours || 0));
         const effectiveRate = workedHrs > 0 ? Math.round((commission / workedHrs) * 100) / 100 : null;
@@ -231,6 +246,7 @@ router.get("/detail", requireAuth, async (req, res) => {
           scope: job.service_type,
           job_total: jobTotal,
           commission,
+          commission_overridden: jtMap.has(job.id),
           hrs_scheduled: allowedHrs,
           hrs_worked: workedHrs,
           effective_rate: effectiveRate,

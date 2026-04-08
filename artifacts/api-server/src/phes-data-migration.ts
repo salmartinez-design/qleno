@@ -191,6 +191,28 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.completion_date",   stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS completion_date TEXT` },
     { label: "leads.lead_type",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT DEFAULT 'standard'` },
     { label: "leads.notes",             stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT` },
+
+    // ── Commission Engine columns (2026-04-08) ───────────────────────────────
+    { label: "jobs.job_type",                stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT DEFAULT 'residential'` },
+    { label: "jobs.commission_pool_rate",    stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS commission_pool_rate NUMERIC(5,4)` },
+    { label: "jobs.estimated_hours_per_tech",stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS estimated_hours_per_tech NUMERIC(6,2)` },
+
+    // ── job_technicians table ────────────────────────────────────────────────
+    { label: "CREATE job_technicians", stmt: `
+      CREATE TABLE IF NOT EXISTS job_technicians (
+        id           SERIAL PRIMARY KEY,
+        job_id       INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id   INTEGER NOT NULL,
+        is_primary   BOOLEAN NOT NULL DEFAULT false,
+        pay_override NUMERIC(10,2),
+        final_pay    NUMERIC(10,2),
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        UNIQUE (job_id, user_id)
+      )
+    ` },
+    { label: "CREATE idx_job_technicians_job_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_job_id ON job_technicians(job_id)` },
+    { label: "CREATE idx_job_technicians_user_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_user_id ON job_technicians(user_id)` },
   ];
 
   for (const { label, stmt } of guards) {
@@ -1427,6 +1449,7 @@ async function runNotificationTemplateSeed() {
       ["companies.review_link",                     sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS review_link TEXT`],
       ["companies.dispatch_start_hour",             sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_start_hour INTEGER NOT NULL DEFAULT 8`],
       ["companies.dispatch_end_hour",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_end_hour INTEGER NOT NULL DEFAULT 18`],
+      ["companies.res_tech_pay_pct",                sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS res_tech_pay_pct NUMERIC(5,4) NOT NULL DEFAULT 0.35`],
       ["clients.stripe_payment_method_id",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT`],
       ["clients.payment_source",                    sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT`],
       ["payments.job_id",                           sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS job_id INTEGER`],
