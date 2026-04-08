@@ -36,6 +36,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.upsell_deferred",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false" },
     { label: "jobs.upsell_cadence_selected", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected TEXT" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
+    { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
     { label: "jobs.booking_location",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_location TEXT" },
     { label: "jobs.booking_street",            stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS booking_street TEXT" },

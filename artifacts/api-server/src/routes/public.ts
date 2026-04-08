@@ -655,7 +655,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const homeResult = await db.execute(
       drizzleSql`
         INSERT INTO client_homes (company_id, client_id, address, zip, bedrooms, bathrooms, sq_footage, is_primary, created_at)
-        VALUES (${company_id}, ${clientId}, ${address || null}, ${zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
+        VALUES (${company_id}, ${clientId}, ${address || address_street || "(address pending)"}, ${zip || address_zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
         RETURNING id
       `
     );
@@ -725,8 +725,8 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           branch, reminder_72h_sent, reminder_24h_sent,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, ${serviceTypeEnum}, 'unassigned',
-          ${preferred_date || null}, ${normalizedFreq},
+          ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
+          ${preferred_date || new Date().toISOString().split("T")[0]}, ${normalizedFreq},
           ${adjustedTotal}, ${pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
@@ -787,7 +787,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
                 address_lat, address_lng, address_verified,
                 notes, created_at
               ) VALUES (
-                ${company_id}, ${clientId}, ${"recurring"}, ${"unassigned"},
+                ${company_id}, ${clientId}, ${"recurring"}, ${"scheduled"},
                 ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
                 false, false, ${upsellCadenceVal},
                 ${arrivalWindowVal},
@@ -957,7 +957,14 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     });
   } catch (err: any) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
-    console.error("POST /public/book/confirm:", err);
+    console.error("POST /public/book/confirm ERROR:", {
+      message: err?.message,
+      code: err?.code,
+      detail: err?.detail,
+      hint: err?.hint,
+      query: err?.query,
+      stack: err?.stack,
+    });
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -1012,7 +1019,7 @@ router.post("/book", rateLimit, async (req, res) => {
     const homeResult = await db.execute(
       drizzleSql`
         INSERT INTO client_homes (company_id, client_id, address, zip, bedrooms, bathrooms, sq_footage, is_primary, created_at)
-        VALUES (${company_id}, ${clientId}, ${address || null}, ${zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
+        VALUES (${company_id}, ${clientId}, ${address || address_street || "(address pending)"}, ${zip || address_zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
         RETURNING id
       `
     );
@@ -1051,8 +1058,8 @@ router.post("/book", rateLimit, async (req, res) => {
           address_lat, address_lng, address_verified,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, ${scopeName}, 'unassigned',
-          ${preferred_date || null}, ${legNormFreq}, ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
+          ${company_id}, ${clientId}, ${scopeName}, 'scheduled',
+          ${preferred_date || new Date().toISOString().split("T")[0]}, ${legNormFreq}, ${pricing.final_total}, ${pricing.base_hours}, ${pricing.hourly_rate},
           ${preferred_contact_method || null},
           ${address_line2 || null},
           ${legBookLoc}, ${legAddrStreet}, ${legAddrCity}, ${legAddrState}, ${legAddrZip},
@@ -1140,7 +1147,7 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
           booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || null}, 'on_demand', 0, 0, 0,
+          ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 0, 0, 0,
           ${wtBookLoc}, ${wtAddrStreet}, ${wtAddrCity}, ${wtAddrState}, ${wtAddrZip}, ${wtAddrLat}, ${wtAddrLng}, ${wtAddrVerified},
           ${jobNotes}, NOW()
         ) RETURNING id
@@ -1269,7 +1276,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
           booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
           notes, created_at
         ) VALUES (
-          ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || null}, 'on_demand', 180, 3, 60,
+          ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 180, 3, 60,
           ${cBookLoc}, ${cAddrStreet}, ${cAddrCity}, ${cAddrState}, ${cAddrZip}, ${cAddrLat}, ${cAddrLng}, ${cAddrVerified},
           ${jobNotes}, NOW()
         ) RETURNING id
