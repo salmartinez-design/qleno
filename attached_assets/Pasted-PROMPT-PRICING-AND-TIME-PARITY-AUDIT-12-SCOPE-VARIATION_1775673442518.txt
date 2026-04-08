@@ -1,0 +1,131 @@
+PROMPT — PRICING AND TIME PARITY AUDIT: 12 SCOPE VARIATIONS
+Run 12 test quotes through both the public booking widget pricing engine and the internal office quote builder. For each variation confirm price, estimated hours, and add-on calculations match exactly between both engines. This is a read-only audit — do not create any client records, job records, or bookings.
+
+THE 12 TEST VARIATIONS:
+Quote 1 — Standard Clean, Small, No Add-ons
+
+Service: One-Time Standard Clean
+Sqft: 700
+Frequency: One-time
+Add-ons: None
+Expected price: $195.00 (minimum applies)
+Expected time: 2.5 hrs
+
+Quote 2 — Standard Clean, Mid, No Add-ons
+
+Service: One-Time Standard Clean
+Sqft: 1,500
+Frequency: One-time
+Add-ons: None
+Expected price: $240.50
+Expected time: 3.7 hrs
+
+Quote 3 — Standard Clean, Large, With Add-ons
+
+Service: One-Time Standard Clean
+Sqft: 2,500
+Frequency: One-time
+Add-ons: Kitchen Cabinets (+$50), Windows (+$54.60)
+Expected price: $325.00 + $50.00 + $54.60 = $429.60
+Expected time: 5.0 hrs
+
+Quote 4 — Deep Clean, Small, No Add-ons
+
+Service: Deep Clean
+Sqft: 800
+Frequency: One-time
+Add-ons: None
+Expected price: $224.00
+Expected time: 3.2 hrs
+
+Quote 5 — Deep Clean, Mid, Appliance Bundle
+
+Service: Deep Clean
+Sqft: 1,500
+Frequency: One-time
+Add-ons: Oven Cleaning (+$40), Refrigerator Cleaning (+$40)
+Expected: Bundle discount -$20 applies
+Expected price: $434.00 + $40 + $40 - $20 = $494.00
+Expected time: 6.2 hrs
+
+Quote 6 — Deep Clean, Large, All Add-ons
+
+Service: Deep Clean
+Sqft: 3,000
+Frequency: One-time
+Add-ons: Oven (+$40), Refrigerator (+$40), Kitchen Cabinets (+$50), Windows (+$54.60), Clean Basement (+$54.60)
+Expected: Bundle discount -$20 applies on Oven + Refrigerator
+Expected price: $665.00 + $40 + $40 + $50 + $54.60 + $54.60 - $20 = $884.20
+Expected time: 9.5 hrs
+
+Quote 7 — Move In/Out, Mid, No Add-ons
+
+Service: Move In / Move Out
+Sqft: 1,500
+Frequency: One-time
+Add-ons: None
+Expected price: $434.00 (same as Deep Clean)
+Expected time: 6.2 hrs
+
+Quote 8 — Move In/Out, Large, Appliance Bundle
+
+Service: Move In / Move Out
+Sqft: 2,500
+Frequency: One-time
+Add-ons: Oven Cleaning (+$40), Refrigerator Cleaning (+$40)
+Expected: Bundle discount -$20 applies
+Expected price: $560.00 + $40 + $40 - $20 = $620.00
+Expected time: 8.0 hrs
+
+Quote 9 — Recurring Weekly, Small
+
+Service: Recurring
+Sqft: 1,200
+Frequency: Weekly
+Add-ons: None
+Expected price: $195.00 (minimum applies)
+Expected time: 3.0 hrs
+
+Quote 10 — Recurring Every 2 Weeks, Mid, With Add-on
+
+Service: Recurring
+Sqft: 1,500
+Frequency: Every 2 Weeks
+Add-ons: Oven Cleaning (+$40)
+Expected price: $224.25 + $40 = $264.25
+Expected time: 3.45 hrs
+
+Quote 11 — Recurring Every 4 Weeks, Large, No Add-ons
+
+Service: Recurring
+Sqft: 2,500
+Frequency: Every 4 Weeks
+Add-ons: None
+Expected price: $381.50
+Expected time: 5.45 hrs
+
+Quote 12 — Recurring Every 2 Weeks, Mid, Appliance Bundle
+
+Service: Recurring
+Sqft: 2,000
+Frequency: Every 2 Weeks
+Add-ons: Oven Cleaning (+$40), Refrigerator Cleaning (+$40)
+Expected: Bundle discount -$20 applies
+Expected price: $265.85 + $40 + $40 - $20 = $325.85
+Expected time: 4.09 hrs
+
+
+WHAT TO AUDIT AND REPORT:
+For each of the 12 quotes, report in this table:
+#ServiceSqftFrequencyAdd-onsWidget PriceOffice PriceWidget TimeOffice TimePrices MatchTimes Match
+Additional checks:
+
+Confirm the Appliance Bundle discount (-$20) fires correctly in both engines on Quotes 5, 6, 8, and 12 — only when both Oven AND Refrigerator are selected together.
+Confirm the Appliance Bundle does NOT fire on Quote 3 (Kitchen Cabinets + Windows only — no bundle trigger).
+Confirm the $195 minimum applies correctly in both engines on Quotes 1 and 9.
+Confirm estimated hours update in real time in the booking widget as sqft changes — test by checking the hours returned for 1,499 sqft vs 1,500 sqft Standard Clean (should flip from 3.5 hrs to 3.7 hrs at the tier boundary).
+Confirm that for recurring quotes, the hours shown reflect the correct frequency-specific table — Weekly hours must differ from Every 2 Weeks hours for the same sqft.
+Confirm that Move In/Out hours match Deep Clean hours exactly for equivalent sqft on Quotes 7 and 8.
+
+Report PASS if all 12 quotes match between engines and all time estimates are correct. Report FAIL with specific line items for any discrepancy — even $0.01 or 0.01 hrs.
+Do not create any client records, job records, or bookings. Read-only pricing audit only. Do not run live tests automatically — report audit results only.Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.
