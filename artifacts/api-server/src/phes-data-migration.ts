@@ -494,7 +494,7 @@ export async function runPhesDataMigration(): Promise<void> {
       { name: "Commercial Cleaning",                 method: "hourly", rate: "65.00", min: "200.00" },
       { name: "PPM Turnover",                       method: "sqft",   rate: "65.00", min: "250.00" },
       // Recurring variants — each with a single frequency (handled in separate block below)
-      { name: "Recurring Cleaning - Weekly",         method: "sqft",   rate: "55.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
+      { name: "Recurring Cleaning - Weekly",         method: "sqft",   rate: "55.00", min: "180.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
       { name: "Recurring Cleaning - Every 2 Weeks",  method: "sqft",   rate: "60.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
       { name: "Recurring Cleaning - Every 4 Weeks",  method: "sqft",   rate: "65.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
     ] as Array<{ name: string; method: string; rate: string; min: string; noDefaultFreqs?: boolean; scopeGroup?: string }>;
@@ -525,6 +525,13 @@ export async function runPhesDataMigration(): Promise<void> {
         `);
       }
     }
+
+    // Ensure Recurring Weekly minimum_bill = $180.00 (3 hrs × $60/hr)
+    await db.execute(sql`
+      UPDATE pricing_scopes
+      SET minimum_bill = 180.00
+      WHERE company_id = ${PHES} AND name = 'Recurring Cleaning - Weekly' AND minimum_bill != 180.00
+    `);
 
     // Build scope name → id map
     const scopeResult = await db.execute(sql`
