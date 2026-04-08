@@ -554,6 +554,7 @@ router.post("/calculate", requireAuth, async (req, res) => {
     if (minimum_bill > 0 && base_price < minimum_bill) { base_price = minimum_bill; minimum_applied = true; }
 
     let addons_total = 0;
+    let addon_minutes = 0;
     const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string }> = [];
 
     if (Array.isArray(addon_ids) && addon_ids.length > 0) {
@@ -567,6 +568,7 @@ router.post("/calculate", requireAuth, async (req, res) => {
         `);
         const addons = (result as any).rows ?? [];
         for (const addon of addons) {
+          addon_minutes += parseInt(String(addon.time_add_minutes ?? 0)) || 0;
           if (addon.price_type === "time_only") continue;
           const amount = calcAddonAmount(addon, base_price, used_sqft);
           addons_total += amount;
@@ -574,6 +576,8 @@ router.post("/calculate", requireAuth, async (req, res) => {
         }
       }
     }
+    const addon_hours = Math.round((addon_minutes / 60) * 100) / 100;
+    const total_hours = Math.round((base_hours + addon_hours) * 100) / 100;
 
     // ── Bundle discounts (must match public/calculate logic exactly) ──────────
     let bundle_discount = 0;
@@ -646,7 +650,7 @@ router.post("/calculate", requireAuth, async (req, res) => {
     return res.json({
       scope_id, pricing_method: method,
       sqft: used_sqft, hours: base_hours, frequency: frequency ?? null,
-      tier_id, base_hours,
+      tier_id, base_hours, addon_hours, total_hours,
       hourly_rate: Math.round(hourly_rate * 100) / 100,
       base_price: Math.round(base_price * 100) / 100,
       minimum_applied, minimum_bill: Math.round(minimum_bill * 100) / 100,

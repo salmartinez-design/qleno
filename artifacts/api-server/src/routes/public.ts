@@ -352,6 +352,7 @@ export async function runCalculate(params: {
   }
 
   let addons_total = 0;
+  let addon_minutes = 0;
   const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string }> = [];
   if (Array.isArray(addon_ids) && addon_ids.length > 0) {
     const { sql: drSql } = await import("drizzle-orm");
@@ -364,6 +365,7 @@ export async function runCalculate(params: {
     `) : { rows: [] };
     const addons = (addonResult as any).rows ?? [];
     for (const addon of addons) {
+      addon_minutes += parseInt(String(addon.time_add_minutes ?? 0)) || 0;
       if (addon.price_type === "time_only") continue;
       let amount = 0;
       const pv = parseFloat(String(addon.price_value ?? addon.price ?? 0));
@@ -384,6 +386,8 @@ export async function runCalculate(params: {
       addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type });
     }
   }
+  const addon_hours = Math.round((addon_minutes / 60) * 100) / 100;
+  const total_hours = Math.round((base_hours + addon_hours) * 100) / 100;
 
   // ── Bundle discounts ─────────────────────────────────────────────────────
   let bundle_discount = 0;
@@ -462,6 +466,8 @@ export async function runCalculate(params: {
     frequency,
     tier_id: tier.id,
     base_hours,
+    addon_hours,
+    total_hours,
     hourly_rate: Math.round(hourly_rate * 100) / 100,
     base_price: Math.round(base_price * 100) / 100,
     minimum_applied,
