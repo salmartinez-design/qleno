@@ -90,9 +90,9 @@ interface RecentService { scope: string; last_date: string; last_price: number; 
 const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes", "Review"];
 const SECTION_ICONS = [User, Home, Calculator, PlusSquare, CheckCircle2];
 const DIRT_LEVELS = [
-  { value: "pristine", label: "Pristine — barely been used" },
-  { value: "standard", label: "Standard — normal wear" },
-  { value: "heavy", label: "Heavy — needs deep attention" },
+  { value: "pristine", label: "1 — Very Clean" },
+  { value: "standard", label: "2 — Moderately Clean" },
+  { value: "heavy", label: "3 — Very Dirty" },
 ];
 
 export default function QuoteBuilderPage() {
@@ -130,8 +130,8 @@ export default function QuoteBuilderPage() {
 
   // ── Section 1: Property Details ──────────────────────────────────────────
   const [sqft, setSqft] = useState<number>(0);
-  const [bedrooms, setBedrooms] = useState<number>(2);
-  const [bathrooms, setBathrooms] = useState<number>(1);
+  const [bedrooms, setBedrooms] = useState<number>(0);
+  const [bathrooms, setBathrooms] = useState<number>(0);
   const [halfBaths, setHalfBaths] = useState<number>(0);
   const [pets, setPets] = useState<number>(0);
   const [dirtLevel, setDirtLevel] = useState("standard");
@@ -256,8 +256,8 @@ export default function QuoteBuilderPage() {
     setLeadPhone(existingQuote.lead_phone || "");
     setAddress(existingQuote.address || "");
     setSqft(existingQuote.sqft || 0);
-    setBedrooms(existingQuote.bedrooms || 2);
-    setBathrooms(existingQuote.bathrooms || 1);
+    setBedrooms(existingQuote.bedrooms ?? 0);
+    setBathrooms(existingQuote.bathrooms ?? 0);
     setHalfBaths(existingQuote.half_baths || 0);
     setPets(existingQuote.pets || 0);
     setDirtLevel(existingQuote.dirt_level || "standard");
@@ -1257,11 +1257,11 @@ export default function QuoteBuilderPage() {
                 </div>
                 <div>
                   <Label className="text-xs">Bedrooms</Label>
-                  <Stepper value={bedrooms} onChange={setBedrooms} min={1} max={10} />
+                  <Stepper value={bedrooms} onChange={setBedrooms} min={0} max={10} />
                 </div>
                 <div>
                   <Label className="text-xs">Full Bathrooms</Label>
-                  <Stepper value={bathrooms} onChange={setBathrooms} min={1} max={8} />
+                  <Stepper value={bathrooms} onChange={setBathrooms} min={0} max={8} />
                 </div>
                 <div>
                   <Label className="text-xs">Half Bathrooms</Label>
@@ -1272,11 +1272,11 @@ export default function QuoteBuilderPage() {
                   <Stepper value={pets} onChange={setPets} min={0} max={6} />
                 </div>
                 <div className="col-span-2">
-                  <Label className="text-xs">Dirt Level</Label>
+                  <Label className="text-xs">How would you rate the current cleanliness of your home?</Label>
                   <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                     {DIRT_LEVELS.map(d => (
-                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 4px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
-                        {d.label.split(" — ")[0]}
+                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, textAlign: "center" as const }}>
+                        {d.label}
                       </button>
                     ))}
                   </div>
