@@ -9,9 +9,6 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
 } from "@/components/ui/command";
 import {
@@ -20,21 +17,18 @@ import {
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2,
-  Clock, Ruler, X, Phone, Check,
+  X, Phone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+const FF = "'Plus Jakarta Sans', sans-serif";
 
-const EMPTY_SCOPES: PricingScope[] = [];
-const EMPTY_FREQUENCIES: PricingFrequency[] = [];
-const EMPTY_ADDONS: PricingAddon[] = [];
-
-async function apiFetch(path: string, opts: { method?: string; body?: any; headers?: any } = {}) {
-  const { body, headers: extraHeaders, ...rest } = opts;
+async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
+  const { body, ...rest } = opts;
   const r = await fetch(`${API}${path}`, {
-    headers: { ...getAuthHeaders(), "Content-Type": "application/json", ...extraHeaders },
+    headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
     ...rest,
     ...(body !== undefined && { body: JSON.stringify(body) }),
   });
@@ -43,101 +37,72 @@ async function apiFetch(path: string, opts: { method?: string; body?: any; heade
 }
 
 interface Client {
-  id: number;
-  first_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  address: string;
+  id: number; first_name: string; last_name: string; email: string; phone: string; address: string;
 }
 
 interface PricingScope {
-  id: number;
-  name: string;
-  scope_group: string;
-  pricing_method: string;
-  hourly_rate: string;
-  minimum_bill: string;
-  displayed_for_office: boolean;
-  is_active: boolean;
-  sort_order: number;
+  id: number; name: string; scope_group: string; pricing_method: string;
+  hourly_rate: string; minimum_bill: string; displayed_for_office: boolean;
+  is_active: boolean; sort_order: number;
 }
 
 interface PricingFrequency {
-  id: number;
-  scope_id: number;
-  frequency: string;
-  label: string;
-  multiplier: string;
-  rate_override: string | null;
-  show_office: boolean;
-  sort_order: number;
+  id: number; scope_id: number; frequency: string; label: string;
+  multiplier: string; rate_override: string | null; show_office: boolean; sort_order: number;
 }
 
 interface PricingAddon {
-  id: number;
-  scope_id: number;
-  name: string;
-  addon_type: string;
-  scope_ids: string;
-  price_type: string;
-  price_value: string;
-  price: string | null;
-  percent_of_base: string | null;
-  time_add_minutes: number;
-  time_unit: string;
-  is_itemized: boolean;
-  show_office: boolean;
-  show_online: boolean;
-  is_active: boolean;
+  id: number; scope_id: number; name: string; addon_type: string; scope_ids: string;
+  price_type: string; price_value: string; price: string | null; percent_of_base: string | null;
+  time_add_minutes: number; time_unit: string; is_itemized: boolean;
+  show_office: boolean; show_online: boolean; is_active: boolean;
 }
 
 interface CalcResult {
-  scope_id: number;
-  pricing_method: string;
-  sqft: number | null;
-  frequency: string | null;
-  base_hours: number;
-  hourly_rate: number;
-  base_price: number;
-  minimum_applied: boolean;
-  minimum_bill: number;
-  addons_total: number;
+  scope_id: number; pricing_method: string; sqft: number | null; frequency: string | null;
+  base_hours: number; hourly_rate: number; base_price: number; minimum_applied: boolean;
+  minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
-  bundle_discount: number;
-  bundle_breakdown: Array<{ name: string; discount: number }>;
-  subtotal: number;
-  discount_amount: number;
-  discount_valid?: boolean;
-  final_total: number;
+  bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
+  subtotal: number; discount_amount: number; discount_valid?: boolean; final_total: number;
 }
 
+interface SelectedScopeState {
+  scope_id: number;
+  frequency: string;
+  hours: number;
+  addon_ids: number[];
+  frequencies: PricingFrequency[];
+  addons: PricingAddon[];
+  calc: CalcResult | null;
+  calcLoading: boolean;
+  expanded: boolean;
+}
+
+interface SuggestedTech { id: number; name: string; zone_name: string; zone_color: string; }
+
+const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes", "Review"];
+const SECTION_ICONS = [User, Home, Calculator, PlusSquare, CheckCircle2];
 const DIRT_LEVELS = [
   { value: "pristine", label: "Pristine — barely been used" },
   { value: "standard", label: "Standard — normal wear" },
   { value: "heavy", label: "Heavy — needs deep attention" },
 ];
 
-const SECTION_ICONS = [User, Home, Calculator, PlusSquare];
-const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes"];
-
-interface SuggestedTech { id: number; name: string; zone_name: string; zone_color: string; }
-
 export default function QuoteBuilderPage() {
-  const [matchEdit, editParams] = useRoute("/quotes/:id/edit"); const id = editParams?.id;
+  const [matchEdit, editParams] = useRoute("/quotes/:id/edit");
+  const id = editParams?.id;
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const isEdit = Boolean(id && id !== "new");
   const token = useAuthStore(s => s.token);
 
-  // Role check — call notes visible to owner/office only
   const userRole = (() => { try { return JSON.parse(atob((token || "").split(".")[1])).role || "office"; } catch { return "office"; } })();
-  const isOfficeOrOwner = userRole === "owner" || userRole === "office" || userRole === "admin";
 
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
 
-  // Section 0 — Customer
+  // ── Section 0: Customer Info ─────────────────────────────────────────────
   const [clientOpen, setClientOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [leadName, setLeadName] = useState("");
@@ -145,10 +110,11 @@ export default function QuoteBuilderPage() {
   const [leadPhone, setLeadPhone] = useState("");
   const [address, setAddress] = useState("");
   const [zipCode, setZipCode] = useState("");
-  const [zipZone, setZipZone] = useState<{ name: string; color: string } | null | "uncovered">("uncovered" as const);
+  const [zipZone, setZipZone] = useState<{ name: string; color: string } | null | "uncovered">(null);
   const [checkingZip, setCheckingZip] = useState(false);
+  const [zoneOverride, setZoneOverride] = useState(false);
 
-  // Section 1 — Property
+  // ── Section 1: Property Details ──────────────────────────────────────────
   const [sqft, setSqft] = useState<number>(0);
   const [bedrooms, setBedrooms] = useState<number>(2);
   const [bathrooms, setBathrooms] = useState<number>(1);
@@ -156,81 +122,64 @@ export default function QuoteBuilderPage() {
   const [pets, setPets] = useState<number>(0);
   const [dirtLevel, setDirtLevel] = useState("standard");
 
-  // Section 2 — Service & Pricing
-  const [scopeId, setScopeId] = useState<number | null>(null);
-  const [frequencyStr, setFrequencyStr] = useState<string>("");
-  const [hoursInput, setHoursInput] = useState<number>(0);
+  // ── Section 2: Multi-scope selection ────────────────────────────────────
+  const [selectedScopes, setSelectedScopes] = useState<SelectedScopeState[]>([]);
+  const [selectedDate, setSelectedDate] = useState("");
 
-  // Section 3 — Add-ons & Notes
-  const [selectedAddonIds, setSelectedAddonIds] = useState<number[]>([]);
-  const [manualAdjValue, setManualAdjValue] = useState<string>("");
-  const [discountCode, setDiscountCode] = useState("");
-  const [discountInput, setDiscountInput] = useState("");
+  // ── Section 3: Notes + discount ─────────────────────────────────────────
   const [notes, setNotes] = useState("");
   const [internalMemo, setInternalMemo] = useState("");
+  const [manualAdjValue, setManualAdjValue] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountError, setDiscountError] = useState("");
 
-  // Call Notes
+  // ── Section 4: Review — final scope selection ────────────────────────────
+  const [finalScopeId, setFinalScopeId] = useState<number | null>(null);
+
+  // ── Call Notes ───────────────────────────────────────────────────────────
   const [callNotes, setCallNotes] = useState("");
   const [callNotesSaving, setCallNotesSaving] = useState(false);
-  const [callNotesSaved, setCallNotesSaved] = useState(false);
-  const [callNotesMobileOpen, setCallNotesMobileOpen] = useState(false);
   const [callNotesSavedVisible, setCallNotesSavedVisible] = useState(false);
+  const [callNotesMobileOpen, setCallNotesMobileOpen] = useState(false);
   const callNotesRef = useRef<HTMLTextAreaElement>(null);
   const autoSavedIdRef = useRef<string | null>(null);
   const [callNoteTooltip, setCallNoteTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [pushConfirmed, setPushConfirmed] = useState(false);
 
-  // Returning client detection
+  // ── Returning client ─────────────────────────────────────────────────────
   const [returningClient, setReturningClient] = useState<{ id: number; name: string; phone?: string; email?: string; address?: string } | null>(null);
   const [returningClientDismissed, setReturningClientDismissed] = useState(false);
 
-  // Smart tech suggestions
+  // ── Tech suggestions ─────────────────────────────────────────────────────
   const [suggestedTechs, setSuggestedTechs] = useState<SuggestedTech[]>([]);
   const [selectedTechId, setSelectedTechId] = useState<number | null>(null);
   const [techAvailability, setTechAvailability] = useState<Record<number, number>>({});
   const [techAvailLoading, setTechAvailLoading] = useState(false);
 
-  // Date picker (Section 2 — for tech Phase 2)
-  const [selectedDate, setSelectedDate] = useState("");
-
-  const [calcResult, setCalcResult] = useState<CalcResult | null>(null);
-  const [calcLoading, setCalcLoading] = useState(false);
-  const [discountError, setDiscountError] = useState("");
-
-  // Mobile-specific state
+  // ── Mobile ───────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
   const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
   const [mobileClientSearch, setMobileClientSearch] = useState("");
   const [mobileClientDropdown, setMobileClientDropdown] = useState(false);
 
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // ── Refs for recalc (avoid stale closures) ───────────────────────────────
+  const sqftRef = useRef(sqft);
+  useEffect(() => { sqftRef.current = sqft; }, [sqft]);
+  const selectedScopesRef = useRef<SelectedScopeState[]>([]);
+  useEffect(() => { selectedScopesRef.current = selectedScopes; }, [selectedScopes]);
+  const recalcTimers = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
-  // ── Data queries ────────────────────────────────────────────────────────────
+  // ── Data queries ─────────────────────────────────────────────────────────
 
   const { data: clients = [] } = useQuery<Client[]>({
     queryKey: ["clients-list"],
     queryFn: () => apiFetch("/api/clients?limit=200").then((r: any) => r.data ?? r),
   });
 
-  // Only fetch office-visible active scopes — staleTime:0 ensures fresh on every open
-  const { data: scopes = EMPTY_SCOPES } = useQuery<PricingScope[]>({
+  const { data: scopes = [] } = useQuery<PricingScope[]>({
     queryKey: ["pricing-scopes-office"],
     queryFn: () => apiFetch("/api/pricing/scopes?office=true"),
-    staleTime: 0,
-  });
-
-  // Only fetch office-visible frequencies for selected scope
-  const { data: frequencies = EMPTY_FREQUENCIES } = useQuery<PricingFrequency[]>({
-    queryKey: ["pricing-frequencies-office", scopeId],
-    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/frequencies?office=true`),
-    enabled: Boolean(scopeId),
-    staleTime: 0,
-  });
-
-  const { data: scopeAddons = EMPTY_ADDONS } = useQuery<PricingAddon[]>({
-    queryKey: ["pricing-addons", scopeId],
-    queryFn: () => apiFetch(`/api/pricing/scopes/${scopeId}/addons`),
-    enabled: Boolean(scopeId),
     staleTime: 0,
   });
 
@@ -240,56 +189,40 @@ export default function QuoteBuilderPage() {
     enabled: isEdit,
   });
 
-  // ── Restore existing quote ───────────────────────────────────────────────────
-
+  // ── Restore existing quote ───────────────────────────────────────────────
   useEffect(() => {
-    if (existingQuote) {
-      setSelectedClientId(existingQuote.client_id || null);
-      setLeadName(existingQuote.lead_name || "");
-      setLeadEmail(existingQuote.lead_email || "");
-      setLeadPhone(existingQuote.lead_phone || "");
-      setAddress(existingQuote.address || "");
-      setScopeId(existingQuote.scope_id || null);
-      setSqft(existingQuote.sqft || 0);
-      setBedrooms(existingQuote.bedrooms || 2);
-      setBathrooms(existingQuote.bathrooms || 1);
-      setHalfBaths(existingQuote.half_baths || 0);
-      setPets(existingQuote.pets || 0);
-      setDirtLevel(existingQuote.dirt_level || "standard");
-      setDiscountCode(existingQuote.discount_code || "");
-      setDiscountInput(existingQuote.discount_code || "");
-      setNotes(existingQuote.notes || "");
-      setInternalMemo(existingQuote.internal_memo || "");
-      setCallNotes(existingQuote.call_notes || "");
-      setFrequencyStr(existingQuote.frequency || "");
-      setHoursInput(existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0);
-      if (Array.isArray(existingQuote.addons)) {
-        setSelectedAddonIds(existingQuote.addons.map((a: any) => a.id).filter(Boolean));
+    if (!existingQuote) return;
+    setSelectedClientId(existingQuote.client_id || null);
+    setLeadName(existingQuote.lead_name || "");
+    setLeadEmail(existingQuote.lead_email || "");
+    setLeadPhone(existingQuote.lead_phone || "");
+    setAddress(existingQuote.address || "");
+    setSqft(existingQuote.sqft || 0);
+    setBedrooms(existingQuote.bedrooms || 2);
+    setBathrooms(existingQuote.bathrooms || 1);
+    setHalfBaths(existingQuote.half_baths || 0);
+    setPets(existingQuote.pets || 0);
+    setDirtLevel(existingQuote.dirt_level || "standard");
+    setDiscountCode(existingQuote.discount_code || "");
+    setDiscountInput(existingQuote.discount_code || "");
+    setNotes(existingQuote.notes || "");
+    setInternalMemo(existingQuote.internal_memo || "");
+    setCallNotes(existingQuote.call_notes || "");
+    setZoneOverride(existingQuote.zone_override || false);
+    // Restore single scope from existing quote (backward compat)
+    if (existingQuote.scope_id && scopes.length > 0) {
+      const scope = scopes.find((s: PricingScope) => s.id === existingQuote.scope_id);
+      if (scope) {
+        toggleScope(scope, {
+          frequency: existingQuote.frequency || "",
+          hours: existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0,
+          addon_ids: Array.isArray(existingQuote.addons) ? existingQuote.addons.map((a: any) => a.id).filter(Boolean) : [],
+        });
       }
     }
-  }, [existingQuote]);
+  }, [existingQuote, scopes.length]);
 
-  // Reset add-ons and frequency when scope changes
-  useEffect(() => {
-    if (scopeId !== null) {
-      setSelectedAddonIds([]);
-      setManualAdjValue("");
-      setFrequencyStr("");
-      setHoursInput(0);
-    }
-  }, [scopeId]);
-
-  // Auto-default frequency once frequencies load
-  useEffect(() => {
-    if (scopeId && frequencies.length > 0 && !frequencyStr) {
-      const oneTime = frequencies.find(f =>
-        f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single")
-      );
-      setFrequencyStr(oneTime?.frequency ?? frequencies[0].frequency);
-    }
-  }, [scopeId, frequencies, frequencyStr]);
-
-  // ── Call Notes auto-save (10s debounce + auto-create draft) ─────────────────
+  // ── Call Notes auto-save (10s debounce) ─────────────────────────────────
   useEffect(() => {
     if (!callNotes) return;
     const timer = setTimeout(async () => {
@@ -297,9 +230,8 @@ export default function QuoteBuilderPage() {
       setCallNotesSaving(true);
       try {
         if (targetId) {
-          await apiFetch(`/api/quotes/${targetId}`, { method: "PATCH", body: { call_notes: callNotes || null } });
+          await apiFetch(`/api/quotes/${targetId}`, { method: "PATCH", body: { call_notes: callNotes } });
         } else {
-          // Auto-create a minimal draft to persist call notes
           const result = await apiFetch("/api/quotes", { method: "POST", body: { call_notes: callNotes, status: "draft" } });
           autoSavedIdRef.current = String(result.id);
         }
@@ -311,137 +243,153 @@ export default function QuoteBuilderPage() {
     return () => clearTimeout(timer);
   }, [callNotes, isEdit, id]);
 
-  const selectedScope = scopes.find(s => s.id === scopeId);
-  const pricingMethod = selectedScope?.pricing_method ?? "sqft";
-
-  // ── Live price calculation (debounced 300ms) ─────────────────────────────────
-
-  const runCalculate = useCallback(async (opts?: { withCode?: string }) => {
-    if (!scopeId) { setCalcResult(null); return; }
-
-    const method = selectedScope?.pricing_method ?? "sqft";
-
-    // Need sqft for sqft method
-    if (method === "sqft" && (!sqft || sqft === 0)) { setCalcResult(null); return; }
-    // Need hours for hourly/simplified
-    if ((method === "hourly" || method === "simplified") && (!hoursInput || hoursInput <= 0)) {
-      setCalcResult(null); return;
-    }
-
-    setCalcLoading(true);
-    try {
-      const manualAdjNum = parseFloat(manualAdjValue);
-      const body: Record<string, unknown> = {
-        scope_id: scopeId,
-        frequency: frequencyStr || undefined,
-        addon_ids: selectedAddonIds,
-        discount_code: opts?.withCode ?? discountCode,
-        ...(manualAdjValue && !isNaN(manualAdjNum) ? { manual_adjustment: manualAdjNum } : {}),
-      };
-      if (method === "sqft") {
-        body.sqft = sqft;
-      } else {
-        body.hours = hoursInput;
-        if (sqft > 0) body.sqft = sqft;
-      }
-
-      const result = await apiFetch("/api/pricing/calculate", { method: "POST", body });
-      setCalcResult(result);
-
-      if (opts?.withCode !== undefined) {
-        if (result.discount_valid === false) {
-          setDiscountError("Code not found or inactive");
-          setDiscountCode("");
-        } else if (result.discount_amount > 0) {
-          setDiscountError("");
-          setDiscountCode(opts.withCode);
-        }
-      }
-    } catch { /* ignore transient errors */ }
-    finally { setCalcLoading(false); }
-  }, [scopeId, sqft, hoursInput, frequencyStr, selectedAddonIds, manualAdjValue, discountCode, selectedScope]);
-
+  // ── Recalc all sqft-based scopes when sqft changes ───────────────────────
   useEffect(() => {
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { runCalculate(); }, 300);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [scopeId, sqft, hoursInput, frequencyStr, selectedAddonIds, manualAdjValue]);
+    selectedScopesRef.current.forEach(s => {
+      const scope = scopes.find(sc => sc.id === s.scope_id);
+      if (scope?.pricing_method === "sqft") recalcScopeById(s.scope_id);
+    });
+  }, [sqft]);
 
-  // ── Section completion ────────────────────────────────────────────────────────
+  // ── Recalc function (uses refs to avoid stale closures) ─────────────────
+  function recalcScopeById(scopeId: number, delay = 300) {
+    if (recalcTimers.current[scopeId]) clearTimeout(recalcTimers.current[scopeId]);
+    recalcTimers.current[scopeId] = setTimeout(async () => {
+      const state = selectedScopesRef.current.find(s => s.scope_id === scopeId);
+      const scope = scopes.find(s => s.id === scopeId);
+      if (!state || !scope) return;
+      const method = scope.pricing_method;
+      const currentSqft = sqftRef.current;
+      if (method === "sqft" && (!currentSqft || currentSqft === 0)) {
+        setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calc: null } : s));
+        return;
+      }
+      if ((method === "hourly" || method === "simplified") && (!state.hours || state.hours <= 0)) {
+        setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calc: null } : s));
+        return;
+      }
+      setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calcLoading: true } : s));
+      try {
+        const body: Record<string, unknown> = { scope_id: scopeId, frequency: state.frequency || undefined, addon_ids: state.addon_ids };
+        if (method === "sqft") { body.sqft = currentSqft; }
+        else { body.hours = state.hours; if (currentSqft > 0) body.sqft = currentSqft; }
+        const result = await apiFetch("/api/pricing/calculate", { method: "POST", body });
+        setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calc: result, calcLoading: false } : s));
+      } catch {
+        setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calcLoading: false } : s));
+      }
+    }, delay);
+  }
 
+  // ── Toggle scope selection ────────────────────────────────────────────────
+  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[] }) {
+    const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
+    if (isSelected && !initialState) {
+      setSelectedScopes(prev => prev.filter(s => s.scope_id !== scope.id));
+      if (finalScopeId === scope.id) setFinalScopeId(null);
+      return;
+    }
+    if (isSelected) return; // already there on restore
+    try {
+      const [freqs, addons] = await Promise.all([
+        apiFetch(`/api/pricing/scopes/${scope.id}/frequencies?office=true`),
+        apiFetch(`/api/pricing/scopes/${scope.id}/addons`),
+      ]);
+      const defaultFreq = (freqs as PricingFrequency[]).find(f =>
+        f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single") || f.frequency.toLowerCase().includes("once")
+      ) ?? (freqs as PricingFrequency[])[0];
+      const newState: SelectedScopeState = {
+        scope_id: scope.id,
+        frequency: initialState?.frequency ?? defaultFreq?.frequency ?? "",
+        hours: initialState?.hours ?? 0,
+        addon_ids: initialState?.addon_ids ?? [],
+        frequencies: freqs as PricingFrequency[],
+        addons: addons as PricingAddon[],
+        calc: null,
+        calcLoading: false,
+        expanded: true,
+      };
+      setSelectedScopes(prev => [...prev, newState]);
+      setTimeout(() => recalcScopeById(scope.id, 100), 50);
+    } catch {
+      setSelectedScopes(prev => [...prev, {
+        scope_id: scope.id, frequency: initialState?.frequency ?? "", hours: initialState?.hours ?? 0,
+        addon_ids: initialState?.addon_ids ?? [], frequencies: [], addons: [],
+        calc: null, calcLoading: false, expanded: true,
+      }]);
+    }
+  }
+
+  function updateScopeFrequency(scopeId: number, freq: string) {
+    setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, frequency: freq } : s));
+    setTimeout(() => recalcScopeById(scopeId), 50);
+  }
+
+  function updateScopeHours(scopeId: number, hours: number) {
+    setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, hours } : s));
+    recalcScopeById(scopeId);
+  }
+
+  function updateScopeAddon(scopeId: number, addonId: number, checked: boolean) {
+    setSelectedScopes(prev => prev.map(s => {
+      if (s.scope_id !== scopeId) return s;
+      const addon_ids = checked ? [...s.addon_ids, addonId] : s.addon_ids.filter(id => id !== addonId);
+      return { ...s, addon_ids };
+    }));
+    recalcScopeById(scopeId);
+  }
+
+  // ── Section completion ────────────────────────────────────────────────────
   const sectionComplete = [
     Boolean(selectedClientId || leadName || leadEmail),
-    Boolean(sqft > 0 || pricingMethod !== "sqft"),
-    Boolean(scopeId && frequencyStr && (pricingMethod === "sqft" ? sqft > 0 : hoursInput > 0)),
+    Boolean(sqft > 0),
+    selectedScopes.length > 0,
     true,
+    Boolean(finalScopeId || selectedScopes.length === 1),
   ];
 
-  // ── Scope groups (office-visible, active only) ────────────────────────────────
-
-  const scopeGroups = scopes.reduce<Record<string, PricingScope[]>>((acc, s) => {
-    const g = s.scope_group || "Other";
-    if (!acc[g]) acc[g] = [];
-    acc[g].push(s);
-    return acc;
-  }, {});
-
-  // ── Helpers ──────────────────────────────────────────────────────────────────
-
+  // ── Build payload & save ─────────────────────────────────────────────────
   function buildPayload(status: string) {
+    const primaryScopeId = finalScopeId ?? (selectedScopes.length === 1 ? selectedScopes[0].scope_id : null);
+    const primaryScopeState = selectedScopes.find(s => s.scope_id === primaryScopeId);
+    const cr = primaryScopeState?.calc ?? null;
     const client = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
-    const cr = calcResult;
+    const alternateOptions = selectedScopes
+      .filter(s => s.scope_id !== primaryScopeId)
+      .map(s => ({
+        scope_id: s.scope_id,
+        scope_name: scopes.find(sc => sc.id === s.scope_id)?.name ?? "",
+        frequency: s.frequency,
+        addon_ids: s.addon_ids,
+        total: s.calc?.final_total ?? null,
+      }));
     return {
       client_id: selectedClientId || null,
       lead_name: client ? `${client.first_name} ${client.last_name}`.trim() : leadName || null,
       lead_email: client?.email || leadEmail || null,
       lead_phone: client?.phone || leadPhone || null,
       address: address || client?.address || null,
-      scope_id: scopeId || null,
-      frequency: frequencyStr || null,
+      scope_id: primaryScopeId || null,
+      frequency: primaryScopeState?.frequency || null,
       sqft: sqft || null,
-      bedrooms,
-      bathrooms,
+      bedrooms, bathrooms,
       half_baths: halfBaths,
-      pets,
-      dirt_level: dirtLevel,
+      pets, dirt_level: dirtLevel,
       addons: cr?.addon_breakdown ?? [],
       discount_code: discountCode || null,
       base_price: cr ? String(cr.base_price) : null,
       addons_total: cr ? String(cr.addons_total) : null,
       discount_amount: cr ? String(cr.discount_amount) : "0",
       total_price: cr ? String(cr.final_total) : null,
-      estimated_hours: cr ? String(cr.base_hours) : (hoursInput > 0 ? String(hoursInput) : null),
+      estimated_hours: cr ? String(cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
       hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,
       call_notes: callNotes || null,
+      alternate_options: alternateOptions.length > 0 ? alternateOptions : null,
+      zone_override: zoneOverride || null,
       status,
     };
-  }
-
-  async function checkZip(zip: string) {
-    const clean = zip.trim().replace(/\D/g, "").slice(0, 5);
-    if (clean.length < 5) { setZipZone(null); setSuggestedTechs([]); return; }
-    setCheckingZip(true);
-    try {
-      const zones = await apiFetch("/api/zones");
-      const match = (Array.isArray(zones) ? zones : []).find((z: any) => Array.isArray(z.zip_codes) && z.zip_codes.includes(clean));
-      if (match) {
-        setZipZone({ name: match.name, color: match.color });
-        const techs: SuggestedTech[] = (match.employees ?? []).map((e: any) => ({
-          id: e.id,
-          name: e.name,
-          zone_name: match.name,
-          zone_color: match.color,
-        }));
-        setSuggestedTechs(techs);
-        setTechAvailability({});
-      } else {
-        setZipZone("uncovered");
-        setSuggestedTechs([]);
-      }
-    } catch { setZipZone(null); setSuggestedTechs([]); }
-    finally { setCheckingZip(false); }
   }
 
   async function save(status: string = "draft", thenConvert = false) {
@@ -460,7 +408,7 @@ export default function QuoteBuilderPage() {
       const savedId = result?.id ?? id;
       if (thenConvert && savedId) {
         await apiFetch(`/api/quotes/${savedId}/convert`, { method: "POST" });
-        toast.success("Quote converted to job. Go to Jobs to complete setup.");
+        toast.success("Quote converted to job.");
         navigate("/jobs");
       } else if (status === "sent") {
         toast.success(isEdit ? "Quote sent" : "Quote created and marked as sent.");
@@ -476,80 +424,52 @@ export default function QuoteBuilderPage() {
     }
   }
 
-  const selectedClient = clients.find(c => c.id === selectedClientId);
-
-  function toggleAddon(addonId: number) {
-    setSelectedAddonIds(prev =>
-      prev.includes(addonId) ? prev.filter(a => a !== addonId) : [...prev, addonId]
-    );
+  // ── Zip zone check ────────────────────────────────────────────────────────
+  async function checkZip(zip: string) {
+    const clean = zip.trim().replace(/\D/g, "").slice(0, 5);
+    if (clean.length < 5) { setZipZone(null); setSuggestedTechs([]); return; }
+    setCheckingZip(true);
+    try {
+      const zones = await apiFetch("/api/zones");
+      const match = (Array.isArray(zones) ? zones : []).find((z: any) => Array.isArray(z.zip_codes) && z.zip_codes.includes(clean));
+      if (match) {
+        setZipZone({ name: match.name, color: match.color });
+        setSuggestedTechs((match.employees ?? []).map((e: any) => ({ id: e.id, name: e.name, zone_name: match.name, zone_color: match.color })));
+        setTechAvailability({});
+      } else {
+        setZipZone("uncovered");
+        setSuggestedTechs([]);
+      }
+    } catch { setZipZone(null); setSuggestedTechs([]); }
+    finally { setCheckingZip(false); }
   }
 
-  function addonDisplayPrice(addon: PricingAddon): string {
-    const pv = parseFloat(String(addon.price_value ?? addon.price ?? 0));
-    switch (addon.price_type) {
-      case "flat":
-        if (pv < 0) return `($${Math.abs(pv).toFixed(2)}) discount`;
-        return `$${pv.toFixed(2)}`;
-      case "percentage":
-        if (pv < 0) return `${pv.toFixed(1)}% off`;
-        return `+${pv.toFixed(1)}%`;
-      case "sqft_pct":
-        return `${pv.toFixed(2)}% × sq.ft.`;
-      case "time_only":
-        return "No additional charge";
-      case "manual_adj":
-        return "Enter amount below";
-      case "percent":
-        return addon.percent_of_base ? `${addon.percent_of_base}% of base` : "";
-      default:
-        return pv ? `$${pv.toFixed(2)}` : "";
-    }
+  // ── Tech availability (Phase 2) ──────────────────────────────────────────
+  async function fetchTechAvailability(date: string) {
+    if (!suggestedTechs.length || !date) return;
+    setTechAvailLoading(true);
+    try {
+      const data = await apiFetch(`/api/dispatch?date=${date}`);
+      const countMap: Record<number, number> = {};
+      const techIds = new Set(suggestedTechs.map(t => t.id));
+      for (const emp of (data.employees ?? [])) {
+        if (techIds.has(emp.id)) {
+          countMap[emp.id] = (emp.jobs ?? []).filter((j: any) => !["void", "moved", "skip", "cancelled"].includes(j.status)).length;
+        }
+      }
+      setTechAvailability(countMap);
+    } catch { /* silent */ }
+    finally { setTechAvailLoading(false); }
   }
 
-  // ── Pricing method helpers ───────────────────────────────────────────────────
-
-  function pricingMethodLabel(method: string): string {
-    if (method === "hourly") return "Hourly";
-    if (method === "simplified") return "Simplified";
-    return "Sq Ft Based";
+  function techAvailDot(count: number): { color: string; label: string; muted: boolean } {
+    if (count === 0) return { color: "#22C55E", label: "Available", muted: false };
+    if (count === 1) return { color: "#EAB308", label: "1 job that day", muted: false };
+    if (count < 4) return { color: "#F97316", label: `${count} jobs that day`, muted: false };
+    return { color: "#9E9B94", label: "Likely unavailable", muted: true };
   }
 
-  function effectiveHourlyRate(): number {
-    if (!selectedScope) return 0;
-    const base = parseFloat(selectedScope.hourly_rate);
-    const freq = frequencies.find(f => f.frequency === frequencyStr);
-    if (freq?.rate_override) return parseFloat(freq.rate_override);
-    if (freq) return base * parseFloat(freq.multiplier);
-    return base;
-  }
-
-  // ── Highlight-to-push ─────────────────────────────────────────────────────
-  function handleCallNotesMouseUp() {
-    const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || sel.toString().length <= 3) {
-      setCallNoteTooltip(null);
-      return;
-    }
-    const range = sel.getRangeAt(0);
-    const rect = range.getBoundingClientRect();
-    setCallNoteTooltip({
-      x: rect.left + rect.width / 2,
-      y: rect.top - 8,
-      text: sel.toString(),
-    });
-  }
-
-  function pushSelectedToJobNotes() {
-    if (!callNoteTooltip) return;
-    const textToAdd = callNoteTooltip.text;
-    setInternalMemo(prev => prev ? `${prev}\n${textToAdd}` : textToAdd);
-    setCallNoteTooltip(null);
-    window.getSelection()?.removeAllRanges();
-    setPushConfirmed(true);
-    setTimeout(() => setPushConfirmed(false), 1500);
-  }
-
-  // ── Returning client detection ────────────────────────────────────────────
+  // ── Returning client ─────────────────────────────────────────────────────
   function handlePhoneBlur(phone: string) {
     if (!phone || phone.trim().length < 7 || selectedClientId || returningClientDismissed) return;
     const cleaned = phone.replace(/\D/g, "");
@@ -568,376 +488,149 @@ export default function QuoteBuilderPage() {
   function applyReturningClient() {
     if (!returningClient) return;
     const client = clients.find(c => c.id === returningClient.id);
-    if (client) {
-      setSelectedClientId(client.id);
-      setAddress(client.address || "");
-    }
+    if (client) { setSelectedClientId(client.id); setAddress(client.address || ""); }
     setReturningClient(null);
     setReturningClientDismissed(true);
   }
 
-  // ── Tech availability (Phase 2) ──────────────────────────────────────────
-  async function fetchTechAvailability(date: string) {
-    if (!suggestedTechs.length || !date) return;
-    setTechAvailLoading(true);
-    try {
-      const data = await apiFetch(`/api/dispatch?date=${date}`);
-      const countMap: Record<number, number> = {};
-      const techIds = new Set(suggestedTechs.map(t => t.id));
-      for (const emp of (data.employees ?? [])) {
-        if (techIds.has(emp.id)) {
-          const jobCount = (emp.jobs ?? []).filter((j: any) => !["void", "moved", "skip"].includes(j.status)).length;
-          countMap[emp.id] = jobCount;
-        }
-      }
-      setTechAvailability(countMap);
-    } catch { /* silent */ }
-    finally { setTechAvailLoading(false); }
+  // ── Highlight-to-push ────────────────────────────────────────────────────
+  function handleCallNotesMouseUp() {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || sel.toString().length <= 3) { setCallNoteTooltip(null); return; }
+    const range = sel.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    setCallNoteTooltip({ x: rect.left + rect.width / 2, y: rect.top - 8, text: sel.toString() });
   }
 
-  // ── Tech suggestion display helpers ──────────────────────────────────────
-  function techAvailDot(count: number): { color: string; label: string; muted: boolean } {
-    if (count === 0) return { color: "#22C55E", label: "Available", muted: false };
-    if (count === 1) return { color: "#EAB308", label: "1 job that day", muted: false };
-    if (count < 4) return { color: "#F97316", label: `${count} jobs that day`, muted: false };
-    return { color: "#9E9B94", label: "Likely unavailable", muted: true };
+  function pushSelectedToJobNotes() {
+    if (!callNoteTooltip) return;
+    setInternalMemo(prev => prev ? `${prev}\n${callNoteTooltip.text}` : callNoteTooltip.text);
+    setCallNoteTooltip(null);
+    window.getSelection()?.removeAllRanges();
+    setPushConfirmed(true);
+    setTimeout(() => setPushConfirmed(false), 1500);
   }
 
-  // ── Mobile variables ─────────────────────────────────────────────────────
-  const MFF = "'Plus Jakarta Sans', sans-serif";
-  const mobileActiveAddons = scopeAddons.filter(a => a.is_active && a.show_office !== false);
+  // ── Add-on display price ─────────────────────────────────────────────────
+  function addonDisplayPrice(addon: PricingAddon): string {
+    const pv = parseFloat(String(addon.price_value ?? addon.price ?? 0));
+    switch (addon.price_type) {
+      case "flat": return pv < 0 ? `($${Math.abs(pv).toFixed(2)}) discount` : `$${pv.toFixed(2)}`;
+      case "percentage": return pv < 0 ? `${pv.toFixed(1)}% off` : `+${pv.toFixed(1)}%`;
+      case "sqft_pct": return `${pv.toFixed(2)}% × sq.ft.`;
+      case "time_only": return "No additional charge";
+      case "manual_adj": return "Enter amount below";
+      case "percent": return addon.percent_of_base ? `${addon.percent_of_base}% of base` : "";
+      default: return pv ? `$${pv.toFixed(2)}` : "";
+    }
+  }
+
+  const selectedClient = clients.find(c => c.id === selectedClientId);
+  const selectedScopeIds = selectedScopes.map(s => s.scope_id);
+  const canConvert = selectedScopes.length > 0 && (finalScopeId !== null || selectedScopes.length === 1);
+
+  // ── Mobile helpers ────────────────────────────────────────────────────────
   const mobileFilteredClients = mobileClientSearch.trim().length > 0
     ? clients.filter(c => `${c.first_name} ${c.last_name} ${c.email}`.toLowerCase().includes(mobileClientSearch.toLowerCase())).slice(0, 30)
     : clients.slice(0, 30);
 
-  // ── Mobile layout ─────────────────────────────────────────────────────────
+  // ── MOBILE LAYOUT ────────────────────────────────────────────────────────
   if (isMobile) {
-    const secHead = (label: string) => (
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 10, fontFamily: MFF }}>
-        {label}
-      </div>
-    );
-    const fieldLbl = (t: string) => <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: MFF, marginBottom: 6 }}>{t}</div>;
-    const inp: React.CSSProperties = { width: "100%", boxSizing: "border-box" as const, height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: MFF, color: "#1A1917", outline: "none", background: "#FFF" };
-
+    const firstScope = selectedScopes[0] ?? null;
     return (
-      <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: MFF, paddingBottom: 90 }}>
-
-        {/* Sticky header */}
+      <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: FF, paddingBottom: 90 }}>
         <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#FFF", borderBottom: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
-          <button onClick={() => navigate("/quotes")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#6B6860", fontSize: 14, fontFamily: MFF, padding: 0 }}>
+          <button onClick={() => navigate("/quotes")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#6B6860", fontSize: 14, fontFamily: FF }}>
             <ArrowLeft size={18} /> Back
           </button>
-          <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: MFF }}>{isEdit ? "Edit Quote" : "New Quote"}</span>
+          <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{isEdit ? "Edit Quote" : "New Quote"}</span>
         </div>
-
         <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 24 }}>
 
-          {/* ── Client ─────────────────────────────────────────────────── */}
+          {/* Client search */}
           <div>
-            {secHead("Client")}
-
-            {/* Selected client summary */}
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, fontFamily: FF }}>Client</div>
             {selectedClient ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFF6FF" }}>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: MFF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
-                  {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: MFF }}>{selectedClient.email}</div>}
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
+                  {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{selectedClient.email}</div>}
                 </div>
-                <button onClick={() => { setSelectedClientId(null); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4 }}>
+                <button onClick={() => { setSelectedClientId(null); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
                   <X size={18} />
                 </button>
               </div>
             ) : (
               <div style={{ position: "relative" }}>
-                <input
-                  value={mobileClientSearch}
-                  onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }}
-                  onFocus={() => setMobileClientDropdown(true)}
-                  placeholder="Search clients by name or email..."
-                  style={inp}
-                />
+                <input value={mobileClientSearch} onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }} onFocus={() => setMobileClientDropdown(true)} placeholder="Search clients..." style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
                 {mobileClientDropdown && (
                   <div style={{ position: "absolute", top: 50, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 20, maxHeight: 260, overflowY: "auto" }}>
-                    <div
-                      onClick={() => { setSelectedClientId(null); setMobileClientDropdown(false); setMobileClientSearch(""); }}
-                      style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860", fontFamily: MFF }}
-                    >
-                      — Enter lead info instead
-                    </div>
+                    <div onClick={() => { setSelectedClientId(null); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
                     {mobileFilteredClients.map(c => (
-                      <div
-                        key={c.id}
-                        onClick={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setMobileClientDropdown(false); setMobileClientSearch(""); }}
-                        style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
-                      >
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: MFF }}>{c.first_name} {c.last_name}</div>
-                        <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: MFF }}>{c.email}</div>
+                      <div key={c.id} onClick={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
+                        <div style={{ fontSize: 12, color: "#9E9B94" }}>{c.email}</div>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
             )}
-
-            {/* Lead fields when no client selected */}
-            {!selectedClientId && (
-              <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
-                <div>
-                  {fieldLbl("Lead Name")}
-                  <input value={leadName} onChange={e => setLeadName(e.target.value)} placeholder="Jane Doe" style={inp} />
-                </div>
-                <div>
-                  {fieldLbl("Email")}
-                  <input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} placeholder="jane@example.com" type="email" style={inp} />
-                </div>
-                <div>
-                  {fieldLbl("Phone")}
-                  <input value={leadPhone} onChange={e => setLeadPhone(e.target.value)} placeholder="(555) 000-0000" type="tel" style={inp} />
-                </div>
-                <div>
-                  {fieldLbl("Service Address")}
-                  <input value={address} onChange={e => setAddress(e.target.value)} placeholder="123 Main St, City, State" style={inp} />
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* ── Service (scope pill cards) ──────────────────────────────── */}
+          {/* Scope cards (mobile) */}
           <div>
-            {secHead("Service")}
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Service</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {scopes.map(s => (
-                <button
-                  key={s.id}
-                  onClick={() => { setScopeId(s.id); setFrequencyStr(""); setSelectedAddonIds([]); setHoursInput(0); }}
-                  style={{
-                    padding: "14px 10px", border: `2px solid ${scopeId === s.id ? "var(--brand)" : "#E5E2DC"}`,
-                    borderRadius: 10, background: scopeId === s.id ? "#EFF6FF" : "#FFF",
-                    textAlign: "center" as const, cursor: "pointer", fontFamily: MFF, minHeight: 60,
-                  }}
-                >
-                  <div style={{ fontSize: 13, fontWeight: 700, color: scopeId === s.id ? "var(--brand)" : "#1A1917", fontFamily: MFF, lineHeight: 1.3 }}>{s.name}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Home Details (steppers) — appears after scope selected ─── */}
-          {scopeId && (
-            <div>
-              {secHead("Home Details")}
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-
-                {/* Square footage */}
-                <div>
-                  {fieldLbl(pricingMethod === "sqft" ? "Square Footage (required)" : "Square Footage")}
-                  <input
-                    type="number"
-                    value={sqft || ""}
-                    onChange={e => setSqft(parseInt(e.target.value) || 0)}
-                    placeholder="e.g. 2000"
-                    style={inp}
-                  />
-                </div>
-
-                {/* Hours input for hourly/simplified scopes */}
-                {(pricingMethod === "hourly" || pricingMethod === "simplified") && (
-                  <div>
-                    {fieldLbl("Estimated Hours")}
-                    <input
-                      type="number"
-                      min="0.5"
-                      step="0.5"
-                      value={hoursInput || ""}
-                      onChange={e => setHoursInput(parseFloat(e.target.value) || 0)}
-                      placeholder="e.g. 3.0"
-                      style={inp}
-                    />
-                  </div>
-                )}
-
-                <div>
-                  {fieldLbl("Bedrooms")}
-                  <Stepper value={bedrooms} onChange={setBedrooms} min={1} max={10} />
-                </div>
-                <div>
-                  {fieldLbl("Full Bathrooms")}
-                  <Stepper value={bathrooms} onChange={setBathrooms} min={1} max={8} />
-                </div>
-                <div>
-                  {fieldLbl("Half Bathrooms")}
-                  <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── Frequency (pill row) — only if scope has frequencies ─── */}
-          {scopeId && frequencies.length > 0 && (
-            <div>
-              {secHead("Frequency")}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {frequencies.map(freq => (
-                  <button
-                    key={freq.id}
-                    onClick={() => setFrequencyStr(freq.frequency)}
-                    style={{
-                      height: 48, border: `2px solid ${frequencyStr === freq.frequency ? "var(--brand)" : "#E5E2DC"}`,
-                      borderRadius: 10, background: frequencyStr === freq.frequency ? "#EFF6FF" : "#FFF",
-                      color: frequencyStr === freq.frequency ? "var(--brand)" : "#1A1917",
-                      fontWeight: 600, fontSize: 14, cursor: "pointer", fontFamily: MFF,
-                    }}
-                  >
-                    {freq.label || freq.frequency}
+              {scopes.map(s => {
+                const isSel = selectedScopeIds.includes(s.id);
+                return (
+                  <button key={s.id} onClick={() => toggleScope(s)} style={{ padding: "14px 10px", border: `2px solid ${isSel ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: isSel ? "#EFF6FF" : "#FFF", textAlign: "center", cursor: "pointer", fontFamily: FF, minHeight: 60 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: isSel ? "var(--brand)" : "#1A1917" }}>{s.name}</div>
                   </button>
-                ))}
-              </div>
+                );
+              })}
             </div>
-          )}
-
-          {/* ── Add-ons (full-width checkbox cards, 56px min height) ─── */}
-          {scopeId && mobileActiveAddons.length > 0 && (
-            <div>
-              {secHead("Add-ons")}
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {mobileActiveAddons.map(addon => {
-                  const isSelected = selectedAddonIds.includes(addon.id);
-                  const fromResult = calcResult?.addon_breakdown.find(b => b.id === addon.id);
-                  const priceText = fromResult
-                    ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `+$${fromResult.amount.toFixed(2)}`)
-                    : addonDisplayPrice(addon);
-                  return (
-                    <label
-                      key={addon.id}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 14, minHeight: 56,
-                        border: `2px solid ${isSelected ? "var(--brand)" : "#E5E2DC"}`,
-                        borderRadius: 10, padding: "10px 14px", cursor: "pointer",
-                        background: isSelected ? "#EFF6FF" : "#FFF",
-                      }}
-                    >
-                      <Checkbox checked={isSelected} onCheckedChange={() => toggleAddon(addon.id)} className="shrink-0" />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: MFF }}>{addon.name}</div>
-                        <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: MFF }}>{priceText}</div>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Discount Code ───────────────────────────────────────────── */}
-          <div>
-            {secHead("Discount Code")}
-            <div style={{ display: "flex", gap: 10 }}>
-              <input
-                value={discountInput}
-                onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
-                placeholder="e.g. MANAGER50"
-                style={{ ...inp, flex: 1 }}
-              />
-              <button
-                onClick={() => runCalculate({ withCode: discountInput.trim() })}
-                disabled={!discountInput.trim() || calcLoading}
-                style={{ height: 48, padding: "0 20px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", fontSize: 14, fontWeight: 600, color: "#1A1917", cursor: "pointer", fontFamily: MFF, flexShrink: 0 }}
-              >
-                Apply
-              </button>
-            </div>
-            {discountError && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 6, fontFamily: MFF }}>{discountError}</div>}
-            {discountCode && calcResult && calcResult.discount_amount > 0 && (
-              <div style={{ fontSize: 12, color: "#16A34A", marginTop: 6, fontFamily: MFF }}>Code applied — -${calcResult.discount_amount.toFixed(2)}</div>
-            )}
           </div>
 
-          {/* ── Internal Notes (collapsible) ────────────────────────────── */}
+          {/* Internal Notes */}
           <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
-            <button
-              onClick={() => setMobileNotesOpen(v => !v)}
-              style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: MFF }}
-            >
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Internal Notes</span>
-              {mobileNotesOpen ? <ChevronDown size={16} color="#6B6860" style={{ transform: "rotate(180deg)" }} /> : <ChevronDown size={16} color="#6B6860" />}
+            <button onClick={() => setMobileNotesOpen(v => !v)} style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer" }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Job Notes</span>
+              <ChevronDown size={16} color="#6B6860" style={{ transform: mobileNotesOpen ? "rotate(180deg)" : "none" }} />
             </button>
             {mobileNotesOpen && (
               <div style={{ padding: "0 16px 16px" }}>
-                <textarea
-                  value={internalMemo}
-                  onChange={e => setInternalMemo(e.target.value)}
-                  placeholder="Add notes for the office — not shown to client"
-                  rows={4}
-                  style={{ width: "100%", boxSizing: "border-box" as const, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: MFF, color: "#1A1917", resize: "vertical" as const, outline: "none" }}
-                />
+                <textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Notes for the technician..." rows={4} style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: FF, resize: "vertical", outline: "none" }} />
               </div>
             )}
           </div>
-
         </div>
 
-        {/* ── Call Notes FAB (mobile) ───────────────────────────────────── */}
-        <button
-          onClick={() => setCallNotesMobileOpen(true)}
-          style={{
-            position: "fixed", bottom: 82, right: 16, zIndex: 45,
-            width: 52, height: 52, borderRadius: "50%",
-            background: callNotes ? "#1A1917" : "#F7F6F3",
-            border: callNotes ? "none" : "1.5px solid #E5E2DC",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            boxShadow: "0 2px 12px rgba(0,0,0,0.18)", cursor: "pointer",
-          }}
-          title="Call Notes"
-        >
+        {/* Call Notes FAB */}
+        <button onClick={() => setCallNotesMobileOpen(true)} style={{ position: "fixed", bottom: 82, right: 16, zIndex: 45, width: 52, height: 52, borderRadius: "50%", background: callNotes ? "#1A1917" : "#F7F6F3", border: callNotes ? "none" : "1.5px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.18)", cursor: "pointer" }}>
           <Phone size={20} color={callNotes ? "#FFF" : "#6B6860"} />
         </button>
 
-        {/* ── Call Notes Modal (mobile) ─────────────────────────────────── */}
         {callNotesMobileOpen && (
           <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column" }}>
             <div onClick={() => setCallNotesMobileOpen(false)} style={{ flex: 1, background: "rgba(0,0,0,0.45)" }} />
             <div style={{ background: "#FFF", borderRadius: "16px 16px 0 0", padding: 24, paddingBottom: 40 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Phone size={16} color="#1A1917" />
-                  <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: MFF }}>Call Notes</span>
-                </div>
-                <button onClick={() => setCallNotesMobileOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}>
-                  <X size={20} color="#6B6860" />
-                </button>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Call Notes</span>
+                <button onClick={() => setCallNotesMobileOpen(false)} style={{ background: "none", border: "none", cursor: "pointer" }}><X size={20} color="#6B6860" /></button>
               </div>
-              <textarea
-                value={callNotes}
-                onChange={e => setCallNotes(e.target.value)}
-                placeholder="Notes from this call — not visible to client..."
-                rows={6}
-                style={{ width: "100%", boxSizing: "border-box" as const, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: MFF, color: "#1A1917", resize: "none" as const, outline: "none" }}
-              />
-              <p style={{ fontSize: 11, color: "#9E9B94", fontFamily: MFF, marginTop: 8 }}>
-                {callNotesSaving ? "Saving..." : callNotesSaved ? "✓ Saved" : isEdit ? "Auto-saves 2s after you stop typing" : "Saves with quote"}
-              </p>
+              <textarea value={callNotes} onChange={e => setCallNotes(e.target.value)} placeholder="Notes from this call..." rows={6} style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", resize: "none", outline: "none" }} />
             </div>
           </div>
         )}
 
-        {/* ── Sticky bottom price bar ──────────────────────────────────── */}
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#FFF", borderTop: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, zIndex: 40, boxShadow: "0 -2px 12px rgba(0,0,0,0.07)" }}>
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#FFF", borderTop: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, zIndex: 40 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: "#6B6860", fontFamily: MFF }}>Estimated Total</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: MFF }}>
-              {calcLoading ? "..." : calcResult ? `$${calcResult.final_total.toFixed(2)}` : "—"}
-            </div>
+            <div style={{ fontSize: 11, color: "#6B6860" }}>Estimated Total</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{firstScope?.calc ? `$${firstScope.calc.final_total.toFixed(2)}` : "—"}</div>
           </div>
-          <button
-            onClick={() => save("draft")}
-            disabled={saving || !scopeId}
-            style={{
-              height: 48, padding: "0 24px", background: saving || !scopeId ? "#D1D5DB" : "var(--brand)",
-              color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700,
-              cursor: saving || !scopeId ? "not-allowed" : "pointer", fontFamily: MFF, flexShrink: 0,
-            }}
-          >
+          <button onClick={() => save("draft")} disabled={saving || selectedScopes.length === 0} style={{ height: 48, padding: "0 24px", background: saving || selectedScopes.length === 0 ? "#D1D5DB" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
             {saving ? "Saving..." : "Save Quote"}
           </button>
         </div>
@@ -945,20 +638,14 @@ export default function QuoteBuilderPage() {
     );
   }
 
+  // ── DESKTOP LAYOUT ────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen" style={{ background: '#F7F6F3', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="min-h-screen" style={{ background: "#F7F6F3", fontFamily: FF }}>
 
-      {/* ── Highlight-to-push tooltip (fixed) ─────────────────────── */}
+      {/* Highlight-to-push tooltip */}
       {callNoteTooltip && (
         <div
-          style={{
-            position: 'fixed', left: callNoteTooltip.x, top: callNoteTooltip.y,
-            transform: 'translateX(-50%) translateY(-100%)',
-            background: '#1A1917', color: '#FFF', fontSize: 12, borderRadius: 4,
-            padding: '4px 10px', zIndex: 9999, whiteSpace: 'nowrap',
-            cursor: 'pointer', userSelect: 'none' as const,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-          }}
+          style={{ position: "fixed", left: callNoteTooltip.x, top: callNoteTooltip.y, transform: "translateX(-50%) translateY(-100%)", background: "#1A1917", color: "#FFF", fontSize: 12, borderRadius: 4, padding: "4px 10px", zIndex: 9999, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none", boxShadow: "0 2px 8px rgba(0,0,0,0.3)" }}
           onMouseDown={e => e.preventDefault()}
           onClick={pushSelectedToJobNotes}
         >
@@ -966,96 +653,53 @@ export default function QuoteBuilderPage() {
         </div>
       )}
 
-      {/* ── Header ────────────────────────────────────────────────── */}
-      <div style={{ borderBottom: '1px solid #E5E2DC', background: '#FFF', padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 12, position: 'sticky', top: 0, zIndex: 50 }}>
+      {/* Header */}
+      <div style={{ borderBottom: "1px solid #E5E2DC", background: "#FFF", padding: "14px 24px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 50 }}>
         <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B7280]">
-          <ArrowLeft className="w-4 h-4" />
-          Back to Quotes
+          <ArrowLeft className="w-4 h-4" /> Back to Quotes
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
-        <h1 className="text-lg font-semibold text-[#1A1917]">{isEdit ? "Edit Quote" : "New Quote"}</h1>
+        <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1A1917" }}>{isEdit ? "Edit Quote" : "New Quote"}</h1>
         <div className="ml-auto flex gap-2">
-          <Button
-            variant="outline" size="sm" onClick={() => save("draft")} disabled={saving}
-            className="gap-1.5 border-[#E5E2DC] text-[#1A1917] bg-transparent hover:bg-[#F7F6F3]"
-          >
-            <Save className="w-4 h-4" />
-            Save Draft
+          <Button variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5 text-[#1A1917]">
+            <Save className="w-4 h-4" /> Save Draft
           </Button>
-          <Button size="sm" onClick={() => save("sent")} disabled={saving} className="gap-1.5 bg-white text-[#1A1917] border border-[#E5E2DC] hover:bg-[#F7F6F3]">
-            <SendHorizonal className="w-4 h-4" />
-            Save & Send
+          <Button size="sm" variant="outline" onClick={() => save("sent")} disabled={saving} className="gap-1.5">
+            <SendHorizonal className="w-4 h-4" /> Save & Send
           </Button>
-          <Button
-            size="sm" onClick={() => save("draft", true)} disabled={saving || !scopeId}
-            style={{ background: 'var(--brand)', color: '#FFF' }} className="gap-1.5 hover:opacity-90"
-          >
-            <ArrowRight className="w-4 h-4" />
-            Save & Convert to Job
+          <Button size="sm" onClick={() => save("draft", true)} disabled={saving || !canConvert} style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90">
+            <ArrowRight className="w-4 h-4" /> Save & Convert to Job
           </Button>
         </div>
       </div>
 
-      {/* ── Two-column body ───────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '58fr 42fr', gap: 20, padding: '24px', alignItems: 'flex-start', paddingBottom: 80 }}>
+      {/* Two-column body */}
+      <div style={{ display: "grid", gridTemplateColumns: "58fr 42fr", gap: 20, padding: "24px", alignItems: "flex-start", paddingBottom: 80 }}>
 
-        {/* ── LEFT: Wizard ───────────────────────────────────────── */}
+        {/* ── LEFT: Wizard ──────────────────────────────────────────────── */}
         <div style={{ minWidth: 0 }}>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' as const }}>
+
+          {/* Step tabs */}
+          <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
             {SECTION_LABELS.map((label, i) => {
               const Icon = SECTION_ICONS[i];
               const isActive = activeSection === i;
               return (
-                <button
-                  key={i}
-                  onClick={() => setActiveSection(i)}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                    cursor: 'pointer', border: 'none', transition: 'all 0.15s',
-                    background: isActive ? 'var(--brand)' : '#F7F6F3',
-                    color: isActive ? '#FFF' : '#6B6860',
-                  }}
-                >
+                <button key={i} onClick={() => setActiveSection(i)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, cursor: "pointer", border: "none", transition: "all 0.15s", background: isActive ? "var(--brand)" : "#F7F6F3", color: isActive ? "#FFF" : "#6B6860" }}>
                   <Icon style={{ width: 14, height: 14 }} />
                   {label}
-                  {sectionComplete[i] && !isActive && (
-                    <span style={{ width: 6, height: 6, background: '#22C55E', borderRadius: '50%', display: 'inline-block' }} />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          {/* Section tabs */}
-          <div className="flex gap-2 mb-2">
-            {SECTION_LABELS.map((label, i) => {
-              const Icon = SECTION_ICONS[i];
-              return (
-                <button
-                  key={i}
-                  onClick={() => setActiveSection(i)}
-                  className={cn(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                    activeSection === i
-                      ? "bg-[#00C9A0] text-white"
-                      : "bg-white border border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
-                  )}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                  {sectionComplete[i] && activeSection !== i && (
-                    <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
-                  )}
+                  {sectionComplete[i] && !isActive && <span style={{ width: 6, height: 6, background: "#22C55E", borderRadius: "50%", display: "inline-block" }} />}
                 </button>
               );
             })}
           </div>
 
-          {/* ── Section 0: Customer Info ────────────────────────────── */}
+          {/* ── Section 0: Customer Info ─────────────────────────────── */}
           {activeSection === 0 && (
-            <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 24 }}>
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
               <div className="space-y-4">
+
+                {/* Existing client search */}
                 <div>
                   <Label className="text-xs text-[#9E9B94] mb-1 block">Existing Client</Label>
                   <Popover open={clientOpen} onOpenChange={setClientOpen}>
@@ -1071,19 +715,10 @@ export default function QuoteBuilderPage() {
                         <CommandList>
                           <CommandEmpty>No clients found.</CommandEmpty>
                           <CommandGroup>
-                            <CommandItem value="lead" onSelect={() => { setSelectedClientId(null); setClientOpen(false); setReturningClient(null); }}>
-                              — Enter lead info instead
-                            </CommandItem>
+                            <CommandItem value="lead" onSelect={() => { setSelectedClientId(null); setClientOpen(false); setReturningClient(null); }}>— Enter lead info instead</CommandItem>
                             {clients.map(c => (
-                              <CommandItem
-                                key={c.id}
-                                value={`${c.first_name} ${c.last_name} ${c.email}`}
-                                onSelect={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setClientOpen(false); setReturningClient(null); }}
-                              >
-                                <div>
-                                  <p className="text-sm font-medium">{c.first_name} {c.last_name}</p>
-                                  <p className="text-xs text-[#9E9B94]">{c.email}</p>
-                                </div>
+                              <CommandItem key={c.id} value={`${c.first_name} ${c.last_name} ${c.email}`} onSelect={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setClientOpen(false); setReturningClient(null); }}>
+                                <div><p className="text-sm font-medium">{c.first_name} {c.last_name}</p><p className="text-xs text-[#9E9B94]">{c.email}</p></div>
                               </CommandItem>
                             ))}
                           </CommandGroup>
@@ -1093,6 +728,7 @@ export default function QuoteBuilderPage() {
                   </Popover>
                 </div>
 
+                {/* Lead fields */}
                 {!selectedClientId && (
                   <div className="grid grid-cols-2 gap-3">
                     <div className="col-span-2">
@@ -1112,22 +748,19 @@ export default function QuoteBuilderPage() {
 
                 {/* Returning client banner */}
                 {returningClient && !selectedClientId && (
-                  <div style={{ background: '#EBF4FF', border: '1px solid #5B9BD5', borderRadius: 6, padding: '8px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ background: "#EBF4FF", border: "1px solid #5B9BD5", borderRadius: 6, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1917' }}>Returning client — {returningClient.name}</div>
-                      {returningClient.address && <div style={{ fontSize: 12, color: '#5B9BD5', marginTop: 2 }}>{returningClient.address}</div>}
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Returning client — {returningClient.name}</div>
+                      {returningClient.address && <div style={{ fontSize: 12, color: "#5B9BD5", marginTop: 2 }}>{returningClient.address}</div>}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-                      <button onClick={applyReturningClient} style={{ fontSize: 12, fontWeight: 600, color: '#2563EB', background: '#DBEAFE', border: 'none', cursor: 'pointer', padding: '4px 10px', borderRadius: 4 }}>
-                        Use this client
-                      </button>
-                      <button onClick={() => { setReturningClient(null); setReturningClientDismissed(true); setLeadPhone(""); }} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
-                        Not them
-                      </button>
+                    <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                      <button onClick={applyReturningClient} style={{ fontSize: 12, fontWeight: 600, color: "#2563EB", background: "#DBEAFE", border: "none", cursor: "pointer", padding: "4px 10px", borderRadius: 4 }}>Use this client</button>
+                      <button onClick={() => { setReturningClient(null); setReturningClientDismissed(true); }} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "4px 8px" }}>Not them</button>
                     </div>
                   </div>
                 )}
 
+                {/* Address + Zip */}
                 <div className="flex gap-3">
                   <div className="flex-1">
                     <Label className="text-xs">Service Address</Label>
@@ -1139,46 +772,59 @@ export default function QuoteBuilderPage() {
                   </div>
                 </div>
 
-                {checkingZip && <div className="text-xs text-[#9E9B94] px-1">Checking service area...</div>}
+                {/* Zip zone banners */}
+                {checkingZip && <div style={{ fontSize: 12, color: "#9E9B94" }}>Checking service area...</div>}
                 {!checkingZip && zipZone && zipZone !== "uncovered" && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: `${zipZone.color}14`, border: `1px solid ${zipZone.color}44`, fontSize: 12, fontWeight: 600, color: zipZone.color }}>
-                    <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: zipZone.color, flexShrink: 0 }} />
-                    This address is in {zipZone.name} — covered service zone.
+                  <div style={{ background: "#EAF3DE", border: "1px solid #639922", borderRadius: 6, padding: "8px 12px", fontSize: 12, fontWeight: 600, color: "#3B6D11" }}>
+                    Zone: {zipZone.name} — We service this area.
                   </div>
                 )}
                 {!checkingZip && zipZone === "uncovered" && zipCode.trim().length === 5 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", fontSize: 12, fontWeight: 600, color: "#92400E" }}>
-                    This zip code is outside current service zones. You may still create the quote.
+                  <div>
+                    <div style={{ background: "#FCEBEB", border: "1px solid #A32D2D", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#791F1F" }}>
+                      We don't currently service {zipCode}. This quote can still be saved — confirm with the office before proceeding.
+                    </div>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, fontSize: 13, color: "#6B6860", cursor: "pointer" }}>
+                      <Checkbox checked={zoneOverride} onCheckedChange={v => setZoneOverride(Boolean(v))} />
+                      Override — office confirmed we will service this zip.
+                    </label>
                   </div>
                 )}
 
-                {/* Suggested technicians (after zip) */}
-                {suggestedTechs.length > 0 && (
-                  <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Suggested Technicians</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {/* Suggested Technicians (Phase 1 — zone match) */}
+                {suggestedTechs.length > 0 && !zoneOverride && (
+                  <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Suggested Technicians</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                       {suggestedTechs.map(tech => {
-                        const isSelected = selectedTechId === tech.id;
+                        const isSel = selectedTechId === tech.id;
                         return (
-                          <div key={tech.id} onClick={() => setSelectedTechId(isSelected ? null : tech.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', border: isSelected ? '2px solid var(--brand)' : '1px solid #E5E2DC', background: isSelected ? 'rgba(0,201,160,0.05)' : '#FFF', transition: 'all 0.15s' }}>
-                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFF', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{tech.name.charAt(0).toUpperCase()}</div>
-                            <div style={{ flex: 1, fontSize: 13, fontWeight: isSelected ? 700 : 500, color: '#1A1917' }}>{tech.name}</div>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 600, background: `${tech.zone_color}20`, color: tech.zone_color }}>
-                              <div style={{ width: 5, height: 5, borderRadius: '50%', background: tech.zone_color }} />{tech.zone_name}
+                          <div key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF" }}>
+                            <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{tech.name.charAt(0).toUpperCase()}</div>
+                            <div style={{ flex: 1, fontSize: 13, fontWeight: isSel ? 700 : 500, color: "#1A1917" }}>{tech.name}</div>
+                            <div style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, fontSize: 11, fontWeight: 600, background: `${tech.zone_color}20`, color: tech.zone_color }}>
+                              <div style={{ width: 5, height: 5, borderRadius: "50%", background: tech.zone_color }} />{tech.zone_name}
                             </div>
-                            <div style={{ fontSize: 11, color: '#9E9B94', flexShrink: 0 }}>In zone</div>
+                            <div style={{ fontSize: 11, color: "#9E9B94", flexShrink: 0 }}>In zone</div>
                           </div>
                         );
                       })}
                     </div>
                   </div>
                 )}
-                {!checkingZip && zipZone === null && zipCode.length === 5 && (
-                  <div style={{ padding: '8px 12px', borderRadius: 8, background: '#F7F6F3', border: '1px solid #E5E2DC', fontSize: 12, color: '#9E9B94' }}>No techs assigned to this zone — job will be unassigned.</div>
+                {zoneOverride && (
+                  <div style={{ padding: "8px 12px", borderRadius: 8, background: "#F7F6F3", border: "1px solid #E5E2DC", fontSize: 12, color: "#9E9B94" }}>
+                    No zone match — technician assignment will be manual.
+                  </div>
+                )}
+                {!checkingZip && suggestedTechs.length === 0 && zipZone && zipZone !== "uncovered" && (
+                  <div style={{ padding: "8px 12px", borderRadius: 8, background: "#F7F6F3", border: "1px solid #E5E2DC", fontSize: 12, color: "#9E9B94" }}>
+                    No techs assigned to this zone — job will be unassigned.
+                  </div>
                 )}
 
                 <div className="flex justify-end">
-                  <Button size="sm" style={{ background: 'var(--brand)', color: '#FFF' }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
+                  <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
                     Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
                   </Button>
                 </div>
@@ -1188,404 +834,375 @@ export default function QuoteBuilderPage() {
 
           {/* ── Section 1: Property Details ──────────────────────────── */}
           {activeSection === 1 && (
-            <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 24 }}>
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
               <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className="col-span-2">
                   <Label className="text-xs">Square Footage</Label>
-                  <p className="text-[10px] text-[#9E9B94] mb-1">{pricingMethod === "sqft" ? "Required for pricing" : "Optional for reference"}</p>
                   <Input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" className="mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs">Bedrooms</Label>
-                  <Select value={String(bedrooms)} onValueChange={v => setBedrooms(parseInt(v))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>{[1,2,3,4,5,6,7,8].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Stepper value={bedrooms} onChange={setBedrooms} min={1} max={10} />
                 </div>
                 <div>
                   <Label className="text-xs">Full Bathrooms</Label>
-                  <Select value={String(bathrooms)} onValueChange={v => setBathrooms(parseInt(v))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>{[1,2,3,4,5,6].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Stepper value={bathrooms} onChange={setBathrooms} min={1} max={8} />
                 </div>
                 <div>
                   <Label className="text-xs">Half Bathrooms</Label>
-                  <Select value={String(halfBaths)} onValueChange={v => setHalfBaths(parseInt(v))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>{[0,1,2,3].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
                 </div>
                 <div>
                   <Label className="text-xs">Pets</Label>
-                  <Select value={String(pets)} onValueChange={v => setPets(parseInt(v))}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>{[0,1,2,3,4].map(n => <SelectItem key={n} value={String(n)}>{n}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Stepper value={pets} onChange={setPets} min={0} max={6} />
                 </div>
-                <div>
+                <div className="col-span-2">
                   <Label className="text-xs">Dirt Level</Label>
-                  <Select value={dirtLevel} onValueChange={setDirtLevel}>
-                    <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                    <SelectContent>{DIRT_LEVELS.map(d => <SelectItem key={d.value} value={d.value}>{d.label.split(" — ")[0]}</SelectItem>)}</SelectContent>
-                  </Select>
-                  <p className="text-xs text-[#9E9B94] mt-1">{DIRT_LEVELS.find(d => d.value === dirtLevel)?.label.split(" — ")[1]}</p>
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    {DIRT_LEVELS.map(d => (
+                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 4px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                        {d.label.split(" — ")[0]}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="flex justify-between mt-6">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(0)}>Back</Button>
-                <Button size="sm" style={{ background: 'var(--brand)', color: '#FFF' }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(2)}>
+                <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(2)}>
                   Next: Service & Pricing <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </div>
             </div>
           )}
 
-          {/* ── Section 2: Service & Pricing ──────────────────────────── */}
+          {/* ── Section 2: Service & Pricing ─────────────────────────── */}
           {activeSection === 2 && (
-            <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 24 }}>
-              <div className="space-y-5">
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
 
-                {/* Scope selector */}
-                <div>
-                  <Label className="text-xs">Service Scope</Label>
-                  <Select
-                    value={scopeId ? String(scopeId) : ""}
-                    onValueChange={v => {
-                      setScopeId(parseInt(v));
-                      setFrequencyStr("");
-                      setSelectedAddonIds([]);
-                      setHoursInput(0);
-                    }}
-                  >
-                    <SelectTrigger className="mt-1">
-                      <SelectValue placeholder="Select a service..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Object.entries(scopeGroups).map(([group, groupScopes]) => (
-                        <div key={group}>
-                          <div className="px-2 py-1 text-[10px] font-semibold text-[#9E9B94] uppercase tracking-wider">{group}</div>
-                          {groupScopes.map(s => (
-                            <SelectItem key={s.id} value={String(s.id)}>
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{s.name}</span>
-                                <span className="text-[#9E9B94] text-xs">
-                                  ${parseFloat(s.hourly_rate).toFixed(0)}/hr · min ${parseFloat(s.minimum_bill).toFixed(0)} · {pricingMethodLabel(s.pricing_method)}
-                                </span>
-                              </div>
-                            </SelectItem>
-                          ))}
+              {/* sqft missing notice */}
+              {sqft === 0 && (
+                <div style={{ background: "#FAEEDA", border: "1px solid #BA7517", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#854F0B", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                  <AlertCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
+                  Property details incomplete — prices are estimated. Go back to Step 2 to enter sqft.
+                </div>
+              )}
+
+              {/* Scope cards grid */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Select Service Options</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {scopes.map(scope => {
+                    const isSel = selectedScopeIds.includes(scope.id);
+                    const selState = selectedScopes.find(s => s.scope_id === scope.id);
+                    const priceText = selState?.calcLoading
+                      ? "..."
+                      : selState?.calc
+                        ? `$${selState.calc.final_total.toFixed(2)}`
+                        : scope.pricing_method === "sqft" && sqft === 0
+                          ? "Enter sqft to price"
+                          : "";
+                    return (
+                      <div
+                        key={scope.id}
+                        onClick={() => toggleScope(scope)}
+                        style={{
+                          position: "relative",
+                          border: isSel ? "1.5px solid #5B9BD5" : "0.5px solid #E5E2DC",
+                          background: isSel ? "#EBF4FF" : "#FFFFFF",
+                          borderRadius: 10,
+                          padding: "14px 14px 12px",
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                          minHeight: 80,
+                          display: "flex",
+                          flexDirection: "column",
+                          justifyContent: "space-between",
+                        }}
+                      >
+                        {/* Checkbox top-right */}
+                        <div style={{ position: "absolute", top: 10, right: 10 }}>
+                          <Checkbox checked={isSel} onCheckedChange={() => toggleScope(scope)} onClick={e => e.stopPropagation()} />
                         </div>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Pricing method context */}
-                {selectedScope && (
-                  <div className="flex items-center gap-2 text-xs text-[#6B7280]">
-                    {pricingMethod === "sqft" && <Ruler className="w-3.5 h-3.5" />}
-                    {(pricingMethod === "hourly" || pricingMethod === "simplified") && <Clock className="w-3.5 h-3.5" />}
-                    <span>
-                      {pricingMethod === "sqft" && "Sq ft-based pricing — hours looked up from tier table"}
-                      {pricingMethod === "hourly" && "Hourly pricing — enter hours below"}
-                      {pricingMethod === "simplified" && "Simplified hourly pricing — enter hours below"}
-                    </span>
-                  </div>
-                )}
-
-                {/* Sqft scope: remind user to enter sqft */}
-                {scopeId && pricingMethod === "sqft" && sqft === 0 && (
-                  <div className="bg-[#FEF3C7] border border-[#FDE68A] rounded-lg px-4 py-3 text-sm text-[#92400E] flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    Enter square footage in Property Details to calculate pricing.
-                  </div>
-                )}
-
-                {/* Hourly / Simplified: hours input */}
-                {scopeId && (pricingMethod === "hourly" || pricingMethod === "simplified") && (
-                  <div>
-                    <Label className="text-xs">Estimated Hours</Label>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Input
-                        type="number"
-                        min="0.5"
-                        step="0.5"
-                        value={hoursInput || ""}
-                        onChange={e => setHoursInput(parseFloat(e.target.value) || 0)}
-                        placeholder="e.g. 3.0"
-                        className="w-32"
-                      />
-                      <span className="text-sm text-[#6B7280]">hrs</span>
-                      {hoursInput > 0 && frequencyStr && (
-                        <span className="text-xs text-[#9E9B94]">
-                          × ${effectiveHourlyRate().toFixed(2)}/hr
-                        </span>
-                      )}
-                    </div>
-                    {selectedScope && (
-                      <p className="text-xs text-[#9E9B94] mt-1">
-                        Minimum bill: ${parseFloat(selectedScope.minimum_bill).toFixed(2)}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Frequency selector */}
-                {frequencies.length > 0 && (
-                  <div>
-                    <Label className="text-xs mb-2 block">Frequency</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {frequencies.map(freq => {
-                        const rate = freq.rate_override
-                          ? parseFloat(freq.rate_override)
-                          : selectedScope
-                            ? parseFloat(selectedScope.hourly_rate) * parseFloat(freq.multiplier)
-                            : null;
-                        return (
-                          <button
-                            key={freq.id}
-                            onClick={() => setFrequencyStr(freq.frequency)}
-                            className={cn(
-                              "px-3 py-2.5 rounded-lg border text-left transition-colors",
-                              frequencyStr === freq.frequency
-                                ? "bg-[#00C9A0]/10 border-[#00C9A0] text-[#00C9A0]"
-                                : "bg-white border-[#E5E2DC] text-[#6B7280] hover:bg-[#F7F6F3]"
-                            )}
-                          >
-                            <p className="font-semibold text-sm">{freq.label || freq.frequency}</p>
-                            {rate !== null && (
-                              <p className="text-xs text-[#9E9B94]">${rate.toFixed(2)}/hr</p>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {frequencies.length === 0 && scopeId && (
-                  <div className="text-xs text-[#9E9B94] italic">No frequencies configured for this scope.</div>
-                )}
-
-                {/* Date picker */}
-                <div>
-                  <Label className="text-xs">Preferred Date</Label>
-                  <input type="date" value={selectedDate}
-                    onChange={e => { setSelectedDate(e.target.value); fetchTechAvailability(e.target.value); }}
-                    style={{ display: 'block', width: '100%', marginTop: 4, height: 38, border: '1px solid #E5E2DC', borderRadius: 8, padding: '0 12px', fontSize: 14, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif", background: '#FFF', outline: 'none', boxSizing: 'border-box' as const }}
-                  />
-                </div>
-
-                {/* Tech availability (Phase 2) */}
-                {suggestedTechs.length > 0 && selectedDate && (
-                  <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, padding: 12 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                      Technician Availability
-                      {techAvailLoading && <span style={{ fontSize: 11, fontWeight: 400, color: '#9E9B94', textTransform: 'none', letterSpacing: 0 }}>Loading...</span>}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {[...suggestedTechs].sort((a, b) => (techAvailability[a.id] ?? 0) - (techAvailability[b.id] ?? 0)).map(tech => {
-                        const count = techAvailability[tech.id];
-                        const avail = count !== undefined ? techAvailDot(count) : null;
-                        const isSelected = selectedTechId === tech.id;
-                        return (
-                          <div key={tech.id} onClick={() => setSelectedTechId(isSelected ? null : tech.id)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', border: isSelected ? '2px solid var(--brand)' : '1px solid #E5E2DC', background: isSelected ? 'rgba(0,201,160,0.05)' : '#FFF', opacity: avail?.muted ? 0.55 : 1, transition: 'all 0.15s' }}>
-                            <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFF', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{tech.name.charAt(0).toUpperCase()}</div>
-                            <div style={{ flex: 1, fontSize: 13, fontWeight: isSelected ? 700 : 500, color: '#1A1917' }}>{tech.name}</div>
-                            {avail && (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: avail.color, flexShrink: 0 }}>
-                                <div style={{ width: 7, height: 7, borderRadius: '50%', background: avail.color }} />
-                                {avail.label}
-                              </div>
-                            )}
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", paddingRight: 28 }}>{scope.name}</div>
+                          {selState?.frequency && (
+                            <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 3 }}>{selState.frequency}</div>
+                          )}
+                        </div>
+                        {priceText && (
+                          <div style={{ fontSize: 13, fontWeight: 600, color: selState?.calc ? "#1A1917" : "#9E9B94", textAlign: "right", marginTop: 8 }}>
+                            {priceText}
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {selectedScopes.length === 0 && (
+                  <div style={{ textAlign: "center", fontSize: 13, color: "#9E9B94", marginTop: 12 }}>
+                    Select one or more service options to build this quote.
                   </div>
                 )}
+              </div>
 
-                <div className="flex justify-between mt-4">
-                  <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
-                  <Button size="sm" style={{ background: 'var(--brand)', color: '#FFF' }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(3)}>
-                    Next: Add-ons <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
+              {/* Date picker */}
+              <div style={{ marginBottom: selectedDate && suggestedTechs.length > 0 ? 16 : 0 }}>
+                <Label className="text-xs">Preferred Date</Label>
+                <input type="date" value={selectedDate}
+                  onChange={e => { setSelectedDate(e.target.value); fetchTechAvailability(e.target.value); }}
+                  style={{ display: "block", width: "100%", marginTop: 4, height: 38, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, color: "#1A1917", fontFamily: FF, background: "#FFF", outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+
+              {/* Tech availability (Phase 2) */}
+              {suggestedTechs.length > 0 && selectedDate && (
+                <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 12, marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, display: "flex", alignItems: "center", gap: 8 }}>
+                    Technician Availability
+                    {techAvailLoading && <span style={{ fontSize: 11, fontWeight: 400, color: "#9E9B94", textTransform: "none" }}>Loading...</span>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[...suggestedTechs].sort((a, b) => (techAvailability[a.id] ?? 0) - (techAvailability[b.id] ?? 0)).map(tech => {
+                      const count = techAvailability[tech.id];
+                      const avail = count !== undefined ? techAvailDot(count) : null;
+                      const isSel = selectedTechId === tech.id;
+                      return (
+                        <div key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700 }}>{tech.name.charAt(0).toUpperCase()}</div>
+                          <div style={{ flex: 1, fontSize: 13, fontWeight: isSel ? 700 : 500, color: "#1A1917" }}>{tech.name}</div>
+                          {avail && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: avail.color, flexShrink: 0 }}>
+                              <div style={{ width: 7, height: 7, borderRadius: "50%", background: avail.color }} />
+                              {avail.label}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
+              )}
+
+              <div className="flex justify-between mt-4">
+                <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
+                <Button
+                  size="sm"
+                  onClick={() => setActiveSection(3)}
+                  disabled={selectedScopes.length === 0}
+                  style={selectedScopes.length === 0 ? { background: "#D1D5DB", color: "#9E9B94", cursor: "not-allowed" } : { background: "var(--brand)", color: "#FFF" }}
+                  className="gap-1.5 hover:opacity-90"
+                >
+                  Next: Add-ons & Notes <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
               </div>
             </div>
           )}
 
-          {/* ── Section 3: Add-ons & Notes ─────────────────────────────────── */}
+          {/* ── Section 3: Add-ons & Notes ───────────────────────────── */}
           {activeSection === 3 && (
-            <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 24 }}>
-              <div className="space-y-4">
-                {scopeAddons.filter(a => a.is_active && a.show_office !== false).length > 0 && (() => {
-                  const activeAddons = scopeAddons.filter(a => a.is_active && a.show_office !== false);
-                  const grouped: Record<string, PricingAddon[]> = {};
-                  for (const a of activeAddons) {
-                    const g = a.addon_type || "cleaning_extras";
-                    if (!grouped[g]) grouped[g] = [];
-                    grouped[g].push(a);
-                  }
-                  const groupOrder = ["cleaning_extras", "other"];
-                  const groupLabels: Record<string, string> = {
-                    cleaning_extras: "Cleaning Extras",
-                    other: "Discounts & Adjustments",
-                  };
-                  return (
-                    <div className="space-y-5">
-                      {[...groupOrder, ...Object.keys(grouped).filter(k => !groupOrder.includes(k))].filter(k => grouped[k]?.length).map(groupKey => (
-                        <div key={groupKey}>
-                          <Label className="text-xs mb-2 block">{groupLabels[groupKey] ?? groupKey}</Label>
-                          <div className="grid grid-cols-2 gap-2">
-                            {grouped[groupKey].map(addon => {
-                              const isManualAdj = addon.price_type === "manual_adj";
-                              const isTimeOnly = addon.price_type === "time_only";
-                              const isSelected = selectedAddonIds.includes(addon.id);
-                              const fromResult = calcResult?.addon_breakdown.find(b => b.id === addon.id);
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
 
-                              if (isManualAdj) {
-                                return (
-                                  <div key={addon.id} className="col-span-2 flex items-center gap-3 p-3 rounded-lg border border-[#E5E2DC] bg-[#FAFAF9]">
-                                    <div className="flex-1">
-                                      <p className="text-sm font-medium text-[#1A1917]">{addon.name}</p>
-                                      <p className="text-xs text-[#9E9B94]">Manual adjustment — office only</p>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-sm text-[#6B7280]">$</span>
-                                      <Input
-                                        type="number"
-                                        step="0.01"
-                                        value={manualAdjValue}
-                                        onChange={e => setManualAdjValue(e.target.value)}
-                                        placeholder="0.00"
-                                        className="w-28 h-8 text-sm"
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              }
-
-                              if (isTimeOnly) {
-                                return (
-                                  <label
-                                    key={addon.id}
-                                    className={cn(
-                                      "flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-colors",
-                                      isSelected ? "bg-[#00C9A0]/10 border-[#00C9A0]" : "bg-white border-[#E5E2DC] hover:bg-[#F7F6F3]"
-                                    )}
-                                  >
-                                    <Checkbox checked={isSelected} onCheckedChange={() => toggleAddon(addon.id)} className="mt-0.5" />
-                                    <div className="min-w-0">
-                                      <p className="text-sm font-medium text-[#1A1917]">{addon.name}</p>
-                                      <p className="text-xs text-[#9E9B94]">
-                                        No additional charge
-                                        {addon.time_add_minutes > 0 ? ` · +${addon.time_add_minutes}min` : ""}
-                                      </p>
-                                    </div>
-                                  </label>
-                                );
-                              }
-
-                              return (
-                                <label
-                                  key={addon.id}
-                                  className={cn(
-                                    "flex items-start gap-2 p-3 rounded-lg border cursor-pointer transition-colors",
-                                    isSelected ? "bg-[#00C9A0]/10 border-[#00C9A0]" : "bg-white border-[#E5E2DC] hover:bg-[#F7F6F3]"
-                                  )}
-                                >
-                                  <Checkbox checked={isSelected} onCheckedChange={() => toggleAddon(addon.id)} className="mt-0.5" />
-                                  <div className="min-w-0">
-                                    <p className="text-sm font-medium text-[#1A1917]">{addon.name}</p>
-                                    <p className={cn("text-xs", fromResult && fromResult.amount < 0 ? "text-red-500" : "text-[#9E9B94]")}>
-                                      {fromResult
-                                        ? (fromResult.amount < 0 ? `-$${Math.abs(fromResult.amount).toFixed(2)}` : `$${fromResult.amount.toFixed(2)}`)
-                                        : addonDisplayPrice(addon)}
-                                      {addon.time_add_minutes > 0 ? ` · +${addon.time_add_minutes}min` : ""}
-                                    </p>
-                                  </div>
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-
-                {/* Discount code */}
-                <div>
-                  <Label className="text-xs mb-1 block">Discount Code</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      value={discountInput}
-                      onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
-                      placeholder="e.g. MANAGER50"
-                      className="flex-1"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => runCalculate({ withCode: discountInput.trim() })}
-                      disabled={!discountInput.trim() || calcLoading}
-                    >
-                      Apply
-                    </Button>
-                  </div>
-                  {discountError && (
-                    <div className="flex items-center gap-1.5 mt-1 text-xs text-red-600">
-                      <AlertCircle className="w-3.5 h-3.5" /> {discountError}
-                    </div>
-                  )}
-                  {discountCode && calcResult && calcResult.discount_amount > 0 && (
-                    <div className="flex items-center gap-1.5 mt-1 text-xs text-green-600">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Code applied: -{`$${calcResult.discount_amount.toFixed(2)}`}
-                    </div>
-                  )}
+              {selectedScopes.length === 0 ? (
+                <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>
+                  No scopes selected. <button onClick={() => setActiveSection(2)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Step 3</button>
                 </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {selectedScopes.map(s => {
+                    const scope = scopes.find(sc => sc.id === s.scope_id);
+                    if (!scope) return null;
+                    const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
+                    const activeAddons = s.addons.filter(a => a.is_active);
+                    return (
+                      <div key={s.scope_id} style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
 
+                        {/* Accordion header */}
+                        <button
+                          onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
+                          style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", background: "#FAFAF9", border: "none", cursor: "pointer", borderBottom: s.expanded ? "1px solid #E5E2DC" : "none" }}
+                        >
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", flex: 1, textAlign: "left", fontFamily: FF }}>{scope.name}</span>
+                          {s.calc && <span style={{ fontSize: 13, color: "#9E9B94", marginRight: 12, fontFamily: FF }}>Base: ${s.calc.base_price.toFixed(2)}</span>}
+                          <ChevronDown style={{ width: 16, height: 16, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
+                        </button>
+
+                        {/* Accordion body */}
+                        {s.expanded && (
+                          <div style={{ padding: 16 }}>
+
+                            {/* Frequency selector */}
+                            {s.frequencies.length > 0 && (
+                              <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Frequency</div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                  {s.frequencies.map(f => (
+                                    <button key={f.id} onClick={() => updateScopeFrequency(s.scope_id, f.frequency)} style={{ padding: "4px 12px", borderRadius: 6, border: s.frequency === f.frequency ? "1.5px solid #5B9BD5" : "1px solid #E5E2DC", background: s.frequency === f.frequency ? "#EBF4FF" : "#FFF", color: s.frequency === f.frequency ? "#5B9BD5" : "#6B6860", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>
+                                      {f.label || f.frequency}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Hours input */}
+                            {isHourly && (
+                              <div style={{ marginBottom: 14 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Estimated Hours</div>
+                                <input
+                                  type="number" min="0.5" step="0.5"
+                                  value={s.hours || ""}
+                                  onChange={e => updateScopeHours(s.scope_id, parseFloat(e.target.value) || 0)}
+                                  placeholder="e.g. 3.0"
+                                  style={{ width: 120, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none" }}
+                                />
+                              </div>
+                            )}
+
+                            {/* Add-ons */}
+                            {activeAddons.length > 0 && (
+                              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
+                                {activeAddons.map(addon => {
+                                  const isSel = s.addon_ids.includes(addon.id);
+                                  const fromCalc = s.calc?.addon_breakdown.find(b => b.id === addon.id);
+                                  const priceText = fromCalc
+                                    ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
+                                    : addonDisplayPrice(addon);
+                                  return (
+                                    <label key={addon.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: isSel ? "1px solid #5B9BD5" : "1px solid #E5E2DC", background: isSel ? "#EBF4FF" : "#FFF", borderRadius: 6, cursor: "pointer" }}>
+                                      <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(s.scope_id, addon.id, Boolean(checked))} />
+                                      <span style={{ flex: 1, fontSize: 13, color: "#1A1917", fontFamily: FF }}>{addon.name}</span>
+                                      <span style={{ fontSize: 12, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Running subtotal */}
+                            {s.calc && (
+                              <div style={{ fontSize: 13, color: "#9E9B94", textAlign: "right", fontFamily: FF }}>
+                                Subtotal: ${(s.calc.base_price + s.calc.addons_total).toFixed(2)}
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Scope total row */}
+                        <div style={{ padding: "10px 16px", background: "#F7F6F3", borderTop: "1px solid #E5E2DC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total: {scope.name}</span>
+                          <span style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
+                            {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Notes section */}
+              <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <Label className="text-xs">Client-Facing Notes</Label>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Job Notes</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to technician.</div>
+                  <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Instructions and notes for the technician..." rows={3} className="mt-1 text-sm" />
+                  {pushConfirmed && <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>✓ Added from call notes.</p>}
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Client-Facing Notes</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to client on the quote.</div>
                   <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible to the client..." rows={3} className="mt-1 text-sm" />
                 </div>
-                <div>
-                  <Label className="text-xs">Internal Memo / Job Notes</Label>
-                  <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Internal notes not visible to the client..." rows={3} className="mt-1 text-sm" />
-                  {pushConfirmed && <p className="text-[11px] text-[#9E9B94] mt-1">✓ Added from call notes.</p>}
-                </div>
+              </div>
 
-                <div className="flex justify-between mt-2">
-                  <Button size="sm" variant="ghost" onClick={() => setActiveSection(2)}>Back</Button>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5 border-[#E5E2DC] bg-transparent text-[#1A1917]">
-                      <Save className="w-3.5 h-3.5" /> Save Draft
-                    </Button>
-                    <Button size="sm" onClick={() => save("draft", true)} disabled={saving || !scopeId} style={{ background: 'var(--brand)', color: '#FFF' }} className="gap-1.5 hover:opacity-90">
-                      <ArrowRight className="w-3.5 h-3.5" /> Save & Convert to Job
-                    </Button>
-                  </div>
+              <div className="flex justify-between mt-6">
+                <Button size="sm" variant="ghost" onClick={() => setActiveSection(2)}>Back</Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    if (selectedScopes.length === 1 && !finalScopeId) setFinalScopeId(selectedScopes[0].scope_id);
+                    setActiveSection(4);
+                  }}
+                  style={{ background: "var(--brand)", color: "#FFF" }}
+                  className="gap-1.5 hover:opacity-90"
+                >
+                  Next: Review <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 4: Review ─────────────────────────────────────── */}
+          {activeSection === 4 && (
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
+
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14, fontFamily: FF }}>
+                Select option to send client
+              </div>
+
+              {selectedScopes.length === 0 ? (
+                <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>
+                  No scopes selected. <button onClick={() => setActiveSection(2)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Step 3</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                  {selectedScopes.map(s => {
+                    const scope = scopes.find(sc => sc.id === s.scope_id);
+                    const isFinal = finalScopeId === s.scope_id;
+                    const addonNames = s.addons.filter(a => s.addon_ids.includes(a.id)).map(a => a.name);
+                    const addonSummary = addonNames.length > 0 ? ` + ${addonNames.join(", ")}` : "";
+                    return (
+                      <div
+                        key={s.scope_id}
+                        onClick={() => setFinalScopeId(s.scope_id)}
+                        style={{ border: isFinal ? "1.5px solid #5B9BD5" : "0.5px solid #E5E2DC", background: isFinal ? "#EBF4FF" : "#FFF", padding: "12px 16px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.15s" }}
+                      >
+                        <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "#5B9BD5", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope?.name}{addonSummary}</div>
+                          {s.frequency && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{s.frequency}</div>}
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 500, color: "#1A1917", flexShrink: 0, fontFamily: FF }}>
+                          {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="flex justify-between mt-4">
+                <Button size="sm" variant="ghost" onClick={() => setActiveSection(3)}>Back</Button>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5">
+                    <Save className="w-3.5 h-3.5" /> Save Draft
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => save("sent")} disabled={saving || !finalScopeId} className="gap-1.5">
+                    <SendHorizonal className="w-3.5 h-3.5" /> Save & Send Quote
+                  </Button>
+                  <Button size="sm" onClick={() => save("draft", true)} disabled={saving || !canConvert} style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90">
+                    <ArrowRight className="w-3.5 h-3.5" /> Save & Convert to Job
+                  </Button>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {/* ── RIGHT: Sticky Panel ─────────────────────────────────────── */}
-        <div style={{ position: 'sticky', top: 24 }}>
+        {/* ── RIGHT: Sticky Panel ──────────────────────────────────────── */}
+        <div style={{ position: "sticky", top: 80 }}>
 
           {/* Call Notes */}
-          <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 16, marginBottom: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Call Notes</span>
-                <span style={{ fontSize: 11, color: '#9E9B94', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Not visible to client.</span>
+          <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16, marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Call Notes</span>
+                <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Not visible to client.</span>
               </div>
-              <div style={{ fontSize: 11, color: '#9E9B94', fontFamily: "'Plus Jakarta Sans', sans-serif", minWidth: 50, textAlign: 'right' }}>
+              <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, minWidth: 50, textAlign: "right" }}>
                 {callNotesSaving ? "Saving..." : callNotesSavedVisible ? "Saved" : ""}
-              </div>
+              </span>
             </div>
             <textarea
               ref={callNotesRef}
@@ -1595,188 +1212,114 @@ export default function QuoteBuilderPage() {
               onTouchEnd={handleCallNotesMouseUp}
               onClick={() => setCallNoteTooltip(null)}
               placeholder="Notes from the call..."
-              rows={12}
-              style={{ width: '100%', boxSizing: 'border-box', resize: 'none', border: '1px solid #E5E2DC', borderRadius: 8, padding: '10px 12px', fontSize: 13, lineHeight: '1.6', color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif", background: '#FAFAF9', outline: 'none' }}
+              rows={10}
+              style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: "1.6", color: "#1A1917", fontFamily: FF, background: "#FAFAF9", outline: "none" }}
             />
-            {pushConfirmed && (
-              <p style={{ fontSize: 11, color: '#9E9B94', marginTop: 6, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>✓ Added to job notes</p>
-            )}
           </div>
 
           {/* Price Preview */}
-          <div style={{ background: '#FFF', border: '1px solid #E5E2DC', borderRadius: 12, padding: 16 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif", marginBottom: 12, paddingBottom: 10, borderBottom: '1px solid #E5E2DC' }}>Price Preview</h3>
-            {calcLoading && <div style={{ padding: '16px 0', textAlign: 'center', fontSize: 13, color: '#9E9B94' }}>Calculating...</div>}
+          <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 12, paddingBottom: 10, borderBottom: "1px solid #E5E2DC" }}>Price Preview</h3>
 
-            {!calcLoading && calcResult ? (
-              <>
-                {/* Scope + frequency summary */}
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Scope</span>
-                    <span className="text-right text-[#1A1917] font-medium text-xs max-w-[140px] truncate">{selectedScope?.name}</span>
-                  </div>
-                  {calcResult.frequency && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Frequency</span>
-                      <span className="text-[#1A1917]">{calcResult.frequency}</span>
-                    </div>
-                  )}
-
-                  {/* Sqft method: show sqft → hours line */}
-                  {calcResult.pricing_method === "sqft" && calcResult.sqft && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Sq Ft</span>
-                      <span className="text-[#1A1917]">{calcResult.sqft.toLocaleString()}</span>
-                    </div>
-                  )}
-
-                  {/* Hours line (all methods) */}
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Est. Hours</span>
-                    <span className="text-[#1A1917]">{calcResult.base_hours.toFixed(1)}h</span>
-                  </div>
-
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Hourly Rate</span>
-                    <span className="text-[#1A1917]">${calcResult.hourly_rate.toFixed(2)}/hr</span>
-                  </div>
-
-                  {/* Calculation line */}
-                  <div className="bg-[#F7F6F3] rounded px-2 py-1.5 text-xs text-[#6B7280] font-mono">
-                    {calcResult.base_hours.toFixed(1)}h × ${calcResult.hourly_rate.toFixed(2)}/hr = ${(calcResult.base_hours * calcResult.hourly_rate).toFixed(2)}
-                  </div>
-                </div>
-
-                {/* Price breakdown */}
-                <div className="border-t border-[#E5E2DC] pt-3 space-y-1.5 text-sm">
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Base Price</span>
-                    <span className="text-[#1A1917]">${calcResult.base_price.toFixed(2)}</span>
-                  </div>
-
-                  {calcResult.minimum_applied && (
-                    <div className="flex items-center gap-1.5 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                      <AlertCircle className="w-3 h-3 shrink-0" />
-                      Minimum bill of ${calcResult.minimum_bill.toFixed(2)} applied
-                    </div>
-                  )}
-
-                  {calcResult.addon_breakdown.map(a => (
-                    <div key={a.id} className="flex justify-between text-[#6B7280]">
-                      <span className="truncate max-w-[150px]">{a.name}</span>
-                      <span className={a.amount < 0 ? "text-red-500 font-medium" : "text-[#1A1917]"}>
-                        {a.amount < 0 ? `-$${Math.abs(a.amount).toFixed(2)}` : `+$${a.amount.toFixed(2)}`}
-                      </span>
-                    </div>
-                  ))}
-
-                  {calcResult.bundle_discount > 0 && calcResult.bundle_breakdown.map((b, i) => (
-                    <div key={i} className="flex justify-between text-green-600">
-                      <span>{b.name} Discount</span>
-                      <span>-${b.discount.toFixed(2)}</span>
-                    </div>
-                  ))}
-
-                  {calcResult.addons_total > 0 && calcResult.bundle_discount === 0 && (
-                    <div className="flex justify-between text-[#6B7280]">
-                      <span>Add-ons Total</span>
-                      <span className="text-[#1A1917]">+${calcResult.addons_total.toFixed(2)}</span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-between text-[#6B7280]">
-                    <span>Subtotal</span>
-                    <span className="text-[#1A1917]">${calcResult.subtotal.toFixed(2)}</span>
-                  </div>
-
-                  {calcResult.discount_amount > 0 && (
-                    <div className="flex justify-between text-green-600">
-                      <span>Discount{discountCode ? ` (${discountCode})` : ""}</span>
-                      <span>-${calcResult.discount_amount.toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Total */}
-                <div className="border-t border-[#E5E2DC] pt-3">
-                  <div className="flex justify-between items-baseline">
-                    <span className="text-[#6B7280] text-sm">Total</span>
-                    <span className="text-2xl font-bold text-[#1A1917]">${calcResult.final_total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </>
-            ) : !calcLoading && !selectedScope ? (
-              <div className="py-6 text-center text-[#9E9B94] text-sm">
+            {/* 0 scopes */}
+            {selectedScopes.length === 0 && (
+              <div style={{ padding: "20px 0", textAlign: "center", fontSize: 13, color: "#9E9B94", fontFamily: FF }}>
                 Select a scope to see pricing.
               </div>
-            ) : !calcLoading && pricingMethod === "sqft" && (!sqft || sqft === 0) ? (
-              <div className="py-6 text-center text-[#9E9B94] text-sm">
-                Enter square footage to calculate price.
+            )}
+
+            {/* 1 scope — full breakdown */}
+            {selectedScopes.length === 1 && (() => {
+              const s = selectedScopes[0];
+              const scope = scopes.find(sc => sc.id === s.scope_id);
+              return (
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, marginBottom: 10 }}>{scope?.name}</div>
+                  {s.calcLoading && <div style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>Calculating...</div>}
+                  {!s.calcLoading && s.calc ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B6860" }}>
+                        <span>Base</span><span>${s.calc.base_price.toFixed(2)}</span>
+                      </div>
+                      {s.calc.addon_breakdown.map(a => (
+                        <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B6860" }}>
+                          <span>{a.name}</span><span>{a.amount < 0 ? `-$${Math.abs(a.amount).toFixed(2)}` : `+$${a.amount.toFixed(2)}`}</span>
+                        </div>
+                      ))}
+                      {s.calc.discount_amount > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
+                          <span>Discount</span><span>-${s.calc.discount_amount.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total</span>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${s.calc.final_total.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ) : !s.calcLoading && (
+                    <div style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>
+                      {scope?.pricing_method === "sqft" ? "Enter square footage to calculate." : "Enter hours to calculate."}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* 2+ scopes — list */}
+            {selectedScopes.length >= 2 && (
+              <div>
+                {selectedScopes.map(s => {
+                  const scope = scopes.find(sc => sc.id === s.scope_id);
+                  return (
+                    <div key={s.scope_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
+                      <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scope?.name}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                        {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 10, textAlign: "center", fontFamily: FF }}>
+                  Select the final option in Step 5.
+                </div>
               </div>
-            ) : !calcLoading && (pricingMethod === "hourly" || pricingMethod === "simplified") && (!hoursInput || hoursInput <= 0) ? (
-              <div className="py-6 text-center text-[#9E9B94] text-sm">
-                Enter estimated hours to calculate price.
-              </div>
-            ) : null}
+            )}
 
             {/* Action buttons */}
-            <div style={{ borderTop: '1px solid #E5E2DC', paddingTop: 12, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
               <Button
                 className="w-full gap-1.5 hover:opacity-90"
-                style={{ background: 'var(--brand)', color: '#FFF' }}
+                style={{ background: "var(--brand)", color: "#FFF" }}
                 size="sm"
                 onClick={() => save("draft", true)}
-                disabled={saving || !scopeId}
+                disabled={saving || !canConvert}
               >
-                <ArrowRight className="w-3.5 h-3.5" />
-                Save & Convert to Job
+                <ArrowRight className="w-3.5 h-3.5" /> Save & Convert to Job
               </Button>
-              <Button
-                className="w-full gap-1.5"
-                variant="outline"
-                size="sm"
-                onClick={() => save("sent")}
-                disabled={saving}
-              >
-                <SendHorizonal className="w-3.5 h-3.5" />
-                Save & Send Quote
+              <Button className="w-full gap-1.5" variant="outline" size="sm" onClick={() => save("sent")} disabled={saving}>
+                <SendHorizonal className="w-3.5 h-3.5" /> Save & Send Quote
               </Button>
               <Button className="w-full gap-1.5" variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving}>
-                <Save className="w-3.5 h-3.5" />
-                Save Draft
+                <Save className="w-3.5 h-3.5" /> Save Draft
               </Button>
             </div>
           </div>
-
         </div>
       </div>
     </div>
   );
 }
 
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">
-      <h2 className="text-sm font-semibold text-[#1A1917] mb-4">{title}</h2>
-      {children}
-    </div>
-  );
-}
-
 function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
-  const FF = "'Plus Jakarta Sans', sans-serif";
   const btn = (disabled: boolean): React.CSSProperties => ({
-    width: 48, height: 48, border: "1px solid #E5E2DC", borderRadius: 0, background: disabled ? "#F7F6F3" : "#FFF",
-    color: disabled ? "#D1D5DB" : "#1A1917", fontSize: 20, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+    width: 44, height: 44, border: "1px solid #E5E2DC", borderRadius: 0, background: disabled ? "#F7F6F3" : "#FFF",
+    color: disabled ? "#D1D5DB" : "#1A1917", fontSize: 18, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
     fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center",
   });
   return (
-    <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", height: 48 }}>
+    <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", height: 44, marginTop: 6 }}>
       <button style={btn(value <= min)} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC" }}>
-        {value}
-      </div>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC" }}>{value}</div>
       <button style={btn(value >= max)} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
     </div>
   );

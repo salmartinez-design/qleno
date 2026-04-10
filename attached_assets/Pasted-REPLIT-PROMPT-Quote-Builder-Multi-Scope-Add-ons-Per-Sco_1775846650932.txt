@@ -1,0 +1,183 @@
+REPLIT PROMPT — Quote Builder: Multi-Scope + Add-ons Per Scope + Zone Verification + Layout Redesign
+Redesign the New Quote page (/quotes/new) completely. This is a single comprehensive build — do not split into multiple deploys. Verify all changes at https://clean-ops-pro.replit.app/quotes/new logged in as salmartinez@phes.io after deploying. Do not touch any other pages, routes, or components.
+
+STARTUP MIGRATIONS — run these first before anything else:
+sqlALTER TABLE quotes ADD COLUMN IF NOT EXISTS call_notes TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS alternate_options JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS zone_override BOOLEAN DEFAULT FALSE;
+
+OVERALL LAYOUT — Two-Column Persistent
+Replace the current centered narrow card layout with a full-width two-column layout:
+
+Left column (58%): Wizard steps with stepper nav at top
+Right column (42%): Persistent sticky panel — position: sticky; top: 24px — always visible on all steps, never collapses. Contains two sections stacked vertically:
+
+Call Notes (~55% of panel height) — described in detail below
+Price Preview (~45% of panel height) — described in detail below
+
+
+
+Remove the outer card wrapper that creates the current narrow centered look. Form fields use the full left column width with 24px horizontal padding.
+Stepper tabs: Active step = brand color background (#5B9BD5), white text. Inactive = #F7F6F3 background, #6B6860 text.
+Action buttons in right panel, below Price Preview, stacked vertically:
+
+"Save & Convert to Job" → brand color fill (#5B9BD5), white text, full width (primary CTA)
+"Save & Send Quote" → outline style (border only, no fill), full width
+"Save Draft" → ghost/text only, no border, full width
+
+
+RIGHT PANEL — Call Notes
+
+Textarea, label: "Call Notes" in 12px font-weight 500. Subtext below label: "Not visible to client." in 11px muted (#6B6860).
+Auto-saves to DB every 10 seconds if content has changed since last save — silent PATCH to quotes table call_notes column. Show a "Saved" text (11px, #6B6860) that fades in/out in the top-right of the panel. No spinner, no toast.
+If no draft quote exists yet, create one automatically on first auto-save with status = 'draft', current company_id, current user_id.
+
+Highlight-to-push:
+On mouseup / touchend in the Call Notes textarea, detect if selected text length > 3 characters using window.getSelection(). If so, show a floating tooltip anchored near the selection:
+
+Background #1A1917, white text, font-size 12px, border-radius 4px, padding 4px 10px
+Single button: "Push to Job Notes"
+On click: append selected text to the office_notes field in Step 4 (Add-ons & Notes). If office_notes already has content, append with a line break. Dismiss tooltip. Show 1.5-second inline confirmation "Added to job notes" in the Call Notes panel.
+
+
+RIGHT PANEL — Price Preview
+
+If 0 scopes selected: "Select a scope to see pricing." in muted 13px centered.
+If 1 scope selected: show that scope's full price breakdown (scope name, base price, add-ons, total). Same logic as existing price preview.
+If 2+ scopes selected: show a stacked list of each selected scope with its name and total. Below the list: "Select the final option in Step 4." Do not show a combined total.
+
+
+STEP 1 — CUSTOMER INFO
+Keep all existing fields. Add the following features:
+Returning client detection (phone field):
+On blur of the Phone field, strip formatting and query clients table WHERE phone ILIKE '%{cleaned_phone}%' AND company_id = current.
+If a match is found:
+
+Show inline banner below the phone field
+Background #EBF4FF, border 1px solid #5B9BD5, border-radius 6px, padding 8px 12px
+Text: "Returning client — [Full Name]" bold, subtext: "Last service: [date] · [frequency]" in 12px
+Two buttons: "Use this client" (auto-fills all Customer Info fields from the match) and "Not them" (dismisses banner)
+Do not auto-fill without explicit click of "Use this client"
+
+Same logic on Email field blur.
+Zone verification (zip field):
+On blur of the Zip Code field, if value is exactly 5 digits, query service_zones table WHERE company_id = current AND the zip appears in the zone's zip array. Use the same endpoint/logic the booking widget uses.
+Three outcomes:
+Zip served:
+Background: #EAF3DE
+Border: 1px solid #639922
+Border-radius: 6px
+Padding: 8px 12px
+Text: "Zone: [Zone Name] — We service this area."
+Text color: #3B6D11
+Font-size: 12px
+Store matched zone in component state as matchedZone. This feeds the technician suggestion feature.
+Zip not served:
+Background: #FCEBEB
+Border: 1px solid #A32D2D
+Border-radius: 6px
+Padding: 8px 12px
+Text (color #791F1F, 12px): "We don't currently service [zip]. This quote can still be saved — confirm with the office before proceeding."
+Below the banner: [ ] Override — office confirmed we will service this zip. When checked, store zoneOverride: true in component state and save to zone_override column on the quote record. Banner stays visible but does not block progression.
+Zip fewer than 5 digits or empty: show nothing.
+The "Next: Property Details →" button stays enabled regardless of zone outcome — office reps must be able to save out-of-zone quotes for expansion evaluation.
+Technician suggestion — Phase 1 (zip entered):
+Below the zone banner, add a section titled "Suggested Technicians" (muted uppercase 11px label style):
+
+Background #F7F6F3, border 1px solid #E5E2DC, border-radius 8px, padding 12px
+Query employees table WHERE company_id = current AND role = 'technician' AND status = 'active' AND assigned to the matched zone (via service_zone_employees or equivalent join — use whatever the current zone assignment schema is)
+Each tech row: 28px avatar circle (brand color bg, white initials), full name, zone badge chip, "In zone" label in 11px muted
+If no techs match: "No techs assigned to this zone — job will be unassigned."
+If zoneOverride = true: "No zone match — technician assignment will be manual." instead of the tech list
+Store matched tech list in component state as suggestedTechs
+
+
+STEP 2 — SERVICE & PRICING: Multi-Scope Selector
+Replace the current accordion/rates table entirely.
+Property details notice (top of step):
+If square footage is missing from Step 1, show a non-blocking yellow inline notice:
+Background: #FAEEDA, border: 1px solid #BA7517, border-radius 6px, padding 8px 12px
+Text (color #854F0B, 12px): "Property details incomplete — prices are estimated. Go back to Step 1 to enter sqft."
+Scope selection cards — 2-column grid:
+Pull all scopes from pricing_scopes WHERE company_id = current AND active = true. Render each as a selectable card:
+
+Unselected: border: 0.5px solid #E5E2DC, background #FFFFFF
+Selected: border: 1.5px solid #5B9BD5, background #EBF4FF
+Checkbox top-right corner. Clicking anywhere on the card toggles selection.
+Scope name: 14px font-weight 500
+Frequency tag below name: 11px muted (e.g. "One-Time", "Weekly") if applicable
+Computed price bottom-right: if sqft present, show price from pricing engine. If sqft missing, show "Enter sqft to price" in muted 11px.
+
+Never show "0 hrs", estimated hours, or a rates reference table anywhere on this step. Hours are internal calculation only.
+Allow multiple cards selected simultaneously. Store as selectedScopes: [{scope_id, scope_name, base_price, addons: [], total}] in component state.
+If no scope selected, show muted helper text below grid: "Select one or more service options to build this quote."
+"Next: Add-ons & Notes →" button is disabled (grayed, not clickable) until at least one scope is selected.
+Technician suggestion — Phase 2 (date selected):
+Wherever the date picker lives on this step (or Step 3), after a date is selected:
+
+Take suggestedTechs from Phase 1
+Query jobs WHERE scheduled_date = selected_date AND status NOT IN ('void', 'moved', 'skip', 'cancelled') AND assigned_technician_id IN (suggestedTechs ids)
+Compute jobCount per tech and re-render the tech suggestion block below the date picker:
+
+0 jobs: green dot + "Available"
+1 job: yellow dot + "1 job that day"
+2–3 jobs: orange dot + "X jobs that day"
+4+ jobs: muted gray, "Likely unavailable"
+
+
+Sort: available first, then by job count ascending
+Clicking a tech row pre-selects them as assigned technician. Selected state: border changes to brand color, name bolds.
+Selected tech carries forward to the job on "Save & Convert to Job"
+
+
+STEP 3 — ADD-ONS & NOTES: Per-Scope Add-ons
+Replace the current flat add-on list with a per-scope accordion structure.
+For each scope in selectedScopes, render one accordion section:
+Accordion header:
+
+Scope name bold 14px left
+Base price right
+Expand/collapse chevron
+Expanded by default
+
+Accordion body:
+
+List all add-ons from pricing_addons WHERE company_id = current. In the office quote builder, show ALL add-ons regardless of show_online flag (office sees everything; booking widget is restricted separately).
+Each add-on: checkbox left, add-on name, price right (flat dollar or % of base — render the computed dollar amount, not the percentage)
+When add-on toggled: update selectedScopes[i].addons and recompute selectedScopes[i].total in real time
+Running subtotal at bottom of accordion body: "Subtotal: $X" in 13px muted, updates live
+
+Scope total row at the bottom of each accordion (outside the body): bold total for that scope including all selected add-ons. Font-size 14px, font-weight 500.
+Office notes textarea below all scope accordions:
+
+Label: "Job Notes" in 12px font-weight 500. Subtext: "Visible to technician." in 11px muted.
+This is the target field for the highlight-to-push feature from Call Notes.
+
+
+STEP 4 — REVIEW: Select option to send
+Add a section at the top of the Review step titled "Select option to send client" in the muted uppercase 11px label style.
+Show each selected scope as a radio card:
+
+Unselected: border: 0.5px solid #E5E2DC, background #FFFFFF, padding 12px 16px, border-radius 8px, margin-bottom 8px
+Selected: border: 1.5px solid #5B9BD5, background #EBF4FF
+Radio input left
+Scope name + add-on summary (e.g. "Deep Clean + Oven Cleaning, Refrigerator Cleaning") in 13px
+Total price right in 16px font-weight 500
+
+The selected radio option becomes quoted_price and scope saved to the quote record. Non-selected options saved to alternate_options JSONB column.
+If only one scope selected: auto-select it. If multiple: require explicit selection — "Save & Convert to Job" button disabled until one is selected.
+
+VERIFICATION
+After deploying, confirm at https://clean-ops-pro.replit.app/quotes/new logged in as salmartinez@phes.io:
+
+Two-column layout — Call Notes and Price Preview panel visible and sticky on the right across all steps.
+Entering zip 60453 on Step 1 shows green zone banner and populates tech suggestion list.
+Entering zip 99999 shows red banner with override checkbox. Checking the override keeps the Next button enabled.
+Phone number matching an existing client triggers the returning client banner with auto-fill option.
+Step 2 shows scope cards in 2-column grid. Multiple cards selectable simultaneously. "0 hrs" appears nowhere.
+Step 3 shows one accordion per selected scope, each with its own add-on list. Checking an add-on updates that scope's subtotal in real time.
+Step 4 shows radio cards for each scope option. Selecting one enables "Save & Convert to Job".
+Price Preview panel shows all selected scope totals when 2+ scopes are active.
+Selecting text in Call Notes shows the "Push to Job Notes" tooltip. Clicking it appends to the Job Notes field in Step 3.
+No regressions on the right panel action buttons, stepper nav, or any existing Step 1 fields.
+Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.

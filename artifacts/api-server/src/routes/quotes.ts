@@ -205,6 +205,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
       "lead_name", "lead_email", "lead_phone", "address", "client_id",
+      "alternate_options", "zone_override",
     ];
     const updates: any = {};
     for (const k of allowed) {
