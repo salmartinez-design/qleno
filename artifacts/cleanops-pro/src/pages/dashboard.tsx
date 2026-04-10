@@ -258,6 +258,23 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── HCP STRIP (above monthly revenue row) ── */}
+        {hcp != null && HCP_TILES.some(t => t.value !== '—') && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
+            gap: 8,
+          }}>
+            {HCP_TILES.filter(t => t.value !== '—').map((tile, i) => (
+              <div key={i} style={{ ...CARD, padding: '10px 14px' }}>
+                <p style={{ fontSize: 9, fontWeight: 600, color: '#B0ADA6', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 3px', fontFamily: FF }}>{tile.label}</p>
+                <p style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, color: '#1A1917', margin: '0 0 1px', lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
+                <p style={{ fontSize: 9, color: '#C4C1BA', margin: 0, fontFamily: FF }}>{tile.sub}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* ── 4-TILE METRICS ROW ───────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Key Numbers</p>
@@ -418,22 +435,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* ── HCP STRIP (secondary, below Needs Attention; hidden when all values are dashes) ── */}
-        {hcp != null && HCP_TILES.some(t => t.value !== '—') && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)',
-            gap: 8,
-          }}>
-            {HCP_TILES.filter(t => t.value !== '—').map((tile, i) => (
-              <div key={i} style={{ ...CARD, padding: '10px 14px' }}>
-                <p style={{ fontSize: 9, fontWeight: 600, color: '#B0ADA6', textTransform: 'uppercase', letterSpacing: '0.07em', margin: '0 0 3px', fontFamily: FF }}>{tile.label}</p>
-                <p style={{ fontSize: isMobile ? 18 : 20, fontWeight: 700, color: '#1A1917', margin: '0 0 1px', lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
-                <p style={{ fontSize: 9, color: '#C4C1BA', margin: 0, fontFamily: FF }}>{tile.sub}</p>
-              </div>
-            ))}
-          </div>
-        )}
 
         {/* ── INTELLIGENCE STRIP (hidden if all dashes, below Needs Attention) ── */}
         {kpis && !allIntelDashes && (
