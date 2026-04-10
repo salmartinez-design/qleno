@@ -1,0 +1,105 @@
+PROMPT — NOTIFICATION CENTER WITH 3 ALERT TYPES
+Add a notification bell to the Qleno top nav that opens a notification dropdown. Three notification types only — new bookings, late clock-ins, and unassigned jobs within 48 hours.
+
+STEP 1 — DATABASE
+sqlCREATE TABLE IF NOT EXISTS notifications (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id integer NOT NULL,
+  type varchar(50) NOT NULL,
+  title varchar(255) NOT NULL,
+  body text,
+  link varchar(500),
+  read boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_company_unread 
+  ON notifications(company_id, read, created_at DESC);
+
+STEP 2 — NOTIFICATION TYPES AND ICONS
+TypeIconColorExample titlenew_bookingcalendarblue #5B9BD5"New online booking — [first_name last_name]"late_clockinclockorange #F6AD55"Late clock-in: [tech name] — [client name]"job_unassignedperson?orange #F6AD55"Unassigned job on [date] — [client name]"
+
+STEP 3 — BELL ICON IN TOP NAV
+Add a bell icon to the top navigation bar between the search bar and the user avatar. Show an unread count badge when there are unread notifications — red dot with white number, max display "9+".
+When clicked, open a dropdown panel 380px wide, max height 480px with scroll.
+
+STEP 4 — NOTIFICATION DROPDOWN
+Header row:
+Notifications                    Mark all read
+Each notification row:
+[colored icon]  [title — bold]              [time ago]
+                [body text if present]
+
+Unread notifications have a light tinted background #F7F6F3
+Read notifications have white background
+Clicking any notification marks it read and navigates to the relevant record if a link is set
+"Mark all read" marks all as read for this company
+Show maximum 20 most recent, sorted newest first
+"View all" link at the bottom navigates to /notifications
+
+
+STEP 5 — AUTO-GENERATE NOTIFICATIONS
+Trigger 1 — New booking (new_booking):
+When a booking is submitted via the widget and a job record is successfully created, immediately insert a notification:
+
+Title: New online booking — [first_name] [last_name]
+Body: [service_type] · [scheduled_date formatted] · [arrival_window] · $[first_visit_total]
+Link: /clients/[client_id]
+company_id: from branchConfig (Oak Lawn or Schaumburg based on zip)
+
+Trigger 2 — Late clock-in (late_clockin):
+When a tech clocks into a job more than 20 minutes after the scheduled job start time, insert a notification:
+
+Title: Late clock-in: [tech first name] — [client last name]
+Body: Scheduled [scheduled_time], clocked in at [actual_clockin_time] ([X] min late)
+Link: /jobs/[job_id]
+company_id: from job record
+
+Trigger 3 — Unassigned job within 48 hours (job_unassigned):
+Add to the existing nightly 2AM cron. Query jobs where:
+
+status = 'scheduled'
+scheduled_date is within the next 48 hours
+No technician assigned in job_technicians for this job
+No existing unread job_unassigned notification already exists for this job_id
+
+Insert a notification:
+
+Title: Unassigned job on [formatted date] — [client last name]
+Body: [service_type] · [arrival_window] · $[first_visit_total] — needs a technician assigned
+Link: /jobs/[job_id]
+company_id: from job record
+
+
+STEP 6 — FULL NOTIFICATIONS PAGE
+At /notifications show all notifications in a full page list with:
+
+Filter tabs: All | Unread
+Same row format as dropdown
+Pagination 50 per page
+Bulk "Mark all read" button at top right
+
+
+STEP 7 — PERMISSIONS
+Notifications scoped to company_id. Owner and Office roles see the bell and all notifications. Technicians do not see the notification bell at all.
+
+STEP 8 — VERIFICATION
+Report PASS or FAIL for each:
+
+Notifications table created with correct schema and index
+Bell icon appears in top nav for Owner and Office roles only — hidden from technicians
+Unread badge shows correct count, displays "9+" when over 9
+Dropdown opens with correct layout — icon, title, time ago, body
+new_booking notification color is blue #5B9BD5
+late_clockin notification color is orange #F6AD55
+job_unassigned notification color is orange #F6AD55
+New booking submission auto-creates new_booking notification immediately
+Tech clocking in 21+ minutes late auto-creates late_clockin notification
+Nightly cron creates job_unassigned for jobs within 48 hours with no tech assigned
+Duplicate job_unassigned notifications not created for same job
+Clicking notification marks it read and navigates to correct record
+Mark all read works correctly
+Notifications scoped to correct company_id — Oak Lawn bookings go to Oak Lawn, Schaumburg to Schaumburg
+Full notifications page at /notifications renders with All/Unread tabs
+
+Do not run live tests. Report build status only.

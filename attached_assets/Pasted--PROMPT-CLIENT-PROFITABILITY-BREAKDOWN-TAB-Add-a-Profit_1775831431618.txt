@@ -1,0 +1,162 @@
+---
+
+**PROMPT — CLIENT PROFITABILITY BREAKDOWN TAB**
+
+Add a Profitability tab to every client profile in Qleno. This applies to both residential and commercial clients. The tab shows a full profitability breakdown with time filters and is used by office staff to make rate increase decisions. This is a read-only analytics view — no editing.
+
+---
+
+**STEP 1 — DATABASE**
+
+No new tables needed. All data is derived from existing tables:
+- Revenue → `job_history` and `jobs` tables (completed jobs for this client)
+- Labor cost → `job_technicians.final_pay` summed across all jobs for this client
+- Materials/supplies → add a `supply_cost` column to `jobs` if it does not exist: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS supply_cost numeric(8,2) DEFAULT 0.00;` — this allows office to log supply cost per job in the future; default to 0 for now
+- Overhead → calculated as a fixed percentage of revenue (default 10% — configurable in Company Settings)
+- Net profit → Revenue - Labor - Materials - Overhead
+
+Add an overhead rate setting to Company Settings if it does not exist:
+```sql
+INSERT INTO company_settings (company_id, key, value)
+VALUES (company_id, 'overhead_rate_pct', '10')
+ON CONFLICT DO NOTHING;
+```
+
+---
+
+**STEP 2 — PROFITABILITY TAB ON CLIENT PROFILE**
+
+Add a **Profitability** tab to the client profile page. Position it after the existing tabs (Jobs, Invoices, etc.).
+
+The tab has three sections stacked vertically:
+
+**Section A — KPI Strip (top)**
+
+Four metric tiles in a row:
+
+```
+Monthly Revenue    YTD Revenue    Total Jobs    Avg Bill
+$X,XXX             $XX,XXX        XX            $XXX
+```
+
+All four update based on the selected time filter.
+
+**Section B — Time Filter**
+
+Three pill buttons: **Monthly** | **Quarterly** | **Annually**
+
+Default to Monthly. When a filter is selected, all data below recalculates for that period. Monthly = last 30 days. Quarterly = last 90 days. Annually = last 365 days.
+
+**Section C — Revenue Trend Chart**
+
+Line chart showing revenue over the selected period. X-axis = time (weeks for monthly, months for quarterly/annually). Y-axis = revenue in dollars. Use Phes brand color `#5B9BD5` for the line. Clean minimal chart — no grid clutter.
+
+**Section D — Profitability Breakdown**
+
+A breakdown table matching the Evinco CRM format:
+
+```
+PROFITABILITY BREAKDOWN
+
+Revenue              $X,XXX/mo     100%    [full width bar in #5B9BD5]
+Labor cost           $X,XXX/mo      XX%    [bar in #E53E3E if >40%, #F6AD55 if 35-40%, #48BB78 if <35%]
+Materials/supplies   $XXX/mo         X%    [bar in #5B9BD5 muted]
+Overhead allocation  $XXX/mo        10%    [bar in #5B9BD5 muted]
+Net profit           $X,XXX/mo      XX%    [bar in #48BB78 if positive, #E53E3E if negative]
+```
+
+Each row shows: label, dollar amount per period (normalized to monthly equivalent regardless of filter), percentage of revenue, and a horizontal bar proportional to the percentage.
+
+Labor cost calculation: sum of `job_technicians.final_pay` for all completed jobs for this client in the selected period.
+Materials: sum of `jobs.supply_cost` for this client in the selected period.
+Overhead: revenue × overhead_rate_pct from company settings.
+Net profit: Revenue - Labor - Materials - Overhead.
+
+**Section E — Account Health Score**
+
+A circular gauge (donut chart) in the top right of the profitability breakdown section showing a score from 0–100.
+
+Score calculation:
+- Start at 100
+- Deduct 20 points if labor cost % > 40%
+- Deduct 10 points if labor cost % > 35%
+- Deduct 15 points if net profit % < 15%
+- Deduct 10 points if net profit % < 20%
+- Deduct 10 points if client has missed or cancelled more than 2 jobs in the period
+- Deduct 10 points if client has no completed job in the last 45 days
+- Deduct 5 points if avg bill is below the company average avg bill
+
+Color the gauge:
+- 75–100: green (`#48BB78`)
+- 50–74: yellow (`#F6AD55`)
+- 0–49: red (`#E53E3E`)
+
+Show the numeric score inside the gauge and a label below: "Account Health"
+
+**Section F — Top Services by Revenue**
+
+A simple ranked list of service types for this client, showing what percentage of their revenue comes from each:
+
+```
+TOP SERVICES BY REVENUE
+
+Deep Clean                    ████████████  65%
+One-Time Standard Clean       ████          18%
+Recurring Maintenance         ██            10%
+Move In / Move Out            █              7%
+```
+
+Use horizontal bars in `#5B9BD5` at varying opacity. Show top 5 services maximum.
+
+---
+
+**STEP 3 — RATE INCREASE INDICATOR**
+
+At the top of the Profitability tab, show a banner if the account health score is below 60 or if net profit % is below 15%:
+
+```
+[yellow warning icon] This client may be a candidate for a rate increase. 
+Net profit is XX% — below the healthy threshold of 20%.
+```
+
+Use background `#FFFBEB`, border `#F6AD55`, text `#92400E`. This is informational only — no action button needed yet (Rate Increase Tool is a future sprint).
+
+---
+
+**STEP 4 — PERMISSIONS**
+
+The Profitability tab is visible to Owner and Office roles only. Never visible to technicians or clients.
+
+---
+
+**STEP 5 — COMPANY SETTINGS — OVERHEAD RATE**
+
+In Company Settings → under a new "Financials" section or existing General tab, add one field:
+
+```
+Overhead Rate:  [10]%
+(Applied to all client profitability calculations)
+```
+
+Owner can adjust this. Changing it recalculates all profitability scores immediately.
+
+---
+
+**STEP 6 — VERIFICATION**
+
+Report PASS or FAIL for each:
+
+1. Profitability tab appears on all client profiles — residential and commercial
+2. KPI strip shows correct Monthly Revenue, YTD Revenue, Total Jobs, Avg Bill
+3. Monthly / Quarterly / Annually filter switches all data correctly
+4. Revenue trend chart renders with correct time axis
+5. Profitability breakdown calculates correctly: Revenue - Labor - Materials - Overhead = Net Profit
+6. Labor cost pulls from `job_technicians.final_pay` correctly
+7. Overhead uses `overhead_rate_pct` from company settings
+8. Account health score calculates correctly and displays correct color
+9. Rate increase banner appears when net profit % < 15% or health score < 60
+10. Top services by revenue ranked correctly
+11. Tab hidden from technician role
+12. Overhead rate field in Company Settings saves and recalculates correctly
+
+Do not run live tests. Report build status only.

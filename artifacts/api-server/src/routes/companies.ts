@@ -64,17 +64,27 @@ router.put("/me", requireAuth, async (req, res) => {
     if (!req.auth!.companyId) {
       return res.status(403).json({ error: "Forbidden", message: "No company to update" });
     }
-    const { name, logo_url, pay_cadence, geo_fence_threshold_ft, brand_color } = req.body;
+    const {
+      name, logo_url, pay_cadence, geo_fence_threshold_ft, brand_color,
+      payment_terms_days, dispatch_start_hour, dispatch_end_hour,
+      review_link, overhead_rate_pct,
+    } = req.body;
+
+    const setObj: Record<string, unknown> = {};
+    if (name !== undefined) setObj.name = name;
+    if (logo_url !== undefined) setObj.logo_url = logo_url;
+    if (pay_cadence !== undefined) setObj.pay_cadence = pay_cadence;
+    if (geo_fence_threshold_ft !== undefined) setObj.geo_fence_threshold_ft = geo_fence_threshold_ft;
+    if (brand_color !== undefined) setObj.brand_color = brand_color;
+    if (payment_terms_days !== undefined) setObj.payment_terms_days = Number(payment_terms_days);
+    if (dispatch_start_hour !== undefined) setObj.dispatch_start_hour = Number(dispatch_start_hour);
+    if (dispatch_end_hour !== undefined) setObj.dispatch_end_hour = Number(dispatch_end_hour);
+    if (review_link !== undefined) setObj.review_link = review_link || null;
+    if (overhead_rate_pct !== undefined) setObj.overhead_rate_pct = String(parseFloat(String(overhead_rate_pct)));
 
     const updated = await db
       .update(companiesTable)
-      .set({
-        ...(name && { name }),
-        ...(logo_url !== undefined && { logo_url }),
-        ...(pay_cadence && { pay_cadence }),
-        ...(geo_fence_threshold_ft !== undefined && { geo_fence_threshold_ft }),
-        ...(brand_color && { brand_color }),
-      })
+      .set(setObj as any)
       .where(eq(companiesTable.id, req.auth!.companyId))
       .returning();
 
@@ -142,6 +152,9 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (addon_pct_of_base !== undefined) patch.addon_pct_of_base = String(addon_pct_of_base);
     const { review_link } = req.body;
     if (review_link !== undefined) patch.review_link = review_link || null;
+    const { overhead_rate_pct, payment_terms_days } = req.body;
+    if (overhead_rate_pct !== undefined) patch.overhead_rate_pct = String(parseFloat(String(overhead_rate_pct)));
+    if (payment_terms_days !== undefined) patch.payment_terms_days = Number(payment_terms_days);
 
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 

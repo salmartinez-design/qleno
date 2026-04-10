@@ -90,6 +90,13 @@ Qleno is a multi-tenant SaaS platform designed for residential and commercial cl
 - Payroll `/detail` route: uses `job_technicians.final_pay` when available, falls back to formula
 - All booking confirmations (`/api/public/:slug/confirm`): auto-set `job_type='residential'` or `'commercial'`
 
+**Client Profitability Breakdown Tab (completed April 2026):**
+- New DB columns: `jobs.supply_cost NUMERIC(8,2)` (per-job materials cost), `companies.overhead_rate_pct NUMERIC(5,2)` (default 10.00%)
+- API endpoint: `GET /api/clients/:id/profitability?period=monthly|quarterly|annually` — returns revenue, labor, supply, overhead, net profit, health score (0–100), top services, trend data; owner/office only
+- Company Settings General tab: Overhead Rate % numeric input (saves via PUT /api/companies/me which now handles: payment_terms_days, dispatch_start_hour, dispatch_end_hour, review_link, overhead_rate_pct)
+- Customer profile has 5 tabs: client, property, jobs, admin, profitability (profitability visible to owner/office only via getTokenRole() check)
+- ProfitabilityTab component: KPI strip, period filters, revenue trend line chart (recharts LineChart), breakdown with horizontal bars, SVG health gauge, top services, rate-increase warning banner
+
 **Core Functionality & Feature Specifications:**
 - **Comprehensive Management:** KPI dashboard, dispatch board, employee, customer, and account management.
 - **Financial Tools:** Invoice generation, payroll processing, and quote management.

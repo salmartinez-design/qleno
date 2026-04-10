@@ -3,7 +3,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
@@ -12,7 +12,7 @@ import {
   MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench,
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1976,6 +1976,193 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
 }
 
 
+// ─── Profitability Tab ───────────────────────────────────────────────────────
+function ProfitabilityTab({ clientId }: { clientId: number }) {
+  const [period, setPeriod] = useState<"monthly" | "quarterly" | "annually">("monthly");
+
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["client-profitability", clientId, period],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/profitability?period=${period}`),
+    staleTime: 30000,
+  });
+
+  if (isLoading || !data) {
+    return (
+      <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>
+        <Loader2 size={16} style={{ animation: "spin 1s linear infinite", marginRight: 8 }} />
+        Loading profitability data...
+      </div>
+    );
+  }
+
+  const {
+    revenue, labor_cost: laborCost, supply_cost: supplyCostAmt, overhead, net_profit: netProfit,
+    total_jobs: totalJobs, avg_bill: avgBill, ytd_revenue: ytdRevenue,
+    labor_pct: laborPct, supply_pct: supplyPct, overhead_pct_of_rev: overheadPctOfRev,
+    net_pct: netPct, month_multiplier: mm,
+    health_score: healthScore, top_services: topServices, trend_data: trendData,
+  } = data;
+
+  const fmtDollar = (v: number) => `$${Math.max(0, v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const fmtDec = (v: number) => `$${(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const periodLabel = period === "monthly" ? "Month" : period === "quarterly" ? "Quarter" : "Year";
+  const healthColor = healthScore >= 75 ? "#48BB78" : healthScore >= 50 ? "#F6AD55" : "#E53E3E";
+  const showBanner = healthScore < 60 || netPct < 15;
+
+  const SERVICE_LABELS: Record<string, string> = {
+    standard_clean: "Standard Clean", deep_clean: "Deep Clean", move_out: "Move Out",
+    move_in: "Move In", recurring: "Recurring", post_construction: "Post Construction",
+    office_cleaning: "Office Cleaning", common_areas: "Common Areas",
+    retail_store: "Retail Store", medical_office: "Medical Office",
+    ppm_turnover: "PPM Turnover", post_event: "Post Event",
+  };
+
+  const barColor = (key: string) => {
+    if (key === "labor") return laborPct > 40 ? "#E53E3E" : laborPct > 35 ? "#F6AD55" : "#48BB78";
+    if (key === "net") return netProfit >= 0 ? "#48BB78" : "#E53E3E";
+    return "#5B9BD5";
+  };
+
+  const r = 42; const circ = 2 * Math.PI * r;
+  const dashOffset = circ * (1 - Math.max(0, Math.min(100, healthScore)) / 100);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      {/* Rate Increase Banner */}
+      {showBanner && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", background: "#FFFBEB", border: "1px solid #F6AD55", borderRadius: 8 }}>
+          <AlertTriangle size={15} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 13, color: "#92400E" }}>
+            <strong>This client may be a candidate for a rate increase.</strong>{" "}
+            Net profit is {netPct.toFixed(1)}%{healthScore < 60 ? ` and account health is ${healthScore}/100` : ""} — below the healthy threshold of 20%.
+          </div>
+        </div>
+      )}
+
+      {/* KPI Strip */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
+        {[
+          { label: `${periodLabel} Revenue`, value: fmtDollar(revenue) },
+          { label: "YTD Revenue",            value: fmtDollar(ytdRevenue) },
+          { label: "Total Jobs",             value: String(totalJobs) },
+          { label: "Avg Bill",               value: fmtDec(avgBill) },
+        ].map(({ label, value }) => (
+          <div key={label} style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px" }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{value}</div>
+            <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 3 }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Time Filter */}
+      <div style={{ display: "flex", gap: 6 }}>
+        {(["monthly", "quarterly", "annually"] as const).map(p => (
+          <button key={p} onClick={() => setPeriod(p)} style={{
+            padding: "6px 16px", borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: "pointer",
+            border: "none", background: period === p ? "var(--brand)" : "#F0EEE9",
+            color: period === p ? "#fff" : "#6B6860",
+          }}>
+            {p.charAt(0).toUpperCase() + p.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Revenue Trend Chart */}
+      <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 20px" }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 14 }}>Revenue Trend</div>
+        {trendData.length === 0 ? (
+          <div style={{ textAlign: "center", color: "#9E9B94", fontSize: 13, padding: "28px 0" }}>No completed jobs in this period</div>
+        ) : (
+          <ResponsiveContainer width="100%" height={150}>
+            <LineChart data={trendData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9E9B94" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#9E9B94" }} tickFormatter={(v: number) => `$${v}`} width={52} />
+              <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
+              <Line type="monotone" dataKey="revenue" stroke="#5B9BD5" strokeWidth={2.5} dot={{ r: 3, fill: "#5B9BD5" }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {/* Breakdown + Health Gauge */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 180px", gap: 12, alignItems: "start" }}>
+        {/* Profitability Breakdown */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 16 }}>Profitability Breakdown</div>
+          {[
+            { key: "revenue",  label: "Revenue",               amount: revenue,       pct: 100,             opacity: 1    },
+            { key: "labor",    label: "Labor Cost",            amount: laborCost,     pct: laborPct,        opacity: 1    },
+            { key: "supply",   label: "Materials / Supplies",  amount: supplyCostAmt, pct: supplyPct,       opacity: 0.55 },
+            { key: "overhead", label: "Overhead Allocation",   amount: overhead,      pct: overheadPctOfRev,opacity: 0.55 },
+            { key: "net",      label: "Net Profit",            amount: netProfit,     pct: netPct,          opacity: 1    },
+          ].map(row => (
+            <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
+              <div style={{ width: 170, fontSize: 12, color: "#374151", flexShrink: 0 }}>{row.label}</div>
+              <div style={{ width: 90, fontSize: 12, color: "#1A1917", fontWeight: 600, textAlign: "right" as const, flexShrink: 0 }}>
+                {fmtDollar(row.amount * mm)}<span style={{ fontSize: 10, fontWeight: 400, color: "#9E9B94" }}>/mo</span>
+              </div>
+              <div style={{ width: 38, fontSize: 11, color: "#6B7280", textAlign: "right" as const, flexShrink: 0 }}>
+                {row.pct.toFixed(0)}%
+              </div>
+              <div style={{ flex: 1, background: "#F0EEE9", borderRadius: 3, height: 8, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 3,
+                  width: `${Math.max(0, Math.min(100, Math.abs(row.pct)))}%`,
+                  background: barColor(row.key), opacity: row.opacity,
+                }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Account Health Gauge */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 16px", textAlign: "center" as const }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>Account Health</div>
+          <svg width="110" height="110" style={{ display: "block", margin: "0 auto" }}>
+            <circle cx="55" cy="55" r={r} fill="none" stroke="#F0EEE9" strokeWidth="11" />
+            <circle
+              cx="55" cy="55" r={r} fill="none"
+              stroke={healthColor} strokeWidth="11"
+              strokeDasharray={`${circ}`}
+              strokeDashoffset={`${dashOffset}`}
+              strokeLinecap="round"
+              transform="rotate(-90 55 55)"
+              style={{ transition: "stroke-dashoffset 0.6s ease" }}
+            />
+            <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
+            <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
+          </svg>
+          <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
+          <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+            {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
+          </div>
+        </div>
+      </div>
+
+      {/* Top Services */}
+      {topServices.length > 0 && (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 14 }}>Top Services by Revenue</div>
+          {topServices.map((svc: any, i: number) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <div style={{ width: 190, fontSize: 12, color: "#374151", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                {SERVICE_LABELS[svc.service_type] || svc.service_type}
+              </div>
+              <div style={{ flex: 1, background: "#F0EEE9", borderRadius: 3, height: 8 }}>
+                <div style={{
+                  height: "100%", borderRadius: 3, width: `${svc.pct}%`,
+                  background: "#5B9BD5", opacity: Math.max(0.35, 1 - i * 0.18),
+                }} />
+              </div>
+              <div style={{ width: 36, fontSize: 12, fontWeight: 600, color: "#1A1917", textAlign: "right" as const, flexShrink: 0 }}>{svc.pct}%</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Job History helpers ───────────────────────────────────────────────────────
 function parseJobNotes(notes: string | null): { duration: string | null; addOn: string | null; tech2: string | null; address: string | null; freq: string | null } {
   if (!notes) return { duration: null, addOn: null, tech2: null, address: null, freq: null };
@@ -3724,10 +3911,11 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
 
 // ─── Main Profile Page ─────────────────────────────────────────────────────────
 const PROFILE_TABS = [
-  { id: "client",   label: "Client"   },
-  { id: "property", label: "Property" },
-  { id: "jobs",     label: "Jobs"     },
-  { id: "admin",    label: "Admin"    },
+  { id: "client",        label: "Client"        },
+  { id: "property",      label: "Property"      },
+  { id: "jobs",          label: "Jobs"          },
+  { id: "admin",         label: "Admin"         },
+  { id: "profitability", label: "Profitability" },
 ] as const;
 type ProfileTab = typeof PROFILE_TABS[number]["id"];
 
@@ -3917,7 +4105,11 @@ export default function CustomerProfilePage() {
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 0, marginLeft: -24, marginRight: -24, paddingLeft: 24 }}>
-        {PROFILE_TABS.map(tab => (
+        {PROFILE_TABS.filter(tab => {
+          if (tab.id !== "profitability") return true;
+          const role = getTokenRole();
+          return role === "owner" || role === "office";
+        }).map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
@@ -4288,6 +4480,15 @@ export default function CustomerProfilePage() {
           </CollapsibleSection>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════
+          TAB 5: PROFITABILITY — owner/office only
+         ══════════════════════════════════════════════ */}
+      {activeTab === "profitability" && (
+        <div style={{ padding: "24px 0" }}>
+          <ProfitabilityTab clientId={clientId} />
+        </div>
+      )}
     </div>
   );
 
@@ -4351,7 +4552,11 @@ export default function CustomerProfilePage() {
             </div>
             {/* Mobile tab bar */}
             <div style={{ display: "flex", overflowX: "auto" as const, gap: 0, marginLeft: -16, marginRight: -16, paddingLeft: 16 }}>
-              {PROFILE_TABS.map(tab => (
+              {PROFILE_TABS.filter(tab => {
+                if (tab.id !== "profitability") return true;
+                const role = getTokenRole();
+                return role === "owner" || role === "office";
+              }).map(tab => (
                 <button key={tab.id} onClick={() => setActiveTab(tab.id)} style={{ padding: "8px 16px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: activeTab === tab.id ? 700 : 500, color: activeTab === tab.id ? "var(--brand)" : "#6B6860", background: "transparent", borderBottom: activeTab === tab.id ? "2px solid var(--brand)" : "2px solid transparent", marginBottom: -1, whiteSpace: "nowrap" as const, transition: "color 120ms" }}>
                   {tab.label}
                 </button>
@@ -4424,6 +4629,9 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Portal"><PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Tech Preferences"><TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} /></CollapsibleSection>
             </>)}
+            {activeTab === "profitability" && (
+              <ProfitabilityTab clientId={clientId} />
+            )}
           </div>
         </div>
       </DashboardLayout>

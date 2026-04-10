@@ -54,6 +54,7 @@ export const jobsTable = pgTable("jobs", {
   zone_id: integer("zone_id"),
   branch_id: integer("branch_id").references(() => branchesTable.id),
   recurring_schedule_id: integer("recurring_schedule_id"),
+  supply_cost: numeric("supply_cost", { precision: 8, scale: 2 }).default("0.00"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   // ── Booking widget extra fields ─────────────────────────────────────────────
   home_condition_rating: integer("home_condition_rating"),

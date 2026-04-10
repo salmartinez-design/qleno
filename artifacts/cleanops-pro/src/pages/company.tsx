@@ -430,6 +430,7 @@ function GeneralTab() {
   const [name, setName] = useState('');
   const [payCadence, setPayCadence] = useState('biweekly');
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
+  const [overheadRatePct, setOverheadRatePct] = useState(10);
   const [dispatchStartHour, setDispatchStartHour] = useState(8);
   const [dispatchEndHour, setDispatchEndHour] = useState(18);
   const [reviewLink, setReviewLink] = useState('');
@@ -439,6 +440,7 @@ function GeneralTab() {
       setName(company.name || '');
       setPayCadence(company.pay_cadence || 'biweekly');
       setPaymentTermsDays((company as any).payment_terms_days ?? 0);
+      setOverheadRatePct(parseFloat(String((company as any).overhead_rate_pct ?? 10)));
       setDispatchStartHour((company as any).dispatch_start_hour ?? 8);
       setDispatchEndHour((company as any).dispatch_end_hour ?? 18);
       setReviewLink((company as any).review_link || '');
@@ -451,7 +453,7 @@ function GeneralTab() {
       return;
     }
     updateCompany.mutate(
-      { data: { name, pay_cadence: payCadence as any, payment_terms_days: paymentTermsDays, dispatch_start_hour: dispatchStartHour, dispatch_end_hour: dispatchEndHour, review_link: reviewLink || null } as any },
+      { data: { name, pay_cadence: payCadence as any, payment_terms_days: paymentTermsDays, overhead_rate_pct: overheadRatePct, dispatch_start_hour: dispatchStartHour, dispatch_end_hour: dispatchEndHour, review_link: reviewLink || null } as any },
       {
         onSuccess: () => toast({ title: "Settings saved", description: "Company profile updated." }),
         onError: () => toast({ variant: "destructive", title: "Error", description: "Failed to save settings." }),
@@ -510,6 +512,20 @@ function GeneralTab() {
             <a href={reviewLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', textDecoration: 'underline' }}>Test link</a>
           </p>
         )}
+      </Section>
+      <Section title="Overhead Rate %" desc="Used in the profitability breakdown to allocate indirect costs (insurance, software, office, vehicle) per client.">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="number" min="0" max="100" step="0.5"
+            value={overheadRatePct}
+            onChange={e => setOverheadRatePct(parseFloat(e.target.value) || 0)}
+            style={{ width: 100, fontFamily: FF, fontSize: '14px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none', textAlign: 'right' as const }}
+          />
+          <span style={{ fontFamily: FF, fontSize: 13, color: '#6B7280' }}>% of revenue</span>
+        </div>
+        <p style={{ fontFamily: FF, fontSize: 11, color: '#9E9B94', margin: '6px 0 0' }}>
+          Typical range: 8–15%. Default is 10%.
+        </p>
       </Section>
       <Section title="Dispatch Board Hours" desc="The dispatch timeline will only show this window by default. Jobs outside this range cannot be scheduled from the board.">
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>

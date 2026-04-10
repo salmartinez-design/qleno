@@ -66,6 +66,7 @@ export const companiesTable = pgTable("companies", {
   qb_connected: boolean("qb_connected").notNull().default(false),
   qb_last_sync_at: timestamp("qb_last_sync_at"),
   qb_company_name: text("qb_company_name"),
+  overhead_rate_pct: numeric("overhead_rate_pct", { precision: 5, scale: 2 }).default("10.00"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

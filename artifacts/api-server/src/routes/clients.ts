@@ -1326,5 +1326,202 @@ router.patch("/:clientId/jobs/:jobId/reschedule", requireAuth, async (req, res) 
   }
 });
 
+// ─── GET CLIENT PROFITABILITY ─────────────────────────────────────────────────
+router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const period = (req.query.period as string) || "monthly";
+
+    const now = new Date();
+    let startDate: Date;
+    if (period === "quarterly") {
+      startDate = new Date(now); startDate.setDate(now.getDate() - 90);
+    } else if (period === "annually") {
+      startDate = new Date(now); startDate.setDate(now.getDate() - 365);
+    } else {
+      startDate = new Date(now); startDate.setDate(now.getDate() - 30);
+    }
+    const ytdStart = new Date(now.getFullYear(), 0, 1);
+
+    const startDateStr = startDate.toISOString().split("T")[0];
+    const ytdStartStr = ytdStart.toISOString().split("T")[0];
+
+    // Revenue + jobs in period
+    const periodRes = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status = 'complete') AS total_jobs,
+        COALESCE(SUM(COALESCE(billed_amount, base_fee)) FILTER (WHERE status = 'complete'), 0) AS revenue,
+        COALESCE(SUM(COALESCE(supply_cost, 0)) FILTER (WHERE status = 'complete'), 0) AS supply_cost,
+        COALESCE(AVG(COALESCE(billed_amount, base_fee)) FILTER (WHERE status = 'complete'), 0) AS avg_bill,
+        COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled_count
+      FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId}
+        AND scheduled_date >= ${startDateStr}::date
+    `);
+
+    const pRow = (periodRes.rows[0] as any) || {};
+    const revenue = parseFloat(String(pRow.revenue ?? 0));
+    const supplyCost = parseFloat(String(pRow.supply_cost ?? 0));
+    const totalJobs = parseInt(String(pRow.total_jobs ?? 0));
+    const avgBill = parseFloat(String(pRow.avg_bill ?? 0));
+    const cancelledCount = parseInt(String(pRow.cancelled_count ?? 0));
+
+    // YTD revenue
+    const ytdRes = await db.execute(sql`
+      SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee)), 0) AS ytd_revenue
+      FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId}
+        AND status = 'complete' AND scheduled_date >= ${ytdStartStr}::date
+    `);
+    const ytdRevenue = parseFloat(String((ytdRes.rows[0] as any)?.ytd_revenue ?? 0));
+
+    // Labor cost
+    const laborRes = await db.execute(sql`
+      SELECT COALESCE(SUM(jt.final_pay), 0) AS labor_cost
+      FROM job_technicians jt
+      JOIN jobs j ON jt.job_id = j.id
+      WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
+        AND j.status = 'complete' AND j.scheduled_date >= ${startDateStr}::date
+    `);
+    const laborCost = parseFloat(String((laborRes.rows[0] as any)?.labor_cost ?? 0));
+
+    // Overhead rate from company settings
+    const coRes = await db.execute(sql`
+      SELECT COALESCE(overhead_rate_pct, 10) AS overhead_rate_pct FROM companies WHERE id = ${companyId}
+    `);
+    const overheadPct = parseFloat(String((coRes.rows[0] as any)?.overhead_rate_pct ?? 10));
+    const overhead = (overheadPct / 100) * revenue;
+
+    const netProfit = revenue - laborCost - supplyCost - overhead;
+    const laborPct = revenue > 0 ? (laborCost / revenue) * 100 : 0;
+    const supplyPct = revenue > 0 ? (supplyCost / revenue) * 100 : 0;
+    const overheadPctOfRev = revenue > 0 ? (overhead / revenue) * 100 : 0;
+    const netPct = revenue > 0 ? (netProfit / revenue) * 100 : 0;
+
+    // Days in period for monthly normalization
+    const periodDays = period === "annually" ? 365 : period === "quarterly" ? 90 : 30;
+    const monthMultiplier = 30 / periodDays;
+
+    // Last job date (completed) for health score
+    const lastJobRes = await db.execute(sql`
+      SELECT scheduled_date FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId} AND status = 'complete'
+      ORDER BY scheduled_date DESC LIMIT 1
+    `);
+    const lastJobDate: string | null = lastJobRes.rows.length > 0
+      ? String((lastJobRes.rows[0] as any).scheduled_date)
+      : null;
+    const daysSinceLastJob = lastJobDate
+      ? Math.floor((Date.now() - new Date(lastJobDate).getTime()) / 86400000)
+      : 999;
+
+    // Company average avg_bill (for health score)
+    const coAvgRes = await db.execute(sql`
+      SELECT COALESCE(AVG(sub.avg_per_client), 0) AS company_avg_bill
+      FROM (
+        SELECT AVG(COALESCE(billed_amount, base_fee)) AS avg_per_client
+        FROM jobs
+        WHERE company_id = ${companyId} AND status = 'complete'
+          AND scheduled_date >= ${startDateStr}::date
+        GROUP BY client_id
+      ) sub
+    `);
+    const companyAvgBill = parseFloat(String((coAvgRes.rows[0] as any)?.company_avg_bill ?? 0));
+
+    // Health score
+    let health = 100;
+    if (laborPct > 40) health -= 20;
+    else if (laborPct > 35) health -= 10;
+    if (netPct < 15) health -= 15;
+    else if (netPct < 20) health -= 10;
+    if (cancelledCount > 2) health -= 10;
+    if (daysSinceLastJob > 45) health -= 10;
+    if (companyAvgBill > 0 && avgBill < companyAvgBill) health -= 5;
+    health = Math.max(0, Math.min(100, health));
+
+    // Top services by revenue
+    const svcsRes = await db.execute(sql`
+      SELECT service_type,
+        COALESCE(SUM(COALESCE(billed_amount, base_fee)), 0) AS total,
+        COUNT(*) AS job_count
+      FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId}
+        AND status = 'complete' AND scheduled_date >= ${startDateStr}::date
+      GROUP BY service_type ORDER BY total DESC LIMIT 5
+    `);
+    const topServicesRevTotal = (svcsRes.rows as any[]).reduce((s: number, r: any) => s + parseFloat(String(r.total)), 0);
+    const topServices = (svcsRes.rows as any[]).map((r: any) => {
+      const svcRevenue = parseFloat(String(r.total));
+      return {
+        service_type: r.service_type,
+        revenue: svcRevenue,
+        pct: topServicesRevTotal > 0 ? Math.round((svcRevenue / topServicesRevTotal) * 100) : 0,
+        job_count: parseInt(String(r.job_count)),
+      };
+    });
+
+    // Trend data (weeks for monthly, months for quarterly/annually)
+    let trendRows: any[];
+    if (period === "monthly") {
+      const trendRes = await db.execute(sql`
+        SELECT
+          date_trunc('week', scheduled_date::timestamp) AS bucket,
+          COALESCE(SUM(COALESCE(billed_amount, base_fee)), 0) AS revenue
+        FROM jobs
+        WHERE client_id = ${clientId} AND company_id = ${companyId}
+          AND status = 'complete' AND scheduled_date >= ${startDateStr}::date
+        GROUP BY 1 ORDER BY 1
+      `);
+      trendRows = (trendRes.rows as any[]).map((r: any) => ({
+        label: new Date(r.bucket).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        revenue: parseFloat(String(r.revenue)),
+      }));
+    } else {
+      const trendRes = await db.execute(sql`
+        SELECT
+          date_trunc('month', scheduled_date::timestamp) AS bucket,
+          COALESCE(SUM(COALESCE(billed_amount, base_fee)), 0) AS revenue
+        FROM jobs
+        WHERE client_id = ${clientId} AND company_id = ${companyId}
+          AND status = 'complete' AND scheduled_date >= ${startDateStr}::date
+        GROUP BY 1 ORDER BY 1
+      `);
+      trendRows = (trendRes.rows as any[]).map((r: any) => ({
+        label: new Date(r.bucket).toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
+        revenue: parseFloat(String(r.revenue)),
+      }));
+    }
+
+    return res.json({
+      period,
+      revenue,
+      labor_cost: laborCost,
+      supply_cost: supplyCost,
+      overhead,
+      overhead_pct: overheadPct,
+      net_profit: netProfit,
+      total_jobs: totalJobs,
+      avg_bill: avgBill,
+      ytd_revenue: ytdRevenue,
+      labor_pct: laborPct,
+      supply_pct: supplyPct,
+      overhead_pct_of_rev: overheadPctOfRev,
+      net_pct: netPct,
+      month_multiplier: monthMultiplier,
+      health_score: health,
+      last_job_date: lastJobDate,
+      days_since_last_job: daysSinceLastJob,
+      company_avg_bill: companyAvgBill,
+      cancelled_count: cancelledCount,
+      top_services: topServices,
+      trend_data: trendRows,
+    });
+  } catch (err) {
+    console.error("GET profitability:", err);
+    return res.status(500).json({ error: "Failed to load profitability data" });
+  }
+});
+
 export default router;
 
