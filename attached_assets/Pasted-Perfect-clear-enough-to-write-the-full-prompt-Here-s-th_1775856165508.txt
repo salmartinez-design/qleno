@@ -1,0 +1,155 @@
+Perfect — clear enough to write the full prompt. Here's the redesign:
+
+---
+
+**REPLIT PROMPT — Booking Form: Office Workflow Redesign**
+
+Redesign the booking form at `/book/phes-cleaning` for the office booking workflow. This is not a client-facing mobile form — it is used by Francisco and Maribel on desktop while on the phone with a client. Optimize every decision for speed, clarity, and phone-call context. Do not touch any other pages.
+
+---
+
+**GLOBAL LAYOUT CHANGES**
+
+Remove the entire "Before You Book" accordion section from the right panel on all steps. Delete it completely — do not collapse or hide it, remove it from the DOM.
+
+Right panel contains only two things on every step:
+- **Contact Information** (phone, email, hours) — top of panel
+- **Price Summary** — updates live as selections are made, always visible
+
+This frees up significant right panel space and removes noise the office team doesn't need mid-call.
+
+---
+
+**STEP 1 — SCOPE SELECTION (own dedicated step)**
+
+Separate scope selection completely from home details. This is now its own step before anything else.
+
+**Step label:** "Select Services"
+
+**Layout:** Scopes grouped in three sections with muted uppercase 11px section labels:
+
+- **RESIDENTIAL** — Deep Clean, Move In / Move Out, Recurring Service, One-Time Standard Clean
+- **COMMERCIAL** — Commercial Cleaning
+- **SPECIALTY** — Post-Construction Cleaning
+
+Each scope renders as a selectable card (same card style as office quote builder — checkbox top-right, scope name 14px 500, subtext muted 12px). 
+
+**Multi-select enabled** — office can check multiple scopes simultaneously. This is the core change. When multiple scopes are selected the price summary on the right shows each scope as its own line item as home details are filled in.
+
+Selected state: `border: 1.5px solid #5B9BD5`, background `#EBF4FF`.
+
+Unselected: `border: 0.5px solid #E5E2DC`, background `#FFFFFF`.
+
+"Continue" button disabled until at least one scope is selected.
+
+---
+
+**STEP 2 — HOME DETAILS**
+
+Clean single-column layout. All fields present but **none are mandatory** — the "Continue" button is always enabled regardless of what is or isn't filled in. Remove all validation errors that block progression. If a field is empty, the price summary shows "Enter details to calculate" — that's the only consequence.
+
+Fields in order:
+- Square Footage (text input, placeholder "e.g. 2000")
+- Bedrooms / Full Bathrooms — side by side
+- Half Bathrooms / Floors — side by side  
+- People in Household / Pets — side by side
+- Cleanliness rating (1 — Very Clean / 2 — Moderately Clean / 3 — Very Dirty) — button toggle row
+
+**No validation errors.** No red text. No blocked Continue button. If sqft is missing, price just won't calculate — that's sufficient feedback.
+
+Price summary on the right updates live as sqft is entered.
+
+---
+
+**STEP 2B — RECURRING SERVICE REMINDER (conditional insert)**
+
+This block appears at the bottom of Step 2, below all home detail fields, **only when Deep Clean or Move In / Move Out is among the selected scopes.**
+
+It is not a sales pitch to the client — it is an **office talking point prompt.** Frame it accordingly.
+
+Style:
+```
+Background: #EBF4FF
+Border: 1px solid #5B9BD5
+Border-radius: 8px
+Padding: 14px 16px
+```
+
+Header: "Recurring service reminder" in 12px font-weight 500 `#185FA5`
+
+Body text (13px `#1A1917`):
+"Before finishing — ask the client if they'd like to continue with recurring service after this job. Many clients convert after a Deep Clean or Move-Out."
+
+Below the body, show the recurring price for this home (computed from sqft already entered) as a quick reference:
+
+```
+Weekly: $XXX   ·   Biweekly: $XXX   ·   Monthly: $XXX
+```
+
+Format: 13px, font-weight 500, `#1A1917`. Label above in 11px muted: "Recurring rates for this home"
+
+If sqft hasn't been entered yet: show "Enter square footage above to see recurring rates."
+
+Add a checkbox at the bottom: `[ ] Client wants to add recurring service` — if checked, automatically adds the recurring scope to the selected scopes list (pre-selects the frequency toggle that matches the cheapest weekly option by default, overrideable). No redirect, no new step — just appends to the selection.
+
+---
+
+**STEP 3 — ADD-ONS**
+
+One accordion section per selected scope (same as office quote builder). Show all add-ons regardless of `show_online` flag — office sees everything.
+
+Each accordion: scope name + base price in header, expanded by default, add-on rows with checkbox + name + price, running subtotal at the bottom.
+
+No changes to add-on logic — just apply the clean accordion layout.
+
+---
+
+**STEP 4 — DATE & TIME**
+
+Keep existing calendar. No changes needed here except:
+- Remove the "Preferred Arrival Window" Morning/Afternoon toggle — replace with a proper time window selector showing all available windows: Early Morning (8–9 AM), Morning (9 AM–12 PM), Afternoon (12–2 PM). Three-button toggle.
+- Sun/Sat visually blocked (grayed out, not selectable) — Phes does not operate on weekends.
+
+---
+
+**STEP 5 — REVIEW & CONFIRM**
+
+Show all selected scopes as separate line items with their add-ons and individual totals.
+
+If multiple scopes: show each scope card with a radio button — "Select scope to confirm booking." Same pattern as office quote builder Review step. Non-selected scopes saved as `alternate_options`.
+
+Booking summary table: Name, Email, Phone, Service(s), Sqft, Date, Arrival Window, Address, Estimated Time, Total.
+
+Payment capture (Stripe SetupIntent) below summary — unchanged.
+
+Primary CTA: "Confirm & Book" in brand color.
+
+---
+
+**RIGHT PANEL — price summary behavior across all steps**
+
+Step 1: "Select a service to see pricing."
+
+Step 2+: Show each selected scope as a line item:
+```
+Deep Clean — 1,800 sqft        $504.00
+Move In / Move Out              $504.00
+─────────────────────────────────────
+Total (2 options)               $1,008.00
+```
+
+Add-ons append to their respective scope line once selected in Step 3.
+
+If sqft not entered: show scope name + "— enter sqft to price" in muted 12px.
+
+Estimated time shown below total: "Est. time: X hrs" in 12px muted.
+
+---
+
+**STEPPER NAV**
+
+Steps: Scope → Home Details → Add-ons → Date → Review
+
+Active step: brand color fill, white text.
+Completed steps: checkmark icon, muted text.
+Inactive: muted background, muted text.

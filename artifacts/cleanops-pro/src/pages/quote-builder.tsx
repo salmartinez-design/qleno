@@ -1455,6 +1455,42 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
 
+              {/* Discount code section */}
+              {selectedScopes.length > 0 && (
+                <div style={{ marginTop: 16, padding: "14px 16px", background: "#F7F6F3", border: "0.5px solid #E5E2DC", borderRadius: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>Promo / Discount Code</div>
+                  {discountCode ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontFamily: FF, color: "#1A1917", fontWeight: 600 }}>{discountCode}</span>
+                      <span style={{ fontSize: 11, color: "#16A34A", fontFamily: FF }}>applied</span>
+                      <button onClick={clearDiscount} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: FF }}>
+                        <X size={10} /> Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          type="text"
+                          value={discountInput}
+                          onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
+                          onKeyDown={e => e.key === "Enter" && applyDiscount()}
+                          placeholder="e.g. PHES10OFF"
+                          style={{ flex: 1, height: 34, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF", textTransform: "uppercase" }}
+                        />
+                        <button
+                          onClick={applyDiscount}
+                          style={{ padding: "0 14px", height: 34, background: "#1A1917", color: "#FFF", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}
+                        >
+                          Apply
+                        </button>
+                      </div>
+                      {discountError && <div style={{ fontSize: 11, color: "#DC2626", fontFamily: FF }}>{discountError}</div>}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
                 <Button
@@ -1571,40 +1607,6 @@ export default function QuoteBuilderPage() {
                   })}
                 </div>
               )}
-
-              {/* Discount code section */}
-              <div style={{ marginTop: 16, padding: "14px 16px", background: "#F7F6F3", border: "0.5px solid #E5E2DC", borderRadius: 8 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>Promo / Discount Code</div>
-                {discountCode ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, fontFamily: FF, color: "#1A1917", fontWeight: 600 }}>{discountCode}</span>
-                    <span style={{ fontSize: 11, color: "#16A34A", fontFamily: FF }}>applied</span>
-                    <button onClick={clearDiscount} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: FF }}>
-                      <X size={10} /> Remove
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <input
-                        type="text"
-                        value={discountInput}
-                        onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
-                        onKeyDown={e => e.key === "Enter" && applyDiscount()}
-                        placeholder="e.g. PHES10OFF"
-                        style={{ flex: 1, height: 34, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF", textTransform: "uppercase" }}
-                      />
-                      <button
-                        onClick={applyDiscount}
-                        style={{ padding: "0 14px", height: 34, background: "#1A1917", color: "#FFF", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}
-                      >
-                        Apply
-                      </button>
-                    </div>
-                    {discountError && <div style={{ fontSize: 11, color: "#DC2626", fontFamily: FF }}>{discountError}</div>}
-                  </div>
-                )}
-              </div>
 
               {/* Notes section */}
               <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
