@@ -17,7 +17,7 @@ import {
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2,
-  X, Phone,
+  X, Phone, ImagePlus, Loader2, Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -86,6 +86,7 @@ interface SuggestedTech { id: number; name: string; zone_name: string; zone_colo
 
 interface PreferredTech { id: number; full_name: string; job_count: number; }
 interface RecentService { scope: string; last_date: string; last_price: number; frequency: string | null; addons: string[]; }
+interface PhotoUpload { id: string; objectPath: string; previewUrl: string; inJobNotes: boolean; uploading: boolean; name: string; error?: string; }
 
 const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes", "Review"];
 const SECTION_ICONS = [User, Home, Calculator, PlusSquare, CheckCircle2];
@@ -140,13 +141,15 @@ export default function QuoteBuilderPage() {
   const [selectedScopes, setSelectedScopes] = useState<SelectedScopeState[]>([]);
   const [selectedDate, setSelectedDate] = useState("");
 
-  // ── Section 3: Notes + discount ─────────────────────────────────────────
+  // ── Section 3: Notes + discount + photos ─────────────────────────────────
   const [notes, setNotes] = useState("");
   const [internalMemo, setInternalMemo] = useState("");
   const [manualAdjValue, setManualAdjValue] = useState("");
   const [discountCode, setDiscountCode] = useState("");
   const [discountInput, setDiscountInput] = useState("");
   const [discountError, setDiscountError] = useState("");
+  const [photoUploads, setPhotoUploads] = useState<PhotoUpload[]>([]);
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── Section 4: Review — final scope selection ────────────────────────────
   const [finalScopeId, setFinalScopeId] = useState<number | null>(null);
@@ -269,6 +272,13 @@ export default function QuoteBuilderPage() {
     setInternalMemo(existingQuote.internal_memo || "");
     setCallNotes(existingQuote.call_notes || "");
     setZoneOverride(existingQuote.zone_override || false);
+    if (Array.isArray(existingQuote.photo_urls) && existingQuote.photo_urls.length > 0) {
+      setPhotoUploads(existingQuote.photo_urls.map((p: string) => ({
+        id: p, objectPath: p,
+        previewUrl: `${API}/photos${p}`,
+        inJobNotes: true, uploading: false, name: p.split("/").pop() || "photo",
+      })));
+    }
     setUnitSuite(existingQuote.unit_suite || "");
     setReferralSource(existingQuote.referral_source || "");
     // Restore single scope from existing quote (backward compat)
@@ -525,8 +535,51 @@ export default function QuoteBuilderPage() {
       alternate_options: alternateOptions.length > 0 ? alternateOptions : null,
       zone_override: zoneOverride || null,
       address_verified: addressVerified === true,
+      photo_urls: photoUploads.filter(p => !p.uploading && p.objectPath).map(p => p.objectPath),
       status,
     };
+  }
+
+  async function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    e.target.value = "";
+    for (const file of files) {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const previewUrl = URL.createObjectURL(file);
+      setPhotoUploads(prev => [...prev, { id, objectPath: "", previewUrl, inJobNotes: true, uploading: true, name: file.name }]);
+      try {
+        const urlRes = await apiFetch("/api/photos/request-url", {
+          method: "POST",
+          body: { name: file.name, size: file.size, contentType: file.type || "image/jpeg" },
+        });
+        await fetch(urlRes.uploadURL, {
+          method: "PUT",
+          headers: { "Content-Type": file.type || "image/jpeg" },
+          body: file,
+        });
+        setPhotoUploads(prev => prev.map(p => p.id === id ? { ...p, uploading: false, objectPath: urlRes.objectPath } : p));
+      } catch {
+        setPhotoUploads(prev => prev.map(p => p.id === id ? { ...p, uploading: false, error: "Upload failed" } : p));
+      }
+    }
+  }
+
+  function applyDiscount() {
+    const code = discountInput.trim();
+    if (!code) { setDiscountError("Please enter a promo code."); return; }
+    setDiscountCode(code);
+    discountCodeRef.current = code;
+    setDiscountError("");
+    selectedScopesRef.current.forEach(s => recalcScopeById(s.scope_id, 50));
+  }
+
+  function clearDiscount() {
+    setDiscountCode("");
+    setDiscountInput("");
+    setDiscountError("");
+    discountCodeRef.current = "";
+    selectedScopesRef.current.forEach(s => recalcScopeById(s.scope_id, 50));
   }
 
   async function save(status: string = "draft", thenConvert = false) {
@@ -1519,6 +1572,40 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
 
+              {/* Discount code section */}
+              <div style={{ marginTop: 16, padding: "14px 16px", background: "#F7F6F3", border: "0.5px solid #E5E2DC", borderRadius: 8 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>Promo / Discount Code</div>
+                {discountCode ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 13, fontFamily: FF, color: "#1A1917", fontWeight: 600 }}>{discountCode}</span>
+                    <span style={{ fontSize: 11, color: "#16A34A", fontFamily: FF }}>applied</span>
+                    <button onClick={clearDiscount} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: FF }}>
+                      <X size={10} /> Remove
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", gap: 6, flexDirection: "column" }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="text"
+                        value={discountInput}
+                        onChange={e => { setDiscountInput(e.target.value.toUpperCase()); setDiscountError(""); }}
+                        onKeyDown={e => e.key === "Enter" && applyDiscount()}
+                        placeholder="e.g. PHES10OFF"
+                        style={{ flex: 1, height: 34, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF", textTransform: "uppercase" }}
+                      />
+                      <button
+                        onClick={applyDiscount}
+                        style={{ padding: "0 14px", height: 34, background: "#1A1917", color: "#FFF", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}
+                      >
+                        Apply
+                      </button>
+                    </div>
+                    {discountError && <div style={{ fontSize: 11, color: "#DC2626", fontFamily: FF }}>{discountError}</div>}
+                  </div>
+                )}
+              </div>
+
               {/* Notes section */}
               <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
@@ -1531,6 +1618,69 @@ export default function QuoteBuilderPage() {
                   <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Client-Facing Notes</div>
                   <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to client on the quote.</div>
                   <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible to the client..." rows={3} className="mt-1 text-sm" />
+                </div>
+
+                {/* Photo upload section */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Photos</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 8, fontFamily: FF }}>Attach photos to this quote (property, damage, before/after).</div>
+                  <input
+                    ref={photoFileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    style={{ display: "none" }}
+                    onChange={handlePhotoSelect}
+                  />
+                  {photoUploads.length > 0 && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: 8, marginBottom: 10 }}>
+                      {photoUploads.map(photo => (
+                        <div key={photo.id} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: "0.5px solid #E5E2DC", background: "#F7F6F3", aspectRatio: "1", display: "flex", flexDirection: "column" }}>
+                          {photo.uploading ? (
+                            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: 4 }}>
+                              <Loader2 size={20} color="#9E9B94" className="animate-spin" />
+                              <span style={{ fontSize: 9, color: "#9E9B94", textAlign: "center", padding: "0 4px" }}>Uploading…</span>
+                            </div>
+                          ) : photo.error ? (
+                            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 6 }}>
+                              <span style={{ fontSize: 10, color: "#DC2626", textAlign: "center" }}>{photo.error}</span>
+                            </div>
+                          ) : (
+                            <img src={photo.previewUrl} alt={photo.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          )}
+                          {/* Remove button */}
+                          <button
+                            onClick={() => {
+                              setPhotoUploads(prev => prev.filter(p => p.id !== photo.id));
+                              if (!photo.objectPath && photo.previewUrl.startsWith("blob:")) URL.revokeObjectURL(photo.previewUrl);
+                            }}
+                            style={{ position: "absolute", top: 4, right: 4, width: 20, height: 20, borderRadius: "50%", background: "rgba(0,0,0,0.55)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                          >
+                            <X size={11} color="#FFF" />
+                          </button>
+                          {/* Job notes badge */}
+                          {!photo.uploading && !photo.error && (
+                            <button
+                              title={photo.inJobNotes ? "In Job Notes (click to remove)" : "Add to Job Notes"}
+                              onClick={() => setPhotoUploads(prev => prev.map(p => p.id === photo.id ? { ...p, inJobNotes: !p.inJobNotes } : p))}
+                              style={{ position: "absolute", bottom: 4, left: 4, fontSize: 9, fontWeight: 600, background: photo.inJobNotes ? "#1A1917" : "rgba(0,0,0,0.35)", color: "#FFF", border: "none", borderRadius: 4, padding: "2px 5px", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}
+                            >
+                              {photo.inJobNotes ? "✓ Job Notes" : "+ Job Notes"}
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => photoFileInputRef.current?.click()}
+                    style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, color: "#6B6860", background: "#F7F6F3", border: "1px dashed #C9C6C0", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontFamily: FF, transition: "background 0.15s" }}
+                    onMouseOver={e => (e.currentTarget.style.background = "#EFEDE8")}
+                    onMouseOut={e => (e.currentTarget.style.background = "#F7F6F3")}
+                  >
+                    <ImagePlus size={15} />
+                    Add Photos
+                  </button>
                 </div>
               </div>
 

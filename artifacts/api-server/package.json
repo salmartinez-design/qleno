@@ -11,6 +11,7 @@
     "test:bundle": "tsx --test src/tests/bundle-discount.test.ts"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@types/multer": "^2.1.0",
     "@types/pdfkit": "^0.17.5",
     "@workspace/api-zod": "workspace:*",
@@ -21,6 +22,7 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "express-rate-limit": "^8.3.1",
+    "google-auth-library": "^10.6.2",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
     "pdfkit": "^0.17.2",

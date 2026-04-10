@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health.js";
+import photosRouter from "./photos.js";
 import authRouter from "./auth.js";
 import branchesRouter from "./branches.js";
 import companiesRouter from "./companies.js";
@@ -127,6 +128,7 @@ router.use("/document-requests", documentRequestsRouter);
 router.use("/mileage-requests", mileageRequestsRouter);
 router.use("/pricing", pricingRouter);
 router.use("/bundles", bundlesRouter);
+router.use("/photos", photosRouter);
 router.use("/public", publicRouter);
 router.use("/integrations/quickbooks", quickbooksRouter);
 router.use("/follow-up", followUpRouter);

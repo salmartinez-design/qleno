@@ -187,6 +187,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       unit_suite: unit_suite || null,
       referral_source: referral_source || null,
       address_verified: req.body.address_verified === true,
+      photo_urls: req.body.photo_urls || [],
       status: status || "draft",
       created_by: req.auth!.userId,
       branch: quoteBranch,
@@ -210,6 +211,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
       "sqft", "dirt_level", "pets", "sent_at", "viewed_at", "accepted_at",
       "lead_name", "lead_email", "lead_phone", "address", "client_id",
       "alternate_options", "zone_override", "unit_suite", "referral_source", "address_verified",
+      "photo_urls",
     ];
     const updates: any = {};
     for (const k of allowed) {
