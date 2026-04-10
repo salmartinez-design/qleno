@@ -6,6 +6,9 @@ import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
 
+// ── Weekly forecast in-memory cache (5 min TTL, keyed by companyId + week start) ──
+const wfCache = new Map<string, { data: unknown; ts: number }>();
+
 router.get("/metrics", requireAuth, async (req, res) => {
   try {
     const { period = "week", branch_id } = req.query;
@@ -981,6 +984,175 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Commercial alerts error:", err);
     return res.status(500).json({ alerts: [] });
+  }
+});
+
+// ── GET /api/dashboard/weekly-forecast ──────────────────────────────────────
+router.get("/weekly-forecast", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+
+    // Week definitions: Sun–Sat
+    const dow = now.getDay(); // 0=Sun … 6=Sat
+    const cwStart = new Date(now); cwStart.setDate(now.getDate() - dow); cwStart.setHours(0,0,0,0);
+    const cwEnd   = new Date(cwStart); cwEnd.setDate(cwStart.getDate() + 6);
+    const lwStart = new Date(cwStart); lwStart.setDate(cwStart.getDate() - 7);
+    const lwEnd   = new Date(cwStart); lwEnd.setDate(cwStart.getDate() - 1);
+    const nwStart = new Date(cwEnd);  nwStart.setDate(cwEnd.getDate() + 1);
+    const nwEnd   = new Date(nwStart); nwEnd.setDate(nwStart.getDate() + 6);
+
+    const cacheKey = `${companyId}:${cwStart.toISOString().split("T")[0]}`;
+    const cached = wfCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < 5 * 60 * 1000) return res.json(cached.data);
+
+    const d = (dt: Date) => dt.toISOString().split("T")[0];
+
+    // 8-week avg window: 8 weeks ending last Saturday
+    const avgStart = new Date(cwStart); avgStart.setDate(cwStart.getDate() - 8 * 7);
+
+    const [lwHist, cwHistPast, cwJobsFuture, nwJobs, avgResult] = await Promise.all([
+      // Last week actuals from job_history
+      db.execute(sql`
+        SELECT job_date::text AS date,
+               COALESCE(SUM(revenue),0)::numeric AS revenue,
+               COUNT(*)::int AS job_count
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND job_date >= ${d(lwStart)} AND job_date <= ${d(lwEnd)}
+          AND EXTRACT(DOW FROM job_date) NOT IN (0,6)
+        GROUP BY job_date
+      `),
+
+      // Current week past days (before today) from job_history
+      db.execute(sql`
+        SELECT job_date::text AS date,
+               COALESCE(SUM(revenue),0)::numeric AS revenue,
+               COUNT(*)::int AS job_count
+        FROM job_history
+        WHERE company_id = ${companyId}
+          AND job_date >= ${d(cwStart)} AND job_date < ${todayStr}
+          AND EXTRACT(DOW FROM job_date) NOT IN (0,6)
+        GROUP BY job_date
+      `),
+
+      // Current week today + future days from jobs table
+      db.execute(sql`
+        SELECT scheduled_date::text AS date,
+               COALESCE(SUM(base_fee),0)::numeric AS revenue,
+               COUNT(*)::int AS job_count,
+               COUNT(*) FILTER (WHERE assigned_user_id IS NULL)::int AS unassigned_count
+        FROM jobs
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${todayStr}
+          AND scheduled_date <= ${d(cwEnd)}
+          AND status != 'cancelled'
+          AND EXTRACT(DOW FROM scheduled_date) NOT IN (0,6)
+        GROUP BY scheduled_date
+      `),
+
+      // Next week projected from jobs table
+      db.execute(sql`
+        SELECT scheduled_date::text AS date,
+               COALESCE(SUM(base_fee),0)::numeric AS revenue,
+               COUNT(*)::int AS job_count,
+               COUNT(*) FILTER (WHERE assigned_user_id IS NULL)::int AS unassigned_count
+        FROM jobs
+        WHERE company_id = ${companyId}
+          AND scheduled_date >= ${d(nwStart)} AND scheduled_date <= ${d(nwEnd)}
+          AND status != 'cancelled'
+          AND EXTRACT(DOW FROM scheduled_date) NOT IN (0,6)
+        GROUP BY scheduled_date
+      `),
+
+      // 8-week daily avg (revenue + jobs)
+      db.execute(sql`
+        SELECT AVG(daily_rev)::numeric AS daily_avg,
+               AVG(daily_jobs)::numeric AS daily_avg_jobs
+        FROM (
+          SELECT job_date, SUM(revenue) AS daily_rev, COUNT(*) AS daily_jobs
+          FROM job_history
+          WHERE company_id = ${companyId}
+            AND job_date >= ${d(avgStart)} AND job_date < ${d(cwStart)}
+            AND EXTRACT(DOW FROM job_date) NOT IN (0,6)
+          GROUP BY job_date
+        ) sub
+      `),
+    ]);
+
+    const daily_avg      = parseFloat(String((avgResult.rows[0] as any)?.daily_avg ?? "0"));
+    const daily_avg_jobs = Math.round(parseFloat(String((avgResult.rows[0] as any)?.daily_avg_jobs ?? "0")));
+
+    // Build lookup maps
+    const toMap = (rows: unknown[]) => {
+      const m = new Map<string, { revenue: number; job_count: number; unassigned_count: number }>();
+      for (const r of rows as any[]) {
+        m.set(r.date, {
+          revenue: parseFloat(r.revenue ?? "0"),
+          job_count: parseInt(r.job_count ?? "0"),
+          unassigned_count: parseInt(r.unassigned_count ?? "0"),
+        });
+      }
+      return m;
+    };
+    const lwMap   = toMap(lwHist.rows);
+    const cwHMap  = toMap(cwHistPast.rows);
+    const cwJMap  = toMap(cwJobsFuture.rows);
+    const nwMap   = toMap(nwJobs.rows);
+
+    const DAY_NAMES = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+    const fmtRange = (s: Date, e: Date) => {
+      const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return `${M[s.getMonth()]} ${s.getDate()} \u2013 ${M[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;
+    };
+
+    const buildDays = (start: Date, weekType: "last"|"current"|"projected") => {
+      return Array.from({ length: 7 }, (_, i) => {
+        const dt = new Date(start); dt.setDate(start.getDate() + i);
+        const dateStr  = d(dt);
+        const dayIdx   = dt.getDay();
+        const isWeekend = dayIdx === 0 || dayIdx === 6;
+        const isPast    = dateStr < todayStr;
+        const isToday   = dateStr === todayStr;
+
+        if (isWeekend) return { date: dateStr, day_name: DAY_NAMES[dayIdx], revenue: 0, job_count: 0, unassigned_count: 0, is_weekend: true, is_past: isPast, is_today: false, entry_type: weekType };
+
+        let data = { revenue: 0, job_count: 0, unassigned_count: 0 };
+        if (weekType === "last")       data = lwMap.get(dateStr)  || data;
+        else if (weekType === "current") data = (isPast ? cwHMap : cwJMap).get(dateStr) || data;
+        else                             data = nwMap.get(dateStr) || data;
+
+        return { date: dateStr, day_name: DAY_NAMES[dayIdx], ...data, is_weekend: false, is_past: isPast, is_today: isToday, entry_type: weekType };
+      });
+    };
+
+    const lwDays = buildDays(lwStart, "last");
+    const cwDays = buildDays(cwStart, "current");
+    const nwDays = buildDays(nwStart, "projected");
+
+    const wdSum = (days: ReturnType<typeof buildDays>) =>
+      days.filter(d => !d.is_weekend).reduce((a, d) => ({ rev: a.rev + d.revenue, jobs: a.jobs + d.job_count, ua: a.ua + d.unassigned_count }), { rev: 0, jobs: 0, ua: 0 });
+
+    const lwTot = wdSum(lwDays);
+    const cwTot = wdSum(cwDays);
+    const nwTot = wdSum(nwDays);
+
+    const result = {
+      daily_avg,
+      daily_avg_jobs,
+      weeks: [
+        { id: "last",    label: "LAST WEEK",    date_range: fmtRange(lwStart, lwEnd),  total_revenue: lwTot.rev, total_jobs: lwTot.jobs, total_unassigned: 0,        daily_avg, daily_avg_jobs, days: lwDays },
+        { id: "current", label: "CURRENT WEEK", date_range: fmtRange(cwStart, cwEnd),  total_revenue: cwTot.rev, total_jobs: cwTot.jobs, total_unassigned: cwTot.ua, daily_avg, daily_avg_jobs, days: cwDays },
+        { id: "next",    label: "NEXT WEEK",    date_range: fmtRange(nwStart, nwEnd),  total_revenue: nwTot.rev, total_jobs: nwTot.jobs, total_unassigned: nwTot.ua, daily_avg, daily_avg_jobs, days: nwDays },
+      ],
+    };
+
+    wfCache.set(cacheKey, { data: result, ts: Date.now() });
+    return res.json(result);
+  } catch (err) {
+    console.error("Weekly forecast error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 

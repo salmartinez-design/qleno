@@ -1,0 +1,94 @@
+Clear problem — the label hierarchy is too compressed. The muted secondary color (`#6B6860`) is being used for almost everything, so labels, values, and sublabels all blend together. Here's the targeted fix:
+
+---
+
+**REPLIT PROMPT — Dashboard: Typography Contrast Fix**
+
+Fix text contrast and visual hierarchy across the dashboard at `/dashboard`. Do not change any data queries, layout, or component structure — typography and color only. Verify at https://clean-ops-pro.replit.app/dashboard after deploying.
+
+---
+
+**THE PROBLEM**
+
+Nearly all text is rendering in `#6B6860` (secondary muted) regardless of its importance. Primary values, labels, counts, and sublabels are indistinguishable from each other. Fix by enforcing a strict 3-level hierarchy:
+
+---
+
+**HIERARCHY RULES — apply globally across the entire dashboard:**
+
+**Level 1 — Primary values (the number you're supposed to read first)**
+- Font-size: 22px for KPI tiles, 18px for secondary counts
+- Font-weight: 500
+- Color: `#1A1917`
+- Applies to: revenue amounts, job counts, client counts, all chip numbers, all metric tile main values
+
+**Level 2 — Labels and section headers**
+- Font-size: 11px–12px
+- Font-weight: 500
+- Color: `#1A1917` at 70% — use `#4A4845` (not the full muted gray)
+- Applies to: tile labels ("MONTHLY REVENUE", "AVG BILL", "NEXT 7 DAYS"), section headers ("TODAY'S STATUS", "KEY NUMBERS", "TECHS TODAY"), chip labels ("IN PROGRESS", "SCHEDULED"), column headers
+
+**Level 3 — Supporting detail only**
+- Font-size: 11px–12px
+- Font-weight: 400
+- Color: `#6B6860`
+- Applies to: subtext only — "Last 30 days", "67 recurring", "X jobs on the books", date strings, "Clock Monitor →" links
+
+---
+
+**SPECIFIC FIXES:**
+
+**Status chips row:**
+- Chip number: 22px, font-weight 500, color per status (In Progress `#185FA5`, Complete `#1D9E75`, Flagged `#D85A30`, Unassigned `#A32D2D`, Scheduled `#1A1917`)
+- Chip label: 11px, font-weight 500, color `#4A4845` — currently too faint
+
+**Metric tiles (Monthly Revenue, Avg Bill, Active Clients, Next 7 Days):**
+- Tile label: 11px, font-weight 500, color `#4A4845`, letter-spacing 0.04em, text-transform uppercase
+- Main value: 22px, font-weight 500, color `#1A1917`
+- Delta/subtext: 12px, color `#6B6860` — keep muted, this is correct as-is
+- Negative delta: `#A32D2D`, positive: `#3B6D11`
+
+**Secondary metric row (Revenue Booked Today, New Jobs Booked, Quotes Given, Booked Online):**
+- These are currently the least readable section. Label: 11px `#4A4845` font-weight 500. Value: 18px `#1A1917` font-weight 500. They're being swallowed — increase value size.
+
+**Revenue chart:**
+- Chart title "REVENUE — LAST 12 MONTHS": 12px, font-weight 500, color `#1A1917`
+- Axis tick labels: 11px, color `#4A4845` (currently too faint on the Y axis)
+- Legend labels ("This year", "Prior year"): 11px, color `#4A4845`
+- YTD total: 12px, font-weight 500, color `#1A1917`
+
+**Techs Today panel:**
+- Panel header "TECHS TODAY": 11px, font-weight 500, color `#4A4845`
+- Tech names: 13px, color `#1A1917`, font-weight 400
+- Job count badges: 11px — keep existing badge colors but ensure text inside badges meets contrast
+- "Clock Monitor →" link: 11px, color `#5B9BD5`
+- Capacity row labels: 12px, color `#4A4845`
+- Capacity ratio value (e.g. "8 / 16"): 18px, font-weight 500, color `#1A1917`
+
+**Needs Attention / Weekly Forecast section (whichever is present):**
+- Section header: 12px, font-weight 500, color `#1A1917`
+- Item title (bold line): 13px, font-weight 500, color `#1A1917`
+- Item description: 12px, color `#4A4845`
+- Action links: 12px, color `#5B9BD5`
+
+---
+
+**DO NOT CHANGE:**
+- Any layout, padding, margins, or component structure
+- Any data queries or computed values
+- Brand color (`#5B9BD5`) usage on active elements
+- Status chip background colors
+- Card background or border colors
+
+---
+
+**VERIFICATION**
+
+After deploying at https://clean-ops-pro.replit.app/dashboard:
+
+1. The main KPI values (revenue, counts) are clearly the dominant text — larger and darker than their labels.
+2. Section labels ("TODAY'S STATUS", "KEY NUMBERS") are readable without squinting.
+3. Subtext ("Last 30 days", "67 recurring") is visibly lighter than labels — three distinct levels are apparent.
+4. Status chip numbers and labels are both clearly readable inside their colored backgrounds.
+5. Revenue chart axis labels are readable.
+6. No layout changes — component positions and sizes are identical to before.

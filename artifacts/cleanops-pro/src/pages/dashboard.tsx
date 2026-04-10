@@ -133,6 +133,213 @@ const CARD: React.CSSProperties = {
   borderRadius: 8,
 };
 
+// ── Weekly Forecast hook ──────────────────────────────────────────────────────
+function useWeeklyForecast() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  useEffect(() => {
+    setLoading(true); setError(false);
+    apiFetch('/api/dashboard/weekly-forecast')
+      .then(r => { if (!r.ok) throw new Error(); return r.json(); })
+      .then(d => { setData(d); setLoading(false); })
+      .catch(() => { setError(true); setLoading(false); });
+  }, []);
+  return { data, loading, error };
+}
+
+// ── WeeklyForecastSection component ──────────────────────────────────────────
+function fmtWF(n: number) {
+  return '$' + Math.round(n).toLocaleString('en-US');
+}
+
+type WFDay = {
+  date: string; day_name: string; revenue: number; job_count: number;
+  unassigned_count: number; is_weekend: boolean; is_past: boolean; is_today: boolean;
+  entry_type: 'last' | 'current' | 'projected';
+};
+type WFWeek = {
+  id: string; label: string; date_range: string;
+  total_revenue: number; total_jobs: number; total_unassigned: number;
+  daily_avg: number; daily_avg_jobs: number; days: WFDay[];
+};
+
+function dayStyle(day: WFDay, dailyAvg: number): { bg: string; revColor: string; jobColor: string; bar: string; border: string | undefined } {
+  if (day.is_weekend) return { bg: '#F7F6F3', revColor: '#6B6860', jobColor: '#6B6860', bar: '#E5E2DC', border: undefined };
+
+  const { revenue, is_past, entry_type } = day;
+  const isProjected = entry_type === 'projected';
+
+  let color: 'green' | 'amber' | 'red' = 'amber';
+  if (dailyAvg > 0) {
+    if (revenue >= dailyAvg * 0.9) color = 'green';
+    else if (revenue >= dailyAvg * 0.6) color = 'amber';
+    else color = 'red'; // < 60% OR revenue=0 and past
+  }
+  if (revenue === 0 && !is_past && !isProjected) color = 'amber'; // future unbooked weekday on current week, no avg
+
+  const styles = {
+    green: { bg: '#EAF3DE', revColor: '#27500A', jobColor: '#3B6D11', bar: '#639922' },
+    amber: { bg: '#FAEEDA', revColor: '#633806', jobColor: '#854F0B', bar: '#EF9F27' },
+    red:   { bg: '#FCEBEB', revColor: '#791F1F', jobColor: '#A32D2D', bar: '#E24B4A' },
+  };
+  const base = styles[color];
+
+  // Projected days: override bg + border unless red
+  if (isProjected) {
+    if (color === 'red') return { ...base, border: '1.5px dashed #E24B4A' };
+    // amber or green projected → neutral bg, dashed border
+    return { ...base, bg: '#F7F6F3', border: '0.5px dashed #E5E2DC' };
+  }
+
+  return { ...base, border: undefined };
+}
+
+function WeeklyForecastSection() {
+  const { data, loading, error } = useWeeklyForecast();
+
+  if (error) {
+    return (
+      <div style={{ padding: '14px 18px', background: '#F7F6F3', border: '0.5px solid #E5E2DC', borderRadius: 10, fontSize: 12, color: '#9E9B94', fontFamily: FF }}>
+        Weekly forecast unavailable — check back shortly.
+      </div>
+    );
+  }
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  // Skeleton
+  if (loading || !data) {
+    return (
+      <>
+        <style>{`@keyframes wf-pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+        {[0,1,2].map(i => (
+          <div key={i} style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 10, padding: '16px 20px', marginBottom: 14 }}>
+            <div style={{ width: 120, height: 12, background: '#F0EDE8', borderRadius: 4, marginBottom: 8, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
+            <div style={{ width: '100%', height: 72, background: '#F0EDE8', borderRadius: 6, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
+          </div>
+        ))}
+      </>
+    );
+  }
+
+  const weeks: WFWeek[] = data.weeks;
+
+  return (
+    <>
+      <style>{`@keyframes wf-pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+      {weeks.map(week => {
+        const isCurrentWeek = week.id === 'current';
+        const isNextWeek = week.id === 'next';
+        const isLastWeek = week.id === 'last';
+        const weekdays = week.days.filter(d => !d.is_weekend);
+        const redDays = weekdays.filter(d => {
+          const s = dayStyle(d, week.daily_avg);
+          return s.revColor === '#791F1F';
+        });
+        const firstRed = redDays[0];
+
+        // Summary note text
+        let summaryNote = '';
+        if (isLastWeek) {
+          summaryNote = `Daily avg (Mon–Fri): ${fmtWF(week.daily_avg)} · Sun/Sat closed`;
+        } else if (isCurrentWeek) {
+          if (firstRed) {
+            summaryNote = `${firstRed.day_name} is thin — ${firstRed.job_count} jobs vs ${week.daily_avg_jobs} avg`;
+            if (week.total_unassigned > 0) summaryNote += ` · ${week.total_unassigned} unassigned jobs need attention`;
+          } else {
+            summaryNote = `On track — ${week.total_jobs} jobs booked this week`;
+            if (week.total_unassigned > 0) summaryNote += ` · ${week.total_unassigned} unassigned`;
+          }
+        } else {
+          if (firstRed) {
+            summaryNote = `${firstRed.day_name} critically thin — ${firstRed.job_count} jobs vs ${week.daily_avg_jobs} avg. Fill now.`;
+          } else {
+            summaryNote = `${week.total_jobs} jobs projected. Looks healthy.`;
+          }
+        }
+
+        // Week summary (right side of header)
+        const summaryParts: JSX.Element[] = [];
+        summaryParts.push(<span key="rev">{fmtWF(week.total_revenue)} {isLastWeek ? 'actual' : isCurrentWeek ? 'booked' : 'projected'}</span>);
+        summaryParts.push(<span key="dot1" style={{ color: '#C5C0B8' }}> · </span>);
+        summaryParts.push(<span key="jobs">{week.total_jobs} jobs{isNextWeek ? ' scheduled' : ''}</span>);
+        if ((isCurrentWeek || isNextWeek) && week.total_unassigned > 0) {
+          summaryParts.push(<span key="dot2" style={{ color: '#C5C0B8' }}> · </span>);
+          summaryParts.push(<span key="ua" style={{ color: '#E24B4A' }}>{week.total_unassigned} unassigned</span>);
+        }
+
+        return (
+          <div key={week.id} style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 10, padding: '16px 20px', marginBottom: 14 }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+              <div>
+                <p style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: isCurrentWeek ? '#5B9BD5' : '#9E9B94', margin: '0 0 2px', fontFamily: FF }}>{week.label}</p>
+                <p style={{ fontSize: 11, color: '#6B6860', margin: 0, fontFamily: FF }}>{week.date_range}</p>
+              </div>
+              <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF, textAlign: 'right' }}>
+                {summaryParts}
+              </p>
+            </div>
+
+            {/* 7-column day grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
+              {week.days.map(day => {
+                const s = dayStyle(day, week.daily_avg);
+                const isToday = day.date === todayStr;
+                const cellBorder = isToday ? '1.5px solid #5B9BD5' : (s.border ?? '0.5px solid transparent');
+                const dateParts = day.date.split('-');
+                const displayDate = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dateParts[1])-1]} ${parseInt(dateParts[2])}`;
+
+                return (
+                  <div key={day.date} style={{ background: s.bg, border: cellBorder, borderRadius: 6, padding: '8px 6px' }}>
+                    <p style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#9E9B94', margin: '0 0 2px', fontFamily: FF }}>{day.day_name}</p>
+                    <p style={{ fontSize: 11, color: '#6B6860', margin: '0 0 6px', fontFamily: FF }}>{displayDate}</p>
+                    {day.is_weekend ? (
+                      <>
+                        <p style={{ fontSize: 14, fontWeight: 500, color: '#6B6860', margin: '0 0 1px', fontFamily: FF }}>—</p>
+                        <p style={{ fontSize: 11, color: '#9E9B94', margin: 0, fontFamily: FF }}>Closed</p>
+                      </>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 14, fontWeight: 500, color: s.revColor, margin: '0 0 1px', fontFamily: FF }}>{fmtWF(day.revenue)}</p>
+                        <p style={{ fontSize: 11, color: s.jobColor, margin: 0, fontFamily: FF }}>{day.job_count} jobs</p>
+                      </>
+                    )}
+                    <div style={{ height: 3, borderRadius: 2, background: s.bar, marginTop: 8 }} />
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Summary note */}
+            <div style={{ borderTop: '0.5px solid #F0EDE8', paddingTop: 10, marginTop: 10 }}>
+              <p style={{ fontSize: 11, color: '#6B6860', margin: 0, fontFamily: FF }}>{summaryNote}</p>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Legend */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'center', marginBottom: 14 }}>
+        {[
+          { label: 'Above avg',  bg: '#639922',  border: undefined },
+          { label: 'Below avg',  bg: '#EF9F27',  border: undefined },
+          { label: 'Low',        bg: '#E24B4A',  border: undefined },
+          { label: 'Closed',     bg: '#E5E2DC',  border: undefined },
+          { label: 'Projected',  bg: '#F7F6F3',  border: '1px dashed #C5C0B8' },
+          { label: 'Today',      bg: 'transparent', border: '1.5px solid #5B9BD5' },
+        ].map(sw => (
+          <div key={sw.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: sw.bg, border: sw.border, display: 'inline-block', flexShrink: 0 }} />
+            <span style={{ fontSize: 11, color: '#6B6860', fontFamily: FF }}>{sw.label}</span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export default function Dashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
@@ -456,6 +663,9 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+
+        {/* ── Weekly Revenue Forecast ── */}
+        <WeeklyForecastSection />
 
         {/* ── Commercial Alerts ── */}
         {canAdmin && <CommercialAlertsBanner />}

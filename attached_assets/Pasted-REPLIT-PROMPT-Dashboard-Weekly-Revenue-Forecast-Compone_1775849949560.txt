@@ -1,0 +1,44 @@
+REPLIT PROMPT — Dashboard: Weekly Revenue Forecast ComponentAdd a Weekly Revenue Forecast section to the dashboard at /dashboard. This replaces the Needs Attention section that was removed. Do not touch any other pages or components. Verify at https://clean-ops-pro.replit.app/dashboard logged in as salmartinez@phes.io after deploying.PLACEMENTAdd this component at the bottom of the dashboard, full width, below the two-column section (revenue chart + techs today panel). It consists of three week cards stacked vertically: Last Week → Current Week → Next Week.WEEK DEFINITIONPhes week runs Sunday through Saturday. For any given render date (today):
+
+Last week: The most recent completed Sun–Sat range (all days in the past)
+Current week: The Sun–Sat range containing today
+Next week: The Sun–Sat range immediately following current week
+Sunday and Saturday always show $0 / 0 jobs with a closed state — Phes does not operate on weekends. Never query or display revenue for Sun/Sat.DATA QUERIES — one API endpoint: GET /api/dashboard/weekly-forecastReturns three week objects. Each week object contains 7 day entries (Sun–Sat). Build this endpoint in the Express backend.Last week — actual data:
+For each Mon–Fri in the last week range, query:
+
+revenue: SUM of amount from job_history WHERE company_id = current AND service_date = that day
+job_count: COUNT of rows from job_history WHERE company_id = current AND service_date = that day
+type: 'actual'
+Current week — booked data:
+For each Mon–Fri in the current week range:
+
+For days in the past (before today): same query as last week against job_history
+For today and future days: query jobs table WHERE company_id = current AND scheduled_date = that day AND status NOT IN ('void', 'moved', 'skip', 'cancelled')
+revenue: SUM of price (or estimated_revenue — use whatever revenue field exists on the jobs table)
+job_count: COUNT of those jobs
+unassigned_count: COUNT WHERE additionally assigned_technician_id IS NULL
+type: 'current'
+Next week — projected data:
+For each Mon–Fri in next week range, query jobs table same as current week future days.
+
+type: 'projected'
+Daily average — compute server-side: AVG of Mon–Fri revenue from job_history for the past 8 weeks (excluding current and next week). Return this as daily_avg on each week object. Used for color thresholds on the frontend.COLOR THRESHOLDS — per day cell (Mon–Fri only)Using daily_avg from the API response:ConditionStylerevenue >= daily_avg * 0.9Green: bg #EAF3DE, revenue text #27500A, jobs text #3B6D11, bar #639922revenue >= daily_avg * 0.6Amber: bg #FAEEDA, revenue text #633806, jobs text #854F0B, bar #EF9F27revenue < daily_avg * 0.6 AND revenue > 0Red: bg #FCEBEB, revenue text #791F1F, jobs text #A32D2D, bar #E24B4Arevenue = 0 AND day is pastRed: same as aboverevenue = 0 AND day is future (projected)Amber with dashed border 1.5px dashed #E5E2DCFor type: 'projected' days, override background to #F7F6F3 with border: 0.5px dashed #E5E2DC UNLESS the day is red (critically thin) — red projected days use border: 1.5px dashed #E24B4A with red text to surface urgency early.Sun/Sat: always background: #F7F6F3, text #6B6860, bar background: #E5E2DC. No color threshold logic.Today's cell: add border: 1.5px solid #5B9BD5 on top of whatever color it earned.COMPONENT STRUCTURE — three cardsEach card:
+
+Background #FFFFFF, border 0.5px solid #E5E2DC, border-radius 10px, padding 16px 20px, margin-bottom 14px
+Card header (flex row, space-between):
+
+Left: week label (LAST WEEK / CURRENT WEEK / NEXT WEEK) in 12px uppercase muted label style. Current week label color #5B9BD5. Below label: date range (e.g. "Apr 6 – Apr 12, 2026") in 11px #6B6860
+Right: week summary in 13px font-weight 500 — Last week: $X,XXX actual · XX jobs | Current week: $X,XXX booked · XX jobs · X unassigned (only show unassigned if > 0, in #E24B4A) | Next week: $X,XXX projected · XX jobs scheduled
+7-column day grid (gap 8px, grid-template-columns: repeat(7, minmax(0, 1fr))):Each day cell contains:
+
+Day name: 10px uppercase muted (SUN, MON, etc.), letter-spacing 0.04em, margin-bottom 4px
+Date: 11px #6B6860, margin-bottom 8px (e.g. "Apr 14")
+Revenue: 14px font-weight 500 (color per threshold above). Format as $X,XXX — no decimals. If 0: show $0
+Job count: 11px (color per threshold). Format as X jobs or 0 jobs
+Bar: 3px tall, border-radius 2px, full width, margin-top 8px. Color per threshold. For Sun/Sat: #E5E2DC. Bar width is always 100% — it's a color indicator, not a proportional bar.
+Summary note below the grid (border-top 0.5px solid #F0EDE8, padding-top 10px, margin-top 10px, font-size 11px, color #6B6860):
+
+Last week: Daily avg (Mon–Fri): $X,XXX · Sun/Sat closed
+Current week: if any red day exists: [Day name] is thin — X jobs vs Y avg. + if unassigned > 0:  X unassigned jobs need attention. else: On track — X jobs booked this week.
+Next week: if any red projected day exists: [Day name] critically thin — X jobs vs Y avg. Fill now. else: X jobs projected. Looks healthy.
+LEGEND — rendered once below all three cards:[ green swatch ] Above avg    [ amber swatch ] Below avg    [ red swatch ] Low    [ gray swatch ] Closed    [ dashed swatch ] Projected    [ blue border swatch ] TodaySwatches: 8x8px, border-radius 2px, inline with label. Font 11px #6B6860. Flex row, gap 16px.LOADING STATEWhile the API call is in flight, render three skeleton cards — same dimensions as real cards, with a #F0EDE8 pulsing placeholder replacing the grid. No spinner.ERROR STATEIf the API call fails, show a single muted row: "Weekly forecast unavailable — check back shortly." Do not crash the dashboard.PERFORMANCEThe /api/dashboard/weekly-forecast endpoint should run all queries in parallel (use Promise.all). Target response under 400ms. Cache the response for 5 minutes server-side (simple in-memory cache keyed by company_id + week_start_date) — the data doesn't change second-to-second.
