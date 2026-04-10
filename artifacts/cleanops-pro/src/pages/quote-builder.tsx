@@ -103,8 +103,13 @@ export default function QuoteBuilderPage() {
   const [saving, setSaving] = useState(false);
 
   // ── Section 0: Customer Info ─────────────────────────────────────────────
-  const [clientOpen, setClientOpen] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
+  const [clientSearch, setClientSearch] = useState("");
+  const [clientDropdownOpen, setClientDropdownOpen] = useState(false);
+  const [clientSearchLoading, setClientSearchLoading] = useState(false);
+  const [clientResults, setClientResults] = useState<Client[]>([]);
+  const [clientLoaded, setClientLoaded] = useState<Client | null>(null);
+  const [clientBannerVisible, setClientBannerVisible] = useState(false);
   const [leadFirstName, setLeadFirstName] = useState("");
   const [leadLastName, setLeadLastName] = useState("");
   const [leadEmail, setLeadEmail] = useState("");
@@ -167,6 +172,7 @@ export default function QuoteBuilderPage() {
   const [mobileClientDropdown, setMobileClientDropdown] = useState(false);
 
   // ── Refs for recalc (avoid stale closures) ───────────────────────────────
+  const clientSearchRef = useRef<HTMLDivElement>(null);
   const sqftRef = useRef(sqft);
   useEffect(() => { sqftRef.current = sqft; }, [sqft]);
   const selectedScopesRef = useRef<SelectedScopeState[]>([]);
@@ -191,6 +197,33 @@ export default function QuoteBuilderPage() {
     queryFn: () => apiFetch(`/api/quotes/${id}`),
     enabled: isEdit,
   });
+
+  // ── Client search debounce ───────────────────────────────────────────────
+  useEffect(() => {
+    if (selectedClientId) return; // already selected, don't re-search
+    const q = clientSearch.trim();
+    if (q.length < 2) { setClientResults([]); setClientDropdownOpen(false); return; }
+    setClientSearchLoading(true);
+    setClientDropdownOpen(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiFetch(`/api/clients?search=${encodeURIComponent(q)}&limit=8`);
+        setClientResults(Array.isArray(res) ? res : (res.data ?? []));
+      } catch { setClientResults([]); } finally { setClientSearchLoading(false); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [clientSearch, selectedClientId]);
+
+  // ── Client search click-outside ──────────────────────────────────────────
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (clientSearchRef.current && !clientSearchRef.current.contains(e.target as Node)) {
+        setClientDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // ── Restore existing quote ───────────────────────────────────────────────
   useEffect(() => {
@@ -360,7 +393,7 @@ export default function QuoteBuilderPage() {
     const primaryScopeId = finalScopeId ?? (selectedScopes.length === 1 ? selectedScopes[0].scope_id : null);
     const primaryScopeState = selectedScopes.find(s => s.scope_id === primaryScopeId);
     const cr = primaryScopeState?.calc ?? null;
-    const client = selectedClientId ? clients.find(c => c.id === selectedClientId) : null;
+    const client = clientLoaded;
     const alternateOptions = selectedScopes
       .filter(s => s.scope_id !== primaryScopeId)
       .map(s => ({
@@ -494,10 +527,31 @@ export default function QuoteBuilderPage() {
     if (match) setReturningClient({ id: match.id, name: `${match.first_name} ${match.last_name}`, phone: match.phone, email: match.email, address: match.address });
   }
 
+  function selectClient(c: Client) {
+    setSelectedClientId(c.id);
+    setClientLoaded(c);
+    setClientSearch(`${c.first_name} ${c.last_name}`.trim());
+    setClientDropdownOpen(false);
+    setAddress(c.address || "");
+    if (c.zip) { setZipCode(c.zip); checkZip(c.zip); }
+    setClientBannerVisible(true);
+    setTimeout(() => setClientBannerVisible(false), 4000);
+    setReturningClient(null);
+    setReturningClientDismissed(true);
+  }
+
+  function clearClient() {
+    setSelectedClientId(null);
+    setClientLoaded(null);
+    setClientSearch("");
+    setClientDropdownOpen(false);
+    setClientBannerVisible(false);
+  }
+
   function applyReturningClient() {
     if (!returningClient) return;
     const client = clients.find(c => c.id === returningClient.id);
-    if (client) { setSelectedClientId(client.id); setAddress(client.address || ""); }
+    if (client) { selectClient(client); }
     setReturningClient(null);
     setReturningClientDismissed(true);
   }
@@ -534,7 +588,7 @@ export default function QuoteBuilderPage() {
     }
   }
 
-  const selectedClient = clients.find(c => c.id === selectedClientId);
+  const selectedClient = clientLoaded;
   const selectedScopeIds = selectedScopes.map(s => s.scope_id);
   const canConvert = selectedScopes.length > 0 && (finalScopeId !== null || selectedScopes.length === 1);
 
@@ -565,7 +619,7 @@ export default function QuoteBuilderPage() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
                   {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{selectedClient.email}</div>}
                 </div>
-                <button onClick={() => { setSelectedClientId(null); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
+                <button onClick={() => { clearClient(); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
                   <X size={18} />
                 </button>
               </div>
@@ -574,9 +628,9 @@ export default function QuoteBuilderPage() {
                 <input value={mobileClientSearch} onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }} onFocus={() => setMobileClientDropdown(true)} placeholder="Search clients..." style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
                 {mobileClientDropdown && (
                   <div style={{ position: "absolute", top: 50, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 20, maxHeight: 260, overflowY: "auto" }}>
-                    <div onClick={() => { setSelectedClientId(null); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
+                    <div onClick={() => { clearClient(); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
                     {mobileFilteredClients.map(c => (
-                      <div key={c.id} onClick={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
+                      <div key={c.id} onClick={() => { selectClient(c); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
                         <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
                         <div style={{ fontSize: 12, color: "#9E9B94" }}>{c.email}</div>
                       </div>
@@ -708,33 +762,92 @@ export default function QuoteBuilderPage() {
             <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
               <div className="space-y-4">
 
-                {/* Existing client search */}
-                <div>
+                {/* Existing client search — custom combobox */}
+                <div ref={clientSearchRef} style={{ position: "relative" }}>
                   <Label className="text-xs text-[#9E9B94] mb-1 block">Existing Client</Label>
-                  <Popover open={clientOpen} onOpenChange={setClientOpen}>
-                    <PopoverTrigger asChild>
-                      <Button variant="outline" role="combobox" className="w-full justify-between text-sm font-normal">
-                        {selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : "Search clients..."}
-                        <ChevronDown className="w-4 h-4 ml-2 text-[#9E9B94]" />
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-[400px] p-0">
-                      <Command>
-                        <CommandInput placeholder="Search by name or email..." />
-                        <CommandList>
-                          <CommandEmpty>No clients found.</CommandEmpty>
-                          <CommandGroup>
-                            <CommandItem value="lead" onSelect={() => { setSelectedClientId(null); setClientOpen(false); setReturningClient(null); }}>— Enter lead info instead</CommandItem>
-                            {clients.map(c => (
-                              <CommandItem key={c.id} value={`${c.first_name} ${c.last_name} ${c.email}`} onSelect={() => { setSelectedClientId(c.id); setAddress(c.address || ""); setClientOpen(false); setReturningClient(null); }}>
-                                <div><p className="text-sm font-medium">{c.first_name} {c.last_name}</p><p className="text-xs text-[#9E9B94]">{c.email}</p></div>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </CommandList>
-                      </Command>
-                    </PopoverContent>
-                  </Popover>
+                  {/* Input */}
+                  <div style={{ position: "relative", display: "flex", alignItems: "center" }}>
+                    <svg style={{ position: "absolute", left: 12, width: 16, height: 16, color: "#6B6860", flexShrink: 0, pointerEvents: "none" }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                    <input
+                      value={clientSearch}
+                      onChange={e => { setClientSearch(e.target.value); if (selectedClientId) clearClient(); }}
+                      onFocus={() => { if (clientSearch.trim().length >= 2 && !selectedClientId) setClientDropdownOpen(true); }}
+                      onKeyDown={e => { if (e.key === "Escape") setClientDropdownOpen(false); }}
+                      placeholder="Search by client name, address, or phone..."
+                      readOnly={!!selectedClientId}
+                      style={{
+                        width: "100%", height: 40, border: `1px solid ${clientDropdownOpen ? "#5B9BD5" : "#E5E2DC"}`, borderRadius: 8, background: selectedClientId ? "#F7F6F3" : "#FFF",
+                        padding: "0 36px 0 36px", fontSize: 14, fontFamily: FF, outline: "none", cursor: selectedClientId ? "default" : "text", boxSizing: "border-box",
+                      }}
+                    />
+                    {selectedClientId && (
+                      <button onClick={clearClient} style={{ position: "absolute", right: 10, background: "none", border: "none", cursor: "pointer", color: "#9E9B94", display: "flex", alignItems: "center" }}>
+                        <X size={15} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Green confirmation banner */}
+                  {clientBannerVisible && clientLoaded && (
+                    <div style={{ marginTop: 6, background: "#EAF3DE", border: "1px solid #639922", borderRadius: 6, padding: "6px 12px", fontSize: 12, color: "#3B6D11", fontFamily: FF }}>
+                      Client loaded — {clientLoaded.first_name} {clientLoaded.last_name}
+                    </div>
+                  )}
+
+                  {/* Dropdown */}
+                  {clientDropdownOpen && !selectedClientId && (
+                    <div style={{ position: "absolute", top: 46, left: 0, right: 0, zIndex: 50, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 12px rgba(0,0,0,0.08)", maxHeight: 280, overflowY: "auto" }}>
+                      {/* Enter lead info instead */}
+                      <div
+                        onClick={() => { clearClient(); setClientDropdownOpen(false); }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#F7F6F3", borderBottom: "1px solid #E5E2DC", cursor: "pointer", fontSize: 13, color: "#5B9BD5", fontWeight: 500, fontFamily: FF }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#EBF4FF")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "#F7F6F3")}
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
+                        Enter lead info instead
+                      </div>
+
+                      {/* Loading */}
+                      {clientSearchLoading && (
+                        <div style={{ padding: "12px 14px", fontSize: 13, color: "#6B6860", fontFamily: FF }}>Searching...</div>
+                      )}
+
+                      {/* No results */}
+                      {!clientSearchLoading && clientResults.length === 0 && clientSearch.trim().length >= 2 && (
+                        <>
+                          <div style={{ padding: "12px 14px", fontSize: 13, color: "#9E9B94", fontFamily: FF }}>No clients found for "{clientSearch.trim()}"</div>
+                          <div onClick={() => { clearClient(); setClientDropdownOpen(false); }} style={{ padding: "10px 14px", fontSize: 13, color: "var(--brand)", fontFamily: FF, cursor: "pointer", borderTop: "1px solid #F0EDE8" }}>
+                            Create new lead instead →
+                          </div>
+                        </>
+                      )}
+
+                      {/* Results */}
+                      {!clientSearchLoading && clientResults.map(c => {
+                        const lastSvc = c.last_service_date ? new Date(c.last_service_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : null;
+                        const freq = c.frequency ? c.frequency.charAt(0).toUpperCase() + c.frequency.slice(1).replace(/-/g, " ") : null;
+                        return (
+                          <div
+                            key={c.id}
+                            onClick={() => selectClient(c)}
+                            style={{ padding: "10px 14px", borderBottom: "1px solid #F0EDE8", cursor: "pointer", minHeight: 56 }}
+                            onMouseEnter={e => (e.currentTarget.style.background = "#F7F6F3")}
+                            onMouseLeave={e => (e.currentTarget.style.background = "#FFF")}
+                          >
+                            <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 2 }}>
+                              <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{c.address || c.phone || c.email || ""}</div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                                {lastSvc && <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>{lastSvc}</span>}
+                                {freq && <span style={{ fontSize: 10, fontWeight: 500, color: "#6B6860", background: "#F0EDE8", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freq}</span>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Lead fields */}

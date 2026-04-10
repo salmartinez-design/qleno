@@ -1,0 +1,77 @@
+Targeted fix — just the existing client search. Paste this as a standalone prompt:
+
+REPLIT PROMPT — Quote Builder: Existing Client Search Redesign
+Improve only the "Existing Client" search component at the top of Step 1 in /quotes/new. Do not touch any other fields, steps, or pages. Verify at https://clean-ops-pro.replit.app/quotes/new after deploying.
+
+CURRENT PROBLEM
+The search renders as a plain browser-native dropdown with no styling. The results list looks like a system select element — no visual hierarchy, no client details, no differentiation between the "Enter lead info instead" option and real client results.
+
+REDESIGN — Custom Search Input + Results Dropdown
+Replace the native select/dropdown entirely with a custom combobox component:
+Search input field:
+
+Full width, height 40px
+Border: 1px solid #E5E2DC, border-radius 8px, background #FFFFFF
+Left icon: a search magnifier SVG (16px, color #6B6860) with 12px left padding
+Placeholder text: "Search by client name, address, or phone..."
+On focus: border changes to 1px solid #5B9BD5, no outline
+Font: Plus Jakarta Sans, 14px
+
+Results dropdown panel:
+
+Appears below the input, full width
+Background #FFFFFF, border 1px solid #E5E2DC, border-radius 8px, box-shadow 0 4px 12px rgba(0,0,0,0.08)
+Max height 280px, overflow-y auto
+Appears after 2+ characters typed, debounced 200ms
+
+"Enter lead info instead" option — always first:
+
+Separated from client results by a subtle divider
+Background #F7F6F3
+Left: a small + icon (14px, brand color)
+Text: "Enter lead info instead" in 13px, color #5B9BD5, font-weight 500
+On hover: background #EBF4FF
+On click: clears the search, focuses the Lead Name field, collapses the dropdown
+
+Client result rows:
+Each result row displays:
+
+Line 1: Client full name in 14px font-weight 500, color #1A1917
+Line 2: Service address in 12px color #6B6860
+Line 3 (inline, same row as line 2 right-aligned): Last service date in 11px muted + frequency badge (e.g. "Biweekly" in a small gray pill background: #F0EDE8, color: #6B6860, padding: 2px 6px, border-radius: 10px, font-size: 10px)
+Row padding: 10px 14px
+Row height: ~56px
+On hover: background #F7F6F3
+On click: auto-fills all Customer Info fields (name, email, phone, address, zip) from the selected client record. Collapse dropdown. Show a confirmation banner: "Client loaded — [Full Name]" in the green zone style (background: #EAF3DE, border: 1px solid #639922, color: #3B6D11, font-size: 12px, padding: 6px 12px, border-radius: 6px) below the search field.
+
+Empty state (no results):
+
+Single row: "No clients found for '[query]'" in 13px muted, padding 12px 14px
+Below it: a clickable row "Create new lead instead →" in brand color that triggers the same action as "Enter lead info instead"
+
+Loading state:
+
+While query is in flight: show a single muted row "Searching..." in 13px, color #6B6860
+
+Dismiss behavior:
+
+Clicking outside the dropdown or pressing Escape closes it
+If a client was selected, the input shows the client's full name as the selected value (read-only appearance: background #F7F6F3, no cursor)
+Show a small × clear button on the right side of the input when a client is selected — clicking it resets the form and restores the empty search state
+
+
+QUERY
+Search against clients table WHERE company_id = current AND (full_name ILIKE '%query%' OR phone ILIKE '%query%' OR service_address ILIKE '%query%'). Return maximum 8 results ordered by last_service_date DESC NULLS LAST.
+Include full_name, service_address, phone, email, last_service_date, frequency in the result payload.
+
+VERIFICATION
+After deploying at https://clean-ops-pro.replit.app/quotes/new:
+
+Search field shows magnifier icon and correct placeholder text. Native dropdown is gone.
+Typing 2+ characters shows a styled dropdown with client rows showing name, address, last service date, and frequency badge.
+"Enter lead info instead" is always the first option with a + icon and blue text.
+Clicking a client row fills all Step 1 fields and shows the green confirmation banner.
+Clicking outside the dropdown closes it.
+The × clear button appears when a client is selected and resets the form when clicked.
+No regressions on any other Step 1 fields or the right panel.
+Sonnet 4.6ExtendedClaude is AI and can make mistakes. Please double-check responses.
