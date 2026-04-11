@@ -1,0 +1,116 @@
+The SQL is likely failing silently because the `WHERE slug = 'phes-cleaning'` subquery isn't matching the actual company record. The colors never get written. We need to diagnose first then force the fix.
+
+---
+
+**REPLIT PROMPT — Zone Color Diagnostic + Force Fix**
+
+Two steps. Run the diagnostic first, log the output, then apply the fix. Do not skip the diagnostic step.
+
+---
+
+**STEP 1 — DIAGNOSTIC: log what's actually in the DB**
+
+On server startup, before any zone update runs, execute and log to console:
+
+```sql
+SELECT id, name, slug FROM companies LIMIT 10;
+```
+
+```sql
+SELECT id, name, color, array_length(zips, 1) as zip_count 
+FROM service_zones 
+ORDER BY name;
+```
+
+Log both results clearly labeled:
+```
+[ZONE DIAGNOSTIC] Companies: [...]
+[ZONE DIAGNOSTIC] Current zones: [...]
+```
+
+This tells us the actual company ID and current color values so we can see exactly what's being matched and what isn't.
+
+---
+
+**STEP 2 — FIX: use company_id directly, not slug subquery**
+
+Replace the slug-based subquery entirely. Instead, look up the company_id for the Phes tenant by matching on company name or by querying the first company with Oak Lawn zones. Use this pattern:
+
+```sql
+DO $$
+DECLARE
+  phes_id UUID;
+BEGIN
+  SELECT id INTO phes_id 
+  FROM companies 
+  WHERE name ILIKE '%phes%' 
+     OR name ILIKE '%phes cleaning%'
+  LIMIT 1;
+
+  IF phes_id IS NULL THEN
+    RAISE NOTICE 'ZONE FIX: Could not find Phes company — skipping zone color update';
+  ELSE
+    RAISE NOTICE 'ZONE FIX: Found company ID %', phes_id;
+
+    UPDATE service_zones SET color = '#FFD700' WHERE (name ILIKE '%tinley%' OR name ILIKE '%orlando%' OR name ILIKE '%palos%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FF00A8' WHERE name ILIKE '%company zone%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#7D00A8' WHERE name ILIKE '%chicago central%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#4B0082' WHERE (name ILIKE '%downtown%' OR name ILIKE '%loop%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#EC6F16' WHERE name ILIKE '%chicago north%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#D400CB' WHERE name ILIKE '%chicago south%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FF7F50' WHERE name ILIKE '%chicago west%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FF8D69' WHERE (name ILIKE '%homer glen%' OR name ILIKE '%lemont%' OR name ILIKE '%burr ridge%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#8C0000' WHERE (name ILIKE '%homewood%' OR name ILIKE '%harvey%' OR name ILIKE '%markham%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#BD00FF' WHERE (name ILIKE '%la grange%' OR name ILIKE '%hodgkins%' OR name ILIKE '%berwyn%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#0A7A00' WHERE (name ILIKE '%lake view%' OR name ILIKE '%lincoln square%' OR name ILIKE '%lincolnwood%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FF6666' WHERE (name ILIKE '%maywood%' OR name ILIKE '%northlake%' OR name ILIKE '%schiller%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FEB9FF' WHERE (name ILIKE '%naperville%' OR name ILIKE '%woodridge%' OR name ILIKE '%lisle%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#00F20A' WHERE (name ILIKE '%norridge%' OR name ILIKE '%park ridge%' OR name ILIKE '%des plaines%') AND company_id = phes_id;
+    UPDATE service_zones SET color = '#00E6FF' WHERE name ILIKE '%schaumburg%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FF0000' WHERE name ILIKE '%south suburbs%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#FFC900' WHERE name ILIKE '%southwest%' AND company_id = phes_id;
+    UPDATE service_zones SET color = '#D988FF' WHERE (name ILIKE '%westmont%' OR name ILIKE '%lombard%' OR name ILIKE '%elmhurst%') AND company_id = phes_id;
+
+    RAISE NOTICE 'ZONE FIX: All zone colors updated for company %', phes_id;
+  END IF;
+END $$;
+```
+
+After the block runs, immediately SELECT and log the results:
+
+```sql
+SELECT name, color FROM service_zones WHERE company_id = phes_id ORDER BY name;
+```
+
+Log as `[ZONE FIX RESULT] [zone name]: [color]` for every row so you can verify each one in the console without opening the DB.
+
+---
+
+**STEP 3 — FIX THE FRONTEND ZONE DOT**
+
+The search result zone dot is likely also broken independently of the DB. Add explicit console logging to the client search API endpoint:
+
+For every result returned, log:
+```
+[CLIENT SEARCH] [client name] zip=[zip] → zone=[zone name] color=[zone color]
+```
+
+If `zone_color` is coming back null even after the DB fix, the zip array lookup is broken. Check the `service_zones` table structure — if `zips` is stored as a TEXT array, the query must be:
+```sql
+SELECT name, color FROM service_zones 
+WHERE company_id = $1 AND $2 = ANY(zips)
+```
+
+If stored as JSONB:
+```sql
+WHERE company_id = $1 AND zips @> to_jsonb($2::text)
+```
+
+If stored as comma-separated TEXT:
+```sql
+WHERE company_id = $1 AND zips LIKE '%' || $2 || '%'
+```
+
+Try all three formats and log which one returns a result for zip `60464` (Jim Schultz — must return Tinley/Orlando/Palos Park `#FFD700`).
+
+Once the correct query format is identified, use that format consistently across all zone lookups in the codebase — client search, zone banner, zone verification on address entry, and tech suggestion Phase 1.

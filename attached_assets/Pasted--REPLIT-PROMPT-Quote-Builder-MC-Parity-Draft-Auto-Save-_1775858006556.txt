@@ -1,0 +1,295 @@
+**REPLIT PROMPT — Quote Builder: MC Parity + Draft Auto-Save + Zone Color Fix + Save Draft Recovery**
+
+Comprehensive update to `/quotes/new` and `/quotes`. No other pages except zone color seeding and quotes list draft tab. Run all startup migrations first.
+
+---
+
+**STARTUP MIGRATIONS — run all before anything else:**
+
+```sql
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS call_notes TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS alternate_options JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS zone_override BOOLEAN DEFAULT FALSE;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS manual_adjustments JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS internal_memo TEXT;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS form_snapshot JSONB;
+ALTER TABLE quotes ADD COLUMN IF NOT EXISTS address_verified BOOLEAN DEFAULT FALSE;
+```
+
+Then run all zone color corrections:
+
+```sql
+UPDATE service_zones SET color = '#7D00A8' WHERE name ILIKE '%chicago central%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#4B0082' WHERE (name ILIKE '%chicago downtown%' OR name ILIKE '%loop%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#EC6F16' WHERE name ILIKE '%chicago north residential%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#D400CB' WHERE name ILIKE '%chicago south%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FF7F50' WHERE name ILIKE '%chicago west%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FF00A8' WHERE name ILIKE '%company zone%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FF8D69' WHERE (name ILIKE '%homer glen%' OR name ILIKE '%lemont%' OR name ILIKE '%burr ridge%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#8C0000' WHERE (name ILIKE '%homewood%' OR name ILIKE '%harvey%' OR name ILIKE '%markham%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#BD00FF' WHERE (name ILIKE '%la grange%' OR name ILIKE '%hodgkins%' OR name ILIKE '%berwyn%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#0A7A00' WHERE (name ILIKE '%lake view%' OR name ILIKE '%lincoln square%' OR name ILIKE '%lincolnwood%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FF6666' WHERE (name ILIKE '%maywood%' OR name ILIKE '%northlake%' OR name ILIKE '%schiller%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FEB9FF' WHERE (name ILIKE '%naperville%' OR name ILIKE '%woodridge%' OR name ILIKE '%lisle%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#00F20A' WHERE (name ILIKE '%norridge%' OR name ILIKE '%park ridge%' OR name ILIKE '%des plaines%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#00E6FF' WHERE name ILIKE '%schaumburg%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FF0000' WHERE name ILIKE '%south suburbs%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FFC900' WHERE name ILIKE '%southwest suburbs%' AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#FFD700' WHERE (name ILIKE '%tinley%' OR name ILIKE '%orlando%' OR name ILIKE '%palos park%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+UPDATE service_zones SET color = '#D988FF' WHERE (name ILIKE '%westmont%' OR name ILIKE '%lombard%' OR name ILIKE '%elmhurst%') AND company_id = (SELECT id FROM companies WHERE slug = 'phes-cleaning');
+```
+
+Log each UPDATE with rows affected count to console.
+
+---
+
+**PART 1 — ZONE COLOR RENDERING FIX**
+
+The zone dot in search results and the zone banner after client load must use the `color` column from `service_zones`. Never hardcode zone colors in the frontend.
+
+Zone lookup in the client search API: match `clients.zip_code` against the zone's zip array WHERE `company_id = current`. Handle all three storage formats:
+- PostgreSQL array: `zip_code = ANY(zips)`
+- JSONB array: `zips::jsonb ? zip_code`
+- Comma-separated text: `zips ILIKE '%' || zip_code || '%'`
+
+Return `zone_color` and `zone_name` in every client search result. Log Jim Schultz (zip 60464) result to console — must return Tinley/Orlando/Palos Park with `#FFD700`.
+
+Zone banner after client load: add `border-left: 4px solid [zone_color]` to visually identify the zone. Zone dot in search rows: `background: zone_color`, fallback `#B4B2A9` if null.
+
+---
+
+**PART 2 — NON-LINEAR STEP NAVIGATION**
+
+All stepper tabs must be directly clickable at any time — no step completion requirement to jump. Remove any logic that disables tab clicks based on prior step state.
+
+Only restriction: "Save & Convert to Job" button stays disabled until Step 1 has at minimum a client name or address entered.
+
+---
+
+**PART 3 — EXISTING CLIENT SEARCH — enhanced rows**
+
+Each search result row (2-line layout, max 60px height):
+
+Line 1: Full name 14px font-weight 500 `#1A1917` left · Frequency badge right (10px pill, bg `#F0EDE8`, color `#4A4845`)
+
+Line 2: Zone color dot (10px circle, `background: zone_color`, title attribute = zone name) · Address 12px `#4A4845` · spacer · "Last done: [MMM D]" 11px `#6B6860` · " · " · "Next: [MMM D]" 11px `#6B6860` (or "Next: none" in `#A32D2D` if no upcoming job)
+
+Frequency display mapping:
+- `weekly` → Weekly
+- `every_2_weeks` / `biweekly` → Biweekly
+- `every_4_weeks` / `monthly` → Monthly
+- `onetime` / `one_time` → One-Time
+- null → No recurring
+
+Never show raw DB values.
+
+API returns per result: `zone_color`, `zone_name`, `frequency`, `last_service_date`, `next_job_date`. Run all supplemental queries in `Promise.all`.
+
+---
+
+**PART 4 — STEP 1: CUSTOMER INFO**
+
+**Returning client auto-fill:**
+On client selected from search:
+- Auto-fill all Customer Info fields from client record
+- Auto-fill Service Address and Zip Code fields
+- Hide "How did you hear about us?" field entirely — set value silently to `existing_client`
+- Show "How did you hear about us?" only for new leads ("Enter lead info instead" flow)
+
+**Preferred technician suggestion:**
+Query `job_history` for most frequent `assigned_technician_id` across last 20 jobs for selected client. If found, show pill below zone banner:
+```
+Background: #EBF4FF, Border: 1px solid #5B9BD5, Border-radius: 6px
+Padding: 8px 12px, Font-size: 12px, Color: #185FA5
+Text: "Preferred tech: [Full Name] — assigned to most of this client's jobs"
+```
+"Use this tech" button inline right — pre-selects this tech in Phase 2 suggestion list.
+
+**Zone verification:**
+On zip field blur (5-digit zip): query `service_zones` for zone match.
+
+Served zip:
+```
+Background: #EAF3DE, Border: 1px solid #639922, Border-radius: 6px
+Padding: 8px 12px, Font-size: 12px, Color: #3B6D11
+Text: "Zone: [Zone Name] — We service this area."
+Border-left: 4px solid [zone_color]
+```
+
+Unserved zip:
+```
+Background: #FCEBEB, Border: 1px solid #A32D2D
+Text (color #791F1F): "We don't currently service [zip]. This quote can still be saved — confirm with the office before proceeding."
+```
+Override checkbox: `[ ] Override — office confirmed we will service this zip` — stores `zone_override: true`, non-blocking.
+
+Fewer than 5 digits: show nothing. Zone check also fires automatically when client is loaded and zip populates.
+
+**Technician suggestion Phase 1:**
+Below zone banner, section "Suggested Technicians" (11px uppercase muted): query employees WHERE `role = 'technician'` AND `status = 'active'` AND assigned to matched zone. Each row: 28px avatar circle, full name, "In zone" 11px muted. If `zoneOverride = true`: "No zone match — assignment will be manual." Store as `suggestedTechs`.
+
+**Quick Book panel** (existing clients only):
+Below zone/tech suggestion, above Next button. Panel: `background: #F7F6F3, border: 1px solid #E5E2DC, border-radius: 8px, padding: 14px 16px`.
+
+Query last 20 jobs for client, extract up to 3 distinct scope types (deduplicate — if all same scope, show 1). Each as a clickable card:
+- Scope name 13px 500, last booked date 11px muted, last price 13px 500, frequency badge
+- On click: pre-populate quote (scope, price, frequency, preferred tech, add-ons from last job), skip to Step 4 (Review), show dismissible blue banner: "Pre-filled from [Scope] on [Date]. Adjust anything before saving."
+
+"Build custom quote instead →" link below cards — hides quick book panel, proceeds to Step 2.
+
+**Address verification:**
+Google Maps Places autocomplete on Service Address field (`VITE_GOOGLE_MAPS_API_KEY`). On suggestion selected: parse street, zip, auto-fill fields, trigger zone check automatically.
+
+Verified (Places suggestion selected or geocode returns ROOFTOP/RANGE_INTERPOLATED):
+```
+Background: #EAF3DE, Border: 1px solid #639922
+Text: "Address verified — [Full formatted address from Google]"
+```
+
+Unverified (manual entry):
+```
+Background: #FAEEDA, Border: 1px solid #BA7517
+Text: "Address not verified — select from suggestions to confirm"
+```
+
+---
+
+**PART 5 — STEP 2: PROPERTY DETAILS**
+
+No mandatory fields. "Next" button always enabled. No validation errors that block progression. If sqft missing, price preview shows "Enter sqft to calculate" — that's the only consequence. Remove all red blocking validation.
+
+Fields: Square Footage, Bedrooms, Full Bathrooms (side by side), Half Bathrooms, Floors (side by side), People in Household, Pets (side by side), Cleanliness rating toggle (1 — Very Clean / 2 — Moderately Clean / 3 — Very Dirty).
+
+**Recurring service reminder** (conditional — only when Deep Clean or Move In / Move Out is among selected scopes):
+Bottom of Step 2, below all fields.
+```
+Background: #EBF4FF, Border: 1px solid #5B9BD5, Border-radius: 8px, Padding: 14px 16px
+Header: "Recurring service reminder" 12px 500 #185FA5
+```
+Body: "Before finishing — ask the client if they'd like to continue with recurring service after this job. Many clients convert after a Deep Clean or Move-Out."
+
+Recurring rates reference (if sqft entered):
+```
+Weekly: $XXX   ·   Biweekly: $XXX   ·   Monthly: $XXX
+```
+11px muted label "Recurring rates for this home" above. If sqft missing: "Enter square footage above to see recurring rates."
+
+Checkbox: `[ ] Client wants to add recurring service` — if checked, appends recurring scope to selected scopes, pre-selects biweekly frequency default.
+
+---
+
+**PART 6 — STEP 3: ADD-ONS PER SCOPE**
+
+One accordion per selected scope, expanded by default.
+
+**Add-on quantity counters** (these three only):
+- Oven Cleaning: `[ − ] [ 0 ] [ + ]` counter, min 0, max 5, price multiplies by count
+- Refrigerator Cleaning: same
+- Kitchen Cabinets: same
+
+All other add-ons (Windows, Clean Basement, Parking Fee, Loyalty Discounts): checkbox only.
+
+**One-Time vs Recurring toggle per add-on:**
+Right of each add-on price: `[ One Time ] [ Recurring ]` two-button toggle, default "One Time."
+Style: 10px text, unselected bg `#F0EDE8`, selected bg `#5B9BD5` white text, border-radius 4px, padding 2px 8px.
+Recurring = true stored on add-on in quote payload.
+
+**Manual price adjustments** (below all add-ons, above subtotal):
+
+Adjustment (+):
+- Label: "Manual adjustment (+)" 13px
+- Dollar input: placeholder "$0.00"
+- Reason input: placeholder "Reason (e.g. extra floor, large home)" 12px
+- Adds to subtotal when > 0
+
+Adjustment (−):
+- Same but subtracts. Cannot make subtotal go below $0.
+
+Stored as `manual_adjustments: [{type: 'add'|'subtract', amount, reason}]` in quote payload.
+
+**Manual hours override** (hourly scopes only — Hourly Deep Clean, Hourly Standard Cleaning):
+Below scope accordion header: `[ − ] [ X.X ] [ + ]` counter, default = sqft-calculated hours, min 1, max 12, step 0.5. When changed: "Overriding calculated X hrs" 11px muted + "Reset to calculated" link.
+
+**Notes section** (below all scope accordions):
+
+Job Notes textarea — label "Job Notes" 12px 500, subtext "Visible to technician." 11px muted.
+
+Client-Facing Notes textarea — label "Client-Facing Notes" 12px 500, subtext "Visible to client on the quote." 11px muted.
+
+Internal Memo textarea — label "Internal Memo" 12px 500, subtext "Office only — never shown to client or technician." 11px muted. Plain textarea, no rich text editor.
+
+---
+
+**PART 7 — STEP 4: REVIEW — SELECT OPTION TO SEND**
+
+Radio card per selected scope:
+- Unselected: `border: 0.5px solid #E5E2DC`, bg `#FFFFFF`
+- Selected: `border: 1.5px solid #5B9BD5`, bg `#EBF4FF`
+- Radio left · Scope name + add-on summary · Total price right 16px 500
+
+Selected radio = `quoted_price` and `scope` saved to quote. Non-selected saved to `alternate_options` JSONB.
+
+Single scope: auto-select. Multiple: require explicit selection before "Save & Convert to Job" enables.
+
+---
+
+**PART 8 — DRAFT AUTO-SAVE + RECOVERY**
+
+**Auto-save every 15 seconds:**
+If any field changed since last save, silently PATCH the quote draft. On first save: POST new draft with `status = 'draft'` and full `form_snapshot` JSONB (includes: current_step, all Step 1 fields, selected scopes, property details, add-ons, call notes, preferred tech, zone data, manual adjustments, internal memo).
+
+Show "Draft saved [H:MM AM/PM]" in top-right of left panel — 12px `#6B6860`, updates on each save.
+
+**Save Draft button:**
+1. Force-save current state synchronously
+2. Set `status = 'draft'`, `updated_at = now()`
+3. Navigate to `/quotes?filter=drafts`
+4. Show success banner at top of quotes list: "Draft saved — [client name or 'Unnamed quote'] · [timestamp]" with "Resume →" link back into the quote at the exact saved step
+
+**Resume from draft:**
+When draft opened from quotes list, load `form_snapshot`, restore all fields, navigate to `form_snapshot.current_step`. Show dismissible blue banner:
+```
+Background: #EBF4FF, Border: 1px solid #5B9BD5
+Text: "Resuming draft — last saved [time]. Pick up where you left off." · × dismiss
+```
+
+**Browser unload protection:**
+If unsaved changes exist, intercept `beforeunload` with native browser confirmation: "You have an unsaved quote. Are you sure you want to leave?" Dismiss after successful save.
+
+**Fix all save action routing:**
+- "Save Draft" → `/quotes?filter=drafts`
+- "Save & Send Quote" → `/quotes/{quote_id}`
+- "Save & Convert to Job" → create job record → `/jobs/{job_id}`
+- None of these ever route to `/leads`
+
+---
+
+**PART 9 — QUOTES LIST: DRAFTS TAB**
+
+Add "Drafts" filter tab to `/quotes` status filter bar alongside existing tabs.
+
+Draft rows show:
+- Client name or "Unnamed — [date]" if no client selected
+- Left border accent: `border-left: 3px solid #EF9F27`
+- "Saved [H:MM AM/PM]" 11px muted
+- "Stopped at: [Step Name]" 11px muted
+- Scope(s) selected or "No scope selected yet" muted
+- "Resume →" link in `#5B9BD5` — opens draft at correct step
+
+---
+
+**PART 10 — RIGHT PANEL**
+
+Call Notes (top ~55%): textarea, label "Call Notes" 12px 500, subtext "Not visible to client." 11px muted. Auto-saves to `call_notes` column every 10 seconds silently.
+
+Highlight-to-push: on `mouseup`/`touchend`, if selection > 3 chars, show floating tooltip (bg `#1A1917`, white text, 12px, border-radius 4px, padding 4px 10px) with "Push to Job Notes" button. On click: append to Job Notes field in Step 3, show 1.5-second "Added to job notes" confirmation.
+
+Price Preview (bottom ~45%):
+- 0 scopes: "Select a scope to see pricing."
+- 1 scope: full breakdown (scope name, base, add-ons, adjustments, total)
+- 2+ scopes: stacked list of each scope with total, then "Select final option in Step 4."
+
+Action buttons stacked:
+- "Save & Convert to Job" → brand fill primary CTA
+- "Save & Send Quote" → outline
+- "Save Draft" → ghost/text only

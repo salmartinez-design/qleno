@@ -1,0 +1,42 @@
+REPLIT PROMPT — Service & Pricing: Property Summary Strip
+One targeted addition to Step 2 (Service & Pricing) of /quotes/new. No other changes.
+
+ADD PROPERTY SUMMARY STRIP
+At the very top of the Service & Pricing step, above the "SELECT SERVICE OPTIONS" label, add a compact single-row summary strip showing the property details entered in Step 1.
+Strip style:
+Background: #F7F6F3
+Border: 0.5px solid #E5E2DC
+Border-radius: 8px
+Padding: 10px 16px
+Margin-bottom: 14px
+Display: flex, flex-wrap: wrap, gap: 20px, align-items: center
+Contents — each item is a label + value pair inline:
+
+Sqft: value from property details, e.g. "1,546 sqft" — if missing show "Sqft: —"
+Bed: bedroom count, e.g. "2 bd" — if 0 or missing show "—"
+Bath: full bathrooms, e.g. "1 ba" — if 0 or missing show "—"
+Half bath: half bathroom count, e.g. "1 half" — only show if > 0, hide entirely if 0
+Cleanliness: the selected rating, e.g. "Moderately Clean" — if not selected show "—"
+Address: first line of service address only (street number + street name, no city/state/zip) — if missing show "—"
+
+Typography per item:
+
+Label: 10px, font-weight 500, color #6B6860, text-transform uppercase, letter-spacing 0.04em
+Value: 13px, font-weight 500, color #1A1917
+Each pair stacked vertically (label above, value below), not inline
+
+Edit link:
+Far right of the strip: "Edit →" in 11px #5B9BD5, cursor pointer. Clicking navigates directly to the Property Details step (non-linear jump — already built). This lets the rep correct a number mid-call without losing scope selections.
+Live updates:
+The strip must update in real time as the rep edits property details and returns to this step — read directly from component state, not from a saved record.
+Missing data state:
+If ALL property fields are empty (rep jumped straight to Service & Pricing), show the strip with all dashes plus a subtle amber notice inline:
+Background: #FAEEDA
+Border: 1px solid #BA7517  
+Border-radius: 6px
+Padding: 6px 12px
+Font-size: 11px
+Color: #854F0B
+Text: "Property details not entered — prices shown are minimums. Edit to calculate exact price."
+This replaces the individual "Enter sqft to price" labels on each scope card when all fields are empty — cleaner than repeating it per card.
+When sqft IS entered: scope cards show the calculated price normally. Remove "Enter sqft to price" from individual cards once the strip handles the missing-data notice globally.
