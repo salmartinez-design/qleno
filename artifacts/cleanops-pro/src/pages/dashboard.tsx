@@ -130,7 +130,7 @@ function useGreeting(firstName: string) {
 const CARD: React.CSSProperties = {
   backgroundColor: '#FFFFFF',
   border: '0.5px solid #E5E2DC',
-  borderRadius: 10,
+  borderRadius: 12,
 };
 
 // ── Weekly Forecast hook ──────────────────────────────────────────────────────
@@ -212,9 +212,9 @@ function WeeklyForecastSection() {
     return (
       <>
         <style>{`@keyframes wf-pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
-        <div style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
+        <div style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 12, padding: '24px' }}>
           <div style={{ width: 200, height: 12, background: '#F0EDE8', borderRadius: 4, marginBottom: 16, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
-          <div style={{ width: '100%', height: 80, background: '#F0EDE8', borderRadius: 6, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
+          <div style={{ width: '100%', height: 100, background: '#F0EDE8', borderRadius: 6, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
         </div>
       </>
     );
@@ -268,7 +268,7 @@ function WeeklyForecastSection() {
   return (
     <>
       <style>{`@keyframes wf-pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
-      <div style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
+      <div style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 12, padding: '24px' }}>
 
         {/* Header: label+date left / dropdown right */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -302,7 +302,7 @@ function WeeklyForecastSection() {
         </div>
 
         {/* 7-column day grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 10 }}>
           {week.days.map(day => {
             const s = dayStyle(day, week.daily_avg);
             const isToday = day.date === todayStr;
@@ -311,21 +311,21 @@ function WeeklyForecastSection() {
             const dateParts = day.date.split('-');
             const displayDate = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dateParts[1])-1]} ${parseInt(dateParts[2])}`;
             return (
-              <div key={day.date} style={{ background: s.bg, border: cellBorder, borderRadius: cellRadius, padding: '8px 6px' }}>
-                <p style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#4A4845', margin: '0 0 2px', fontFamily: FF }}>{day.day_name}</p>
-                <p style={{ fontSize: 11, color: '#6B6860', margin: '0 0 6px', fontFamily: FF }}>{displayDate}</p>
+              <div key={day.date} style={{ background: s.bg, border: cellBorder, borderRadius: cellRadius, padding: '12px 10px', minHeight: 100 }}>
+                <p style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#4A4845', margin: '0 0 2px', fontFamily: FF }}>{day.day_name}</p>
+                <p style={{ fontSize: 12, color: '#6B6860', margin: '0 0 8px', fontFamily: FF }}>{displayDate}</p>
                 {day.is_weekend ? (
                   <>
-                    <p style={{ fontSize: 14, fontWeight: 500, color: '#6B6860', margin: '0 0 1px', fontFamily: FF }}>—</p>
-                    <p style={{ fontSize: 11, color: '#9E9B94', margin: 0, fontFamily: FF }}>Closed</p>
+                    <p style={{ fontSize: 16, fontWeight: 500, color: '#6B6860', margin: '0 0 2px', fontFamily: FF }}>—</p>
+                    <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>Closed</p>
                   </>
                 ) : (
                   <>
-                    <p style={{ fontSize: 14, fontWeight: 500, color: s.revColor, margin: '0 0 1px', fontFamily: FF }}>{fmtWF(day.revenue)}</p>
-                    <p style={{ fontSize: 11, color: s.jobColor, margin: 0, fontFamily: FF }}>{day.job_count} jobs</p>
+                    <p style={{ fontSize: 16, fontWeight: 500, color: s.revColor, margin: '0 0 2px', fontFamily: FF }}>{fmtWF(day.revenue)}</p>
+                    <p style={{ fontSize: 12, color: s.jobColor, margin: 0, fontFamily: FF }}>{day.job_count} jobs</p>
                   </>
                 )}
-                <div style={{ height: 3, borderRadius: 2, background: s.bar, marginTop: 8 }} />
+                <div style={{ height: 4, borderRadius: 2, background: s.bar, marginTop: 10 }} />
               </div>
             );
           })}
@@ -423,19 +423,19 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FF }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: FF }}>
 
         {/* ── GREETING ─────────────────────────────────────────── */}
         <div style={{
           background: 'var(--brand-dim)',
           border: '1px solid color-mix(in srgb, var(--brand) 20%, transparent)',
           borderBottom: '0.5px solid #E5E2DC',
-          borderRadius: 12, padding: isMobile ? '18px 16px 16px' : '20px 24px 16px',
+          borderRadius: 12, padding: isMobile ? '18px 16px 20px' : '20px 24px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12,
         }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <p style={{ fontSize: isMobile ? 15 : 16, fontWeight: 600, color: '#1A1917', margin: 0, fontFamily: FF }}>{greeting}</p>
+              <p style={{ fontSize: isMobile ? 18 : 22, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>{greeting}</p>
               {activeBranch && (
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim)', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.03em', fontFamily: FF }}>
                   {activeBranch.name}
@@ -453,7 +453,7 @@ export default function Dashboard() {
             <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '0 0 3px', fontFamily: FF }}>Revenue this week</p>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 20, fontWeight: 500, color: '#1A1917', fontFamily: FF }}>
+                <span style={{ fontSize: 24, fontWeight: 500, color: '#1A1917', fontFamily: FF }}>
                   {kpis != null ? (kpis.week_revenue > 0 ? fmt$(kpis.week_revenue) : '—') : '—'}
                 </span>
                 <DeltaBadge delta={kpis?.week_delta ?? null} />
@@ -465,7 +465,7 @@ export default function Dashboard() {
         {/* ── STATUS CHIPS ─────────────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Today's Status</p>
-          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
             {STATUS_CARDS.map(card => {
               const val = Number(counts[card.key] ?? 0);
               return (
@@ -496,9 +496,9 @@ export default function Dashboard() {
               { label: 'Revenue Booked Today', value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: 'on schedule today' },
               { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
             ].map((tile, i) => (
-              <div key={i} style={{ ...CARD, padding: '12px 16px' }}>
-                <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 6px', fontFamily: FF }}>{tile.label}</p>
-                <p style={{ fontSize: 22, fontWeight: 500, color: '#1A1917', margin: 0, lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
+              <div key={i} style={{ ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>
+                <p style={{ fontSize: 28, fontWeight: 500, color: '#1A1917', margin: 0, lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
               </div>
             ))}
           </div>
@@ -507,44 +507,44 @@ export default function Dashboard() {
         {/* ── 4-TILE METRICS ROW ───────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px', marginTop: 2, fontFamily: FF }}>Key Numbers</p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 14 }}>
             {/* Monthly Revenue */}
-            <div style={{ ...CARD, padding: isMobile ? '14px 14px' : '16px 20px' }}>
-              <p style={{ fontSize: 11, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px', fontFamily: FF }}>Monthly Revenue</p>
-              <p style={{ fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', lineHeight: 1, fontFamily: FF }}>
+            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Monthly Revenue</p>
+              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
                 {kpis == null ? '—' : (kpis.month_revenue > 0 ? fmt$(kpis.month_revenue) : '—')}
               </p>
               <DeltaBadge delta={kpis?.month_delta ?? null} />
             </div>
 
             {/* Avg Bill */}
-            <div style={{ ...CARD, padding: isMobile ? '14px 14px' : '16px 20px' }}>
-              <p style={{ fontSize: 11, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px', fontFamily: FF }}>Avg Bill</p>
-              <p style={{ fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', lineHeight: 1, fontFamily: FF }}>
+            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Avg Bill</p>
+              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
                 {kpis == null ? '—' : (kpis.avg_bill > 0 ? `$${kpis.avg_bill.toFixed(0)}` : '—')}
               </p>
-              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0, fontFamily: FF }}>Last 30 days</p>
+              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>Last 30 days</p>
             </div>
 
             {/* Active Clients */}
-            <div style={{ ...CARD, padding: isMobile ? '14px 14px' : '16px 20px' }}>
-              <p style={{ fontSize: 11, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px', fontFamily: FF }}>Active Clients</p>
-              <p style={{ fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', lineHeight: 1, fontFamily: FF }}>
+            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Active Clients</p>
+              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
                 {kpis == null ? '—' : (kpis.active_clients != null ? kpis.active_clients : '—')}
               </p>
               {kpis?.recurring_count != null && (
-                <p style={{ fontSize: 11, color: '#9E9B94', margin: 0, fontFamily: FF }}>{kpis.recurring_count} recurring</p>
+                <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{kpis.recurring_count} recurring</p>
               )}
             </div>
 
             {/* Next 7 Days */}
-            <div style={{ ...CARD, padding: isMobile ? '14px 14px' : '16px 20px' }}>
-              <p style={{ fontSize: 11, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 6px', fontFamily: FF }}>Next 7 Days</p>
-              <p style={{ fontSize: isMobile ? 20 : 26, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', lineHeight: 1, fontFamily: FF }}>
+            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Next 7 Days</p>
+              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
                 {kpis == null ? '—' : (kpis.next7_revenue > 0 ? fmt$(kpis.next7_revenue) : '—')}
               </p>
               {kpis?.next7_jobs != null && (
-                <p style={{ fontSize: 11, color: '#1D9E75', margin: 0, fontFamily: FF }}>{kpis.next7_jobs} jobs on the books</p>
+                <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{kpis.next7_jobs} jobs on the books</p>
               )}
             </div>
           </div>
@@ -553,7 +553,7 @@ export default function Dashboard() {
         {/* ── TWO-COLUMN: REVENUE CHART + TECHS TODAY ─────────── */}
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
           {/* Revenue Chart — 60% */}
-          <div style={{ ...CARD, padding: '16px 20px', flex: '0 0 60%', minWidth: 0 }}>
+          <div style={{ ...CARD, padding: '24px', flex: '0 0 60%', minWidth: 0 }}>
             {chartData.length === 0 ? (
               <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>No revenue data yet.</p>
@@ -561,28 +561,28 @@ export default function Dashboard() {
             ) : (
               <>
                 {/* Title + YTD */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
                     Revenue — Last 12 Months
                   </p>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
                     YTD {ytdTotal >= 1_000_000
                       ? `$${(ytdTotal / 1_000_000).toFixed(2)}M`
                       : `$${(ytdTotal / 1000).toFixed(1)}k`}
                   </p>
                 </div>
                 {/* Legend — above chart canvas */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ display: 'inline-block', width: 14, height: 2, backgroundColor: '#5B9BD5', borderRadius: 1 }} />
-                    <span style={{ fontSize: 11, color: '#4A4845', fontFamily: FF }}>This year</span>
+                    <span style={{ fontSize: 12, color: '#4A4845', fontFamily: FF }}>This year</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed #B5D4F4' }} />
-                    <span style={{ fontSize: 11, color: '#4A4845', fontFamily: FF }}>Prior year</span>
+                    <span style={{ fontSize: 12, color: '#4A4845', fontFamily: FF }}>Prior year</span>
                   </div>
                 </div>
-                <ResponsiveContainer width="100%" height={160}>
+                <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
                     <XAxis
@@ -631,8 +631,8 @@ export default function Dashboard() {
           </div>
 
           {/* Techs Today — 38% (always rendered, independent of chart data) */}
-          <div style={{ ...CARD, padding: '16px 18px', flex: '0 0 38%', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div style={{ ...CARD, padding: '20px', flex: '0 0 38%', minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontFamily: FF }}>Techs Today</p>
               <button onClick={() => navigate('/employees/clocks')} style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, display: 'flex', alignItems: 'center', gap: 3, padding: 0 }}>
                 Clock Monitor <ChevronRight size={12} />
@@ -692,18 +692,18 @@ function StatusChip({ label, value, bg, color, accentColor, onClick }: { label: 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        flexShrink: 0, width: 140, height: 80, minWidth: 120,
+        flexShrink: 0, width: 150, minHeight: 80, minWidth: 130,
         backgroundColor: bg,
         border: hovered ? '1px solid #5B9BD5' : `1px solid ${color}22`,
         borderLeft: accentColor ? `3px solid ${accentColor}` : (hovered ? '1px solid #5B9BD5' : `1px solid ${color}22`),
         borderRadius: accentColor ? '0 8px 8px 0' : 8,
-        padding: '14px 16px',
+        padding: '16px 20px',
         cursor: 'pointer', textAlign: 'left',
         fontFamily: FF, transition: 'border-color 0.15s',
       }}
     >
-      <p style={{ fontSize: 24, fontWeight: 700, color, margin: '0 0 2px', lineHeight: 1, fontFamily: FF }}>{value}</p>
-      <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0, fontFamily: FF }}>{label}</p>
+      <p style={{ fontSize: 32, fontWeight: 600, color, margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>{value}</p>
+      <p style={{ fontSize: 12, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0, fontFamily: FF }}>{label}</p>
     </button>
   );
 }
@@ -746,28 +746,28 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
         const hasJobs = tech.job_count > 0;
         const capacityPct = Math.min(tech.job_count / 4, 1) * 100;
         return (
-          <div key={tech.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div key={tech.id} style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44 }}>
             <div style={{
-              width: 26, height: 26, borderRadius: 13,
+              width: 32, height: 32, borderRadius: 16,
               backgroundColor: '#E8F0FB', color: '#185FA5',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 700, flexShrink: 0, fontFamily: FF,
+              fontSize: 12, fontWeight: 700, flexShrink: 0, fontFamily: FF,
             }}>
               {initials}
             </div>
-            <p style={{ fontSize: 12, fontWeight: 600, color: '#1A1917', margin: 0, flex: 1, fontFamily: FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1917', margin: 0, flex: 1, fontFamily: FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {tech.first_name} {tech.last_name?.[0]}.
             </p>
             <span style={{
-              fontSize: 10, fontWeight: 700,
+              fontSize: 12, fontWeight: 700,
               color: hasJobs ? '#185FA5' : '#D85A30',
               background: hasJobs ? '#E8F0FB' : '#FEF0E7',
-              borderRadius: 10, padding: '1px 6px', flexShrink: 0, fontFamily: FF,
+              borderRadius: 10, padding: '3px 9px', flexShrink: 0, fontFamily: FF,
             }}>
               {tech.job_count}
             </span>
-            <div style={{ width: 60, height: 4, backgroundColor: '#F0EDE8', borderRadius: 2, flexShrink: 0, overflow: 'hidden' }}>
-              <div style={{ width: `${capacityPct}%`, height: '100%', backgroundColor: '#5B9BD5', borderRadius: 2 }} />
+            <div style={{ width: 60, height: 6, backgroundColor: '#F0EDE8', borderRadius: 3, flexShrink: 0, overflow: 'hidden' }}>
+              <div style={{ width: `${capacityPct}%`, height: '100%', backgroundColor: '#5B9BD5', borderRadius: 3 }} />
             </div>
           </div>
         );
@@ -783,9 +783,9 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
       )}
 
       {/* Capacity summary */}
-      <div style={{ borderTop: '1px solid #F0EDE8', paddingTop: 8, marginTop: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ borderTop: '1px solid #F0EDE8', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: '#9E9B94', fontFamily: FF }}>
-          <span style={{ fontWeight: 700, color: openSlots > 0 ? '#1D9E75' : '#F59E0B' }}>{openSlots}</span> open slots
+          <span style={{ fontSize: 22, fontWeight: 500, color: openSlots > 0 ? '#1D9E75' : '#F59E0B' }}>{openSlots}</span> open slots
         </span>
         <span style={{ fontSize: 11, color: '#9E9B94', fontFamily: FF }}>
           {activeTechs} active / {totalJobsToday} jobs

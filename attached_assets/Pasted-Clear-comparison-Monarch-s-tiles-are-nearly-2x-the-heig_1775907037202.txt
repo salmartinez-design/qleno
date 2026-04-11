@@ -1,0 +1,79 @@
+Clear comparison. Monarch's tiles are nearly 2x the height with values at 32–36px. Qleno's are sitting at 22px in compact cards that feel timid. The sidebar hover overlay also means the content area is effectively full width 95% of the time — you're designing for that state, not the hover state.
+Here's the prompt:
+
+REPLIT PROMPT — Dashboard: Tile Size + Breathing Room Overhaul
+Increase the visual weight and spacing of all dashboard tiles at /dashboard. No data queries change, no components are added or removed — size, padding, typography, and whitespace only.
+
+1. STATUS CHIPS ROW
+
+Chip height: increase from current to min-height: 80px
+Chip number: 32px, font-weight 600
+Chip label: 12px, font-weight 500, color #4A4845, margin-top 6px
+Chip padding: 16px 20px
+Gap between chips: 12px
+
+
+2. SECONDARY METRICS ROW (Revenue Booked Today + New Jobs Booked)
+
+Tile height: min-height: 88px
+Value: 28px, font-weight 500, color #1A1917
+Label: 11px uppercase, font-weight 500, color #4A4845, margin-bottom 8px
+Tile padding: 20px 24px
+
+
+3. KEY NUMBERS TILES (Monthly Revenue, Avg Bill, Active Clients, Next 7 Days)
+This is the most important row — these need to feel like the headline numbers they are.
+
+Tile height: min-height: 100px
+Main value: 36px, font-weight 500, color #1A1917
+Label: 11px uppercase, font-weight 500, color #4A4845, margin-bottom 10px
+Delta/subtext: 13px, color #6B6860, margin-top 6px
+Tile padding: 22px 24px
+Gap between tiles: 14px
+
+
+4. REVENUE CHART CARD
+
+Card padding: 24px
+Chart canvas height: increase from current to 200px
+Chart title: 13px font-weight 500, margin-bottom 16px
+Legend: 12px, margin-bottom 12px
+
+
+5. TECHS TODAY PANEL
+
+Card padding: 20px
+Tech row height: 44px (increase from current ~36px)
+Tech name: 14px (increase from 13px)
+Avatar circle: 32px (increase from 26px), font-size 12px
+Job badge: 12px, padding 3px 9px
+Capacity bar: 6px tall (increase from 4px)
+Section title: 12px uppercase, margin-bottom 14px
+Capacity row values: 22px font-weight 500
+
+
+6. WEEKLY FORECAST CARD
+
+Card padding: 24px
+Day cell height: min-height: 100px, padding 12px 10px
+Revenue value per cell: 16px font-weight 500 (increase from 14px)
+Job count: 12px
+Day name: 11px uppercase
+Day date: 12px
+Gap between cells: 10px
+
+
+7. GLOBAL SPACING
+
+Top-level dashboard container padding: 24px (increase from current)
+Gap between all major section cards: 16px (normalize upward from 14px)
+All card border-radius: 12px (increase from 10px — rounder feels more spacious)
+All card padding: minimum 20px 24px — audit every card and bring up any that are less
+
+
+8. GREETING BAR
+
+Greeting text: 22px font-weight 500 (increase from 18px)
+Date below greeting: 13px color #6B6860
+Revenue This Week value: 24px font-weight 500 (increase from 20px)
+Bar padding: 20px 24px bottom
