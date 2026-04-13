@@ -1,0 +1,98 @@
+REPLIT PROMPT — Quote Builder Mobile: Search Fix + Scope Organization + Navigation
+Three targeted fixes for the mobile view of /quotes/new. No desktop layout changes.
+
+FIX 1 — MOBILE SEARCH NOT WORKING
+The client search input is not responding to taps/typing on mobile. Fix:
+	•	Add inputMode="search" and autoComplete="off" to the search input
+	•	Ensure the input is not inside any element with pointer-events: none on mobile
+	•	The dropdown results panel must render above the keyboard — add position: absolute; z-index: 9999 to the dropdown container
+	•	On mobile, after a client is selected, explicitly call input.blur() to dismiss the keyboard
+	•	Touch events: ensure onTouchEnd is not being swallowed by a parent scroll container — add onTouchStart={(e) => e.stopPropagation()} to the search input
+	•	Test fix: type “jim” on mobile and confirm Jim Schultz appears in results
+
+FIX 2 — SCOPE CARDS: ORGANIZED BY CATEGORY
+Replace the current flat unsorted grid with a categorized layout. Three sections with muted uppercase labels:
+FLAT RATE
+	•	Deep Clean
+	•	Move In / Move Out
+	•	One-Time Standard Clean
+HOURLY
+	•	Hourly Deep Clean
+	•	Hourly Standard Cleaning
+RECURRING
+	•	Recurring Cleaning — Weekly
+	•	Recurring Cleaning — Every 2 Weeks
+	•	Recurring Cleaning — Every 4 Weeks
+COMMERCIAL & SPECIALTY
+	•	Commercial Cleaning
+	•	PPM Turnover
+	•	Multi-Unit Common Areas
+	•	PPM Common Areas
+Section label style:
+
+font-size: 11px
+font-weight: 500
+color: #6B6860
+text-transform: uppercase
+letter-spacing: 0.05em
+margin-top: 16px
+margin-bottom: 8px
+
+
+On mobile: 2-column grid within each section, same as current. Cards in the same category are visually grouped with the label above them.
+
+FIX 3 — MOBILE NAVIGATION: ADD NEXT BUTTON
+The bottom bar currently shows only “Estimated Total” and “Save Quote.” This needs a proper Next flow on mobile.
+Replace the bottom bar with:
+Left side: “Estimated Total” label + price value (or “—” if no scope selected)
+Right side — two buttons:
+	•	“Save Draft” — ghost style, smaller, 13px
+	•	“Next →” — brand color fill, same size as current “Save Quote” button
+“Next →” behavior:
+	•	If on Step 1 (Customer Info / scope selection): advances to Step 2 (Property Details)
+	•	If on Step 2: advances to Step 3 (Add-ons)
+	•	If on final step (Review): becomes “Save Quote” primary CTA
+“Save Quote” / “Save & Convert to Job” only appears on the final Review step — not on every step.
+On mobile the stepper tabs at the top are too small to tap reliably — the Next button at the bottom is the primary navigation. Ensure tapping Next scrolls to the top of the next step automatically (window.scrollTo(0, 0) on step change).
+
+MOBILE-SPECIFIC STYLES (apply only at max-width: 768px):
+
+/* Search input */
+.client-search-input {
+  font-size: 16px; /* prevents iOS zoom on focus */
+  height: 48px;
+}
+
+/* Scope category label */
+.scope-category-label {
+  padding-left: 4px;
+}
+
+/* Scope cards */
+.scope-card {
+  min-height: 64px;
+  padding: 14px 12px;
+  font-size: 13px;
+}
+
+/* Bottom nav bar */
+.mobile-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  background: #FFFFFF;
+  border-top: 0.5px solid #E5E2DC;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 100;
+}
+
+/* Add bottom padding to page content so it clears the fixed bar */
+.quote-builder-content {
+  padding-bottom: 90px;
+}

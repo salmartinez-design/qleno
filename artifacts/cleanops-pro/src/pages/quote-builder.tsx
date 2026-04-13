@@ -202,6 +202,8 @@ export default function QuoteBuilderPage() {
   const [mobileNotesOpen, setMobileNotesOpen] = useState(false);
   const [mobileClientSearch, setMobileClientSearch] = useState("");
   const [mobileClientDropdown, setMobileClientDropdown] = useState(false);
+  const [mobileStep, setMobileStep] = useState(1);
+  const mobileSearchInputRef = useRef<HTMLInputElement>(null);
 
   // ── Refs for recalc (avoid stale closures) ───────────────────────────────
   const clientSearchRef = useRef<HTMLDivElement>(null);
@@ -860,76 +862,246 @@ export default function QuoteBuilderPage() {
 
   // ── MOBILE LAYOUT ────────────────────────────────────────────────────────
   if (isMobile) {
-    const firstScope = selectedScopes[0] ?? null;
+    const MOBILE_FINAL_STEP = 4;
+
+    const SCOPE_CATEGORIES = [
+      { label: "FLAT RATE", match: (n: string) => /deep clean|move in|one.time standard/i.test(n) },
+      { label: "HOURLY", match: (n: string) => /hourly/i.test(n) },
+      { label: "RECURRING", match: (n: string) => /recurring/i.test(n) },
+      { label: "COMMERCIAL & SPECIALTY", match: (n: string) => /commercial|ppm|multi.unit/i.test(n) },
+    ];
+    const categorized: { label: string; scopes: typeof scopes }[] = [];
+    const usedIds = new Set<number>();
+    for (const cat of SCOPE_CATEGORIES) {
+      const matched = scopes.filter(s => cat.match(s.name) && !usedIds.has(s.id));
+      matched.forEach(s => usedIds.add(s.id));
+      if (matched.length > 0) categorized.push({ label: cat.label, scopes: matched });
+    }
+    const remaining = scopes.filter(s => !usedIds.has(s.id));
+    if (remaining.length > 0) categorized.push({ label: "OTHER", scopes: remaining });
+
+    const totalEstimate = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0), 0);
+    const anyCalcLoading = selectedScopes.some(s => s.calcLoading);
+    const estimatedTotalStr = selectedScopes.length === 0 ? "—" : anyCalcLoading ? "…" : `$${totalEstimate.toFixed(2)}`;
+
     return (
       <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: FF, paddingBottom: 90 }}>
+
+        {/* Header */}
         <div style={{ position: "sticky", top: 0, zIndex: 30, background: "#FFF", borderBottom: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
           <button onClick={() => navigate("/quotes")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 4, color: "#6B6860", fontSize: 14, fontFamily: FF }}>
             <ArrowLeft size={18} /> Back
           </button>
           <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{isEdit ? "Edit Quote" : "New Quote"}</span>
+          <span style={{ marginLeft: "auto", fontSize: 12, color: "#9E9B94", fontFamily: FF }}>Step {mobileStep} of {MOBILE_FINAL_STEP}</span>
         </div>
-        <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 24 }}>
 
-          {/* Client search */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, fontFamily: FF }}>Client</div>
-            {selectedClient ? (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFF6FF" }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
-                  {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{selectedClient.email}</div>}
-                </div>
-                <button onClick={() => { clearClient(); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
-                  <X size={18} />
-                </button>
-              </div>
-            ) : (
-              <div style={{ position: "relative" }}>
-                <input value={mobileClientSearch} onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }} onFocus={() => setMobileClientDropdown(true)} placeholder="Search clients..." style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
-                {mobileClientDropdown && (
-                  <div style={{ position: "absolute", top: 50, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 20, maxHeight: 260, overflowY: "auto" }}>
-                    <div onClick={() => { clearClient(); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
-                    {mobileFilteredClients.map(c => (
-                      <div key={c.id} onClick={() => { selectClient(c); setMobileClientDropdown(false); setMobileClientSearch(""); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
-                        <div style={{ fontSize: 12, color: "#9E9B94" }}>{c.email}</div>
-                      </div>
-                    ))}
+        {/* ── STEP 1: Client + Scope ────────────────────────────────────── */}
+        {mobileStep === 1 && (
+          <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 24 }}>
+
+            {/* Client */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, fontFamily: FF }}>Client</div>
+              {selectedClient ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFF6FF" }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
+                    {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{selectedClient.email}</div>}
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Scope cards (mobile) */}
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>Service</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {scopes.map(s => {
-                const isSel = selectedScopeIds.includes(s.id);
-                return (
-                  <button key={s.id} onClick={() => toggleScope(s)} style={{ padding: "14px 10px", border: `2px solid ${isSel ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: isSel ? "#EFF6FF" : "#FFF", textAlign: "center", cursor: "pointer", fontFamily: FF, minHeight: 60 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: isSel ? "var(--brand)" : "#1A1917" }}>{s.name}</div>
+                  <button onClick={() => { clearClient(); setMobileClientSearch(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
+                    <X size={18} />
                   </button>
-                );
-              })}
+                </div>
+              ) : (
+                <div style={{ position: "relative" }}>
+                  <input
+                    ref={mobileSearchInputRef}
+                    value={mobileClientSearch}
+                    onChange={e => { setMobileClientSearch(e.target.value); setMobileClientDropdown(true); }}
+                    onFocus={() => setMobileClientDropdown(true)}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    inputMode="search"
+                    autoComplete="off"
+                    placeholder="Search clients..."
+                    style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }}
+                  />
+                  {mobileClientDropdown && (
+                    <div style={{ position: "absolute", top: 52, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 9999, maxHeight: 260, overflowY: "auto" }}>
+                      <div onClick={() => { clearClient(); setMobileClientDropdown(false); setMobileClientSearch(""); mobileSearchInputRef.current?.blur(); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
+                      {mobileFilteredClients.map(c => (
+                        <div key={c.id} onClick={() => { selectClient(c); setMobileClientDropdown(false); setMobileClientSearch(""); mobileSearchInputRef.current?.blur(); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
+                          <div style={{ fontSize: 12, color: "#9E9B94" }}>{c.email}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Scope cards — categorized */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 4 }}>Service</div>
+              {categorized.map(cat => (
+                <div key={cat.label}>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 16, marginBottom: 8, paddingLeft: 4 }}>{cat.label}</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    {cat.scopes.map(s => {
+                      const isSel = selectedScopeIds.includes(s.id);
+                      return (
+                        <button key={s.id} onClick={() => toggleScope(s)} style={{ padding: "14px 12px", border: `2px solid ${isSel ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: isSel ? "#EFF6FF" : "#FFF", textAlign: "center", cursor: "pointer", fontFamily: FF, minHeight: 64, fontSize: 13 }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: isSel ? "var(--brand)" : "#1A1917" }}>{s.name}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
+        )}
 
-          {/* Internal Notes */}
-          <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
-            <button onClick={() => setMobileNotesOpen(v => !v)} style={{ width: "100%", padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer" }}>
-              <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>Job Notes</span>
-              <ChevronDown size={16} color="#6B6860" style={{ transform: mobileNotesOpen ? "rotate(180deg)" : "none" }} />
-            </button>
-            {mobileNotesOpen && (
-              <div style={{ padding: "0 16px 16px" }}>
-                <textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Notes for the technician..." rows={4} style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: FF, resize: "vertical", outline: "none" }} />
+        {/* ── STEP 2: Property Details ──────────────────────────────────── */}
+        {mobileStep === 2 && (
+          <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em" }}>Property Details</div>
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 20, display: "flex", flexDirection: "column", gap: 20 }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Square Footage</div>
+                <input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" style={{ width: "100%", boxSizing: "border-box", height: 44, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 14px", fontSize: 16, fontFamily: FF, outline: "none" }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Bedrooms</div>
+                <Stepper value={bedrooms} onChange={setBedrooms} min={0} max={10} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Full Bathrooms</div>
+                <Stepper value={bathrooms} onChange={setBathrooms} min={0} max={8} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Half Bathrooms</div>
+                <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Pets</div>
+                <Stepper value={pets} onChange={setPets} min={0} max={6} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 8 }}>Home Cleanliness</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {DIRT_LEVELS.map(d => (
+                    <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, minWidth: 90, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 3: Add-ons & Notes ───────────────────────────────────── */}
+        {mobileStep === 3 && (
+          <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em" }}>Add-ons & Notes</div>
+            {selectedScopes.length === 0 ? (
+              <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>No services selected. Go back to Step 1.</div>
+            ) : selectedScopes.map(s => {
+              const scope = scopes.find(sc => sc.id === s.scope_id);
+              if (!scope) return null;
+              const activeAddons = s.addons.filter(a => a.is_active);
+              return (
+                <div key={s.scope_id} style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>{scope.name}</div>
+                  {s.frequencies.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Frequency</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                        {s.frequencies.map(f => (
+                          <button key={f.id} onClick={() => updateScopeFrequency(s.scope_id, f.frequency)} style={{ padding: "6px 14px", borderRadius: 6, border: s.frequency === f.frequency ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: s.frequency === f.frequency ? "#EBF4FF" : "#FFF", color: s.frequency === f.frequency ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>
+                            {f.label || f.frequency}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {activeAddons.length > 0 && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Add-ons</div>
+                      {activeAddons.map(a => (
+                        <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F5F3F0", cursor: "pointer" }}>
+                          <input type="checkbox" checked={s.addon_ids.includes(a.id)} onChange={e => updateScopeAddon(s.scope_id, a.id, e.target.checked)} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{a.name}</div>
+                            <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>{addonDisplayPrice(a)}</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                  {activeAddons.length === 0 && s.frequencies.length === 0 && (
+                    <div style={{ fontSize: 13, color: "#9E9B94" }}>No add-ons available for this service.</div>
+                  )}
+                </div>
+              );
+            })}
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", marginBottom: 10 }}>Job Notes</div>
+              <textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Notes for the technician..." rows={4} style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, padding: "10px 12px", fontFamily: FF, resize: "vertical", outline: "none" }} />
+            </div>
+          </div>
+        )}
+
+        {/* ── STEP 4: Review ────────────────────────────────────────────── */}
+        {mobileStep === 4 && (
+          <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em" }}>Review</div>
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Client</div>
+              {selectedClient ? (
+                <div style={{ fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{selectedClient.first_name} {selectedClient.last_name}
+                  {selectedClient.email && <span style={{ fontWeight: 400, color: "#6B6860" }}> · {selectedClient.email}</span>}
+                </div>
+              ) : (leadFirstName || leadEmail) ? (
+                <div style={{ fontSize: 14, color: "#1A1917" }}>{[leadFirstName, leadLastName].filter(Boolean).join(" ")} {leadEmail && `· ${leadEmail}`}</div>
+              ) : (
+                <div style={{ fontSize: 14, color: "#9E9B94" }}>No client selected</div>
+              )}
+            </div>
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Services</div>
+              {selectedScopes.length === 0 ? (
+                <div style={{ fontSize: 14, color: "#9E9B94" }}>No services selected</div>
+              ) : (
+                <>
+                  {selectedScopes.map(s => {
+                    const scope = scopes.find(sc => sc.id === s.scope_id);
+                    return (
+                      <div key={s.scope_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 8, marginBottom: 8, borderBottom: "1px solid #F0EEE9" }}>
+                        <span style={{ fontSize: 14, color: "#1A1917" }}>{scope?.name}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{s.calcLoading ? "…" : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}</span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Total</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{estimatedTotalStr}</span>
+                  </div>
+                </>
+              )}
+            </div>
+            {(sqft > 0 || bedrooms > 0 || bathrooms > 0) && (
+              <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Property</div>
+                <div style={{ fontSize: 14, color: "#6B6860" }}>
+                  {[sqft > 0 && `${sqft} sqft`, bedrooms > 0 && `${bedrooms} bed`, bathrooms > 0 && `${bathrooms} bath`, halfBaths > 0 && `${halfBaths} half bath`, pets > 0 && `${pets} pet${pets > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}
+                </div>
               </div>
             )}
           </div>
-        </div>
+        )}
 
         {/* Call Notes FAB */}
         <button onClick={() => setCallNotesMobileOpen(true)} style={{ position: "fixed", bottom: 82, right: 16, zIndex: 45, width: 52, height: 52, borderRadius: "50%", background: callNotes ? "#1A1917" : "#F7F6F3", border: callNotes ? "none" : "1.5px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.18)", cursor: "pointer" }}>
@@ -949,14 +1121,37 @@ export default function QuoteBuilderPage() {
           </div>
         )}
 
-        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#FFF", borderTop: "1px solid #E5E2DC", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, zIndex: 40 }}>
-          <div style={{ flex: 1 }}>
+        {/* Bottom bar */}
+        <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#FFF", borderTop: "0.5px solid #E5E2DC", padding: "12px 16px", paddingBottom: "calc(12px + env(safe-area-inset-bottom))", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, zIndex: 100 }}>
+          <div>
             <div style={{ fontSize: 11, color: "#6B6860" }}>Estimated Total</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{firstScope?.calc ? `$${firstScope.calc.final_total.toFixed(2)}` : "—"}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{estimatedTotalStr}</div>
           </div>
-          <button onClick={() => save("draft")} disabled={saving || selectedScopes.length === 0} style={{ height: 48, padding: "0 24px", background: saving || selectedScopes.length === 0 ? "#D1D5DB" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer" }}>
-            {saving ? "Saving..." : "Save Quote"}
-          </button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={() => save("draft")}
+              disabled={saving || selectedScopes.length === 0}
+              style={{ height: 44, padding: "0 16px", background: "transparent", color: saving || selectedScopes.length === 0 ? "#D1D5DB" : "#374151", border: `1px solid ${saving || selectedScopes.length === 0 ? "#E5E2DC" : "#D1D5DB"}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
+            >
+              {saving ? "Saving..." : "Save Draft"}
+            </button>
+            {mobileStep < MOBILE_FINAL_STEP ? (
+              <button
+                onClick={() => { setMobileStep(s => s + 1); window.scrollTo(0, 0); }}
+                style={{ height: 44, padding: "0 20px", background: "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}
+              >
+                Next →
+              </button>
+            ) : (
+              <button
+                onClick={() => save("draft")}
+                disabled={saving || selectedScopes.length === 0}
+                style={{ height: 44, padding: "0 20px", background: saving || selectedScopes.length === 0 ? "#D1D5DB" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
+              >
+                {saving ? "Saving..." : "Save Quote"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
