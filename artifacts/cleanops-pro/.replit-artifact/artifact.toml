@@ -23,5 +23,4 @@ BASE_PATH = "/"
 
 [services.production]
 build = ["pnpm", "--filter", "@workspace/cleanops-pro", "run", "build"]
-serve = "static"
-publicDir = "artifacts/cleanops-pro/dist/public"
+run = "npx serve -s artifacts/cleanops-pro/dist/public -l ${PORT:-3000}"
