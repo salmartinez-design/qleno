@@ -49,13 +49,44 @@
 - RLS is enabled on Supabase — test queries with the correct role
 
 ## Known Bugs — Fix Before May 12
-1. Booking widget add-on ID mapping is wrong
-2. Zone check failing for valid zips (e.g. 60805)
-3. Loyalty discount auto-applying with no code entered
-4. Recurring job anchor dates landing on Monday instead of correct day
-5. "Cook County" prefix showing in address display
-6. Callback button not clickable on Very Dirty flow
-7. "onetime" showing instead of "One Time" in booking summary
+1. ~~Booking widget add-on ID mapping~~ — FIXED (dynamic lookup by name)
+2. ~~Zone check failing for valid zips (e.g. 60805)~~ — FIXED (branchRouter updated)
+3. Loyalty discount auto-applying with no code entered — OPEN (discount migration will fix)
+4. Recurring job anchor dates landing on Monday instead of correct day — OPEN (timezone bug in parseDate)
+5. ~~"Cook County" prefix showing in address display~~ — FIXED (no such logic exists)
+6. ~~Callback button not clickable on Very Dirty flow~~ — FIXED (fully functional)
+7. ~~"onetime" showing instead of "One Time" in booking summary~~ — FIXED (wLabel mapper)
+
+## Session Notes — 2026-04-16
+### Quote Builder Changes
+- Wizard step order: Customer Info → Service & Pricing → Property Details → Add-ons & Notes → Review
+- Quick Re-Book panel on Service & Pricing step (shows last 3 services for existing clients)
+- Scopes grouped by: One-Time/Flat Rate, Recurring, Hourly, Commercial
+- Hourly = single card with sub-type selector (Standard, Deep Clean, Move In/Out, Other)
+- Commercial hidden for residential clients (filtered by client_type)
+- Schedule & Assign section on Review step (date picker, time dropdown, tech pills)
+- Convert endpoint creates actual job with date/time/tech assignment
+- Address verification skipped for existing clients with known addresses
+- Google Maps API key must be passed to Vite build: `source .env && GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY pnpm run build`
+
+### Commission System
+- calculateCommissionSplit() utility at artifacts/cleanops-pro/src/lib/commission.ts
+- 35% rate, equal split pre-clock-in, proportional by minutes after clock-in
+- Displayed in Price Preview sidebar (single and multi-scope)
+- Still needs: quote detail, job detail, dispatch board, My Jobs (tech view)
+
+### Zone Colors
+- All 18 zones synced to MaidCentral colors (2026-04-16)
+- Zone dots in global search and quote builder client search
+- Duplicate zone: "Tinley/Orland Park/Palos Park" vs "Tinley/Orlando/Palos Park" — clean up
+
+### Pending Next Sessions
+1. Discount Migration from MaidCentral (25 rows across 6 scopes, replace placeholders)
+2. Jobs Page Full Build + Dispatch KPI Strip (full spec saved)
+3. Frequency change revenue impact display (monthly/annual gain/loss)
+4. Smart tech availability check (fires after date selected in Review)
+5. UI cleanup: inline address verification, collapsible call notes
+6. Recurring job timezone bug fix (parseDate local vs UTC)
 
 ## Dev Workflow
 - Edit locally in Claude Code
