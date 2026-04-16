@@ -196,6 +196,8 @@ export default function QuoteBuilderPage() {
   const [quickBookDismissed, setQuickBookDismissed] = useState(false);
   const [quickBookBanner, setQuickBookBanner] = useState<{ scope: string; date: string } | null>(null);
   const [quickBookPrice, setQuickBookPrice] = useState<number | null>(null);
+  const [hourlyExpanded, setHourlyExpanded] = useState(false);
+  const [hourlySubType, setHourlySubType] = useState<string | null>(null);
 
   // ── Mobile ───────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
@@ -1616,6 +1618,94 @@ export default function QuoteBuilderPage() {
                       const groupScopes = grouped.get(groupKey) || [];
                       const label = GROUP_LABELS[groupKey] || groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
                       const groupHasSelection = groupScopes.some(s => selectedScopeIds.includes(s.id));
+
+                      // ── Special Hourly rendering: single card + sub-type selector ──
+                      if (groupKey === "hourly") {
+                        const hourlySelected = groupHasSelection;
+                        const HOURLY_SUBS = [
+                          { key: "standard", label: "Standard Cleaning", scopeMatch: /hourly.*standard/i },
+                          { key: "deep", label: "Deep Clean", scopeMatch: /hourly.*deep/i },
+                          { key: "moveinout", label: "Move In / Move Out", scopeMatch: /hourly.*(move|in.*out)/i },
+                          { key: "other", label: "Other", scopeMatch: null },
+                        ];
+                        return (
+                          <div key={groupKey} style={{ marginBottom: 16 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: FF }}>{label}</div>
+                              {hourlySelected && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--brand)", display: "inline-block" }} />}
+                              <div style={{ flex: 1, height: 1, background: "#E5E2DC" }} />
+                            </div>
+                            {/* Single Hourly card */}
+                            <div
+                              onClick={() => {
+                                if (hourlyExpanded) {
+                                  // Collapse: deselect all hourly scopes
+                                  groupScopes.forEach(s => { if (selectedScopeIds.includes(s.id)) toggleScope(s); });
+                                  setHourlyExpanded(false);
+                                  setHourlySubType(null);
+                                } else {
+                                  setHourlyExpanded(true);
+                                }
+                              }}
+                              style={{
+                                border: hourlySelected ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC",
+                                background: hourlySelected ? "#EAF9F4" : "#FFFFFF",
+                                borderRadius: 10, padding: "12px 14px", cursor: "pointer", transition: "all 0.15s",
+                              }}
+                            >
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                                <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
+                                  Hourly{hourlySubType ? ` — ${HOURLY_SUBS.find(s => s.key === hourlySubType)?.label}` : ""}
+                                </div>
+                                <Checkbox checked={hourlyExpanded || hourlySelected} onCheckedChange={() => {
+                                  if (hourlyExpanded) {
+                                    groupScopes.forEach(s => { if (selectedScopeIds.includes(s.id)) toggleScope(s); });
+                                    setHourlyExpanded(false);
+                                    setHourlySubType(null);
+                                  } else { setHourlyExpanded(true); }
+                                }} onClick={e => e.stopPropagation()} />
+                              </div>
+                            </div>
+                            {/* Sub-type options (shown when expanded) */}
+                            {hourlyExpanded && (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginTop: 8, paddingLeft: 12 }}>
+                                {HOURLY_SUBS.map(sub => {
+                                  const isActive = hourlySubType === sub.key;
+                                  return (
+                                    <button
+                                      key={sub.key}
+                                      onClick={() => {
+                                        // Deselect previous hourly scope
+                                        groupScopes.forEach(s => { if (selectedScopeIds.includes(s.id)) toggleScope(s); });
+                                        setHourlySubType(sub.key);
+                                        // Select matching scope
+                                        if (sub.scopeMatch) {
+                                          const match = groupScopes.find(s => sub.scopeMatch!.test(s.name));
+                                          if (match) toggleScope(match);
+                                        } else {
+                                          // "Other" — select first hourly scope as fallback
+                                          if (groupScopes[0]) toggleScope(groupScopes[0]);
+                                        }
+                                      }}
+                                      style={{
+                                        padding: "8px 12px", borderRadius: 8, fontSize: 12, fontWeight: isActive ? 600 : 400,
+                                        border: isActive ? "1.5px solid var(--brand)" : "1px solid #E5E2DC",
+                                        background: isActive ? "#EAF9F4" : "#FFF",
+                                        color: isActive ? "#0A0E1A" : "#6B6860",
+                                        cursor: "pointer", fontFamily: FF, textAlign: "left" as const,
+                                      }}
+                                    >
+                                      {sub.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      // ── Standard group rendering ──
                       return (
                         <div key={groupKey} style={{ marginBottom: 16 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -1640,14 +1730,9 @@ export default function QuoteBuilderPage() {
                                     position: "relative",
                                     border: isSel ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC",
                                     background: isSel ? "#EAF9F4" : "#FFFFFF",
-                                    borderRadius: 10,
-                                    padding: "12px 14px 10px",
-                                    cursor: "pointer",
-                                    transition: "all 0.15s",
-                                    minHeight: 70,
-                                    display: "flex",
-                                    flexDirection: "column" as const,
-                                    justifyContent: "space-between",
+                                    borderRadius: 10, padding: "12px 14px 10px", cursor: "pointer",
+                                    transition: "all 0.15s", minHeight: 70,
+                                    display: "flex", flexDirection: "column" as const, justifyContent: "space-between",
                                   }}
                                 >
                                   <div style={{ position: "absolute", top: 10, right: 10 }}>
@@ -1660,7 +1745,7 @@ export default function QuoteBuilderPage() {
                                     )}
                                   </div>
                                   {priceText && (
-                                    <div style={{ fontSize: 12, fontWeight: 600, color: selState?.calc ? "#1A1917" : "#9E9B94", textAlign: "right", marginTop: 6, fontFamily: FF }}>
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", textAlign: "right", marginTop: 6, fontFamily: FF }}>
                                       {priceText}
                                     </div>
                                   )}
