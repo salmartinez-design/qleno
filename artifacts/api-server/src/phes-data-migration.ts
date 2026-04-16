@@ -299,6 +299,15 @@ async function runZoneSync(): Promise<void> {
   await db.execute(sql`ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS location TEXT DEFAULT 'oak_lawn'`);
   await db.execute(sql`ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS color TEXT DEFAULT '#6B6860'`);
 
+  // Rename "Homewood/Harvey/Markham" → "Homewood/Harvey" (Markham 60428 excluded)
+  await db.execute(sql`
+    UPDATE service_zones
+    SET name = 'Homewood/Harvey'
+    WHERE company_id = ${PHES}
+      AND location = 'oak_lawn'
+      AND name = 'Homewood/Harvey/Markham'
+  `);
+
   type ZoneSpec = { name: string; location: string; color: string; zip_codes: string[] };
 
   const OAK_LAWN_ZONES: ZoneSpec[] = [
@@ -308,14 +317,14 @@ async function runZoneSync(): Promise<void> {
     { name: "Chicago South",                        location: "oak_lawn",   color: "#D34DCB", zip_codes: ["60628","60617","60619","60649","60620","60637"] },
     { name: "Chicago West Side",                    location: "oak_lawn",   color: "#FF7F50", zip_codes: ["60624","60644","60512"] },
     { name: "Company Zone",                         location: "oak_lawn",   color: "#F7DAE9", zip_codes: ["60453","60803","60655","60415","60456","60465","60482","60643","60805","60459","60455","60454"] },
-    { name: "Homer Glen/Lemont/Burr Ridge",         location: "oak_lawn",   color: "#00C5CD", zip_codes: [] },
-    { name: "Homewood/Harvey/Markham",              location: "oak_lawn",   color: "#8C0000", zip_codes: [] },
+    { name: "Homer Glen/Lemont/Burr Ridge",         location: "oak_lawn",   color: "#00C5CD", zip_codes: ["60491","60439","60527"] },
+    { name: "Homewood/Harvey",                      location: "oak_lawn",   color: "#8C0000", zip_codes: ["60430","60426","60429"] },
     { name: "La Grange/Hodgkins/Berwyn",            location: "oak_lawn",   color: "#00D0FF", zip_codes: ["60534","60402","60304","60513","60546","60130","60141","60155","60526","60154","60523","60558","60501"] },
     { name: "Lake View/Lincoln Square/Lincolnwood", location: "oak_lawn",   color: "#A97A00", zip_codes: ["60625","60646","60630","60659","60640","60660","60626","60645","60712","60618","60613","60657","60076"] },
     { name: "Maywood/Northlake/Schiller Park",      location: "oak_lawn",   color: "#7F6669", zip_codes: ["60176","60131","60164","60163","60162","60706","60171","60165","60153","60305","60707","60302","60301"] },
     { name: "Naperville/Woodridge/Lisle",           location: "oak_lawn",   color: "#F1B9F7", zip_codes: ["60540","60532","60517","60565","60516","60561"] },
     { name: "Norridge/Park Ridge/Des Plaines",      location: "oak_lawn",   color: "#4FF30A", zip_codes: ["60068","60018","60666","60656","60053"] },
-    { name: "South Suburbs",                        location: "oak_lawn",   color: "#FF7200", zip_codes: ["60409","60633","60472","60827","46311","60411","60430","60429","60422","60428","60476","60426","60469","60473"] },
+    { name: "South Suburbs",                        location: "oak_lawn",   color: "#FF7200", zip_codes: ["60409","60633","60472","60827","46311","60411","60430","60429","60422","60476","60426","60469","60473"] },
     { name: "Southwest Suburbs",                    location: "oak_lawn",   color: "#17C9D3", zip_codes: ["60441","60446","60440","60490","60439","60527","60480","60491","60458","60451","60423"] },
     { name: "Tinley/Orlando/Palos Park",            location: "oak_lawn",   color: "#F7D7D0", zip_codes: ["60464","60463","60445","60452","60477","60467","60462","60487","60466"] },
     { name: "Westmont/Lombard/Elmhurst",            location: "oak_lawn",   color: "#00B8FF", zip_codes: ["60559","60514","60521","60515","60148","60126","60181"] },

@@ -11,11 +11,14 @@ export interface BranchConfig {
 }
 
 const SCHAUMBURG_ZIPS = new Set([
-  "60010","60011","60107","60120","60172","60179","60192","60201",
-  "60009","60017","60019","60089","60090","60007",
+  // Schaumburg / Palatine / Arlington Heights
   "60159","60168","60169","60173","60193","60194","60195","60196",
   "60004","60005","60006","60008","60038","60055","60056","60067",
   "60074","60078","60094","60095",
+  // Elk Grove / Des Plaines / Buffalo Grove
+  "60009","60017","60019","60089","60090","60007",
+  // Barrington / Streamwood / Elgin
+  "60010","60011","60107","60120","60172","60179","60192","60201",
 ]);
 
 export function getBranchByZip(zip: string): BranchConfig {
