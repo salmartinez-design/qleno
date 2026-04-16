@@ -38,7 +38,7 @@ async function apiFetch(path: string, opts: { method?: string; body?: any } = {}
 
 interface Client {
   id: number; first_name: string; last_name: string; email: string; phone: string; address: string;
-  zip?: string; frequency?: string | null;
+  zip?: string; frequency?: string | null; client_type?: string | null;
   last_service_date?: string | null; next_job_date?: string | null;
   zone_color?: string | null; zone_name?: string | null;
 }
@@ -1592,7 +1592,10 @@ export default function QuoteBuilderPage() {
 
               {/* Scope cards — grouped by scope_group */}
               {(() => {
-                const GROUP_ORDER = ["residential", "recurring cleaning", "hourly", "commercial"];
+                const isCommercialClient = clientLoaded?.client_type === "commercial";
+                const GROUP_ORDER = isCommercialClient
+                  ? ["commercial", "hourly"]
+                  : ["residential", "recurring cleaning", "hourly"];
                 const GROUP_LABELS: Record<string, string> = {
                   "residential": "One-Time / Flat Rate",
                   "recurring cleaning": "Recurring",
@@ -1606,10 +1609,6 @@ export default function QuoteBuilderPage() {
                   grouped.get(g)!.push(s);
                 }
                 const orderedGroups = GROUP_ORDER.filter(g => grouped.has(g));
-                // Add any groups not in the predefined order
-                for (const g of grouped.keys()) {
-                  if (!orderedGroups.includes(g)) orderedGroups.push(g);
-                }
 
                 return (
                   <div style={{ marginBottom: 20 }}>
@@ -1632,9 +1631,7 @@ export default function QuoteBuilderPage() {
                                 ? "..."
                                 : selState?.calc
                                   ? `$${selState.calc.final_total.toFixed(2)}`
-                                  : scope.pricing_method === "sqft" && sqft === 0
-                                    ? "Enter sqft to price"
-                                    : "";
+                                  : "";
                               return (
                                 <div
                                   key={scope.id}
