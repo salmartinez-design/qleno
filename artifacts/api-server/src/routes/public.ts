@@ -103,7 +103,11 @@ router.get("/scopes/:companyId", rateLimit, async (req, res) => {
     const scopes = await db
       .select()
       .from(pricingScopesTable)
-      .where(and(eq(pricingScopesTable.company_id, companyId), eq(pricingScopesTable.is_active, true)))
+      .where(and(
+        eq(pricingScopesTable.company_id, companyId),
+        eq(pricingScopesTable.is_active, true),
+        eq(pricingScopesTable.show_online, true),
+      ))
       .orderBy(pricingScopesTable.sort_order, pricingScopesTable.id);
 
     return res.json(scopes);

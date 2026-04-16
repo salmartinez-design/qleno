@@ -10,6 +10,7 @@ export const pricingScopesTable = pgTable("pricing_scopes", {
   hourly_rate: numeric("hourly_rate", { precision: 10, scale: 2 }).notNull().default("0"),
   minimum_bill: numeric("minimum_bill", { precision: 10, scale: 2 }).notNull().default("0"),
   displayed_for_office: boolean("displayed_for_office").notNull().default(true),
+  show_online: boolean("show_online").notNull().default(true),
   is_active: boolean("is_active").notNull().default(true),
   sort_order: integer("sort_order").notNull().default(0),
   created_at: timestamp("created_at").notNull().defaultNow(),

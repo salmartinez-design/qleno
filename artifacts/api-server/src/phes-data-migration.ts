@@ -469,6 +469,25 @@ async function runAddonFix(): Promise<void> {
   console.log("[addon-fix] Completed.");
 }
 
+// ── Scope visibility — hide office-only scopes from public booking widget ────
+async function runScopeVisibility(): Promise<void> {
+  // Add show_online column if missing
+  await db.execute(sql`ALTER TABLE pricing_scopes ADD COLUMN IF NOT EXISTS show_online BOOLEAN NOT NULL DEFAULT true`);
+  // Hourly Deep Clean = office-only, hide from public widget
+  await db.execute(sql`
+    UPDATE pricing_scopes SET show_online = false
+    WHERE company_id = ${PHES}
+      AND name ILIKE '%hourly deep clean%'
+  `);
+  // Hourly Standard Cleaning = also office-only
+  await db.execute(sql`
+    UPDATE pricing_scopes SET show_online = false
+    WHERE company_id = ${PHES}
+      AND name ILIKE '%hourly standard%'
+  `);
+  console.log("[scope-visibility] Completed.");
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -482,6 +501,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runAddonFix();
   } catch (err: any) {
     console.warn("[phes-migration] addon-fix — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runScopeVisibility();
+  } catch (err: any) {
+    console.warn("[phes-migration] scope-visibility — non-fatal:", err?.message ?? err);
   }
 
   try {

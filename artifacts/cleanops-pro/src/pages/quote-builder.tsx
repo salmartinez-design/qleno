@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { calculateCommissionSplit } from "@/lib/commission";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -1887,187 +1888,151 @@ export default function QuoteBuilderPage() {
                   No scopes selected. <button onClick={() => setActiveSection(1)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Service &amp; Pricing</button>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {selectedScopes.map(s => {
-                    const scope = scopes.find(sc => sc.id === s.scope_id);
-                    if (!scope) return null;
-                    const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
-                    const activeAddons = s.addons.filter(a => a.is_active);
+                <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                  {/* A. Quote-level Frequency picker */}
+                  {(() => {
+                    const allFreqs = selectedScopes.flatMap(s => s.frequencies);
+                    const uniqueFreqs = Array.from(new Map(allFreqs.map(f => [f.frequency, f])).values());
+                    const currentFreq = selectedScopes[0]?.frequency || "onetime";
+                    if (uniqueFreqs.length === 0) return null;
                     return (
-                      <div key={s.scope_id} style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-
-                        {/* Accordion header */}
-                        <button
-                          onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
-                          style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", background: "#FAFAF9", border: "none", cursor: "pointer", borderBottom: s.expanded ? "1px solid #E5E2DC" : "none" }}
-                        >
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", flex: 1, textAlign: "left", fontFamily: FF }}>{scope.name}</span>
-                          {s.calc && <span style={{ fontSize: 13, color: "#9E9B94", marginRight: 12, fontFamily: FF }}>Base: ${s.calc.base_price.toFixed(2)}</span>}
-                          <ChevronDown style={{ width: 16, height: 16, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
-                        </button>
-
-                        {/* Accordion body */}
-                        {s.expanded && (
-                          <div style={{ padding: 16 }}>
-
-                            {/* Frequency selector */}
-                            {s.frequencies.length > 0 && (
-                              <div style={{ marginBottom: 14 }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Frequency</div>
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                                  {s.frequencies.map(f => (
-                                    <button key={f.id} onClick={() => updateScopeFrequency(s.scope_id, f.frequency)} style={{ padding: "4px 12px", borderRadius: 6, border: s.frequency === f.frequency ? "1.5px solid #5B9BD5" : "1px solid #E5E2DC", background: s.frequency === f.frequency ? "#EBF4FF" : "#FFF", color: s.frequency === f.frequency ? "#5B9BD5" : "#6B6860", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>
-                                      {f.label || f.frequency}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Hours input — stepper with override */}
-                            {isHourly && (
-                              <div style={{ marginBottom: 14 }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
-                                  Estimated Hours
-                                  {s.hoursOverrideSet && s.calc?.base_hours != null && (
-                                    <span
-                                      onClick={() => resetScopeHours(s.scope_id)}
-                                      style={{ marginLeft: 10, fontSize: 11, color: "#5B9BD5", fontWeight: 400, cursor: "pointer", textTransform: "none", letterSpacing: 0 }}
-                                    >
-                                      Reset to calculated ({s.calc.base_hours}h)
-                                    </span>
-                                  )}
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <button
-                                    onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || s.calc?.base_hours || 1) - 0.5)}
-                                    style={{ width: 32, height: 32, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}
-                                  >−</button>
-                                  <input
-                                    type="number" min="0.5" step="0.5"
-                                    value={s.hours || s.calc?.base_hours || ""}
-                                    onChange={e => updateScopeHoursManual(s.scope_id, parseFloat(e.target.value) || 0.5)}
-                                    style={{ width: 80, height: 32, border: `1px solid ${s.hoursOverrideSet ? "#5B9BD5" : "#E5E2DC"}`, borderRadius: 6, padding: "0 10px", fontSize: 14, fontFamily: FF, outline: "none", textAlign: "center", background: s.hoursOverrideSet ? "#EBF4FF" : "#FFF" }}
-                                  />
-                                  <button
-                                    onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || s.calc?.base_hours || 0) + 0.5)}
-                                    style={{ width: 32, height: 32, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}
-                                  >+</button>
-                                  <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>hrs</span>
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Add-ons */}
-                            {activeAddons.length > 0 && (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
-                                {activeAddons.map(addon => {
-                                  const addonNameLc = addon.name.toLowerCase();
-                                  const isCounter = addonNameLc.includes("oven") || addonNameLc.includes("refrigerator") || addonNameLc.includes("cabinet");
-                                  const fromCalc = s.calc?.addon_breakdown.find(b => b.id === addon.id);
-                                  const priceText = fromCalc
-                                    ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
-                                    : addonDisplayPrice(addon);
-                                  const qty = s.addonQtys[addon.id] ?? 0;
-                                  const isSel = isCounter ? qty > 0 : s.addon_ids.includes(addon.id);
-                                  const isRecurring = s.addonRecurring[addon.id] ?? false;
-                                  return (
-                                    <div key={addon.id} style={{ border: isSel ? "1px solid #5B9BD5" : "1px solid #E5E2DC", background: isSel ? "#EBF4FF" : "#FFF", borderRadius: 6, overflow: "hidden" }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px" }}>
-                                        {isCounter ? (
-                                          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                                            <button
-                                              onClick={() => updateScopeAddonQty(s.scope_id, addon.id, qty - 1)}
-                                              disabled={qty === 0}
-                                              style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: qty === 0 ? "#F7F6F3" : "#FFF", cursor: qty === 0 ? "not-allowed" : "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", color: qty === 0 ? "#C4C2BB" : "#1A1917" }}
-                                            >−</button>
-                                            <span style={{ width: 22, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: FF, color: "#1A1917" }}>{qty}</span>
-                                            <button
-                                              onClick={() => updateScopeAddonQty(s.scope_id, addon.id, qty + 1)}
-                                              style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FFF", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", color: "#1A1917" }}
-                                            >+</button>
-                                          </div>
-                                        ) : (
-                                          <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(s.scope_id, addon.id, Boolean(checked))} />
-                                        )}
-                                        <span style={{ flex: 1, fontSize: 13, color: "#1A1917", fontFamily: FF }}>{addon.name}</span>
-                                        <span style={{ fontSize: 12, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
-                                      </div>
-                                      {isSel && (
-                                        <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px 8px 10px", borderTop: "1px solid #DBF0FF" }}>
-                                          <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>Apply to:</span>
-                                          <button
-                                            onClick={() => updateScopeAddonRecurring(s.scope_id, addon.id, false)}
-                                            style={{ fontSize: 11, padding: "2px 10px", borderRadius: 12, border: `1px solid ${!isRecurring ? "#5B9BD5" : "#E5E2DC"}`, background: !isRecurring ? "#5B9BD5" : "#FFF", color: !isRecurring ? "#FFF" : "#6B6860", cursor: "pointer", fontFamily: FF }}
-                                          >This visit only</button>
-                                          <button
-                                            onClick={() => updateScopeAddonRecurring(s.scope_id, addon.id, true)}
-                                            style={{ fontSize: 11, padding: "2px 10px", borderRadius: 12, border: `1px solid ${isRecurring ? "#5B9BD5" : "#E5E2DC"}`, background: isRecurring ? "#5B9BD5" : "#FFF", color: isRecurring ? "#FFF" : "#6B6860", cursor: "pointer", fontFamily: FF }}
-                                          >Every visit</button>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-
-                            {/* Manual price adjustments */}
-                            <div style={{ marginBottom: 12 }}>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Price Adjustments</div>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontSize: 12, color: "#22C55E", fontWeight: 700, width: 14, flexShrink: 0, fontFamily: FF }}>+</span>
-                                  <input
-                                    type="number" min="0" step="1" placeholder="$0.00"
-                                    value={s.adjPlus || ""}
-                                    onChange={e => updateScopeAdj(s.scope_id, "adjPlus", parseFloat(e.target.value) || 0)}
-                                    style={{ width: 90, height: 30, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 8px", fontSize: 13, fontFamily: FF, outline: "none" }}
-                                  />
-                                  <input
-                                    type="text" placeholder="Reason (e.g. extra floors)"
-                                    value={s.adjPlusReason}
-                                    onChange={e => updateScopeAdj(s.scope_id, "adjPlusReason", e.target.value)}
-                                    style={{ flex: 1, height: 30, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 8px", fontSize: 13, fontFamily: FF, outline: "none" }}
-                                  />
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                  <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 700, width: 14, flexShrink: 0, fontFamily: FF }}>−</span>
-                                  <input
-                                    type="number" min="0" step="1" placeholder="$0.00"
-                                    value={s.adjMinus || ""}
-                                    onChange={e => updateScopeAdj(s.scope_id, "adjMinus", parseFloat(e.target.value) || 0)}
-                                    style={{ width: 90, height: 30, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 8px", fontSize: 13, fontFamily: FF, outline: "none" }}
-                                  />
-                                  <input
-                                    type="text" placeholder="Reason (e.g. loyalty discount)"
-                                    value={s.adjMinusReason}
-                                    onChange={e => updateScopeAdj(s.scope_id, "adjMinusReason", e.target.value)}
-                                    style={{ flex: 1, height: 30, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 8px", fontSize: 13, fontFamily: FF, outline: "none" }}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Running subtotal */}
-                            {s.calc && (
-                              <div style={{ fontSize: 13, color: "#9E9B94", textAlign: "right", fontFamily: FF }}>
-                                Subtotal: ${(s.calc.base_price + s.calc.addons_total + (s.adjPlus || 0) - (s.adjMinus || 0)).toFixed(2)}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Scope total row */}
-                        <div style={{ padding: "10px 16px", background: "#F7F6F3", borderTop: "1px solid #E5E2DC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total: {scope.name}</span>
-                          <span style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
-                            {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
-                          </span>
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Frequency</div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {uniqueFreqs.map(f => {
+                            const isActive = currentFreq === f.frequency;
+                            return (
+                              <button key={f.frequency} onClick={() => selectedScopes.forEach(s => updateScopeFrequency(s.scope_id, f.frequency))}
+                                style={{ padding: "6px 14px", borderRadius: 8, border: isActive ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isActive ? "#EAF9F4" : "#FFF", color: isActive ? "#0A0E1A" : "#6B6860", fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: FF }}>
+                                {f.label || f.frequency}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                     );
-                  })}
+                  })()}
+
+                  {/* B. Scope summary cards (collapsed by default) */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Services on this quote</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {selectedScopes.map(s => {
+                        const scope = scopes.find(sc => sc.id === s.scope_id);
+                        if (!scope) return null;
+                        const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
+                        const estHours = s.hours || s.calc?.base_hours || 0;
+                        const subtotal = s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : (isHourly && !s.hours ? "Enter hours" : "\u2014");
+                        return (
+                          <div key={s.scope_id} style={{ border: "0.5px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+                            <button
+                              onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
+                              style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#FAFAF9" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
+                            >
+                              <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope.name}</span>
+                              {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
+                              <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, minWidth: 60, textAlign: "right" }}>{subtotal}</span>
+                              <ChevronDown style={{ width: 14, height: 14, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
+                            </button>
+                            {s.expanded && (
+                              <div style={{ padding: "12px 14px" }}>
+                                {!isHourly && s.calc && (
+                                  <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                                    {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"\u2192"} {s.calc.base_hours || estHours} hrs {"\u00D7"} $70/hr = ${s.calc.base_price.toFixed(2)}
+                                  </div>
+                                )}
+                                {isHourly && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Hours:</span>
+                                    <button onClick={() => updateScopeHoursManual(s.scope_id, Math.max(0.5, (s.hours || 0) - 0.5))}
+                                      style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                    <input type="number" min="0.5" step="0.5" value={s.hours || ""} placeholder="0"
+                                      onChange={e => updateScopeHoursManual(s.scope_id, parseFloat(e.target.value) || 0.5)}
+                                      style={{ width: 60, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
+                                    <button onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || 0) + 0.5)}
+                                      style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                    <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                                      {s.hours ? `= $${(s.hours * 70).toFixed(2)}` : "Enter hours to calculate"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* C. Unified Add-ons & Discounts */}
+                  {(() => {
+                    // Use first scope's addons as the canonical list
+                    const primaryScope = selectedScopes[0];
+                    if (!primaryScope) return null;
+                    const activeAddons = primaryScope.addons.filter(a => a.is_active);
+                    const multiScope = selectedScopes.length > 1;
+                    return (
+                      <div>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Add-ons &amp; Discounts</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {activeAddons.map(addon => {
+                            const addonNameLc = addon.name.toLowerCase();
+                            const isCounter = addonNameLc.includes("oven") || addonNameLc.includes("refrigerator") || addonNameLc.includes("cabinet");
+                            const targetScope = primaryScope;
+                            const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
+                            const priceText = fromCalc
+                              ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
+                              : addonDisplayPrice(addon);
+                            const qty = targetScope.addonQtys[addon.id] ?? 0;
+                            const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
+                            return (
+                              <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: isSel ? "1px solid var(--brand)" : "1px solid transparent", background: isSel ? "#EAF9F4" : "transparent" }}>
+                                {isCounter ? (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                                    <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
+                                      style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: qty === 0 ? "#F7F6F3" : "#FFF", cursor: qty === 0 ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", color: qty === 0 ? "#C4C2BB" : "#1A1917" }}>-</button>
+                                    <span style={{ width: 18, textAlign: "center", fontSize: 12, fontWeight: 600, fontFamily: FF }}>{qty}</span>
+                                    <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
+                                      style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: "#FFF", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                  </div>
+                                ) : (
+                                  <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
+                                )}
+                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF }}>{addon.name}</span>
+                                <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {/* Manual price adjustments */}
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontFamily: FF }}>Price Adjustments</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 12, color: "#22C55E", fontWeight: 700, width: 12, flexShrink: 0 }}>+</span>
+                              <input type="number" min="0" step="1" placeholder="$0" value={primaryScope.adjPlus || ""}
+                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjPlus", parseFloat(e.target.value) || 0)}
+                                style={{ width: 70, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
+                              <input type="text" placeholder="Reason" value={primaryScope.adjPlusReason}
+                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjPlusReason", e.target.value)}
+                                style={{ flex: 1, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 700, width: 12, flexShrink: 0 }}>-</span>
+                              <input type="number" min="0" step="1" placeholder="$0" value={primaryScope.adjMinus || ""}
+                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjMinus", parseFloat(e.target.value) || 0)}
+                                style={{ width: 70, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
+                              <input type="text" placeholder="Reason" value={primaryScope.adjMinusReason}
+                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjMinusReason", e.target.value)}
+                                style={{ flex: 1, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -2362,10 +2327,40 @@ export default function QuoteBuilderPage() {
                           <span>−{s.adjMinusReason || "Adjustment"}</span><span>-${s.adjMinus.toFixed(2)}</span>
                         </div>
                       )}
+                      {/* Estimated hours */}
+                      {(s.hours || s.calc?.base_hours) && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B6860" }}>
+                          <span>Est. hours</span><span>{s.hours || s.calc?.base_hours} hrs</span>
+                        </div>
+                      )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total</span>
                         <span style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0)).toFixed(2)}</span>
                       </div>
+                      {/* Commission breakdown */}
+                      {(() => {
+                        const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
+                        const estHrs = s.hours || s.calc?.base_hours || 0;
+                        const techCount = selectedTechId ? 1 : 0;
+                        const cs = calculateCommissionSplit(total, estHrs, techCount);
+                        return (
+                          <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Commission (35%)</div>
+                            <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                              Pool: ${cs.totalCommission.toFixed(2)}
+                            </div>
+                            {cs.mode === "unassigned" && (
+                              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>Will calculate once techs are assigned</div>
+                            )}
+                            {cs.mode === "equal" && cs.perTech.length > 0 && (
+                              <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
+                                ${cs.totalCommission.toFixed(2)} / {techCount} tech = ${cs.perTech[0].commission.toFixed(2)} each
+                                {estHrs > 0 && ` | ${cs.perTech[0].hours} hrs each`}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   ) : !s.calcLoading && (
                     <div style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>
@@ -2376,25 +2371,49 @@ export default function QuoteBuilderPage() {
               );
             })()}
 
-            {/* 2+ scopes — list */}
-            {selectedScopes.length >= 2 && (
-              <div>
-                {selectedScopes.map(s => {
-                  const scope = scopes.find(sc => sc.id === s.scope_id);
-                  return (
-                    <div key={s.scope_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
-                      <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scope?.name}</span>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
-                        {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
-                      </span>
-                    </div>
-                  );
-                })}
-                <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 10, textAlign: "center", fontFamily: FF }}>
-                  Select the final option in Step 5.
+            {/* 2+ scopes — list with hours + commission */}
+            {selectedScopes.length >= 2 && (() => {
+              const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
+              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.base_hours || 0), 0);
+              const techCount = selectedTechId ? 1 : 0;
+              const cs = calculateCommissionSplit(grandTotal, totalHours, techCount);
+              return (
+                <div>
+                  {selectedScopes.map(s => {
+                    const scope = scopes.find(sc => sc.id === s.scope_id);
+                    const estHrs = s.hours || s.calc?.base_hours || 0;
+                    return (
+                      <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                          <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scope?.name}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                            {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "\u2014"}
+                          </span>
+                        </div>
+                        {estHrs > 0 && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Est. {estHrs} hrs</div>}
+                      </div>
+                    );
+                  })}
+                  {/* Grand total */}
+                  <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, marginTop: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total</span>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${grandTotal.toFixed(2)}</span>
+                  </div>
+                  {totalHours > 0 && <div style={{ fontSize: 11, color: "#6B6860", textAlign: "right", fontFamily: FF }}>{totalHours} hrs total</div>}
+                  {/* Commission */}
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 2, fontFamily: FF }}>Commission (35%): ${cs.totalCommission.toFixed(2)}</div>
+                    {cs.mode === "unassigned" && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Will calculate once techs are assigned</div>}
+                    {cs.mode === "equal" && cs.perTech.length > 0 && (
+                      <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>${cs.perTech[0].commission.toFixed(2)} / tech | {cs.perTech[0].hours} hrs / tech</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 10, textAlign: "center", fontFamily: FF }}>
+                    Select the final option in Step 5.
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Action buttons */}
             <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 14, display: "flex", flexDirection: "column", gap: 8 }}>
