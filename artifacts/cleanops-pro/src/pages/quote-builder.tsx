@@ -776,6 +776,12 @@ export default function QuoteBuilderPage() {
       .then((data: any) => {
         setPreferredTech(data.preferred_technician || null);
         setRecentServices(data.recent_services || []);
+        // Pre-fill property details from client's home record
+        if (data.property) {
+          if (data.property.sq_footage > 0) setSqft(data.property.sq_footage);
+          if (data.property.bedrooms > 0) setBedrooms(data.property.bedrooms);
+          if (data.property.bathrooms > 0) setBathrooms(data.property.bathrooms);
+        }
       })
       .catch(() => {});
   }
@@ -1563,10 +1569,21 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
 
-                <div className="flex justify-end">
-                  <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
-                    Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
+                <div className="flex justify-end gap-2">
+                  {selectedClientId ? (
+                    <>
+                      <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>
+                        Edit Property Details
+                      </Button>
+                      <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(2)}>
+                        Next: Service &amp; Pricing <ArrowRight className="w-3.5 h-3.5" />
+                      </Button>
+                    </>
+                  ) : (
+                    <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
+                      Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>

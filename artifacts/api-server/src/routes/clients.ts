@@ -321,7 +321,7 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
     const clientId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
 
-    const [preferredTechResult, recentServicesResult, freqResult] = await Promise.all([
+    const [preferredTechResult, recentServicesResult, freqResult, homeResult] = await Promise.all([
       // Most frequent assigned technician from jobs table
       db.execute(sql`
         SELECT u.id, concat(u.first_name, ' ', u.last_name) AS full_name, COUNT(*) AS job_count
@@ -346,9 +346,17 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
       // Active recurring frequency
       db.execute(sql`
         SELECT frequency FROM recurring_schedules
-        WHERE client_id = ${clientId} AND company_id = ${companyId}
+        WHERE customer_id = ${clientId} AND company_id = ${companyId}
           AND is_active = true
         ORDER BY id DESC LIMIT 1
+      `),
+      // Primary home property details
+      db.execute(sql`
+        SELECT sq_footage, bedrooms, bathrooms, has_pets, access_notes, alarm_code, parking_notes
+        FROM client_homes
+        WHERE client_id = ${clientId} AND company_id = ${companyId}
+        ORDER BY is_primary DESC NULLS LAST, id ASC
+        LIMIT 1
       `),
     ]);
 
@@ -371,6 +379,8 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
       });
     }
 
+    const homeRow = homeResult.rows[0] as any;
+
     res.json({
       preferred_technician: prefRow ? {
         id: Number(prefRow.id),
@@ -378,6 +388,15 @@ router.get("/:id/quote-context", requireAuth, async (req, res) => {
         job_count: parseInt(String(prefRow.job_count)),
       } : null,
       recent_services: recentServices,
+      property: homeRow ? {
+        sq_footage: parseInt(homeRow.sq_footage) || 0,
+        bedrooms: parseInt(homeRow.bedrooms) || 0,
+        bathrooms: parseInt(homeRow.bathrooms) || 0,
+        has_pets: homeRow.has_pets ?? false,
+        access_notes: homeRow.access_notes || null,
+        alarm_code: homeRow.alarm_code || null,
+        parking_notes: homeRow.parking_notes || null,
+      } : null,
     });
   } catch (err) {
     console.error("Quote context error:", err);
