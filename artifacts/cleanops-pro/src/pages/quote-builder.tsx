@@ -95,8 +95,8 @@ interface PreferredTech { id: number; full_name: string; job_count: number; }
 interface RecentService { scope: string; last_date: string; last_price: number; frequency: string | null; addons: string[]; }
 interface PhotoUpload { id: string; objectPath: string; previewUrl: string; inJobNotes: boolean; uploading: boolean; name: string; error?: string; }
 
-const SECTION_LABELS = ["Customer Info", "Property Details", "Service & Pricing", "Add-ons & Notes", "Review"];
-const SECTION_ICONS = [User, Home, Calculator, PlusSquare, CheckCircle2];
+const SECTION_LABELS = ["Customer Info", "Service & Pricing", "Property Details", "Add-ons & Notes", "Review"];
+const SECTION_ICONS = [User, Calculator, Home, PlusSquare, CheckCircle2];
 const DIRT_LEVELS = [
   { value: "pristine", label: "1 — Very Clean" },
   { value: "standard", label: "2 — Moderately Clean" },
@@ -550,8 +550,8 @@ export default function QuoteBuilderPage() {
   // ── Section completion ────────────────────────────────────────────────────
   const sectionComplete = [
     Boolean(selectedClientId || leadFirstName || leadEmail),
-    Boolean(sqft > 0),
     selectedScopes.length > 0,
+    Boolean(sqft > 0),
     true,
     Boolean(finalScopeId || selectedScopes.length === 1),
   ];
@@ -1521,127 +1521,72 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
 
-                {/* ── Quick Book panel (existing client only) ── */}
-                {selectedClientId && recentServices.length > 0 && !quickBookDismissed && (
-                  <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px" }}>
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>Quick Book</div>
-                      <div style={{ fontSize: 11, color: "#6B6860", marginTop: 1, fontFamily: FF }}>Book based on a previous service</div>
-                    </div>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                      {recentServices.map((svc, i) => {
-                        const lastDate = (() => {
-                          try {
-                            const d = new Date(svc.last_date + "T12:00:00");
-                            return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                          } catch { return svc.last_date; }
-                        })();
-                        const freqMap: Record<string, string> = { weekly: "Weekly", every_2_weeks: "Biweekly", biweekly: "Biweekly", every_4_weeks: "Monthly", monthly: "Monthly", onetime: "One-Time", one_time: "One-Time" };
-                        const freqLabel = svc.frequency ? (freqMap[svc.frequency] ?? svc.frequency) : null;
-                        return (
-                          <div
-                            key={i}
-                            onClick={() => handleQuickBook(svc)}
-                            style={{ background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 8, padding: "10px 14px", minWidth: 180, cursor: "pointer", transition: "border-color 0.15s, background 0.15s" }}
-                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "#5B9BD5"; (e.currentTarget as HTMLElement).style.background = "#EBF4FF"; }}
-                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#E5E2DC"; (e.currentTarget as HTMLElement).style.background = "#FFFFFF"; }}
-                          >
-                            <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{svc.scope}</div>
-                            <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2, fontFamily: FF }}>Last: {lastDate}</div>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                              <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
-                                ${svc.last_price > 0 ? svc.last_price.toLocaleString("en-US") : "—"}
-                              </div>
-                              {freqLabel && (
-                                <span style={{ fontSize: 10, background: "#F0EDE8", color: "#4A4845", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freqLabel}</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <button
-                      onClick={() => setQuickBookDismissed(true)}
-                      style={{ marginTop: 10, fontSize: 12, color: "#5B9BD5", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}
-                    >
-                      Build custom quote instead →
-                    </button>
-                  </div>
-                )}
-
                 <div className="flex justify-end gap-2">
-                  {selectedClientId ? (
-                    <>
-                      <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>
-                        Edit Property Details
-                      </Button>
-                      <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(2)}>
-                        Next: Service &amp; Pricing <ArrowRight className="w-3.5 h-3.5" />
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
-                      Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
-                    </Button>
-                  )}
+                  <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
+                    Next: Service &amp; Pricing <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* ── Section 1: Property Details ──────────────────────────── */}
+          {/* ── Section 1: Service & Pricing ─────────────────────────── */}
           {activeSection === 1 && (
-            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2">
-                  <Label className="text-xs">Square Footage</Label>
-                  <Input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" className="mt-1" />
-                </div>
-                <div>
-                  <Label className="text-xs">Bedrooms</Label>
-                  <Stepper value={bedrooms} onChange={setBedrooms} min={0} max={10} />
-                </div>
-                <div>
-                  <Label className="text-xs">Full Bathrooms</Label>
-                  <Stepper value={bathrooms} onChange={setBathrooms} min={0} max={8} />
-                </div>
-                <div>
-                  <Label className="text-xs">Half Bathrooms</Label>
-                  <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
-                </div>
-                <div>
-                  <Label className="text-xs">Pets</Label>
-                  <Stepper value={pets} onChange={setPets} min={0} max={6} />
-                </div>
-                <div className="col-span-2">
-                  <Label className="text-xs">How would you rate the current cleanliness of your home?</Label>
-                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    {DIRT_LEVELS.map(d => (
-                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, textAlign: "center" as const }}>
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              <div className="flex justify-between mt-6">
-                <Button size="sm" variant="ghost" onClick={() => setActiveSection(0)}>Back</Button>
-                <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(2)}>
-                  Next: Service & Pricing <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {/* ── Section 2: Service & Pricing ─────────────────────────── */}
-          {activeSection === 2 && (
             <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
 
               {/* sqft missing notice */}
               {sqft === 0 && (
                 <div style={{ background: "#FAEEDA", border: "1px solid #BA7517", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#854F0B", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
                   <AlertCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
-                  Property details incomplete — prices are estimated. Go back to Step 2 to enter sqft.
+                  Property details incomplete — prices are estimated. Go back to Property Details (Step 3) to enter sqft.
+                </div>
+              )}
+
+              {/* ── Quick Book panel (existing client only) ── */}
+              {selectedClientId && recentServices.length > 0 && !quickBookDismissed && (
+                <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>Quick Re-Book</div>
+                    <div style={{ fontSize: 11, color: "#6B6860", marginTop: 1, fontFamily: FF }}>Re-book a previous service at the same price — skips straight to Review</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                    {recentServices.map((svc, i) => {
+                      const lastDate = (() => {
+                        try {
+                          const d = new Date(svc.last_date + "T12:00:00");
+                          return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                        } catch { return svc.last_date; }
+                      })();
+                      const freqMap: Record<string, string> = { weekly: "Weekly", every_2_weeks: "Biweekly", biweekly: "Biweekly", every_4_weeks: "Monthly", monthly: "Monthly", onetime: "One-Time", one_time: "One-Time" };
+                      const freqLabel = svc.frequency ? (freqMap[svc.frequency] ?? svc.frequency) : null;
+                      return (
+                        <div
+                          key={i}
+                          onClick={() => handleQuickBook(svc)}
+                          style={{ background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 8, padding: "10px 14px", minWidth: 180, cursor: "pointer", transition: "border-color 0.15s, background 0.15s" }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = "var(--brand)"; (e.currentTarget as HTMLElement).style.background = "#EAF9F4"; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = "#E5E2DC"; (e.currentTarget as HTMLElement).style.background = "#FFFFFF"; }}
+                        >
+                          <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{svc.scope}</div>
+                          <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2, fontFamily: FF }}>Last: {lastDate}</div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
+                              ${svc.last_price > 0 ? svc.last_price.toLocaleString("en-US") : "\u2014"}
+                            </div>
+                            {freqLabel && (
+                              <span style={{ fontSize: 10, background: "#F0EDE8", color: "#4A4845", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freqLabel}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setQuickBookDismissed(true)}
+                    style={{ marginTop: 10, fontSize: 12, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0, fontWeight: 500 }}
+                  >
+                    Build custom quote instead
+                  </button>
                 </div>
               )}
 
@@ -1778,15 +1723,59 @@ export default function QuoteBuilderPage() {
               )}
 
               <div className="flex justify-between mt-4">
-                <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
+                <Button size="sm" variant="ghost" onClick={() => setActiveSection(0)}>Back</Button>
                 <Button
                   size="sm"
-                  onClick={() => setActiveSection(3)}
+                  onClick={() => setActiveSection(2)}
                   disabled={selectedScopes.length === 0}
                   style={selectedScopes.length === 0 ? { background: "#D1D5DB", color: "#9E9B94", cursor: "not-allowed" } : { background: "var(--brand)", color: "#FFF" }}
                   className="gap-1.5 hover:opacity-90"
                 >
-                  Next: Add-ons & Notes <ArrowRight className="w-3.5 h-3.5" />
+                  Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Section 2: Property Details ──────────────────────────── */}
+          {activeSection === 2 && (
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Label className="text-xs">Square Footage</Label>
+                  <Input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" className="mt-1" />
+                </div>
+                <div>
+                  <Label className="text-xs">Bedrooms</Label>
+                  <Stepper value={bedrooms} onChange={setBedrooms} min={0} max={10} />
+                </div>
+                <div>
+                  <Label className="text-xs">Full Bathrooms</Label>
+                  <Stepper value={bathrooms} onChange={setBathrooms} min={0} max={8} />
+                </div>
+                <div>
+                  <Label className="text-xs">Half Bathrooms</Label>
+                  <Stepper value={halfBaths} onChange={setHalfBaths} min={0} max={4} />
+                </div>
+                <div>
+                  <Label className="text-xs">Pets</Label>
+                  <Stepper value={pets} onChange={setPets} min={0} max={6} />
+                </div>
+                <div className="col-span-2">
+                  <Label className="text-xs">How would you rate the current cleanliness of your home?</Label>
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    {DIRT_LEVELS.map(d => (
+                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, textAlign: "center" as const }}>
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div className="flex justify-between mt-6">
+                <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
+                <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(3)}>
+                  Next: Add-ons &amp; Notes <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </div>
             </div>
@@ -1798,7 +1787,7 @@ export default function QuoteBuilderPage() {
 
               {selectedScopes.length === 0 ? (
                 <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>
-                  No scopes selected. <button onClick={() => setActiveSection(2)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Step 3</button>
+                  No scopes selected. <button onClick={() => setActiveSection(1)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Service &amp; Pricing</button>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -2107,7 +2096,7 @@ export default function QuoteBuilderPage() {
 
               {selectedScopes.length === 0 ? (
                 <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>
-                  No scopes selected. <button onClick={() => setActiveSection(2)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Step 3</button>
+                  No scopes selected. <button onClick={() => setActiveSection(1)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Service &amp; Pricing</button>
                 </div>
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
