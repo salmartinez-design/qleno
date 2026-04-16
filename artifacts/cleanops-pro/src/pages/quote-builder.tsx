@@ -1590,63 +1590,98 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
 
-              {/* Scope cards grid */}
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 12 }}>Select Service Options</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {scopes.map(scope => {
-                    const isSel = selectedScopeIds.includes(scope.id);
-                    const selState = selectedScopes.find(s => s.scope_id === scope.id);
-                    const priceText = selState?.calcLoading
-                      ? "..."
-                      : selState?.calc
-                        ? `$${selState.calc.final_total.toFixed(2)}`
-                        : scope.pricing_method === "sqft" && sqft === 0
-                          ? "Enter sqft to price"
-                          : "";
-                    return (
-                      <div
-                        key={scope.id}
-                        onClick={() => toggleScope(scope)}
-                        style={{
-                          position: "relative",
-                          border: isSel ? "1.5px solid #5B9BD5" : "0.5px solid #E5E2DC",
-                          background: isSel ? "#EBF4FF" : "#FFFFFF",
-                          borderRadius: 10,
-                          padding: "14px 14px 12px",
-                          cursor: "pointer",
-                          transition: "all 0.15s",
-                          minHeight: 80,
-                          display: "flex",
-                          flexDirection: "column",
-                          justifyContent: "space-between",
-                        }}
-                      >
-                        {/* Checkbox top-right */}
-                        <div style={{ position: "absolute", top: 10, right: 10 }}>
-                          <Checkbox checked={isSel} onCheckedChange={() => toggleScope(scope)} onClick={e => e.stopPropagation()} />
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", paddingRight: 28 }}>{scope.name}</div>
-                          {selState?.frequency && (
-                            <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 3 }}>{selState.frequency}</div>
-                          )}
-                        </div>
-                        {priceText && (
-                          <div style={{ fontSize: 13, fontWeight: 600, color: selState?.calc ? "#1A1917" : "#9E9B94", textAlign: "right", marginTop: 8 }}>
-                            {priceText}
+              {/* Scope cards — grouped by scope_group */}
+              {(() => {
+                const GROUP_ORDER = ["residential", "recurring cleaning", "hourly", "commercial"];
+                const GROUP_LABELS: Record<string, string> = {
+                  "residential": "One-Time / Flat Rate",
+                  "recurring cleaning": "Recurring",
+                  "hourly": "Hourly",
+                  "commercial": "Commercial",
+                };
+                const grouped = new Map<string, typeof scopes>();
+                for (const s of scopes) {
+                  const g = (s.scope_group || "other").toLowerCase();
+                  if (!grouped.has(g)) grouped.set(g, []);
+                  grouped.get(g)!.push(s);
+                }
+                const orderedGroups = GROUP_ORDER.filter(g => grouped.has(g));
+                // Add any groups not in the predefined order
+                for (const g of grouped.keys()) {
+                  if (!orderedGroups.includes(g)) orderedGroups.push(g);
+                }
+
+                return (
+                  <div style={{ marginBottom: 20 }}>
+                    {orderedGroups.map(groupKey => {
+                      const groupScopes = grouped.get(groupKey) || [];
+                      const label = GROUP_LABELS[groupKey] || groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
+                      const groupHasSelection = groupScopes.some(s => selectedScopeIds.includes(s.id));
+                      return (
+                        <div key={groupKey} style={{ marginBottom: 16 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: FF }}>{label}</div>
+                            {groupHasSelection && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--brand)", display: "inline-block" }} />}
+                            <div style={{ flex: 1, height: 1, background: "#E5E2DC" }} />
                           </div>
-                        )}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                            {groupScopes.map(scope => {
+                              const isSel = selectedScopeIds.includes(scope.id);
+                              const selState = selectedScopes.find(s => s.scope_id === scope.id);
+                              const priceText = selState?.calcLoading
+                                ? "..."
+                                : selState?.calc
+                                  ? `$${selState.calc.final_total.toFixed(2)}`
+                                  : scope.pricing_method === "sqft" && sqft === 0
+                                    ? "Enter sqft to price"
+                                    : "";
+                              return (
+                                <div
+                                  key={scope.id}
+                                  onClick={() => toggleScope(scope)}
+                                  style={{
+                                    position: "relative",
+                                    border: isSel ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC",
+                                    background: isSel ? "#EAF9F4" : "#FFFFFF",
+                                    borderRadius: 10,
+                                    padding: "12px 14px 10px",
+                                    cursor: "pointer",
+                                    transition: "all 0.15s",
+                                    minHeight: 70,
+                                    display: "flex",
+                                    flexDirection: "column" as const,
+                                    justifyContent: "space-between",
+                                  }}
+                                >
+                                  <div style={{ position: "absolute", top: 10, right: 10 }}>
+                                    <Checkbox checked={isSel} onCheckedChange={() => toggleScope(scope)} onClick={e => e.stopPropagation()} />
+                                  </div>
+                                  <div>
+                                    <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", paddingRight: 28, fontFamily: FF }}>{scope.name}</div>
+                                    {selState?.frequency && (
+                                      <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{selState.frequency}</div>
+                                    )}
+                                  </div>
+                                  {priceText && (
+                                    <div style={{ fontSize: 12, fontWeight: 600, color: selState?.calc ? "#1A1917" : "#9E9B94", textAlign: "right", marginTop: 6, fontFamily: FF }}>
+                                      {priceText}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {selectedScopes.length === 0 && (
+                      <div style={{ textAlign: "center", fontSize: 13, color: "#9E9B94", marginTop: 8, fontFamily: FF }}>
+                        Select one or more service options to build this quote.
                       </div>
-                    );
-                  })}
-                </div>
-                {selectedScopes.length === 0 && (
-                  <div style={{ textAlign: "center", fontSize: 13, color: "#9E9B94", marginTop: 12 }}>
-                    Select one or more service options to build this quote.
+                    )}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Date picker */}
               <div style={{ marginBottom: selectedDate && suggestedTechs.length > 0 ? 16 : 0 }}>
