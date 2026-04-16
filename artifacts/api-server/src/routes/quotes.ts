@@ -317,12 +317,38 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
 
     // Create the actual job
     const jobDate = scheduled_date || new Date().toISOString().split("T")[0];
-    // Look up scope name
-    let scopeName = "Cleaning";
+    // Map scope name → service_type enum value
+    const SCOPE_TO_ENUM: Record<string, string> = {
+      "deep clean": "deep_clean",
+      "standard clean": "standard_clean",
+      "move in / move out": "move_out",
+      "move in/move out": "move_out",
+      "one-time standard clean": "standard_clean",
+      "recurring cleaning": "recurring",
+      "recurring cleaning - weekly": "recurring",
+      "recurring cleaning - every 2 weeks": "recurring",
+      "recurring cleaning - every 4 weeks": "recurring",
+      "hourly deep clean": "deep_clean",
+      "hourly standard cleaning": "standard_clean",
+      "commercial cleaning": "office_cleaning",
+      "ppm turnover": "ppm_turnover",
+      "ppm common areas": "common_areas",
+      "multi-unit common areas": "common_areas",
+    };
+    let serviceType = "standard_clean";
     if (q.scope_id) {
       const scopeResult = await db.execute(sql`SELECT name FROM pricing_scopes WHERE id = ${q.scope_id} LIMIT 1`);
-      scopeName = (scopeResult.rows[0] as any)?.name || "Cleaning";
+      const scopeName = ((scopeResult.rows[0] as any)?.name || "").toLowerCase().trim();
+      serviceType = SCOPE_TO_ENUM[scopeName] || "standard_clean";
     }
+
+    // Map frequency to enum
+    const freqRaw = (q.frequency || "onetime").toLowerCase().replace(/[- ]/g, "_");
+    const FREQ_MAP: Record<string, string> = {
+      "weekly": "weekly", "biweekly": "biweekly", "every_2_weeks": "biweekly",
+      "monthly": "monthly", "every_4_weeks": "monthly", "onetime": "on_demand", "one_time": "on_demand",
+    };
+    const jobFreq = FREQ_MAP[freqRaw] || "on_demand";
 
     const jobResult = await db.execute(sql`
       INSERT INTO jobs (
@@ -334,11 +360,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${q.client_id || null},
         ${jobDate},
         ${scheduled_time || null},
-        ${scopeName},
+        ${sql.raw(`'${serviceType}'::service_type`)},
         ${q.total_price || '0'},
         'scheduled',
         ${assigned_user_id || null},
-        ${q.frequency || 'onetime'},
+        ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
         NOW()
       ) RETURNING id
