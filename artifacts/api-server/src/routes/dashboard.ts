@@ -400,50 +400,45 @@ router.get("/kpis", requireAuth, async (req, res) => {
       // Invoice sequence check
       invoiceHighId,
     ] = await Promise.all([
-      // Week revenue from completed jobs
+      // Week revenue from job_history (authoritative historical billed revenue)
       db.execute(sql`
-        SELECT COALESCE(SUM(billed_amount), 0)::numeric AS total
-        FROM jobs
+        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= ${weekStartStr}
-          AND scheduled_date <= ${todayStr}
+          AND job_date >= ${weekStartStr}
+          AND job_date <= ${todayStr}
       `),
-      // Previous week revenue
+      // Previous week revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(billed_amount), 0)::numeric AS total
-        FROM jobs
+        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= ${prevWeekStartStr}
-          AND scheduled_date <= ${prevWeekEndStr}
+          AND job_date >= ${prevWeekStartStr}
+          AND job_date <= ${prevWeekEndStr}
       `),
-      // This month revenue
+      // This month revenue (MTD)
       db.execute(sql`
-        SELECT COALESCE(SUM(billed_amount), 0)::numeric AS total
-        FROM jobs
+        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= ${monthStartStr}
-          AND scheduled_date <= ${todayStr}
+          AND job_date >= ${monthStartStr}
+          AND job_date <= ${todayStr}
       `),
-      // Last month revenue
+      // Last month revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(billed_amount), 0)::numeric AS total
-        FROM jobs
+        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= ${lastMonthStartStr}
-          AND scheduled_date <= ${lastMonthEndStr}
+          AND job_date >= ${lastMonthStartStr}
+          AND job_date <= ${lastMonthEndStr}
       `),
       // Avg bill — last 30 days
       db.execute(sql`
-        SELECT COALESCE(AVG(billed_amount), 0)::numeric AS avg_bill
-        FROM jobs
+        SELECT COALESCE(AVG(revenue), 0)::numeric AS avg_bill
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= ${thirtyDaysAgoStr}
-          AND scheduled_date <= ${todayStr}
+          AND job_date >= ${thirtyDaysAgoStr}
+          AND job_date <= ${todayStr}
       `),
       // Avg quality score (last 90 days)
       db.execute(sql`
@@ -771,32 +766,30 @@ router.get("/revenue-chart", requireAuth, async (req, res) => {
     const [currentRows, priorRows] = await Promise.all([
       db.execute(sql`
         SELECT
-          TO_CHAR(DATE_TRUNC('month', scheduled_date), 'Mon ''YY') AS month,
-          TO_CHAR(DATE_TRUNC('month', scheduled_date), 'YYYY-MM') AS month_key,
-          DATE_TRUNC('month', scheduled_date) AS month_date,
-          COALESCE(SUM(billed_amount), 0)::numeric AS revenue,
+          TO_CHAR(DATE_TRUNC('month', job_date), 'Mon ''YY') AS month,
+          TO_CHAR(DATE_TRUNC('month', job_date), 'YYYY-MM') AS month_key,
+          DATE_TRUNC('month', job_date) AS month_date,
+          COALESCE(SUM(revenue), 0)::numeric AS revenue,
           COUNT(*)::int AS jobs
-        FROM jobs
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-          AND scheduled_date <= NOW()
-        GROUP BY DATE_TRUNC('month', scheduled_date)
+          AND job_date >= DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+          AND job_date <= NOW()
+        GROUP BY DATE_TRUNC('month', job_date)
         ORDER BY month_date ASC
       `),
-      // Prior year: query jobs from same 12-month window shifted back 1 year
-      // We key by month_date + 1 year so we can match it to the current month
+      // Prior year: historical job_history shifted back 1 year
+      // Key by month_date + 1 year so we can match it to the current month
       db.execute(sql`
         SELECT
-          TO_CHAR(DATE_TRUNC('month', scheduled_date) + INTERVAL '1 year', 'YYYY-MM') AS month_key,
-          COALESCE(SUM(billed_amount), 0)::numeric AS revenue,
+          TO_CHAR(DATE_TRUNC('month', job_date) + INTERVAL '1 year', 'YYYY-MM') AS month_key,
+          COALESCE(SUM(revenue), 0)::numeric AS revenue,
           COUNT(*)::int AS jobs
-        FROM jobs
+        FROM job_history
         WHERE company_id = ${companyId}
-          AND status = 'complete'
-          AND scheduled_date >= DATE_TRUNC('month', NOW()) - INTERVAL '23 months'
-          AND scheduled_date < DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
-        GROUP BY DATE_TRUNC('month', scheduled_date)
+          AND job_date >= DATE_TRUNC('month', NOW()) - INTERVAL '23 months'
+          AND job_date < DATE_TRUNC('month', NOW()) - INTERVAL '11 months'
+        GROUP BY DATE_TRUNC('month', job_date)
         ORDER BY month_key ASC
       `),
     ]);
