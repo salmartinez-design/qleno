@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
+import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
@@ -496,11 +496,17 @@ router.get("/kpis", requireAuth, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
-      // HCP: New Jobs Booked This Week — jobs created_at >= weekStart
+      // HCP: New Jobs Booked This Week — real bookings only
+      // Exclude phantom recurring-engine auto-spawned jobs (recurring_schedule_id set + base_fee=0).
+      // Those aren't "new bookings" in the human sense — they're cron-generated.
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),
           gte(jobsTable.created_at, weekStart),
+          or(
+            isNull(jobsTable.recurring_schedule_id),
+            sql`CAST(${jobsTable.base_fee} AS NUMERIC) > 0`,
+          ),
         )),
 
       // HCP: Quotes Given Today
