@@ -123,28 +123,19 @@ if (fs.existsSync(landingDir)) {
   });
 }
 
-// ── Frontend Static Serving (Production) ─────────────────────────────────────
-if (process.env.NODE_ENV === "production") {
-  const frontendDist = path.resolve(__appDir, "../../cleanops-pro/dist/public");
-  if (fs.existsSync(frontendDist)) {
-    // Hashed assets (JS/CSS) — cache aggressively since filenames change on every build
-    app.use("/assets", express.static(path.join(frontendDist, "assets"), { maxAge: "1y", immutable: true }));
-    // Everything else (fonts, images, etc.) — short cache
-    app.use(express.static(frontendDist, { maxAge: "10m", index: false }));
-    // index.html — NEVER cache so browsers always get the latest JS hashes after a deploy
-    app.use((_req: Request, res: Response) => {
-      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-      res.setHeader("Pragma", "no-cache");
-      res.setHeader("Expires", "0");
-      res.sendFile(path.join(frontendDist, "index.html"));
-    });
-  } else {
-    app.use((_req: Request, res: Response) => {
-      res.status(404).json({ error: "Route not found" });
-    });
-  }
+// ── Frontend Static Serving ──────────────────────────────────────────────────
+const serveFrontend = process.env.NODE_ENV === "production" || process.env.SERVE_FRONTEND === "true";
+const frontendDist = path.resolve(__appDir, "../../cleanops-pro/dist/public");
+if (serveFrontend && fs.existsSync(frontendDist)) {
+  app.use("/assets", express.static(path.join(frontendDist, "assets"), { maxAge: "1y", immutable: true }));
+  app.use(express.static(frontendDist, { maxAge: "10m", index: false }));
+  app.use((_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
 } else {
-  // ── 404 Handler ──────────────────────────────────────────────────────────────
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: "Route not found" });
   });

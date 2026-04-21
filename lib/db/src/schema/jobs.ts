@@ -85,6 +85,7 @@ export const jobsTable = pgTable("jobs", {
   booking_location: text("booking_location"),
   // ── Office notes (pushed from quote call notes) ─────────────────────────────
   office_notes: text("office_notes"),
+  flagged: boolean("flagged").notNull().default(false),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });

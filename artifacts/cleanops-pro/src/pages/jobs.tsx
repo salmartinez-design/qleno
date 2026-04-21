@@ -251,6 +251,45 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       .then(r => r.json()).then(d => setTechList(d.employees || [])).catch(() => {}).finally(() => setTechLoading(false));
   }, [rescheduleOpen, rescheduleDate, rescheduleHour]);
 
+  // Add team member state
+  const [addTechOpen, setAddTechOpen] = useState(false);
+  const [addTechList, setAddTechList] = useState<{ id: number; name: string; role: string }[]>([]);
+  const [addTechLoading, setAddTechLoading] = useState(false);
+  const [addTechBusy, setAddTechBusy] = useState(false);
+
+  useEffect(() => {
+    if (!addTechOpen) return;
+    setAddTechLoading(true);
+    const existingIds = new Set((job.technicians ?? []).map(t => t.user_id));
+    if (job.assigned_user_id) existingIds.add(job.assigned_user_id);
+    fetch(`${_API3}/api/users?role=technician,team_lead&active=true`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => {
+        const all = Array.isArray(d) ? d : (d.data ?? []);
+        setAddTechList(all.filter((u: any) => !existingIds.has(u.id)).map((u: any) => ({ id: u.id, name: `${u.first_name} ${u.last_name}`, role: u.role })));
+      })
+      .catch(() => setAddTechList([]))
+      .finally(() => setAddTechLoading(false));
+  }, [addTechOpen, job.id]);
+
+  async function addTechToJob(techId: number) {
+    setAddTechBusy(true);
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/technicians`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: techId }),
+      });
+      const d = await r.json();
+      if (d.data) setCommTechs(d.data);
+      toast({ title: "Team member added" });
+      setAddTechOpen(false);
+      onUpdate();
+    } catch {
+      toast({ title: "Error adding tech", variant: "destructive" });
+    } finally { setAddTechBusy(false); }
+  }
+
   // Supply logging state
   const [supplyName, setSupplyName] = useState("");
   const [supplyQty, setSupplyQty] = useState("1");
@@ -539,6 +578,59 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ marginTop: 4, fontSize: 11, color: "#9E9B94" }}>
                 Pool rate: {((job.company_res_pct ?? 0.35) * 100).toFixed(0)}% of job total
               </div>
+              <button onClick={() => setAddTechOpen(true)}
+                style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
+                <Plus size={12} /> Add Team Member
+              </button>
+            </PS>
+          )}
+
+          {/* Add Tech Modal */}
+          {addTechOpen && (
+            <>
+              <div onClick={() => setAddTechOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 300 }} />
+              <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 301, width: 340, backgroundColor: "#FFFFFF", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", fontFamily: FF, overflow: "hidden" }}>
+                <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E2DC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Add Team Member</span>
+                  <button onClick={() => setAddTechOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={16} /></button>
+                </div>
+                <div style={{ padding: "12px 20px", maxHeight: 300, overflowY: "auto" }}>
+                  {addTechLoading ? (
+                    <div style={{ padding: 20, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading technicians...</div>
+                  ) : addTechList.length === 0 ? (
+                    <div style={{ padding: 20, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No available technicians</div>
+                  ) : (
+                    addTechList.map(t => (
+                      <button key={t.id} onClick={() => addTechToJob(t.id)} disabled={addTechBusy}
+                        style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 8px", border: "none", background: "transparent", cursor: addTechBusy ? "wait" : "pointer", borderRadius: 8, fontFamily: FF, textAlign: "left" }}
+                        onMouseEnter={e => e.currentTarget.style.background = "#F7F6F3"}
+                        onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                        <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "#F0FDFB", color: "#2D9B83", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                          {t.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{t.name}</div>
+                          <div style={{ fontSize: 11, color: "#9E9B94", textTransform: "capitalize" }}>{t.role.replace("_", " ")}</div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Add Team Member — fallback for jobs without commission display */}
+          {(!canManageCommission || (job.estimated_hours ?? 0) === 0) && (
+            <PS label="Team">
+              <div style={{ fontSize: 12, color: "#1A1917", marginBottom: 8 }}>
+                {assignedEmp?.name || job.assigned_user_name || "Unassigned"}
+                {commTechs.length > 1 && ` + ${commTechs.length - 1} more`}
+              </div>
+              <button onClick={() => setAddTechOpen(true)}
+                style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
+                <Plus size={12} /> Add Team Member
+              </button>
             </PS>
           )}
 
@@ -1140,6 +1232,112 @@ function MiniCalendar({ value, onChange, jobDates }: { value: Date; onChange: (d
   );
 }
 
+// ─── DESKTOP: JOB HOVER CARD ────────────────────────────────────────────────
+function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: string }) {
+  const endTime = minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes);
+  const hrs = (job.duration_minutes / 60).toFixed(1);
+  const isRecurring = job.frequency && job.frequency !== "on_demand";
+  const clockedIn = job.clock_entry?.clock_in_at;
+  const clockStatus = clockedIn
+    ? (job.clock_entry?.clock_out_at ? "Clocked out" : "Clocked in")
+    : (job.status === "complete" ? "Complete" : "Not clocked in");
+  const clockColor = clockedIn
+    ? (job.clock_entry?.clock_out_at ? "#6B7280" : "#16A34A")
+    : (job.status === "complete" ? "#6B7280" : "#D97706");
+
+  return (
+    <div onClick={e => e.stopPropagation()} style={{
+      position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100,
+      width: 320, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
+      borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
+      fontFamily: FF, padding: 0, overflow: "hidden",
+    }}>
+      <div style={{ padding: "14px 16px 10px", borderBottom: "1px solid #F0EEE9" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>{job.client_name}</div>
+        {job.address && <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>{job.address}</div>}
+        {job.client_phone && (
+          <a href={`tel:${job.client_phone}`} style={{ fontSize: 12, color: "#2D9B83", textDecoration: "none", fontWeight: 600 }}>
+            {job.client_phone}
+          </a>
+        )}
+      </div>
+
+      <div style={{ padding: "10px 16px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Service</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtSvc(job.service_type)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Frequency</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{isRecurring ? fmtSvc(job.frequency) : "One Time"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Time</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtTime(job.scheduled_time)} \u2013 {fmtTime(endTime)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Duration</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{hrs}h</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Amount</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginTop: 2 }}>${(job.amount || 0).toFixed(0)}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Clock Status</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: clockColor, marginTop: 2 }}>{clockStatus}</div>
+        </div>
+      </div>
+
+      {/* Team section */}
+      <div style={{ padding: "8px 16px 10px", borderTop: "1px solid #F0EEE9" }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Team</div>
+        {job.technicians && job.technicians.length > 0 ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {job.technicians.map((t, i) => (
+              <div key={i} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: 12 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ width: 22, height: 22, borderRadius: "50%", backgroundColor: t.is_primary ? "#DCFCE7" : "#F3F4F6", color: t.is_primary ? "#15803D" : "#6B7280", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700 }}>
+                    {t.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
+                  </div>
+                  <span style={{ fontWeight: 600, color: "#1A1917" }}>{t.name}</span>
+                  {t.is_primary && <span style={{ fontSize: 9, color: "#9E9B94" }}>Primary</span>}
+                </div>
+                <span style={{ fontWeight: 600, color: "#6B6860" }}>${(t.final_pay || t.calc_pay || 0).toFixed(0)}</span>
+              </div>
+            ))}
+          </div>
+        ) : assignedName ? (
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{assignedName}</div>
+        ) : (
+          <div style={{ fontSize: 12, color: "#D97706", fontWeight: 600 }}>Unassigned</div>
+        )}
+      </div>
+
+      {/* Zone + notes */}
+      {(job.zone_name || job.office_notes) && (
+        <div style={{ padding: "8px 16px 12px", borderTop: "1px solid #F0EEE9" }}>
+          {job.zone_name && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: job.office_notes ? 6 : 0 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: job.zone_color || "#9E9B94" }} />
+              <span style={{ fontSize: 11, color: "#6B6860", fontWeight: 600 }}>{job.zone_name}</span>
+            </div>
+          )}
+          {job.office_notes && (
+            <div style={{ fontSize: 11, color: "#6B6860", fontStyle: "italic", lineHeight: 1.4 }}>
+              {job.office_notes.length > 120 ? job.office_notes.slice(0, 120) + "..." : job.office_notes}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: "8px 16px 12px", borderTop: "1px solid #F0EEE9", fontSize: 11, color: "#9E9B94", textAlign: "center" }}>
+        Click to open full details
+      </div>
+    </div>
+  );
+}
+
 // ─── DESKTOP: JOB CHIP ─────────────────────────────────────────────────────────
 function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJob; onClick: (j: DispatchJob) => void; assignedName?: string; isUnassigned?: boolean }) {
   const sc = STATUS[job.status] || STATUS.scheduled;
@@ -1149,10 +1347,19 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
   const isRecurring = job.frequency && job.frequency !== "on_demand";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
   const borderColor = job.zone_color || sc.dot;
+
+  const [hovered, setHovered] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function onEnter() { hoverTimer.current = setTimeout(() => setHovered(true), 400); }
+  function onLeave() { if (hoverTimer.current) clearTimeout(hoverTimer.current); setHovered(false); }
+
   return (
-    <div ref={setNodeRef} onClick={e => { e.stopPropagation(); onClick(job); }} {...(isComplete ? {} : { ...listeners, ...attributes })}
-      title={[job.zone_name, isRecurring ? "Recurring" : ""].filter(Boolean).join(" · ") || undefined}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "hidden", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+    <div ref={setNodeRef}
+      onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
+      onMouseEnter={onEnter} onMouseLeave={onLeave}
+      {...(isComplete ? {} : { ...listeners, ...attributes })}
+      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
         {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
         {job.after_photo_count > 0 && <Camera size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
@@ -1164,6 +1371,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
         ? <span style={{ fontSize: 9, color: "#9E9B94", display: "flex", alignItems: "center", gap: 3 }}><User size={8} />{assignedName}</span>
         : <span style={{ fontSize: 9, color: "#9E9B94" }}>{fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}</span>
       )}
+      {hovered && !isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
     </div>
   );
 }
@@ -1689,6 +1897,56 @@ export default function JobsPage() {
               </div>
             </div>
           </div>
+
+          {/* KPI STRIP */}
+          {!loading && data && (() => {
+            const techsWorking = filteredData?.employees?.filter(e => e.jobs?.length > 0).length ?? 0;
+            const totalTechs = filteredData?.employees?.length ?? 0;
+            const scheduledHrs = allJobs.reduce((s, j) => s + (j.duration_minutes || 120) / 60, 0);
+            const availableHrs = totalTechs * ((DAY_END - DAY_START) / 60);
+            const utilization = availableHrs > 0 ? Math.round((scheduledHrs / availableHrs) * 100) : 0;
+            const now = new Date();
+            const nowMins = now.getHours() * 60 + now.getMinutes();
+            const isLiveDay = dateKey(selectedDate) === dateKey(now);
+            const lateClockIns = isLiveDay ? allJobs.filter(j => {
+              if (j.status === "cancelled" || j.status === "complete") return false;
+              const startMins = timeToMins(j.scheduled_time);
+              if (nowMins <= startMins) return false;
+              return !j.clock_entry?.clock_in_at;
+            }).length : 0;
+            const atRisk = isLiveDay ? allJobs.filter(j => {
+              if (j.status === "cancelled" || j.status === "complete") return false;
+              const startMins = timeToMins(j.scheduled_time);
+              if (nowMins < startMins - 15 || nowMins > startMins + 15) return false;
+              return !j.clock_entry?.clock_in_at;
+            }).length : 0;
+
+            return (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF" }}>
+                  {[
+                    { label: "JOBS TODAY", value: stats.total },
+                    { label: "REVENUE TODAY", value: `$${stats.revenue.toFixed(0)}` },
+                    { label: "UNASSIGNED", value: stats.unassigned },
+                    { label: "TECHS WORKING", value: techsWorking },
+                    { label: "AVG UTILIZATION", value: `${utilization}%` },
+                  ].map((card, i) => (
+                    <div key={i} style={{ padding: "14px 20px", borderRight: i < 4 ? "1px solid #E5E2DC" : "none" }}>
+                      <div style={{ fontSize: 26, fontWeight: 600, color: "#1A1917", fontFamily: FF, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{card.value}</div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.02em", marginTop: 4 }}>{card.label}</div>
+                    </div>
+                  ))}
+                </div>
+                {(lateClockIns > 0 || atRisk > 0) && (
+                  <div style={{ padding: "6px 20px", borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                    {lateClockIns > 0 && <span>{lateClockIns} late clock-in{lateClockIns > 1 ? "s" : ""}</span>}
+                    {lateClockIns > 0 && atRisk > 0 && <span style={{ margin: "0 8px" }}>&middot;</span>}
+                    {atRisk > 0 && <span>{atRisk} job{atRisk > 1 ? "s" : ""} at risk (no clock-in within 15 min of start)</span>}
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* GANTT / LIST — fills remaining height */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>

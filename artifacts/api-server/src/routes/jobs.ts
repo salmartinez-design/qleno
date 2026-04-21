@@ -1364,5 +1364,365 @@ router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// JOBS PAGE V2 — KPI, enhanced list, bulk actions, views, column prefs, export
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const VALID_STATUSES = ["scheduled", "in_progress", "complete", "cancelled"];
+const VALID_SERVICE_TYPES = ["standard_clean", "deep_clean", "move_out", "recurring", "post_construction", "move_in", "office_cleaning", "common_areas", "retail_store", "medical_office", "ppm_turnover", "post_event"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function buildJobWhereClause(query: any, companyId: number, cursorId?: number | null) {
+  const parts: ReturnType<typeof sql>[] = [sql`j.company_id = ${companyId}`];
+  if (query.status && VALID_STATUSES.includes(query.status)) parts.push(sql`j.status = ${query.status}`);
+  if (query.branch_id && query.branch_id !== "all") { const v = parseInt(query.branch_id); if (!isNaN(v)) parts.push(sql`j.branch_id = ${v}`); }
+  if (query.zone_id) { const v = parseInt(query.zone_id); if (!isNaN(v)) parts.push(sql`j.zone_id = ${v}`); }
+  if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`j.scheduled_date >= ${query.date_from}`);
+  if (query.date_to && DATE_RE.test(query.date_to)) parts.push(sql`j.scheduled_date <= ${query.date_to}`);
+  if (query.assigned_user_id) {
+    if (query.assigned_user_id === "unassigned") parts.push(sql`j.assigned_user_id IS NULL`);
+    else { const v = parseInt(query.assigned_user_id); if (!isNaN(v)) parts.push(sql`j.assigned_user_id = ${v}`); }
+  }
+  if (query.client_id) { const v = parseInt(query.client_id); if (!isNaN(v)) parts.push(sql`j.client_id = ${v}`); }
+  if (query.service_type && VALID_SERVICE_TYPES.includes(query.service_type)) parts.push(sql`j.service_type = ${query.service_type}`);
+  if (query.flagged === "true") parts.push(sql`j.flagged = true`);
+  if (query.has_photos === "true") parts.push(sql`EXISTS (SELECT 1 FROM job_photos jp WHERE jp.job_id = j.id)`);
+  if (query.revenue_min) { const v = parseFloat(query.revenue_min); if (!isNaN(v)) parts.push(sql`CAST(j.base_fee AS NUMERIC) >= ${v}`); }
+  if (query.revenue_max) { const v = parseFloat(query.revenue_max); if (!isNaN(v)) parts.push(sql`CAST(j.base_fee AS NUMERIC) <= ${v}`); }
+  if (query.payment_status === "paid") parts.push(sql`j.charge_succeeded_at IS NOT NULL`);
+  else if (query.payment_status === "failed") parts.push(sql`j.charge_failed_at IS NOT NULL AND j.charge_succeeded_at IS NULL`);
+  else if (query.payment_status === "unpaid") parts.push(sql`j.charge_succeeded_at IS NULL AND j.charge_failed_at IS NULL AND j.charge_attempted_at IS NULL`);
+  if (query.uninvoiced === "true") parts.push(sql`NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))`);
+  if (query.search) {
+    const s = `%${String(query.search)}%`;
+    parts.push(sql`(concat(c.first_name, ' ', c.last_name) ILIKE ${s} OR concat(u.first_name, ' ', u.last_name) ILIKE ${s} OR c.address ILIKE ${s} OR c.email ILIKE ${s} OR CAST(j.id AS TEXT) = ${String(query.search)})`);
+  }
+  if (cursorId) parts.push(sql`j.id < ${cursorId}`);
+  return sql.join(parts, sql` AND `);
+}
+
+const JOBS_V2_FROM = sql`FROM jobs j LEFT JOIN clients c ON j.client_id = c.id LEFT JOIN users u ON j.assigned_user_id = u.id LEFT JOIN service_zones sz ON j.zone_id = sz.id LEFT JOIN branches b ON j.branch_id = b.id`;
+
+// GET /api/jobs/v2/kpi
+router.get("/v2/kpi", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const where = buildJobWhereClause(req.query, companyId);
+    const result = await db.execute(sql`
+      SELECT
+        COALESCE(MIN(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_min,
+        COALESCE(MAX(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_max,
+        COALESCE(SUM(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_total,
+        COUNT(*) FILTER (WHERE j.status = 'complete') AS completed,
+        CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(CAST(j.base_fee AS NUMERIC)) / COUNT(*), 2) ELSE 0 END AS avg_job,
+        COUNT(*) AS total_jobs,
+        COUNT(DISTINCT j.scheduled_date) AS distinct_days,
+        COUNT(*) FILTER (WHERE j.assigned_user_id IS NULL) AS unassigned
+      ${JOBS_V2_FROM} WHERE ${where}
+    `);
+    const row = (result as any).rows?.[0] ?? {};
+    const totalJobs = parseInt(row.total_jobs) || 0;
+    const distinctDays = parseInt(row.distinct_days) || 1;
+    return res.json({
+      revenue_min: parseFloat(row.revenue_min) || 0,
+      revenue_max: parseFloat(row.revenue_max) || 0,
+      revenue_total: parseFloat(row.revenue_total) || 0,
+      completed: parseInt(row.completed) || 0,
+      avg_job: parseFloat(row.avg_job) || 0,
+      jobs_per_day: Math.round((totalJobs / distinctDays) * 10) / 10,
+      unassigned: parseInt(row.unassigned) || 0,
+    });
+  } catch (err) {
+    console.error("GET /jobs/v2/kpi error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/jobs/v2/list — cursor-paginated
+router.get("/v2/list", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
+    const cursorRaw = req.query.cursor ? parseInt(req.query.cursor as string) : null;
+    const cursor = cursorRaw && !isNaN(cursorRaw) ? cursorRaw : null;
+    const sortCol = (req.query.sort as string) || "scheduled_date";
+    const sortDir = (req.query.dir as string) === "asc" ? sql`ASC` : sql`DESC`;
+
+    const where = buildJobWhereClause(req.query, companyId, cursor);
+
+    const validSorts: Record<string, ReturnType<typeof sql>> = {
+      scheduled_date: sql`j.scheduled_date`,
+      client_name: sql`concat(c.first_name, ' ', c.last_name)`,
+      status: sql`j.status`,
+      base_fee: sql`CAST(j.base_fee AS NUMERIC)`,
+      service_type: sql`j.service_type`,
+      created_at: sql`j.created_at`,
+    };
+    const orderExpr = validSorts[sortCol] || sql`j.scheduled_date`;
+
+    const result = await db.execute(sql`
+      SELECT
+        j.id, j.client_id, j.assigned_user_id, j.service_type, j.status,
+        j.scheduled_date, j.scheduled_time, j.frequency, j.base_fee,
+        j.allowed_hours, j.actual_hours, j.notes, j.flagged, j.zone_id, j.branch_id,
+        j.charge_succeeded_at, j.charge_failed_at, j.charge_attempted_at,
+        j.created_at, j.office_notes,
+        concat(c.first_name, ' ', c.last_name) AS client_name,
+        c.address AS client_address, c.city AS client_city, c.referral_source,
+        concat(u.first_name, ' ', u.last_name) AS tech_name,
+        sz.name AS zone_name, sz.color AS zone_color, b.name AS branch_name
+      ${JOBS_V2_FROM} WHERE ${where}
+      ORDER BY ${orderExpr} ${sortDir}, j.id DESC
+      LIMIT ${limit + 1}
+    `);
+
+    const rows = (result as any).rows ?? [];
+    const hasMore = rows.length > limit;
+    const data = hasMore ? rows.slice(0, limit) : rows;
+    const nextCursor = hasMore ? data[data.length - 1].id : null;
+    const mapped = data.map((r: any) => ({
+      ...r,
+      base_fee: r.base_fee ? parseFloat(r.base_fee) : 0,
+      payment_status: r.charge_succeeded_at ? "paid" : r.charge_failed_at ? "failed" : r.charge_attempted_at ? "pending" : "unpaid",
+    }));
+
+    const countWhere = buildJobWhereClause(req.query, companyId);
+    const countResult = await db.execute(sql`SELECT COUNT(*) AS cnt ${JOBS_V2_FROM} WHERE ${countWhere}`);
+    const total = parseInt((countResult as any).rows?.[0]?.cnt) || 0;
+
+    return res.json({ data: mapped, total, next_cursor: nextCursor, has_more: hasMore });
+  } catch (err) {
+    console.error("GET /jobs/v2/list error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/jobs/v2/bulk — bulk actions
+router.post("/v2/bulk", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { action, job_ids, payload } = req.body;
+    if (!Array.isArray(job_ids) || job_ids.length === 0) return res.status(400).json({ error: "job_ids required" });
+    const idList = job_ids.map((id: any) => parseInt(id)).filter((n: number) => !isNaN(n));
+    if (idList.length === 0) return res.status(400).json({ error: "no valid job IDs" });
+
+    switch (action) {
+      case "mark_complete": {
+        await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "mark_paid": {
+        await db.execute(sql`UPDATE jobs SET charge_succeeded_at = NOW() WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "cancel": {
+        const reason = String(payload?.reason || "cancelled").slice(0, 200);
+        await db.execute(sql`UPDATE jobs SET status = 'cancelled', notes = COALESCE(notes, '') || ${` [Cancelled: ${reason}]`} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "reassign": {
+        const techId = parseInt(payload?.assigned_user_id);
+        if (!techId || isNaN(techId)) return res.status(400).json({ error: "assigned_user_id required" });
+        await db.execute(sql`UPDATE jobs SET assigned_user_id = ${techId} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "reschedule": {
+        const date = payload?.date;
+        if (!date || !DATE_RE.test(date)) return res.status(400).json({ error: "valid date required (YYYY-MM-DD)" });
+        const timeShift = payload?.time_shift || null;
+        if (timeShift) {
+          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date}, scheduled_time = ${timeShift} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        } else {
+          await db.execute(sql`UPDATE jobs SET scheduled_date = ${date} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        }
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "flag": {
+        const flagged = payload?.flagged !== false;
+        await db.execute(sql`UPDATE jobs SET flagged = ${flagged} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        return res.json({ success: true, affected: idList.length });
+      }
+      case "batch_invoice_preflight": {
+        const pf = await db.execute(sql`
+          SELECT
+            COUNT(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))) AS to_invoice,
+            COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))) AS already_invoiced,
+            COALESCE(SUM(CAST(j.base_fee AS NUMERIC)) FILTER (WHERE NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id AND i.status IN ('sent','paid'))), 0) AS total_amount
+          FROM jobs j WHERE j.id = ANY(${idList}::int[]) AND j.company_id = ${companyId}
+        `);
+        const r = (pf as any).rows?.[0] ?? {};
+        return res.json({ to_invoice: parseInt(r.to_invoice) || 0, already_invoiced: parseInt(r.already_invoiced) || 0, total_amount: parseFloat(r.total_amount) || 0 });
+      }
+      default: return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+  } catch (err) {
+    console.error("POST /jobs/v2/bulk error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Saved Views CRUD ─────────────────────────────────────────────────────────
+
+router.get("/v2/views", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(sql`
+      SELECT * FROM user_saved_views
+      WHERE user_id = ${userId} AND company_id = ${companyId} AND page = 'jobs'
+      ORDER BY is_default DESC, name ASC
+    `);
+    return res.json((result as any).rows ?? []);
+  } catch (err) {
+    console.error("GET /jobs/v2/views error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/v2/views", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const { name, filter_json, column_config_json } = req.body;
+    const result = await db.execute(sql`
+      INSERT INTO user_saved_views (user_id, company_id, page, name, filter_json, column_config_json)
+      VALUES (${userId}, ${companyId}, 'jobs', ${String(name).slice(0, 100)}, ${JSON.stringify(filter_json)}, ${JSON.stringify(column_config_json)})
+      RETURNING *
+    `);
+    return res.status(201).json(((result as any).rows ?? [])[0]);
+  } catch (err) {
+    console.error("POST /jobs/v2/views error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/v2/views/:viewId", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const viewId = parseInt(req.params.viewId);
+    if (isNaN(viewId)) return res.status(400).json({ error: "invalid viewId" });
+    const { name, filter_json, column_config_json, is_default } = req.body;
+    if (is_default) {
+      await db.execute(sql`UPDATE user_saved_views SET is_default = false WHERE user_id = ${userId} AND page = 'jobs'`);
+    }
+    const result = await db.execute(sql`
+      UPDATE user_saved_views
+      SET name = COALESCE(${name ?? null}, name),
+          filter_json = COALESCE(${filter_json ? JSON.stringify(filter_json) : null}, filter_json),
+          column_config_json = COALESCE(${column_config_json ? JSON.stringify(column_config_json) : null}, column_config_json),
+          is_default = COALESCE(${is_default ?? null}, is_default),
+          updated_at = NOW()
+      WHERE id = ${viewId} AND user_id = ${userId}
+      RETURNING *
+    `);
+    return res.json(((result as any).rows ?? [])[0]);
+  } catch (err) {
+    console.error("PUT /jobs/v2/views/:viewId error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/v2/views/:viewId", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const viewId = parseInt(req.params.viewId);
+    if (isNaN(viewId)) return res.status(400).json({ error: "invalid viewId" });
+    await db.execute(sql`DELETE FROM user_saved_views WHERE id = ${viewId} AND user_id = ${userId}`);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /jobs/v2/views/:viewId error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Column Preferences ───────────────────────────────────────────────────────
+
+router.get("/v2/columns", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(sql`
+      SELECT * FROM user_column_preferences
+      WHERE user_id = ${userId} AND company_id = ${companyId} AND page = 'jobs'
+      ORDER BY sort_order ASC
+    `);
+    return res.json((result as any).rows ?? []);
+  } catch (err) {
+    console.error("GET /jobs/v2/columns error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/v2/columns", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const columns: Array<{ column_key: string; visible: boolean; sort_order: number }> = req.body;
+    if (!Array.isArray(columns)) return res.status(400).json({ error: "array required" });
+    for (const col of columns) {
+      await db.execute(sql`
+        INSERT INTO user_column_preferences (user_id, company_id, page, column_key, visible, sort_order)
+        VALUES (${userId}, ${companyId}, 'jobs', ${String(col.column_key).slice(0, 50)}, ${!!col.visible}, ${parseInt(String(col.sort_order)) || 0})
+        ON CONFLICT (user_id, page, column_key)
+        DO UPDATE SET visible = EXCLUDED.visible, sort_order = EXCLUDED.sort_order
+      `);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("PUT /jobs/v2/columns error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Export ────────────────────────────────────────────────────────────────────
+
+router.get("/v2/export", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const format = (req.query.format as string) || "csv";
+    const where = buildJobWhereClause(req.query, companyId);
+    const result = await db.execute(sql`
+      SELECT
+        j.id, concat(c.first_name, ' ', c.last_name) AS client_name,
+        c.address AS client_address, c.city AS client_city,
+        concat(u.first_name, ' ', u.last_name) AS tech_name,
+        j.scheduled_date, j.scheduled_time, j.service_type, j.status,
+        j.base_fee, j.frequency, j.flagged,
+        b.name AS branch_name, sz.name AS zone_name, c.referral_source,
+        CASE WHEN j.charge_succeeded_at IS NOT NULL THEN 'paid'
+             WHEN j.charge_failed_at IS NOT NULL THEN 'failed'
+             ELSE 'unpaid' END AS payment_status
+      ${JOBS_V2_FROM} WHERE ${where}
+      ORDER BY j.scheduled_date DESC, j.id DESC
+      LIMIT 10000
+    `);
+
+    const rows = (result as any).rows ?? [];
+    if (format === "csv") {
+      const headers = ["ID","Client","Address","City","Technician","Date","Time","Service","Status","Amount","Frequency","Flagged","Branch","Zone","Source","Payment Status"];
+      const csvRows = rows.map((r: any) => [
+        r.id, `"${(r.client_name || "").replace(/"/g, '""')}"`,
+        `"${(r.client_address || "").replace(/"/g, '""')}"`,
+        `"${(r.client_city || "").replace(/"/g, '""')}"`,
+        `"${(r.tech_name || "Unassigned").replace(/"/g, '""')}"`,
+        r.scheduled_date, r.scheduled_time || "",
+        r.service_type, r.status, r.base_fee || "0",
+        r.frequency, r.flagged ? "Yes" : "No",
+        r.branch_name || "", r.zone_name || "",
+        r.referral_source || "", r.payment_status,
+      ].join(","));
+      const csv = [headers.join(","), ...csvRows].join("\n");
+      const today = new Date().toISOString().split("T")[0];
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=qleno_jobs_phes_${today}.csv`);
+      return res.send(csv);
+    }
+    return res.json(rows);
+  } catch (err) {
+    console.error("GET /jobs/v2/export error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export { calculateTechPay };
 export default router;

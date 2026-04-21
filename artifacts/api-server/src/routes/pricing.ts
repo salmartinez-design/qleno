@@ -373,7 +373,27 @@ router.delete("/addons/:id", requireAuth, async (req, res) => {
 router.get("/discounts", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const rows = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, companyId)).orderBy(pricingDiscountsTable.id);
+    const scopeId = req.query.scope_id ? parseInt(req.query.scope_id as string) : null;
+    const officeOnly = req.query.office === "true";
+
+    let rows;
+    if (scopeId) {
+      const result = await db.execute(sql`
+        SELECT * FROM pricing_discounts
+        WHERE company_id = ${companyId}
+          AND is_active = true
+          AND scope_ids::jsonb @> ${JSON.stringify([scopeId])}::jsonb
+        ORDER BY id
+      `);
+      rows = (result as any).rows ?? [];
+    } else {
+      rows = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, companyId)).orderBy(pricingDiscountsTable.id);
+    }
+
+    if (officeOnly) {
+      rows = rows.filter((r: any) => r.availability_office !== false);
+    }
+
     return res.json(rows);
   } catch (err) {
     console.error("GET /pricing/discounts:", err);
@@ -634,7 +654,11 @@ router.post("/calculate", requireAuth, async (req, res) => {
 
     if (discount_code) {
       const allDiscounts = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, companyId));
-      const match = allDiscounts.find(d => d.code.toUpperCase() === discount_code.toUpperCase() && d.is_active);
+      const match = allDiscounts.find(d => {
+        if (d.code.toUpperCase() !== discount_code.toUpperCase() || !d.is_active) return false;
+        let scopes: number[] = []; try { scopes = JSON.parse((d as any).scope_ids || "[]"); } catch {}
+        return scopes.length === 0 || scopes.includes(scope_id);
+      });
       if (match) {
         discount_valid = true;
         if (match.discount_type === "flat") {

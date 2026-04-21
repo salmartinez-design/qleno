@@ -441,11 +441,12 @@ export async function runCalculate(params: {
       .select()
       .from(pricingDiscountsTable)
       .where(eq(pricingDiscountsTable.company_id, company_id));
-    const match = allDiscounts.find(d =>
-      d.code.toUpperCase() === discount_code.toUpperCase() &&
-      d.is_active &&
-      (!public_only || (d as any).is_online !== false)
-    );
+    const match = allDiscounts.find(d => {
+      if (d.code.toUpperCase() !== discount_code.toUpperCase() || !d.is_active) return false;
+      if (public_only && (d as any).is_online === false) return false;
+      let scopes: number[] = []; try { scopes = JSON.parse((d as any).scope_ids || "[]"); } catch {}
+      return scopes.length === 0 || scopes.includes(scope_id);
+    });
     if (match) {
       discount_valid = true;
       if (match.discount_type === "flat") {

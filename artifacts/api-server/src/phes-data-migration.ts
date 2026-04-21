@@ -220,6 +220,16 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "CREATE idx_job_technicians_job_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_job_id ON job_technicians(job_id)` },
     { label: "CREATE idx_job_technicians_user_id", stmt: `CREATE INDEX IF NOT EXISTS idx_job_technicians_user_id ON job_technicians(user_id)` },
 
+    // ── Jobs page columns (2026-04-16) ──────────────────────────────────────
+    { label: "jobs.flagged", stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT false` },
+    { label: "idx_jobs_company_flagged", stmt: `CREATE INDEX IF NOT EXISTS idx_jobs_company_flagged ON jobs(company_id, flagged) WHERE flagged = true` },
+
+    // ── Pricing discounts scope support (2026-04-16) ────────────────────────
+    { label: "pricing_discounts.scope_ids", stmt: `ALTER TABLE pricing_discounts ADD COLUMN IF NOT EXISTS scope_ids TEXT NOT NULL DEFAULT '[]'` },
+    { label: "pricing_discounts.frequency", stmt: `ALTER TABLE pricing_discounts ADD COLUMN IF NOT EXISTS frequency TEXT NOT NULL DEFAULT 'one_time'` },
+    { label: "pricing_discounts.availability_office", stmt: `ALTER TABLE pricing_discounts ADD COLUMN IF NOT EXISTS availability_office BOOLEAN NOT NULL DEFAULT true` },
+    { label: "uq_pricing_discounts_company_code_scopes", stmt: `CREATE UNIQUE INDEX IF NOT EXISTS uq_pricing_discounts_company_code_scopes ON pricing_discounts(company_id, code, scope_ids)` },
+
     // ── Per-tenant recurring engine flag (2026-04-17) ───────────────────────
     { label: "companies.recurring_engine_enabled", stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS recurring_engine_enabled BOOLEAN NOT NULL DEFAULT true` },
 
@@ -227,6 +237,35 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "clients.payment_method", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'manual'` },
     { label: "clients.payment_method CHECK", stmt: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.check_constraints WHERE constraint_name = 'clients_payment_method_check') THEN ALTER TABLE clients ADD CONSTRAINT clients_payment_method_check CHECK (payment_method IN ('card_on_file','check','zelle','net_30','manual')); END IF; END $$` },
     { label: "clients.net_terms", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS net_terms INTEGER DEFAULT 0` },
+
+    // ── User saved views + column preferences (2026-04-16) ──────────────────
+    { label: "CREATE user_saved_views", stmt: `
+      CREATE TABLE IF NOT EXISTS user_saved_views (
+        id                SERIAL PRIMARY KEY,
+        user_id           INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id        INTEGER NOT NULL,
+        page              TEXT NOT NULL,
+        name              TEXT NOT NULL,
+        filter_json       TEXT NOT NULL DEFAULT '{}',
+        column_config_json TEXT NOT NULL DEFAULT '[]',
+        is_default        BOOLEAN NOT NULL DEFAULT false,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_user_saved_views_user_page", stmt: `CREATE INDEX IF NOT EXISTS idx_user_saved_views_user_page ON user_saved_views(user_id, page)` },
+    { label: "CREATE user_column_preferences", stmt: `
+      CREATE TABLE IF NOT EXISTS user_column_preferences (
+        id          SERIAL PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        company_id  INTEGER NOT NULL,
+        page        TEXT NOT NULL,
+        column_key  TEXT NOT NULL,
+        visible     BOOLEAN NOT NULL DEFAULT true,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (user_id, page, column_key)
+      )
+    ` },
   ];
 
   for (const { label, stmt } of guards) {
@@ -1155,6 +1194,112 @@ export async function runPhesDataMigration(): Promise<void> {
 
   // Seed notification templates
   await runNotificationTemplateSeed();
+
+  // Seed MC discounts + remove placeholder discount add-ons
+  await runDiscountMigration();
+}
+
+// ── MaidCentral Discount Migration (2026-04-16) ─────────────────────────────
+async function runDiscountMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+
+    const OT  = scopeMap["One-Time Standard Clean"];
+    const DC  = scopeMap["Deep Clean"];
+    const MIO = scopeMap["Move In / Move Out"];
+    const HS  = scopeMap["Hourly Standard Cleaning"];
+    const HD  = scopeMap["Hourly Deep Clean"];
+    const R   = scopeMap["Recurring Cleaning"];
+    const C   = scopeMap["Commercial Cleaning"];
+
+    // "Deep Clean or Move In/Out" maps to both DC + MIO
+    const DC_MIO = [DC, MIO].filter(Boolean);
+
+    const discounts: Array<{
+      code: string; value: number; type: string;
+      scope_ids: number[]; office: boolean; online: boolean;
+    }> = [
+      // Scope: One-Time Flat-Rate Standard Cleaning
+      { code: "10% One time discount", value: 10, type: "percent", scope_ids: [OT].filter(Boolean), office: true, online: true },
+      { code: "Chamber",               value: 15, type: "percent", scope_ids: [OT].filter(Boolean), office: true, online: true },
+      { code: "fb15",                   value: 15, type: "percent", scope_ids: [OT].filter(Boolean), office: true, online: true },
+
+      // Scope: Deep Clean or Move In/Out
+      { code: "6-Month Promo",                    value: 20, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Chamber",                          value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Compass",                          value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Compass2026",                      value: 18, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Education Discount",               value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Existing client discount",         value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "fbdeep15",                         value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Law Enforcement & First Responders", value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Manager Discretion Discount 25",   value: 25, type: "flat",    scope_ids: DC_MIO, office: true, online: true },
+      { code: "Manager Discretion Discount 50",   value: 50, type: "flat",    scope_ids: DC_MIO, office: true, online: true },
+      { code: "Realtor Discount",                 value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "ROA",                              value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "Senior Citizen Discount",          value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "smartcity10",                      value: 10, type: "percent", scope_ids: DC_MIO, office: true, online: false },
+
+      // Scope: Commercial Cleaning
+      { code: "Adjustment", value: 100, type: "percent", scope_ids: [C].filter(Boolean), office: true, online: true },
+
+      // Scope: Hourly Standard Cleaning
+      { code: "Chamber", value: 15, type: "percent", scope_ids: [HS].filter(Boolean), office: true, online: true },
+
+      // Scope: Hourly Deep Clean or Move In/Out
+      { code: "Chamber",                        value: 15, type: "percent", scope_ids: [HD].filter(Boolean), office: true, online: true },
+      { code: "Compass Discount",               value: 15, type: "percent", scope_ids: [HD].filter(Boolean), office: true, online: true },
+      { code: "Manager Discretion Discount 25", value: 25, type: "flat",    scope_ids: [HD].filter(Boolean), office: true, online: true },
+
+      // Scope: Recurring Cleaning
+      { code: "fb15",      value: 15, type: "percent", scope_ids: [R].filter(Boolean), office: true, online: true },
+      { code: "PHES10OFF", value: 10, type: "percent", scope_ids: [R].filter(Boolean), office: true, online: true },
+    ];
+
+    let seeded = 0;
+    for (const d of discounts) {
+      const scopeIdsJson = JSON.stringify([...d.scope_ids].sort((a, b) => a - b));
+      await db.execute(sql`
+        INSERT INTO pricing_discounts
+          (company_id, code, description, discount_type, discount_value,
+           scope_ids, frequency, availability_office, is_active, is_online)
+        VALUES
+          (${PHES}, ${d.code}, ${d.code}, ${d.type}, ${d.value},
+           ${scopeIdsJson}, 'one_time', ${d.office}, true, ${d.online})
+        ON CONFLICT (company_id, code, scope_ids)
+          DO UPDATE SET
+            discount_type = EXCLUDED.discount_type,
+            discount_value = EXCLUDED.discount_value,
+            availability_office = EXCLUDED.availability_office,
+            is_online = EXCLUDED.is_online,
+            frequency = EXCLUDED.frequency
+      `);
+      seeded++;
+    }
+    console.log(`[phes-migration] MC discounts seeded: ${seeded} rows`);
+
+    // Delete placeholder discount add-ons
+    const deleted = await db.execute(sql`
+      DELETE FROM pricing_addons
+      WHERE company_id = ${PHES}
+        AND addon_type = 'other'
+        AND (
+          name LIKE 'Loyalty Discount%'
+          OR name LIKE 'Promo Discount%'
+          OR name LIKE 'Second Appointment Discount%'
+        )
+    `);
+    console.log(`[phes-migration] Placeholder discount add-ons removed`);
+
+  } catch (err) {
+    console.error("[phes-migration] Discount migration error (non-fatal):", err);
+  }
 }
 
 // ── Alejandra Cuervo — Full MC data migration ─────────────────────────────────

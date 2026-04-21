@@ -68,3 +68,4 @@ export * from "./addon_bundles";
 export * from "./rate_locks";
 export * from "./offer_settings";
 export * from "./notifications";
+export * from "./user_views";
