@@ -5,7 +5,7 @@ import {
   scorecardsTable, clientHomesTable, technicianPreferencesTable,
   clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
-  recurringSchedulesTable, jobPhotosTable,
+  recurringSchedulesTable, jobPhotosTable, qbCustomerMapTable, companiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -289,9 +289,24 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       if (zone) zoneData = { zone_name: zone.name, zone_color: zone.color };
     }
 
+    // QuickBooks status — tenant connected + client synced?
+    const [company] = await db.select({ qb_connected: companiesTable.qb_connected })
+      .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
+    const [qbMap] = await db.select({ qb_customer_id: qbCustomerMapTable.qb_customer_id, synced_at: qbCustomerMapTable.created_at })
+      .from(qbCustomerMapTable)
+      .where(and(eq(qbCustomerMapTable.qleno_customer_id, clientId), eq(qbCustomerMapTable.company_id, companyId)))
+      .limit(1);
+    const qb_status = {
+      connected: !!company?.qb_connected,
+      synced: !!qbMap?.qb_customer_id,
+      synced_at: qbMap?.synced_at ?? null,
+      qb_customer_id: qbMap?.qb_customer_id ?? null,
+    };
+
     return res.json({
       ...client,
       ...(zoneData || {}),
+      qb_status,
       homes,
       tech_preferences: preferences,
       notification_settings: notifications,
@@ -439,6 +454,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       client_type, billing_contact_name, billing_contact_email, billing_contact_phone,
       po_number_required, default_po_number, payment_terms, auto_charge,
       card_last_four, card_brand, card_expiry, card_saved_at,
+      payment_method, net_terms,
     } = req.body;
     const geo = address !== undefined ? await geocodeAddress(address, city, state, zip) : null;
     const newZoneId = zip !== undefined ? await resolveZoneForZip(req.auth!.companyId, zip) : undefined;
@@ -475,6 +491,8 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(card_brand !== undefined && { card_brand }),
       ...(card_expiry !== undefined && { card_expiry }),
       ...(card_saved_at !== undefined && { card_saved_at }),
+      ...(payment_method !== undefined && { payment_method }),
+      ...(net_terms !== undefined && { net_terms: Number(net_terms) || 0 }),
       ...(newZoneId !== undefined && { zone_id: newZoneId }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });

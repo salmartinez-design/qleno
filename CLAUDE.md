@@ -94,6 +94,33 @@
 - Push to GitHub: `bash push-to-github.sh 'message'`
 - Railway auto-deploys from main branch — no manual deploy needed
 
+## Scoped-commit discipline (when the working tree has unrelated uncommitted work)
+
+This session has often had uncommitted work from prior prompts sitting in the working tree. Commits for a new prompt must NOT sweep up that unrelated work. The naive `git stash --keep-index` pattern is not enough on its own — here's the correct workflow:
+
+**Problem:** `git stash --keep-index -u` only moves UNSTAGED changes. If you run `git add file.ts` on a file that already has uncommitted changes, those older changes go into the index alongside your new ones and end up in the commit.
+
+**Correct workflow for scoped commits when working tree has unrelated uncommitted work:**
+
+1. `git status --short` — inventory everything unclean
+2. **For files where your new work is co-mingled with prior uncommitted work** (e.g. you added a column to a schema file that also has 148 other uncommitted lines from Session 1):
+   - `git checkout HEAD -- <file>` — discard ALL uncommitted changes in that file (they go to /tmp or the other backups, not the stash — you lose them if you don't save first)
+   - BEFORE the checkout, copy the file elsewhere: `cp <file> /tmp/<file>.full`
+   - Re-apply ONLY your new hunks via Edit
+   - After commit succeeds: `cp /tmp/<file>.full <file>` to restore the co-mingled state
+3. **For files where your new work is the only change**, just `git add <file>` directly — safe
+4. Once all target files are staged cleanly, `git stash push --keep-index -u -m "prompt-N-stash"` stashes everything else
+5. `git diff --cached --stat` — sanity check shows ONLY expected files + line counts
+6. If the stat looks wrong (extra files or inflated line counts), STOP and unstage
+7. Commit + push
+8. `git stash pop` to restore the other uncommitted work
+
+**Never trust the stash to protect files that had both staged and unstaged changes simultaneously.** The staged content stays in the index; the stash only captures the unstaged portion. You end up committing content you didn't intend to.
+
+**Quick check:** after `git add` and before `git stash`, run `git diff --cached --stat`. If a file shows +150 lines when you only wrote 3, you have a co-mingled file. Fix it before stashing.
+
+This workflow has been followed cleanly in commits: 7d1c836, d21db36, 7f27299, 1f3d7d2.
+
 ## Start Local Dev
 - Tab 1 (API): `PORT=5000 BASE_PATH=/ npx tsx --env-file=.env artifacts/api-server/src/index.ts`
 - Tab 2 (Frontend build): `cd artifacts/cleanops-pro && PORT=5000 BASE_PATH=/ pnpm run build`

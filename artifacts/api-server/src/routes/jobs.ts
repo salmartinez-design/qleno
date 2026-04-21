@@ -139,6 +139,14 @@ router.post("/", requireAuth, async (req, res) => {
         stopEnrollmentsForClient(client_id, "rebooked", "post_job_retention").catch(() => {});
       });
     }
+    // Fire-and-forget: ensure client exists in QuickBooks (residential + commercial).
+    // syncCustomer is idempotent — skips if qb_customer_map already has a mapping
+    // and no-ops if tenant isn't QB-connected. Booking UX never waits on QB.
+    if (client_id) {
+      import("../services/quickbooks-sync.js").then(({ queueSync, syncCustomer }) => {
+        queueSync(() => syncCustomer(req.auth!.companyId, client_id));
+      }).catch(() => {});
+    }
     let geoAddress: string | null = null;
     let geoZip: string | null = null;
     let displayClientName = "";

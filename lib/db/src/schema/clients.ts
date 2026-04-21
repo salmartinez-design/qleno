@@ -69,6 +69,9 @@ export const clientsTable = pgTable("clients", {
   referral_source: referralSourceEnum("referral_source"),
   referral_by_customer_id: integer("referral_by_customer_id"),
   branch_id: integer("branch_id").references(() => branchesTable.id),
+  // Office-editable payment method (distinct from payment_terms which drives invoice due dates)
+  payment_method: text("payment_method").default("manual"),
+  net_terms: integer("net_terms").default(0),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

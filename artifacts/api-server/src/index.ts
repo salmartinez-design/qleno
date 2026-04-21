@@ -122,6 +122,32 @@ app.listen(port, "0.0.0.0", () => {
   startNotificationCron();
   startFollowUpCron();
 
+  // QuickBooks sync queue drain worker — every 60s, runs syncAll() for each
+  // QB-connected tenant. Retries failed rows up to attempts<3 (logic lives in
+  // syncAll). Gated by env var for emergency kill switch, same pattern as
+  // the recurring engine. No worker = silent sync failures accumulate, which
+  // is unacceptable at multi-tenant scale.
+  if (process.env.QB_QUEUE_WORKER_ENABLED !== "false") {
+    setInterval(async () => {
+      try {
+        const { db } = await import("@workspace/db");
+        const { sql } = await import("drizzle-orm");
+        const { syncAll } = await import("./services/quickbooks-sync.js");
+        const rows = await db.execute(sql.raw("SELECT id FROM companies WHERE qb_connected = true ORDER BY id"));
+        for (const c of (rows.rows as Array<{ id: number }>)) {
+          try { await syncAll(c.id); } catch (err: any) {
+            console.error(`[qb-worker] company ${c.id} syncAll failed:`, err?.message);
+          }
+        }
+      } catch (err: any) {
+        console.error("[qb-worker] tick failed:", err?.message);
+      }
+    }, 60 * 1000);
+    console.log("[qb-worker] Queue drain started (60s interval)");
+  } else {
+    console.log("[qb-worker] DISABLED via QB_QUEUE_WORKER_ENABLED=false env var");
+  }
+
   // Post-deploy smoke tests — 3 s delay to let DB settle after deploy
   if (process.env.NODE_ENV === "production") {
     setTimeout(() => {

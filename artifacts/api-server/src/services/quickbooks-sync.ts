@@ -49,6 +49,31 @@ export { QB_ACCOUNTING_SCOPE };
 // ── Module-level caches ───────────────────────────────────────────────────
 const serviceItemCache = new Map<number, string>(); // companyId → QB item ID
 const qbCompanyCache = new Map<number, { realmId: string; token: string }>(); // companyId → QB info
+// Per-tenant cache: "Net 30" → QB Term Id. First lookup queries QB, subsequent reuse.
+const termRefCache = new Map<number, Map<string, string | null>>();
+
+/**
+ * Look up the QB Term Id for "Net N" days. Per-tenant cached.
+ * Returns null if net_terms <= 0, term not found, or QB call fails —
+ * caller should omit SalesTermRef in that case (QB will default to Due on Receipt).
+ */
+async function getQbTermRef(token: string, realmId: string, companyId: number, netTerms: number): Promise<string | null> {
+  if (!netTerms || netTerms <= 0) return null;
+  const termName = `Net ${netTerms}`;
+  let cache = termRefCache.get(companyId);
+  if (!cache) { cache = new Map(); termRefCache.set(companyId, cache); }
+  if (cache.has(termName)) return cache.get(termName) ?? null;
+  try {
+    const q = await qbGet(token, realmId, `/query?query=${encodeURIComponent(`SELECT Id, Name FROM Term WHERE Name = '${termName}'`)}&`);
+    const id = q.QueryResponse?.Term?.[0]?.Id ?? null;
+    cache.set(termName, id);
+    return id;
+  } catch (err: any) {
+    console.warn(`[QB] getQbTermRef failed for ${termName} (company ${companyId}):`, err.message);
+    cache.set(termName, null);
+    return null;
+  }
+}
 
 // ── Token management ───────────────────────────────────────────────────────
 export async function getValidToken(companyId: number): Promise<{ token: string; realmId: string } | null> {
@@ -269,6 +294,13 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
         CountrySubDivisionCode: (client as any).state || undefined,
         PostalCode: (client as any).zip || undefined,
       };
+    }
+
+    // SalesTermRef — set only when client has net_terms > 0 AND QB has a matching Term entry.
+    const clientNetTerms = Number((client as any).net_terms ?? 0) || 0;
+    if (clientNetTerms > 0) {
+      const termRef = await getQbTermRef(token, realmId, companyId, clientNetTerms);
+      if (termRef) payload.SalesTermRef = { value: termRef };
     }
 
     let qbCustomerId: string;

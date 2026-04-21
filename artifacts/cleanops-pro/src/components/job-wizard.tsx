@@ -87,6 +87,14 @@ interface JobWizardProps {
     phone?: string | null;
     email?: string | null;
     client_type?: string | null;
+    payment_method?: string | null;
+    net_terms?: number | null;
+    qb_status?: {
+      connected: boolean;
+      synced: boolean;
+      synced_at?: string | null;
+      qb_customer_id?: string | null;
+    } | null;
   } | null;
 }
 
@@ -262,6 +270,40 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
       .then(d => setClientRecentJobs(d?.data?.slice(0, 3) || []))
       .catch(() => {});
   }, [selectedClient]);
+
+  // Re-book: pre-fill Step 2 details from a past job
+  function rebookFromPastJob(pastJob: any) {
+    if (pastJob.service_type) setServiceType(pastJob.service_type);
+    const mins = pastJob.duration_minutes
+      ?? (pastJob.allowed_hours ? Math.round(parseFloat(pastJob.allowed_hours) * 60) : null);
+    if (mins && mins > 0) setDuration(mins);
+    if (pastJob.base_fee != null) {
+      const n = parseFloat(String(pastJob.base_fee));
+      if (!isNaN(n) && n > 0) { setPrice(n); setPriceOverridden(true); }
+    }
+    if (pastJob.frequency) setFrequency(pastJob.frequency);
+  }
+
+  // Inline payment_method edit — persists via PUT /api/clients/:id
+  const [pmEditing, setPmEditing] = useState(false);
+  const [pmSaving, setPmSaving] = useState(false);
+  const [pmValue, setPmValue] = useState<string>(preselectedClient?.payment_method || "manual");
+  useEffect(() => {
+    if (preselectedClient?.payment_method !== undefined) setPmValue(preselectedClient.payment_method || "manual");
+  }, [preselectedClient?.id, preselectedClient?.payment_method]);
+
+  async function savePaymentMethod(newMethod: string) {
+    if (!preselectedClient?.id) return;
+    setPmSaving(true);
+    try {
+      await fetch(`${API}/api/clients/${preselectedClient.id}`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ payment_method: newMethod, net_terms: newMethod === "net_30" ? 30 : 0 }),
+      });
+      setPmValue(newMethod);
+    } catch {} finally { setPmSaving(false); setPmEditing(false); }
+  }
 
   // Rate lookup for commercial
   useEffect(() => {
@@ -744,6 +786,66 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
           {/* ── STEP 2: DETAILS (Residential) ── */}
           {step === 2 && clientType === "residential" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* Context bar: QB status + payment method — shown when launched from client profile */}
+              {preselectedClient && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 10 }}>
+                  {/* QuickBooks badge */}
+                  {preselectedClient.qb_status?.connected && (
+                    <span
+                      title={preselectedClient.qb_status.synced
+                        ? "Customer synced to QuickBooks. Invoice will sync when job is marked complete."
+                        : "QuickBooks will sync this customer when the job is saved. Invoice syncs at completion."}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, fontFamily: "inherit", background: preselectedClient.qb_status.synced ? "#DCFCE7" : "#FEF3C7", color: preselectedClient.qb_status.synced ? "#15803D" : "#92400E" }}
+                    >
+                      <span>{preselectedClient.qb_status.synced ? "✓" : "○"}</span>
+                      QuickBooks: {preselectedClient.qb_status.synced ? "customer synced" : "sync pending"}
+                    </span>
+                  )}
+                  {/* Payment method pill + inline edit */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em" }}>Payment:</span>
+                    {!pmEditing ? (
+                      <button onClick={() => setPmEditing(true)}
+                        style={{ padding: "3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", fontSize: 11, fontWeight: 600, color: "#1A1917", fontFamily: "inherit", cursor: "pointer" }}>
+                        {({ card_on_file: "Card on file", check: "Check", zelle: "Zelle", net_30: "Net 30", manual: "Manual" } as Record<string, string>)[pmValue] || "Manual"} ▾
+                      </button>
+                    ) : (
+                      <select value={pmValue} onChange={e => savePaymentMethod(e.target.value)} disabled={pmSaving}
+                        style={{ padding: "3px 8px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", fontSize: 11, fontWeight: 600, color: "#1A1917", fontFamily: "inherit" }}
+                        autoFocus onBlur={() => setPmEditing(false)}>
+                        <option value="manual">Manual</option>
+                        <option value="card_on_file">Card on file</option>
+                        <option value="check">Check</option>
+                        <option value="zelle">Zelle</option>
+                        <option value="net_30">Net 30</option>
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Last 3 Jobs — quick re-book (office-side parity) */}
+              {preselectedClient && clientRecentJobs.length > 0 && (
+                <div>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Last 3 Jobs — click to re-book</p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {clientRecentJobs.map((j: any) => (
+                      <button key={j.id} onClick={() => rebookFromPastJob(j)} type="button"
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#F9F9F9", borderRadius: 8, border: "1px solid #E5E2DC", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#F0FDFB")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "#F9F9F9")}>
+                        <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>{String(j.service_type || "").replace(/_/g, " ")}</span>
+                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                          <span style={{ fontSize: 11, color: "#9E9B94" }}>{String(j.scheduled_date || "")}</span>
+                          {j.base_fee != null && <span style={{ fontSize: 11, color: "#6B6860", fontWeight: 600 }}>${parseFloat(String(j.base_fee)).toFixed(0)}</span>}
+                          <span style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700 }}>Re-book ▸</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>

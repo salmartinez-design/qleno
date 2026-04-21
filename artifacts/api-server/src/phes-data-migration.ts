@@ -222,6 +222,11 @@ async function runBookingSchemaGuard(): Promise<void> {
 
     // ── Per-tenant recurring engine flag (2026-04-17) ───────────────────────
     { label: "companies.recurring_engine_enabled", stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS recurring_engine_enabled BOOLEAN NOT NULL DEFAULT true` },
+
+    // ── Client payment method + net terms (2026-04-18) ──────────────────────
+    { label: "clients.payment_method", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'manual'` },
+    { label: "clients.payment_method CHECK", stmt: `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.check_constraints WHERE constraint_name = 'clients_payment_method_check') THEN ALTER TABLE clients ADD CONSTRAINT clients_payment_method_check CHECK (payment_method IN ('card_on_file','check','zelle','net_30','manual')); END IF; END $$` },
+    { label: "clients.net_terms", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS net_terms INTEGER DEFAULT 0` },
   ];
 
   for (const { label, stmt } of guards) {
