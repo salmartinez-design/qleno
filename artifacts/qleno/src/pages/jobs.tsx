@@ -61,6 +61,16 @@ function fmtTime(t: string | null): string {
   return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
 function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
+function isDarkHex(hex?: string | null): boolean {
+  if (!hex) return false;
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  // perceptual brightness — dark if below ~58% of max
+  return (r * 299 + g * 587 + b * 114) / 1000 < 150;
+}
 function useIsMobile() { const [m, setM] = useState(window.innerWidth < 1024); useEffect(() => { const h = () => setM(window.innerWidth < 1024); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return m; }
 function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return "12 AM"; return h < 12 ? `${h} AM` : `${h - 12} PM`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
@@ -1348,7 +1358,18 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
   const isComplete = job.status === "complete";
   const isRecurring = job.frequency && job.frequency !== "on_demand";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
-  const borderColor = job.zone_color || sc.dot;
+
+  // Card background is ZONE color (address-based) — matches MaidCentral convention.
+  // Falls back to status color when zone is unknown. Text color flips based on
+  // perceptual brightness of the chosen bg so vivid zone colors stay readable.
+  const hasZone = !!job.zone_color;
+  const bgColor = hasZone ? job.zone_color! : sc.bg;
+  const dark = hasZone ? isDarkHex(job.zone_color) : false;
+  const primaryText   = dark ? "#FFFFFF"              : "#1A1917";
+  const secondaryText = dark ? "rgba(255,255,255,0.88)" : "#4B5563";
+  const tertiaryText  = dark ? "rgba(255,255,255,0.72)" : "#6B7280";
+  const iconTint      = dark ? "rgba(255,255,255,0.88)" : sc.dot;
+  const borderColor   = hasZone ? job.zone_color! : sc.dot;
 
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1361,13 +1382,13 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
       onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}
       {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: sc.bg, borderLeft: `3px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `1px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.10)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-        {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
-        {job.after_photo_count > 0 && <Camera size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
-        {isRecurring && <Repeat size={9} style={{ color: sc.dot, flexShrink: 0 }} />}
-        <User size={10} style={{ color: isUnassigned ? "#D97706" : sc.dot, flexShrink: 0 }} />
-        <span style={{ fontSize: 11, fontWeight: 700, color: isUnassigned ? "#D97706" : "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: iconTint, flexShrink: 0 }} />}
+        {job.after_photo_count > 0 && <Camera size={9} style={{ color: iconTint, flexShrink: 0 }} />}
+        {isRecurring && <Repeat size={9} style={{ color: iconTint, flexShrink: 0 }} />}
+        <User size={10} style={{ color: iconTint, flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {(() => {
             const techs = job.technicians ?? [];
             if (techs.length > 1) return `${techs[0].name.split(" ")[0]} +${techs.length - 1}`;
@@ -1376,9 +1397,9 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
           })()}
         </span>
       </div>
-      <span style={{ fontSize: 10, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.client_name}</span>
+      <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.client_name}</span>
       {width > 130 && (
-        <span style={{ fontSize: 9, color: "#9E9B94" }}>
+        <span style={{ fontSize: 9, color: tertiaryText }}>
           {fmtSvc(job.service_type)} · {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
         </span>
       )}
