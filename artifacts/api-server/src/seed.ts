@@ -138,6 +138,9 @@ async function cleanupDemoData(companyId: number) {
   console.log(`[seed] Demo cleanup done — removed: ${d.emps} employees, ${d.clients} clients, ${d.jobs} jobs, ${d.inv} invoices, ${d.sc} scorecards, ${d.tc} clock entries, ${d.ct} contact tickets`);
 }
 
+// TODO(post-rename): Update super-admin credentials to admin@qleno.com.
+// Requires DB migration to update existing prod row. Carved out of the
+// cleanops→qleno rename to avoid locking out the existing super admin.
 const SUPER_ADMINS = [
   { email: "admin@cleanopspro.com", password: "AdminCleanOps2026!", first_name: "Admin", last_name: "CleanOps" },
 ];

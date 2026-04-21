@@ -2,9 +2,9 @@
 
 ## Project
 - **Name:** Qleno — multi-tenant SaaS for residential cleaning businesses
-- **Company:** Phes (never PHES Cleaning, never Phes Cleaning, never CleanOps Pro)
+- **Company:** Phes
 - **Live app:** https://workspaceapi-server-production-b9d4.up.railway.app
-- **GitHub:** salmartinez-design/clean-ops-pro, branch main
+- **GitHub:** salmartinez-design/qleno, branch main
 - **Replit:** clean-ops-pro.replit.app — backup only, do not deploy from here
 
 ## Tech Stack
@@ -70,7 +70,7 @@
 - Google Maps API key must be passed to Vite build: `source .env && GOOGLE_MAPS_API_KEY=$GOOGLE_MAPS_API_KEY pnpm run build`
 
 ### Commission System
-- calculateCommissionSplit() utility at artifacts/cleanops-pro/src/lib/commission.ts
+- calculateCommissionSplit() utility at artifacts/qleno/src/lib/commission.ts
 - 35% rate, equal split pre-clock-in, proportional by minutes after clock-in
 - Displayed in Price Preview sidebar (single and multi-scope)
 - Still needs: quote detail, job detail, dispatch board, My Jobs (tech view)
@@ -123,8 +123,8 @@ This workflow has been followed cleanly in commits: 7d1c836, d21db36, 7f27299, 1
 
 ## Start Local Dev
 - Tab 1 (API): `PORT=5000 BASE_PATH=/ npx tsx --env-file=.env artifacts/api-server/src/index.ts`
-- Tab 2 (Frontend build): `cd artifacts/cleanops-pro && PORT=5000 BASE_PATH=/ pnpm run build`
-- Tab 3 (Serve): `npx serve artifacts/cleanops-pro/dist/public -p 3000`
+- Tab 2 (Frontend build): `cd artifacts/qleno && PORT=5000 BASE_PATH=/ pnpm run build`
+- Tab 3 (Serve): `npx serve artifacts/qleno/dist/public -p 3000`
 - View at: http://localhost:3000
 
 ## Environment

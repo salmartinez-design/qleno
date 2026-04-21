@@ -74,11 +74,11 @@ async function buildAll() {
     }
   }
 
-  // Build frontend — output lands at artifacts/cleanops-pro/dist/public
+  // Build frontend — output lands at artifacts/qleno/dist/public
   // The Express server serves it as static files in production (see app.ts)
   console.log("building frontend...");
   try {
-    execSync("pnpm --filter @workspace/cleanops-pro run build", {
+    execSync("pnpm --filter @workspace/qleno run build", {
       stdio: "inherit",
       cwd: path.resolve(__dirname, "../.."),
     });

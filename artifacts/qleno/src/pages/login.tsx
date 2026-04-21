@@ -25,8 +25,8 @@ export default function Login() {
 
   useEffect(() => {
     document.title = "Login — Qleno";
-    localStorage.removeItem('cleanops_token');
-    localStorage.removeItem('cleanops_admin_token');
+    localStorage.removeItem('qleno_token');
+    localStorage.removeItem('qleno_admin_token');
     setToken(null);
   }, []);
 

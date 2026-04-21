@@ -125,7 +125,7 @@ if (fs.existsSync(landingDir)) {
 
 // ── Frontend Static Serving ──────────────────────────────────────────────────
 const serveFrontend = process.env.NODE_ENV === "production" || process.env.SERVE_FRONTEND === "true";
-const frontendDist = path.resolve(__appDir, "../../cleanops-pro/dist/public");
+const frontendDist = path.resolve(__appDir, "../../qleno/dist/public");
 if (serveFrontend && fs.existsSync(frontendDist)) {
   app.use("/assets", express.static(path.join(frontendDist, "assets"), { maxAge: "1y", immutable: true }));
   app.use(express.static(frontendDist, { maxAge: "10m", index: false }));

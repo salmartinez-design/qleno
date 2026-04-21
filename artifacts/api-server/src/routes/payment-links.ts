@@ -78,7 +78,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           const { Resend } = await import("resend") as any;
           const resend = new Resend(resendKey);
           await resend.emails.send({
-            from: `${companyName} <noreply@cleanopspro.com>`,
+            from: `${companyName} <noreply@qlenopro.com>`,
             to: toEmail,
             subject: `${companyName} — Save your payment method`,
             html: buildCardLinkEmail({ clientName, companyName, payUrl, brandColor: company.brand_color }),

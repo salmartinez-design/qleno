@@ -11,7 +11,7 @@
 4. Nothing happens — URL changes to /customers/new, blank page renders
 
 **Root cause:**
-- `artifacts/cleanops-pro/src/pages/customers.tsx:141-151` — onClick navigates to `/customers/new`
+- `artifacts/qleno/src/pages/customers.tsx:141-151` — onClick navigates to `/customers/new`
 - No `/customers/new` route registered in `App.tsx` (only `/customers` and `/customers/:id`)
 - No `NewClientModal` / `AddClientModal` / `ClientForm` component exists in the codebase
 - Wouter matches wildcard `/customers/:id` with `id = "new"` → `parseInt("new") = NaN` → `clientId = 0` → all queries disabled via `enabled: clientId > 0`

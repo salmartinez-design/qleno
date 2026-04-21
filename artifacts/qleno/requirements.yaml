@@ -9,7 +9,7 @@ packages:
   "lucide-react": "Beautiful and consistent icon set"
 
 images:
-  - path: "artifacts/cleanops-pro/public/images/logo-mark.png"
+  - path: "artifacts/qleno/public/images/logo-mark.png"
     description: "A minimal, flat, geometric logo mark for a modern commercial cleaning SaaS platform, teal and white, dark background"
     aspect_ratio: "1:1"
 

@@ -2,7 +2,7 @@ kind = "web"
 previewPath = "/"
 title = "Qleno"
 version = "1.0.0"
-id = "artifacts/cleanops-pro"
+id = "artifacts/qleno"
 router = "path"
 
 [[integratedSkills]]
@@ -15,12 +15,12 @@ name = "web"
 paths = ["/"]
 
 [services.development]
-run = "pnpm --filter @workspace/cleanops-pro run dev"
+run = "pnpm --filter @workspace/qleno run dev"
 
 [services.env]
 PORT = "19325"
 BASE_PATH = "/"
 
 [services.production]
-build = ["pnpm", "--filter", "@workspace/cleanops-pro", "run", "build"]
-run = "npx serve -s artifacts/cleanops-pro/dist/public -l ${PORT:-3000}"
+build = ["pnpm", "--filter", "@workspace/qleno", "run", "build"]
+run = "npx serve -s artifacts/qleno/dist/public -l ${PORT:-3000}"
