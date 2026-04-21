@@ -100,12 +100,16 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, re
   }
 });
 
-// POST /api/recurring/trigger — admin-triggered job generation (60-day horizon)
+// POST /api/recurring/trigger — admin-triggered job generation (60-day horizon).
+// Pass ?dry_run=true (or body.dry_run=true) to compute occurrences without
+// inserting; response includes planned_inserts, skipped_schedules, and
+// would-have-been counts for NULL/zero-fee schedules.
 router.post("/trigger", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const daysAhead = typeof req.body?.days_ahead === "number" ? req.body.days_ahead : 60;
-    const result = await generateRecurringJobs(companyId, daysAhead);
+    const dryRun = req.query.dry_run === "true" || req.body?.dry_run === true;
+    const result = await generateRecurringJobs(companyId, daysAhead, { dryRun });
     return res.json(result);
   } catch (err) {
     console.error("[recurring/trigger]", err);

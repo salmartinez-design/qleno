@@ -97,28 +97,33 @@ function generateOccurrences(
   return dates;
 }
 
-export async function generateJobsFromSchedule(
-  schedule: {
-    id: number;
-    company_id: number;
-    customer_id: number;
-    frequency: string;
-    day_of_week: string | null;
-    start_date: string;
-    end_date?: string | null;
-    assigned_employee_id: number | null;
-    service_type: string | null;
-    duration_minutes: number | null;
-    base_fee: string | null;
-    notes: string | null;
-  },
+type ScheduleInput = {
+  id: number;
+  company_id: number;
+  customer_id: number;
+  frequency: string;
+  day_of_week: string | null;
+  start_date: string;
+  end_date?: string | null;
+  assigned_employee_id: number | null;
+  service_type: string | null;
+  duration_minutes: number | null;
+  base_fee: string | null;
+  notes: string | null;
+};
+
+// Pure compute: produces insert-ready rows after the dedupe check, but does NOT
+// insert. Returned rows can be handed to db.insert() directly (live run) or
+// serialized into a dry-run response.
+export async function computeOccurrencesForSchedule(
+  schedule: ScheduleInput,
   fromDate: Date,
   toDate: Date,
   bookingLocation?: string | null,
   clientZip?: string | null
-): Promise<{ created: number; skipped: number }> {
+): Promise<{ rows: Record<string, any>[]; skipped: number }> {
   const occurrences = generateOccurrences(schedule, fromDate, toDate);
-  if (!occurrences.length) return { created: 0, skipped: 0 };
+  if (!occurrences.length) return { rows: [], skipped: 0 };
 
   const fromStr = toDateStr(fromDate);
   const toStr = toDateStr(toDate);
@@ -140,7 +145,7 @@ export async function generateJobsFromSchedule(
   const toInsert = occurrences.filter(d => !existingDates.has(toDateStr(d)));
   const skipped = occurrences.length - toInsert.length;
 
-  if (!toInsert.length) return { created: 0, skipped };
+  if (!toInsert.length) return { rows: [], skipped };
 
   const rows = toInsert.map(d => ({
     company_id: schedule.company_id,
@@ -159,8 +164,22 @@ export async function generateJobsFromSchedule(
     address_zip: (clientZip ?? null) as any,
   }));
 
+  return { rows, skipped };
+}
+
+export async function generateJobsFromSchedule(
+  schedule: ScheduleInput,
+  fromDate: Date,
+  toDate: Date,
+  bookingLocation?: string | null,
+  clientZip?: string | null
+): Promise<{ created: number; skipped: number }> {
+  const { rows, skipped } = await computeOccurrencesForSchedule(
+    schedule, fromDate, toDate, bookingLocation, clientZip
+  );
+  if (!rows.length) return { created: 0, skipped };
   await db.insert(jobsTable).values(rows as any[]);
-  return { created: toInsert.length, skipped };
+  return { created: rows.length, skipped };
 }
 
 type SkippedSchedule = {
@@ -169,6 +188,13 @@ type SkippedSchedule = {
   client_name: string | null;
   frequency: string;
   reason: "null_fee" | "zero_fee";
+};
+
+type PlannedInsert = {
+  schedule_id: number;
+  client_id: number | null;
+  scheduled_date: string;
+  base_fee: string;
 };
 
 export type RecurringRunResult = {
@@ -184,17 +210,31 @@ export type RecurringRunResult = {
   skipped_null_fee: number;
   skipped_zero_fee: number;
   skipped_schedules: SkippedSchedule[];
+  // Session 2 — dry-run mode (present only when opts.dryRun)
+  dry_run?: boolean;
+  planned?: number;
+  total_schedules_evaluated?: number;
+  total_occurrences_planned?: number;
+  total_occurrences_skipped_fee_guard?: number;
+  planned_inserts?: PlannedInsert[];
+  planned_inserts_total?: number;
 };
 
 const SKIPPED_SCHEDULES_CAP = 200;
+const PLANNED_INSERTS_CAP = 500;
 
 export async function generateRecurringJobs(
   companyId: number,
-  daysAhead = DAYS_AHEAD
+  daysAhead = DAYS_AHEAD,
+  opts: { dryRun?: boolean } = {}
 ): Promise<RecurringRunResult> {
-  // Per-tenant disable flag — skip this company if their engine is off
+  const dryRun = opts.dryRun === true;
+
+  // Per-tenant disable flag — skip this company if their engine is off.
+  // Dry-run intentionally bypasses this so operators can plan against a
+  // disabled tenant before flipping the flag back on.
   const company = await db.select().from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
-  if (!company[0] || !company[0].recurring_engine_enabled) {
+  if (!company[0] || (!company[0].recurring_engine_enabled && !dryRun)) {
     console.log(`[recurring-engine] Skipping company_id=${companyId} — engine disabled for this tenant`);
     return {
       jobs_created: 0, schedules_processed: 0, skipped_duplicates: 0, unassigned_jobs: 0,
@@ -261,6 +301,11 @@ export async function generateRecurringJobs(
   let skippedZeroFee = 0;
   const skippedSchedules: SkippedSchedule[] = [];
 
+  // Dry-run accumulators — populated only when opts.dryRun
+  let totalOccurrencesPlanned = 0;
+  let totalOccurrencesSkippedFeeGuard = 0;
+  const plannedInserts: PlannedInsert[] = [];
+
   for (const schedule of schedules) {
     // Guard: reject schedules with unusable base_fee. Prevents phantom $0 jobs
     // like the 744 cleaned up in Session 1. Backfilling base_fee from MaidCentral
@@ -282,6 +327,10 @@ export async function generateRecurringJobs(
           reason: "null_fee",
         });
       }
+      // In dry-run, also count what WOULD have been generated had the fee been set
+      if (dryRun) {
+        totalOccurrencesSkippedFeeGuard += generateOccurrences(schedule, today, horizon).length;
+      }
       continue;
     }
 
@@ -298,11 +347,34 @@ export async function generateRecurringJobs(
           reason: "zero_fee",
         });
       }
+      if (dryRun) {
+        totalOccurrencesSkippedFeeGuard += generateOccurrences(schedule, today, horizon).length;
+      }
       continue;
     }
 
     const clientZip = clientZipMap[schedule.customer_id!] ?? null;
     const bookingLocation = clientZip ? (zipLocationMap[clientZip] ?? null) : null;
+
+    if (dryRun) {
+      // Compute but do not insert; do not update last_generated_date
+      const { rows, skipped } = await computeOccurrencesForSchedule(
+        schedule, today, horizon, bookingLocation, clientZip
+      );
+      totalSkipped += skipped;
+      totalOccurrencesPlanned += rows.length;
+      if (rows.length > 0) schedulesProcessed++;
+      for (const r of rows) {
+        if (plannedInserts.length >= PLANNED_INSERTS_CAP) break;
+        plannedInserts.push({
+          schedule_id: schedule.id,
+          client_id: clientId,
+          scheduled_date: String(r.scheduled_date),
+          base_fee: String(r.base_fee),
+        });
+      }
+      continue;
+    }
 
     const { created, skipped } = await generateJobsFromSchedule(
       schedule, today, horizon, bookingLocation, clientZip
@@ -321,20 +393,37 @@ export async function generateRecurringJobs(
     }
   }
 
+  const inserted = dryRun ? 0 : totalCreated;
   console.log(
-    `[recurring-jobs] Done — created ${totalCreated}, skipped ${totalSkipped} duplicates, ` +
-    `${skippedNullFee} null-fee, ${skippedZeroFee} zero-fee, ${schedules.length} schedules evaluated`
+    `[recurring-jobs]${dryRun ? " [dry-run]" : ""} Done — ` +
+    `${dryRun ? `planned ${totalOccurrencesPlanned}` : `created ${totalCreated}`}, ` +
+    `skipped ${totalSkipped} duplicates, ` +
+    `${skippedNullFee} null-fee, ${skippedZeroFee} zero-fee, ` +
+    `${schedules.length} schedules evaluated`
   );
-  return {
-    jobs_created: totalCreated,
+
+  const base: RecurringRunResult = {
+    jobs_created: inserted,
     schedules_processed: schedulesProcessed,
     skipped_duplicates: totalSkipped,
     unassigned_jobs: unassignedJobs,
-    inserted: totalCreated,
+    inserted,
     skipped_null_fee: skippedNullFee,
     skipped_zero_fee: skippedZeroFee,
     skipped_schedules: skippedSchedules,
   };
+
+  if (dryRun) {
+    base.dry_run = true;
+    base.planned = totalOccurrencesPlanned;
+    base.total_schedules_evaluated = schedules.length;
+    base.total_occurrences_planned = totalOccurrencesPlanned;
+    base.total_occurrences_skipped_fee_guard = totalOccurrencesSkippedFeeGuard;
+    base.planned_inserts = plannedInserts;
+    base.planned_inserts_total = totalOccurrencesPlanned;
+  }
+
+  return base;
 }
 
 export async function runRecurringJobGeneration() {
