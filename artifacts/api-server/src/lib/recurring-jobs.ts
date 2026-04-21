@@ -163,15 +163,44 @@ export async function generateJobsFromSchedule(
   return { created: toInsert.length, skipped };
 }
 
+type SkippedSchedule = {
+  schedule_id: number;
+  client_id: number | null;
+  client_name: string | null;
+  frequency: string;
+  reason: "null_fee" | "zero_fee";
+};
+
+export type RecurringRunResult = {
+  // back-compat fields
+  jobs_created: number;
+  schedules_processed: number;
+  skipped_duplicates: number;
+  unassigned_jobs: number;
+  skipped?: boolean;
+  reason?: string;
+  // Session 2 — base_fee guard
+  inserted: number;
+  skipped_null_fee: number;
+  skipped_zero_fee: number;
+  skipped_schedules: SkippedSchedule[];
+};
+
+const SKIPPED_SCHEDULES_CAP = 200;
+
 export async function generateRecurringJobs(
   companyId: number,
   daysAhead = DAYS_AHEAD
-): Promise<{ jobs_created: number; schedules_processed: number; skipped_duplicates: number; unassigned_jobs: number; skipped?: boolean; reason?: string }> {
+): Promise<RecurringRunResult> {
   // Per-tenant disable flag — skip this company if their engine is off
   const company = await db.select().from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
   if (!company[0] || !company[0].recurring_engine_enabled) {
     console.log(`[recurring-engine] Skipping company_id=${companyId} — engine disabled for this tenant`);
-    return { jobs_created: 0, schedules_processed: 0, skipped_duplicates: 0, unassigned_jobs: 0, skipped: true, reason: "tenant_disabled" };
+    return {
+      jobs_created: 0, schedules_processed: 0, skipped_duplicates: 0, unassigned_jobs: 0,
+      skipped: true, reason: "tenant_disabled",
+      inserted: 0, skipped_null_fee: 0, skipped_zero_fee: 0, skipped_schedules: [],
+    };
   }
 
   const today = new Date();
@@ -192,19 +221,25 @@ export async function generateRecurringJobs(
 
   if (!schedules.length) {
     console.log(`[recurring-jobs] No active schedules for company ${companyId}`);
-    return { jobs_created: 0, schedules_processed: 0, skipped_duplicates: 0, unassigned_jobs: 0 };
+    return {
+      jobs_created: 0, schedules_processed: 0, skipped_duplicates: 0, unassigned_jobs: 0,
+      inserted: 0, skipped_null_fee: 0, skipped_zero_fee: 0, skipped_schedules: [],
+    };
   }
 
   const customerIds = [...new Set(schedules.map(s => s.customer_id).filter((id): id is number => id != null))];
 
   let clientZipMap: Record<number, string | null> = {};
+  let clientNameMap: Record<number, string | null> = {};
   if (customerIds.length > 0) {
     const clientRows = await db
-      .select({ id: clientsTable.id, zip: clientsTable.zip })
+      .select({ id: clientsTable.id, zip: clientsTable.zip, first_name: clientsTable.first_name, last_name: clientsTable.last_name })
       .from(clientsTable)
       .where(inArray(clientsTable.id, customerIds));
     for (const row of clientRows) {
       clientZipMap[row.id] = row.zip || null;
+      const parts = [row.first_name, row.last_name].filter((p): p is string => !!p);
+      clientNameMap[row.id] = parts.length ? parts.join(" ") : null;
     }
   }
 
@@ -222,8 +257,50 @@ export async function generateRecurringJobs(
   let totalSkipped = 0;
   let schedulesProcessed = 0;
   let unassignedJobs = 0;
+  let skippedNullFee = 0;
+  let skippedZeroFee = 0;
+  const skippedSchedules: SkippedSchedule[] = [];
 
   for (const schedule of schedules) {
+    // Guard: reject schedules with unusable base_fee. Prevents phantom $0 jobs
+    // like the 744 cleaned up in Session 1. Backfilling base_fee from MaidCentral
+    // rates or client-history median is a separate concern.
+    const feeRaw = schedule.base_fee;
+    const feeTrimmed = typeof feeRaw === "string" ? feeRaw.trim() : feeRaw;
+    const clientId = schedule.customer_id ?? null;
+    const clientName = clientId != null ? (clientNameMap[clientId] ?? null) : null;
+
+    if (feeTrimmed == null || feeTrimmed === "") {
+      console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is NULL`);
+      skippedNullFee++;
+      if (skippedSchedules.length < SKIPPED_SCHEDULES_CAP) {
+        skippedSchedules.push({
+          schedule_id: schedule.id,
+          client_id: clientId,
+          client_name: clientName,
+          frequency: schedule.frequency,
+          reason: "null_fee",
+        });
+      }
+      continue;
+    }
+
+    const feeNum = parseFloat(feeTrimmed);
+    if (!Number.isFinite(feeNum) || feeNum === 0) {
+      console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0`);
+      skippedZeroFee++;
+      if (skippedSchedules.length < SKIPPED_SCHEDULES_CAP) {
+        skippedSchedules.push({
+          schedule_id: schedule.id,
+          client_id: clientId,
+          client_name: clientName,
+          frequency: schedule.frequency,
+          reason: "zero_fee",
+        });
+      }
+      continue;
+    }
+
     const clientZip = clientZipMap[schedule.customer_id!] ?? null;
     const bookingLocation = clientZip ? (zipLocationMap[clientZip] ?? null) : null;
 
@@ -244,8 +321,20 @@ export async function generateRecurringJobs(
     }
   }
 
-  console.log(`[recurring-jobs] Done — created ${totalCreated}, skipped ${totalSkipped} duplicates, ${schedules.length} schedules`);
-  return { jobs_created: totalCreated, schedules_processed: schedulesProcessed, skipped_duplicates: totalSkipped, unassigned_jobs: unassignedJobs };
+  console.log(
+    `[recurring-jobs] Done — created ${totalCreated}, skipped ${totalSkipped} duplicates, ` +
+    `${skippedNullFee} null-fee, ${skippedZeroFee} zero-fee, ${schedules.length} schedules evaluated`
+  );
+  return {
+    jobs_created: totalCreated,
+    schedules_processed: schedulesProcessed,
+    skipped_duplicates: totalSkipped,
+    unassigned_jobs: unassignedJobs,
+    inserted: totalCreated,
+    skipped_null_fee: skippedNullFee,
+    skipped_zero_fee: skippedZeroFee,
+    skipped_schedules: skippedSchedules,
+  };
 }
 
 export async function runRecurringJobGeneration() {
