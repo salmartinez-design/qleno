@@ -10,12 +10,12 @@ interface AuthState {
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
-  token: localStorage.getItem('cleanops_token'),
+  token: localStorage.getItem('qleno_token'),
   setToken: (token) => {
     if (token) {
-      localStorage.setItem('cleanops_token', token);
+      localStorage.setItem('qleno_token', token);
     } else {
-      localStorage.removeItem('cleanops_token');
+      localStorage.removeItem('qleno_token');
     }
     set({ token });
   },
@@ -27,31 +27,31 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
-    localStorage.removeItem('cleanops_token');
-    localStorage.removeItem('cleanops_admin_token');
+    localStorage.removeItem('qleno_token');
+    localStorage.removeItem('qleno_admin_token');
     set({ token: null });
     window.location.href = '/login';
   },
   impersonate: (impersonationToken: string) => {
     const currentToken = get().token;
     if (currentToken) {
-      localStorage.setItem('cleanops_admin_token', currentToken);
+      localStorage.setItem('qleno_admin_token', currentToken);
     }
-    localStorage.setItem('cleanops_token', impersonationToken);
+    localStorage.setItem('qleno_token', impersonationToken);
     set({ token: impersonationToken });
     window.location.href = '/dashboard';
   },
   exitImpersonation: () => {
-    const adminToken = localStorage.getItem('cleanops_admin_token');
+    const adminToken = localStorage.getItem('qleno_admin_token');
     if (adminToken) {
-      localStorage.setItem('cleanops_token', adminToken);
-      localStorage.removeItem('cleanops_admin_token');
+      localStorage.setItem('qleno_token', adminToken);
+      localStorage.removeItem('qleno_admin_token');
       set({ token: adminToken });
       window.location.href = '/admin/companies';
     }
   },
   isImpersonating: () => {
-    return !!localStorage.getItem('cleanops_admin_token');
+    return !!localStorage.getItem('qleno_admin_token');
   },
 }));
 

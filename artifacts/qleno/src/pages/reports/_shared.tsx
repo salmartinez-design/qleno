@@ -148,7 +148,7 @@ export function DeltaBadge({ pct }: { pct: number }) {
 }
 
 const API_BASE = (import.meta as any).env?.BASE_URL?.replace(/\/$/, "") || "";
-function getToken() { return typeof window !== "undefined" ? localStorage.getItem("cleanops_token") : null; }
+function getToken() { return typeof window !== "undefined" ? localStorage.getItem("qleno_token") : null; }
 
 export function useReportData<T>(path: string): { data: T | null; loading: boolean; error: string | null; reload: () => void } {
   const [data, setData] = useState<T | null>(null);

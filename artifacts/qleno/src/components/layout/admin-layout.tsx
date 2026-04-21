@@ -40,14 +40,14 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
   const exitImpersonation = useAuthStore(state => state.exitImpersonation);
   const token = useAuthStore(state => state.token);
 
-  let adminUser: { firstName: string; lastName: string; email: string } = { firstName: "Super", lastName: "Admin", email: "admin@cleanopspro.com" };
+  let adminUser: { firstName: string; lastName: string; email: string } = { firstName: "Super", lastName: "Admin", email: "admin@qlenopro.com" };
   if (token) {
     try {
       const p = JSON.parse(atob(token.split(".")[1]));
       adminUser = {
         firstName: p.first_name || "Super",
         lastName: p.last_name || "Admin",
-        email: p.email || "admin@cleanopspro.com",
+        email: p.email || "admin@qlenopro.com",
       };
     } catch { /* empty */ }
   }

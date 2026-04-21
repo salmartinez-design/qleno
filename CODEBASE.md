@@ -8,7 +8,7 @@ Generated: March 24, 2026 | App: Qleno
 ```
 workspace/
 ├── artifacts/
-│   ├── cleanops-pro/          @workspace/cleanops-pro — React 18 + Vite frontend
+│   ├── qleno/          @workspace/qleno — React 18 + Vite frontend
 │   └── api-server/            @workspace/api-server — Express 5 API
 ├── lib/
 │   └── db/                    @workspace/db — Drizzle ORM + PostgreSQL schema
@@ -28,7 +28,7 @@ workspace/
 - **Border:** `#E5E2DC`
 - **Text primary:** `#1A1917` | **Text secondary:** `#6B7280` | **Muted:** `#9E9B94`
 - No emojis. No dark mode. No Tailwind in page files — pages use inline `style={{}}`.
-- Brand components: `QlenoMark` and `QlenoLogo` in `artifacts/cleanops-pro/src/components/brand/`
+- Brand components: `QlenoMark` and `QlenoLogo` in `artifacts/qleno/src/components/brand/`
 
 ---
 
@@ -138,7 +138,7 @@ Returns: up to 5 ranked techs with tier (1–4), zone info, availability
 
 ---
 
-## Frontend Pages (`artifacts/cleanops-pro/src/pages/`)
+## Frontend Pages (`artifacts/qleno/src/pages/`)
 
 ### Core Operations
 | File | Lines | Notes |
@@ -226,5 +226,5 @@ Returns: up to 5 ranked techs with tier (1–4), zone info, availability
 
 | Role | Email | Password |
 |---|---|---|
-| Super Admin | `sal@cleanopspro.com` | `SalCleanOps2026!` |
+| Super Admin | `sal@qlenopro.com` | `SalQleno2026!` |
 | PHES Owner | `salmartinez@phes.io` | `Avaseb2024$` |

@@ -26,7 +26,7 @@ function getRedirectUri(req: any): string {
   // Construct from Replit domain
   const domain = process.env.REPLIT_DEV_DOMAIN || req.headers["x-forwarded-host"] || req.headers.host || "localhost";
   const proto = process.env.NODE_ENV === "production" ? "https" : "https";
-  return `${proto}://${domain}/cleanops-pro/api/integrations/quickbooks/callback`;
+  return `${proto}://${domain}/qleno/api/integrations/quickbooks/callback`;
 }
 
 // ── GET /api/integrations/quickbooks/connect ───────────────────────────────
@@ -55,7 +55,7 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
 // ── GET /api/integrations/quickbooks/callback ─────────────────────────────
 router.get("/callback", async (req, res) => {
   const baseFrontend = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}/cleanops-pro`
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}/qleno`
     : "";
 
   try {
