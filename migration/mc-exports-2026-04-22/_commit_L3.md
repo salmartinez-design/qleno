@@ -228,3 +228,105 @@ After Phase 4 commits cleanly, the Dispatch Board will show MC's actual per-day 
 - No `recurring_schedules` writes
 - No code changes
 - No engine re-enable
+
+---
+
+# Addendum — Commit L3.1: Delia Martinez (former tech) fix
+
+- **Timestamp:** 2026-04-22 CT (Sal confirmed Delia is a former employee)
+- **Scope:** Create Delia as `is_active=false` user, re-parse the staging rows that reference her
+
+## D.2 — Delia Martinez user row created
+
+```sql
+INSERT INTO users (
+  company_id, email, password_hash, role,
+  first_name, last_name, is_active, pay_type,
+  notes, created_at
+) VALUES (
+  1,
+  'delia.martinez.former@phes.internal',           -- synthetic, no login collision
+  'IMPORT_PLACEHOLDER_<16-byte hex>',              -- blocked password (same pattern as L1/import techs)
+  'technician',
+  'Delia', 'Martinez', false, 'hourly',
+  '[mc_import_phase3 2026-04-22 former employee]',
+  NOW()
+);
+```
+
+| Field | Value |
+|---|---|
+| **user id** | **283** |
+| first_name / last_name | Delia / Martinez |
+| role | technician |
+| is_active | **false** |
+| email | `delia.martinez.former@phes.internal` (synthetic `.internal` TLD — no real email collision) |
+| password_hash | blocked placeholder — cannot be used to log in |
+| pay_type | hourly (matches other tech shape) |
+| notes | `[mc_import_phase3 2026-04-22 former employee]` (traceability tag, same pattern as `[mc_import_phase2]` and G-series) |
+
+### Schema notes
+
+`users` has 4 NOT-NULL columns without defaults: `email`, `password_hash`, `first_name`, `last_name`. Other fields (`hr_status`, `overtime_eligible`, `pay_type`, etc.) have defaults — omitted from the INSERT to inherit them. `tags` not set; Delia doesn't need the `['field','technician']` dispatch-visibility tag because she's inactive.
+
+## D.3 — Re-parse Delia-containing rows
+
+The parser roster now includes `{ name: 'Delia Martinez', userId: 283 }`. Re-ran greedy-prefix parsing on every staging row where `team_raw ILIKE '%Delia%'`.
+
+**Correction to prompt's row count estimate**: 38 rows contain "Delia" in `team_raw`, not 33. Breakdown:
+
+| team_raw pattern | Rows | Before → After |
+|---|---:|---|
+| `Delia Martinez` (solo) | 28 | `[]` → `[283]` |
+| `Alejandra Cuervo Delia Martinez` | 3 | `[41]` → `[41, 283]` |
+| `Ana Valdez Delia Martinez` | 2 | `[34]` → `[34, 283]` |
+| `Delia Martinez Juliana Loredo` | 2 | `[42]` → `[283, 42]` |
+| other minor combos | 3 | 1-tech → 2-tech |
+| **TOTAL** | **38** | 38 UPDATEs ✓ |
+
+Zero parse failures on any of the 38.
+
+## D.4 — Updated tech distribution
+
+| Tech count | Before L3.1 | After L3.1 | Δ |
+|---:|---:|---:|---:|
+| 0 | 39 | **11** | −28 (all 28 Delia-solo rows moved to 1-tech) |
+| 1 | 846 | **864** | +18 (gained 28 Delia-solos, lost 10 to 2-tech) |
+| 2 | 86 | **96** | +10 (paired Delia rows moved from 1-tech to 2-tech) |
+| 3 | 12 | 12 | 0 (no Delia 3-tech combos) |
+| **Total rows** | 983 | 983 | 0 |
+| **Total tech assignments** | 1,054 | **1,092** | **+38** |
+
+The 11 remaining "0 techs" rows are all pure-`Cleaner`. Every Delia row now has at least one tech id.
+
+## Integrity after L3.1
+
+| Field | Rows with value |
+|---|---:|
+| matched_customer_id | 983 |
+| matched_schedule_id | 407 |
+| parsed_techs (JSONB) | 983 |
+| mapped_status | 983 |
+| **All 4 required present** | 983 |
+
+Apr 22–30 distribution unchanged — still exact match to MC.
+
+## What changed vs L3
+
+- `users` gained 1 row (id=283 Delia Martinez, inactive)
+- `mc_dispatch_staging` — 38 rows had `parsed_techs` updated
+- Nothing else
+
+## Rollback
+
+```sql
+-- Revert L3.1 only (leaves L3 state intact)
+-- 1) Reset the 38 Delia rows back to their pre-L3.1 parsed_techs
+--    (easier: just re-run the L3 parser without Delia in the roster)
+-- 2) DELETE FROM users WHERE id = 283;
+--    (safe only if Delia has no job_technicians or other FK rows yet; she doesn't in L3.1)
+```
+
+## Next
+
+Phase 4 — actual INSERT ... ON CONFLICT (mc_job_id) DO UPDATE into `jobs`, populating `job_technicians` from `parsed_techs`. Delia's 38 historical assignments will land as real rows in `job_technicians` linked to `users.id=283`.
