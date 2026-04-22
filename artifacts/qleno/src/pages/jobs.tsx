@@ -1256,7 +1256,13 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
     : (job.status === "complete" ? "#6B7280" : "#D97706");
 
   return (
-    <div onClick={e => e.stopPropagation()} style={{
+    // [2026-04-22] Removed `onClick={e => e.stopPropagation()}` — it was
+    // swallowing clicks on the hover card without performing the advertised
+    // "Click to open full details" action. Native click-bubble now carries
+    // the event up to the parent JobChip which opens the drawer.
+    // Phone anchor still calls e.stopPropagation() below to preserve tel:
+    // dialing without triggering the drawer.
+    <div style={{
       position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100,
       width: 320, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
       borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
@@ -1266,7 +1272,11 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>{job.client_name}</div>
         {job.address && <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>{job.address}</div>}
         {job.client_phone && (
-          <a href={`tel:${job.client_phone}`} style={{ fontSize: 12, color: "#2D9B83", textDecoration: "none", fontWeight: 600 }}>
+          <a
+            href={`tel:${job.client_phone}`}
+            onClick={e => e.stopPropagation()}
+            style={{ fontSize: 12, color: "#2D9B83", textDecoration: "none", fontWeight: 600 }}
+          >
             {job.client_phone}
           </a>
         )}
@@ -1283,7 +1293,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         </div>
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Time</div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtTime(job.scheduled_time)} \u2013 {fmtTime(endTime)}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtTime(job.scheduled_time)} - {fmtTime(endTime)}</div>
         </div>
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Duration</div>
@@ -1400,7 +1410,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
       <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.client_name}</span>
       {width > 130 && (
         <span style={{ fontSize: 9, color: tertiaryText }}>
-          {fmtSvc(job.service_type)} · {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
+          {fmtSvc(job.service_type)} · {fmtTime(job.scheduled_time)} - {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
         </span>
       )}
       {hovered && !isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
