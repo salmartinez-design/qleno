@@ -1293,7 +1293,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         </div>
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Time</div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtTime(job.scheduled_time)} - {fmtTime(endTime)}</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", marginTop: 2 }}>{fmtTime(job.scheduled_time)} – {fmtTime(endTime)}</div>
         </div>
         <div>
           <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.04em" }}>Duration</div>
@@ -1410,7 +1410,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
       <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{job.client_name}</span>
       {width > 130 && (
         <span style={{ fontSize: 9, color: tertiaryText }}>
-          {fmtSvc(job.service_type)} · {fmtTime(job.scheduled_time)} - {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
+          {fmtSvc(job.service_type)} · {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
         </span>
       )}
       {hovered && !isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
