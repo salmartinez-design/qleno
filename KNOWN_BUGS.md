@@ -78,6 +78,61 @@ Duplicates should be consolidated in post-cutover client dedup pass.
 
 ---
 
+## QB connection pending for PHES production (2026-04-23, AF)
+
+**Severity:** Low (not a cutover blocker)
+
+PHES's `companies.qb_connected=false` and tokens are null in dev/staging.
+AF shipped the Mark Complete → `syncInvoice()` path fire-and-forget; on
+the null-token branch it silently no-ops (returns before queueing). That
+is the correct design for disconnected tenants.
+
+**Before relying on QB for real invoices in production:**
+1. Connect QB via `/company/integrations/quickbooks/connect` (owner/admin)
+2. Complete the first couple manual `syncCustomer` pushes to prime
+   `qb_customer_map` for active clients
+3. Fire Mark Complete on one low-stakes job and verify a `qb_sync_queue`
+   row appears (either `status='success'` or `status='failed'` with
+   `last_error` populated)
+4. Check the QB-side Invoices ledger for the new entry
+
+Until this lives: every completion on PHES writes a Qleno-native draft
+invoice (invoices table) but the QB push is a no-op. That's recoverable
+— once connected, you can bulk backfill via the existing `syncAll()`
+endpoint / cron.
+
+---
+
+## syncInvoice() has no observability on the null-token no-op path (2026-04-23, AF)
+
+**Severity:** Low (housekeeping)
+
+`quickbooks-sync.ts` functions follow this pattern:
+```ts
+const auth = await getValidToken(companyId);
+if (!auth) return;  // silent no-op
+```
+
+This is correct for disconnected tenants, but silent — zero trace in
+logs, zero row in `qb_sync_queue`. If the null-token path is ever
+reached for a tenant that SHOULD be connected (e.g. token refresh
+failed upstream, `qb_connected` not set correctly, etc.), we'd have
+no telemetry.
+
+**Fix (post-cutover housekeeping pass):**
+Add a single-line debug log on the no-op branch:
+```ts
+if (!auth) {
+  console.debug(`[QB] syncInvoice no-op: company ${companyId} not connected`);
+  return;
+}
+```
+Same for `syncCustomer` and `syncPayment`. Keep it debug-level so it
+doesn't noise up prod logs, but available via log filter when
+diagnosing "why isn't QB syncing?" questions.
+
+---
+
 ## service_zones missing UNIQUE (company_id, name) constraint (2026-04-23)
 
 **Severity:** Low (workaround exists; decide post-cutover)
