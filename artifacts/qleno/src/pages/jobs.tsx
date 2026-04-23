@@ -16,9 +16,16 @@ import {
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const FF = "'Plus Jakarta Sans', sans-serif";
-const SLOT_W = 80;
+// [AB] Shrunk SLOT_W 80 → 64 so the default 9-hour business window
+// (9 AM – 6 PM = 18 slots × 64 = 1152 px) fits inside a 1440 px viewport
+// alongside the 180 px sticky tech column (total 1332 px, ~100 px margin
+// for page padding/scrollbars). Previous 80 px/slot pushed the timeline
+// to 1620 px and forced horizontal scroll on first paint. ROW_H 64 → 72
+// gives the chip 52 px of vertical space (ROW_H - 20 top/bottom gutter)
+// to match MC's roomier card feel.
+const SLOT_W = 64;
 const COL_W = 180;
-const ROW_H = 64;
+const ROW_H = 72;
 // Mutable — overwritten by company dispatch_start_hour / dispatch_end_hour settings
 let DAY_START = 8 * 60;   // default: 8 AM
 let DAY_END   = 18 * 60;  // default: 6 PM
@@ -137,6 +144,23 @@ function hexToRgba(hex: string | null | undefined, alpha: number): string {
   const b = parseInt(h.slice(4, 6), 16);
   if ([r, g, b].some(v => Number.isNaN(v))) return FALLBACK;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// [AB] Perceptual luminance of a hex color, 0..1. Used to pick between
+// white and dark text on full-opacity zone-color chip backgrounds.
+// Rec. 601 weights (0.299 R + 0.587 G + 0.114 B) — slightly cheaper than
+// the WCAG relative-luminance formula and close enough for a binary
+// light/dark decision. Gold (#FFD700) → ~0.79 → dark text; all other
+// PHES zone colors (magenta/purple/red/green) → < 0.4 → white text.
+function zoneLuminance(hex: string | null | undefined): number {
+  if (!hex) return 0;
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return 0;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some(v => Number.isNaN(v))) return 0;
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 
 // [Z] Strict 12-hour "H:MM AM/PM" parser. Returns null on invalid input.
@@ -1694,15 +1718,23 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
   const isRecurring = job.frequency && job.frequency !== "on_demand";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
 
-  // [X] Zone-tinted card (15% opacity) + status-driven 2px border per MC's
-  // Job Schedule convention. Border priority:
-  //   1. red  — late clock-in OR at-risk (today, past start−15min, no clock-in)
+  // [AB] Full-opacity zone-color card matching MC's Job Schedule visual
+  // weight. Previous 15% alpha tint was spec'd to feel "subtle" but read
+  // as washed-out in practice — failed the "glance from across the room"
+  // test. MC uses saturated fills with white text; matching that now.
+  //
+  // Border priority (unchanged from X/V):
+  //   1. red   — late clock-in OR at-risk (today, past start−15 min, no clock-in)
   //   2. amber — in_progress
   //   3. green — complete
-  //   4. zone color at 60% — scheduled (default)
-  // Text always dark (#1A1917) for readability on light tinted bg. Fallback
-  // when zone is missing: neutral taupe #E5E2DC at 15% + the same gray at
-  // 60% as border.
+  //   4. zone color at full opacity — scheduled default (same as bg,
+  //      so status state-changes are the only visible border transition)
+  //
+  // Text: white by default, but if the zone color's perceptual luminance
+  // exceeds 0.65 (e.g. gold #FFD700 for Tinley/Orlando/Palos Park at
+  // ~0.79) we flip to dark text so the chip stays legible. Fallback when
+  // zone is null/missing: neutral #9CA3AF (Tailwind gray-400) with white
+  // text — distinct from "colored" chips without being alarming.
   const todayKey = new Date().toISOString().split("T")[0];
   const isLiveDay = job.scheduled_date === todayKey;
   const nowMins = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
@@ -1714,16 +1746,18 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
     && nowMins >= (startMins - 15);
   const isInProgressStatus = job.status === "in_progress";
 
-  const bgColor = hexToRgba(job.zone_color, 0.15);
+  const ZONE_FALLBACK = "#9CA3AF";
+  const bgColor = job.zone_color || ZONE_FALLBACK;
+  const isLightZone = zoneLuminance(job.zone_color) > 0.65;
   const borderColor =
     isRisky ? "#DC2626" :
     isInProgressStatus ? "#F59E0B" :
     isComplete ? "#16A34A" :
-    hexToRgba(job.zone_color, 0.60);
+    bgColor;
 
-  const primaryText   = "#1A1917";
-  const secondaryText = "#4B5563";
-  const iconTint      = "#6B7280";
+  const primaryText   = isLightZone ? "#1A1917" : "#FFFFFF";
+  const secondaryText = isLightZone ? "#4B5563" : "rgba(255,255,255,0.90)";
+  const iconTint      = isLightZone ? "#6B7280" : "rgba(255,255,255,0.90)";
 
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1736,7 +1770,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
       onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}
       {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `2px solid ${borderColor}`, padding: "5px 7px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.10)" }}>
+      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `2px solid ${borderColor}`, padding: "8px 10px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}>
       {/* [X] Primary label: {client_name} · {scope}. Tech name stays on the
           row axis only (initials + label on the left) — kept out of the
           card body entirely, per MC's Job Schedule convention. Icons still
@@ -1749,7 +1783,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
           {job.client_name} · {scopeLabel(job)}
         </span>
       </div>
-      {width > 130 && (
+      {width > 100 && (
         <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
         </span>
