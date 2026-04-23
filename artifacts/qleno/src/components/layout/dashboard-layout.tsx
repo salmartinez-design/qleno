@@ -32,7 +32,7 @@ interface DashboardLayoutProps {
 
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard':                    'Dashboard',
-  '/dispatch':                     'Dispatch Board',
+  '/dispatch':                     'Jobs',
   '/jobs':                         'Jobs',
   '/my-jobs':                      'My Jobs',
   '/employees':                    'Employees',

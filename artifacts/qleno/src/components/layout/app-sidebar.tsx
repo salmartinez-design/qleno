@@ -1,5 +1,5 @@
 import {
-  LogOut, X, LayoutDashboard, CalendarDays,
+  LogOut, X, LayoutDashboard,
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
@@ -43,10 +43,14 @@ const NAV_SECTIONS = [
   {
     label: "Operations",
     items: [
-      { title: "Dashboard",      url: "/dashboard",  icon: LayoutDashboard },
-      { title: "Dispatch Board", url: "/dispatch",    icon: CalendarDays },
-      { title: "Jobs",           url: "/jobs",       icon: Briefcase },
-      { title: "Customers",      url: "/customers",  icon: Users },
+      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+      // [2026-04-22] Consolidated "Dispatch Board" + "Jobs" → single "Jobs"
+      // entry pointing at /dispatch (the Gantt). /jobs and /jobs/list still
+      // resolve to JobsListPage via direct URL; the sidebar just prefers the
+      // Gantt as the default view. Active-highlight covers all 3 urls via
+      // MULTI_URL_HIGHLIGHT below.
+      { title: "Jobs",      url: "/dispatch",  icon: Briefcase },
+      { title: "Customers", url: "/customers", icon: Users },
       { title: "Accounts",       url: "/accounts",   icon: Building2, roles: ["owner", "admin", "office"] },
       { title: "Employees",      url: "/employees",  icon: UserCheck },
     ],
@@ -116,10 +120,20 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
     : '??';
 
   const EXACT_MATCH_URLS = ['/dashboard', '/company', '/dispatch', '/jobs'];
-  const isActive = (url: string) =>
-    EXACT_MATCH_URLS.includes(url)
+  // [2026-04-22] The merged "Jobs" sidebar item is configured with
+  // url='/dispatch' but should also highlight when the user is on /jobs or
+  // /jobs/list (both are route aliases for the list view). This map lets a
+  // single item light up across multiple urls.
+  const MULTI_URL_HIGHLIGHT: Record<string, string[]> = {
+    '/dispatch': ['/dispatch', '/jobs', '/jobs/list'],
+  };
+  const isActive = (url: string) => {
+    const extras = MULTI_URL_HIGHLIGHT[url];
+    if (extras) return extras.some(u => location === u || location.startsWith(u + '/'));
+    return EXACT_MATCH_URLS.includes(url)
       ? location === url
       : location === url || location.startsWith(url + '/');
+  };
 
   const expanded = mobile || isHovered;
 
