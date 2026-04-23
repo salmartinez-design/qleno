@@ -1487,10 +1487,14 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   const lastServiceRelative = job.last_service_date ? fmtRelativeDate(job.last_service_date) : null;
   const officeNotesCleaned = stripImportTags(job.office_notes);
 
-  // [S] Badge row shows zone color dot + branch + zone name + client zip.
-  // Zip is shown when present even if zone_name unresolved — useful for
-  // clients whose zip doesn't match a service_zones entry yet.
-  const hasZoneBadge = !!(job.zone_name || job.branch_name || job.client_zip);
+  // [AD] Location line: zone color dot + zone name + zip. Branch name
+  // (previously shown as a prefix like "Oak Lawn · Chicago Central · 60643")
+  // is dropped — redundant with the page-level branch filter in the
+  // header, and visually competed with the zone name. If the resolved zip
+  // doesn't match any service_zone (zone_name null) we still render the
+  // zip with a muted gray dot, so unmapped one-offs like Shannon's
+  // Whitfield Rd still surface the zip for context.
+  const hasZoneBadge = !!(job.zone_name || job.client_zip);
 
   const sectionBorder = "1px solid #F0EEE9";
   const labelStyle: React.CSSProperties = {
@@ -1545,15 +1549,13 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         )}
         {hasZoneBadge && (
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            {job.zone_color && (
-              <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: job.zone_color, flexShrink: 0 }} />
-            )}
-            {job.branch_name && (
-              <span style={{ fontSize: 11, fontWeight: 600, color: "#1A1917" }}>{job.branch_name}</span>
-            )}
-            {job.branch_name && (job.zone_name || job.client_zip) && (
-              <span style={{ fontSize: 11, color: "#9E9B94" }}>·</span>
-            )}
+            {/* Dot: zone_color when mapped, muted gray when the zip isn't
+                in any service_zones row (e.g. Shannon @ 60062 Northbrook). */}
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%",
+              backgroundColor: job.zone_color || "#9CA3AF",
+              flexShrink: 0,
+            }} />
             {job.zone_name && (
               <span style={{ fontSize: 11, color: "#6B6860" }}>{job.zone_name}</span>
             )}

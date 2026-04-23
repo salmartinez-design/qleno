@@ -41,9 +41,16 @@ router.get("/", requireAuth, async (req, res) => {
         client_id: jobsTable.client_id,
         client_name: sql<string>`CASE WHEN ${jobsTable.account_id} IS NOT NULL THEN ${accountsTable.account_name} ELSE concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) END`,
         client_phone: clientsTable.phone,
-        client_zip: clientsTable.zip,
-        address: clientsTable.address,
-        city: clientsTable.city,
+        // [AD] Prefer per-job address overrides (jobs.address_*) over the
+        // client default (clients.*). MC-imported rows populate
+        // jobs.address_street for one-off job-site addresses (e.g. Shannon
+        // Heidloff's Apr 23 at 1111 Whitfield Rd while her client default
+        // stays 4411 N Damen). We keep the field name `client_zip` to
+        // preserve the frontend contract, but its semantic is now
+        // "resolved job zip" — job-level preferred, client-level fallback.
+        client_zip: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip})`,
+        address: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address})`,
+        city:    sql<string | null>`COALESCE(NULLIF(${jobsTable.address_city}, ''),   ${clientsTable.city})`,
         // [Q2] New: surface notes + payment method on the client row for hover card
         client_notes: clientsTable.notes,
         client_payment_method: clientsTable.payment_method,
@@ -63,14 +70,20 @@ router.get("/", requireAuth, async (req, res) => {
         // clients.address text if clients.zip is NULL but address looks like
         // "... 60647" or similar. MC-imported rows have jobs.zone_id NULL, so
         // they rely on these fallbacks.
+        // [AD] Zone derivation now uses the RESOLVED zip/address — job-level
+        // preferred, client-level fallback. This way a client's recurring
+        // service colors from their default zip, but a one-off job at a
+        // different site colors from that site's zip. If neither jobs.address_zip
+        // nor clients.zip is set, we still fall back to the 5-digit
+        // pattern embedded in the street (same heuristic as S).
         zone_color: sql<string | null>`COALESCE(
           ${serviceZonesTable.color},
           (SELECT z.color FROM service_zones z
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
                AND (
-                 ${clientsTable.zip} = ANY(z.zip_codes)
-                 OR SUBSTRING(${clientsTable.address} FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip}) = ANY(z.zip_codes)
+                 OR SUBSTRING(COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address}) FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
              LIMIT 1)
         )`,
@@ -80,8 +93,8 @@ router.get("/", requireAuth, async (req, res) => {
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
                AND (
-                 ${clientsTable.zip} = ANY(z.zip_codes)
-                 OR SUBSTRING(${clientsTable.address} FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip}) = ANY(z.zip_codes)
+                 OR SUBSTRING(COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address}) FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
              LIMIT 1)
         )`,
