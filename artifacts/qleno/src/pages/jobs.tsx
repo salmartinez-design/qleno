@@ -1719,24 +1719,12 @@ export default function JobsPage() {
 
   const [, forceUpdate] = useState(0);
 
-  // Load company dispatch hour settings once on mount
-  useEffect(() => {
-    const _API = import.meta.env.BASE_URL.replace(/\/$/, "");
-    fetch(`${_API}/api/companies/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(c => {
-        if (!c) return;
-        const sh = c.dispatch_start_hour ?? 8;
-        const eh = c.dispatch_end_hour ?? 18;
-        if (sh !== DAY_START / 60 || eh !== DAY_END / 60) {
-          DAY_START = sh * 60;
-          DAY_END   = eh * 60;
-          refreshTimeline();
-          forceUpdate(n => n + 1); // trigger re-render with new timeline
-        }
-      })
-      .catch(() => {});
-  }, [token]);
+  // [W] Business hours 9am-6pm default, with toggle to expand the timeline
+  // to cover jobs scheduled outside those hours. Per Sal's product call —
+  // replaces the previous company-setting based dispatch_start/end_hour
+  // load. The 9-6 default now applies to all tenants; the toggle expands
+  // the view when early or late jobs exist.
+  const [showOutsideHours, setShowOutsideHours] = useState(false);
 
   const load = useCallback(async () => {
     const id = ++refreshRef.current;
@@ -1757,6 +1745,63 @@ export default function JobsPage() {
   }, [selectedDate, token, activeBranchId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // [W] Recompute DAY_START / DAY_END based on business-hours toggle:
+  //   showOutsideHours = false  → 9am-6pm (business hours default)
+  //   showOutsideHours = true   → expanded to fit all jobs for the day,
+  //                               floor earliest to the hour, ceil latest to
+  //                               the hour; never narrower than 9am-6pm.
+  useEffect(() => {
+    const BIZ_START = 9 * 60;
+    const BIZ_END = 18 * 60;
+    let newStart = BIZ_START;
+    let newEnd = BIZ_END;
+
+    if (showOutsideHours && data) {
+      const allJobs: DispatchJob[] = [
+        ...(data.unassigned_jobs ?? []),
+        ...((data.employees ?? []).flatMap(e => e.jobs ?? [])),
+      ];
+      for (const j of allJobs) {
+        if (!j.scheduled_time) continue;
+        const parts = j.scheduled_time.split(":").map(Number);
+        const t = (parts[0] || 0) * 60 + (parts[1] || 0);
+        const end = t + (j.duration_minutes || 60);
+        if (t < newStart) newStart = Math.floor(t / 60) * 60;
+        if (end > newEnd) newEnd = Math.ceil(end / 60) * 60;
+      }
+    }
+
+    if (DAY_START !== newStart || DAY_END !== newEnd) {
+      DAY_START = newStart;
+      DAY_END = newEnd;
+      refreshTimeline();
+      forceUpdate(n => n + 1);
+    }
+  }, [showOutsideHours, data]);
+
+  // [W] Derived job filter for business-hours default view. When toggle is
+  // OFF, exclude jobs whose scheduled_time falls outside 9am-6pm from the
+  // timeline (so out-of-hours chips don't render at negative positions).
+  // When toggle is ON, all jobs pass through (the effect above expanded
+  // the timeline to fit them).
+  const jobPassesHoursFilter = useCallback((j: DispatchJob): boolean => {
+    if (showOutsideHours) return true;
+    if (!j.scheduled_time) return true; // no time = assume unscheduled, show
+    const parts = j.scheduled_time.split(":").map(Number);
+    const t = (parts[0] || 0) * 60 + (parts[1] || 0);
+    return t >= 9 * 60 && t < 18 * 60;
+  }, [showOutsideHours]);
+
+  // Count of hidden out-of-hours jobs (surfaced as a banner when > 0)
+  const outsideHoursCount = ((): number => {
+    if (!data || showOutsideHours) return 0;
+    const allJobs: DispatchJob[] = [
+      ...(data.unassigned_jobs ?? []),
+      ...((data.employees ?? []).flatMap(e => e.jobs ?? [])),
+    ];
+    return allJobs.filter(j => !jobPassesHoursFilter(j)).length;
+  })();
 
   // Load zones for filter
   useEffect(() => {
@@ -1842,12 +1887,14 @@ export default function JobsPage() {
       jobs: e.jobs.filter(j => {
         if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
         if (selectedLocationFilter !== "all" && j.booking_location !== selectedLocationFilter) return false;
+        if (!jobPassesHoursFilter(j)) return false;
         return true;
       }),
     })),
     unassigned_jobs: data.unassigned_jobs.filter(j => {
       if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
       if (selectedLocationFilter !== "all" && j.booking_location !== selectedLocationFilter) return false;
+      if (!jobPassesHoursFilter(j)) return false;
       return true;
     }),
   } : null;
@@ -2047,6 +2094,37 @@ export default function JobsPage() {
 
               <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "1px solid #E5E2DC", background: "#FAFAF9", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B7280" }}><ChevronRight size={14} /></button>
               {!isToday && <button onClick={() => { const t = new Date(); t.setHours(0,0,0,0); setSelectedDate(t); }} style={{ border: "1px solid var(--brand)", background: "var(--brand-dim)", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "var(--brand)" }}>Today</button>}
+              {/* [W] Business-hours toggle — default view is 9am–6pm. When
+                   ON, expands the Gantt to fit any jobs scheduled outside
+                   those hours. Label shows the hidden count as a nudge. */}
+              <button
+                onClick={() => setShowOutsideHours(v => !v)}
+                title={showOutsideHours
+                  ? "Hide jobs outside 9 AM – 6 PM"
+                  : (outsideHoursCount > 0
+                    ? `Include ${outsideHoursCount} job${outsideHoursCount === 1 ? "" : "s"} scheduled outside 9 AM – 6 PM`
+                    : "Include jobs outside 9 AM – 6 PM")}
+                style={{
+                  border: showOutsideHours ? "1px solid var(--brand)" : "1px solid #E5E2DC",
+                  background: showOutsideHours ? "var(--brand-dim)" : "#FAFAF9",
+                  borderRadius: 6, padding: "5px 10px", cursor: "pointer",
+                  fontSize: 11, fontWeight: 700,
+                  color: showOutsideHours ? "var(--brand)" : "#6B7280",
+                  display: "flex", alignItems: "center", gap: 5,
+                }}
+              >
+                <Clock size={11} />
+                {showOutsideHours ? "All hours" : "9 AM – 6 PM"}
+                {!showOutsideHours && outsideHoursCount > 0 && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: "#D97706",
+                    backgroundColor: "#FEF3C7", padding: "0px 5px",
+                    borderRadius: 10, marginLeft: 2,
+                  }}>
+                    +{outsideHoursCount}
+                  </span>
+                )}
+              </button>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center", flexWrap: "nowrap" }}>
