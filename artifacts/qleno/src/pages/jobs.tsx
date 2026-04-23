@@ -1315,11 +1315,19 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   return (
     // Native click bubbles up to parent JobChip → opens JobPanel drawer.
     // Phone anchor and in-card buttons use their own stopPropagation as needed.
+    //
+    // [R] Positioning rebuilt after Q2's taller layout got clipped by the
+    // dispatch row container's overflow. Anchor is now TOP (renders below
+    // the chip) so the critical header (client name + status) is always
+    // visible even when hovering chips near the top of the viewport. Very
+    // tall content scrolls inside the card rather than overflowing.
     <div style={{
-      position: "absolute", bottom: "calc(100% + 8px)", left: 0, zIndex: 100,
-      width: 320, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
+      position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 9999,
+      width: 320,
+      maxHeight: "calc(100vh - 120px)", overflowY: "auto",
+      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
       borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
-      fontFamily: FF, padding: 0, overflow: "hidden",
+      fontFamily: FF, padding: 0,
     }}>
       {/* ─── HEADER ─── */}
       <div style={{ padding: "14px 16px 12px", borderBottom: sectionBorder }}>
