@@ -57,16 +57,21 @@ router.get("/", requireAuth, async (req, res) => {
         allowed_hours: jobsTable.allowed_hours,
         notes: jobsTable.notes,
         zone_id: jobsTable.zone_id,
-        // [Q2] Zone name/color — prefer direct JOIN (when jobs.zone_id set),
-        // fall back to deriving from clients.zip via service_zones.zip_codes
-        // array. MC-imported rows have jobs.zone_id NULL, so they use the
-        // fallback derivation automatically.
+        // [Q2/S] Zone name/color — prefer direct JOIN (when jobs.zone_id set).
+        // Fall back to deriving from clients.zip via service_zones.zip_codes.
+        // [S] Second fallback: extract first 5-digit ZIP pattern from
+        // clients.address text if clients.zip is NULL but address looks like
+        // "... 60647" or similar. MC-imported rows have jobs.zone_id NULL, so
+        // they rely on these fallbacks.
         zone_color: sql<string | null>`COALESCE(
           ${serviceZonesTable.color},
           (SELECT z.color FROM service_zones z
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
-               AND ${clientsTable.zip} = ANY(z.zip_codes)
+               AND (
+                 ${clientsTable.zip} = ANY(z.zip_codes)
+                 OR SUBSTRING(${clientsTable.address} FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+               )
              LIMIT 1)
         )`,
         zone_name: sql<string | null>`COALESCE(
@@ -74,7 +79,10 @@ router.get("/", requireAuth, async (req, res) => {
           (SELECT z.name FROM service_zones z
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
-               AND ${clientsTable.zip} = ANY(z.zip_codes)
+               AND (
+                 ${clientsTable.zip} = ANY(z.zip_codes)
+                 OR SUBSTRING(${clientsTable.address} FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+               )
              LIMIT 1)
         )`,
         // [Q2] New: branch name from branches JOIN

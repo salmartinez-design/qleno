@@ -1303,8 +1303,10 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   const lastServiceRelative = job.last_service_date ? fmtRelativeDate(job.last_service_date) : null;
   const officeNotesCleaned = stripImportTags(job.office_notes);
 
-  // Badge row shows zone color dot + branch + zone name (all optional)
-  const hasZoneBadge = !!(job.zone_name || job.branch_name);
+  // [S] Badge row shows zone color dot + branch + zone name + client zip.
+  // Zip is shown when present even if zone_name unresolved — useful for
+  // clients whose zip doesn't match a service_zones entry yet.
+  const hasZoneBadge = !!(job.zone_name || job.branch_name || job.client_zip);
 
   const sectionBorder = "1px solid #F0EEE9";
   const labelStyle: React.CSSProperties = {
@@ -1358,18 +1360,27 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           </a>
         )}
         {hasZoneBadge && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
             {job.zone_color && (
               <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: job.zone_color, flexShrink: 0 }} />
             )}
             {job.branch_name && (
               <span style={{ fontSize: 11, fontWeight: 600, color: "#1A1917" }}>{job.branch_name}</span>
             )}
-            {job.branch_name && job.zone_name && (
+            {job.branch_name && (job.zone_name || job.client_zip) && (
               <span style={{ fontSize: 11, color: "#9E9B94" }}>·</span>
             )}
             {job.zone_name && (
               <span style={{ fontSize: 11, color: "#6B6860" }}>{job.zone_name}</span>
+            )}
+            {job.client_zip && (
+              <span style={{
+                fontSize: 11, fontWeight: 500, color: "#6B6860",
+                padding: "1px 6px", borderRadius: 4,
+                backgroundColor: "#F3F4F6", marginLeft: job.zone_name ? 2 : 0,
+              }}>
+                {job.client_zip}
+              </span>
             )}
           </div>
         )}
