@@ -78,6 +78,52 @@ Duplicates should be consolidated in post-cutover client dedup pass.
 
 ---
 
+## service_zones missing UNIQUE (company_id, name) constraint (2026-04-23)
+
+**Severity:** Low (workaround exists; decide post-cutover)
+
+Per CLAUDE.md "Seed files must always use ON CONFLICT DO UPDATE — never
+plain INSERT," any seed/upsert of service_zones rows needs a unique
+constraint on `(company_id, name)` to make ON CONFLICT work. Only
+constraint today is `PRIMARY KEY (id)`. During the AE North Shore zone
+add (2026-04-23) we worked around with `WHERE NOT EXISTS` in the INSERT
+body — functional, idempotent, but drifts from the seed-discipline rule.
+
+**Fix (post-cutover):**
+```sql
+ALTER TABLE service_zones
+  ADD CONSTRAINT service_zones_company_name_uniq UNIQUE (company_id, name);
+```
+Pre-check for any dupe rows first (see next entry — Tinley/Orland Park).
+
+---
+
+## service_zones duplicate: "Tinley/Orland Park" vs "Tinley/Orlando/Palos Park" (2026-04-23, confirmed again)
+
+Two near-identical rows for the same physical zone:
+
+| id | name | color | zip_codes | sort_order |
+|---:|---|---|---|---:|
+| 26 | **Tinley/Orlando/Palos Park** (active) | `#FFD700` | 9 zips | 0 |
+| 21 | **Tinley/Orland Park/Palos Park** (empty) | `#FFD700` | `[]` | 17 |
+
+id 21 is the original mis-spelled row with empty zips; id 26 is the
+working one (same color, actual zip coverage). Both flagged is_active=true.
+
+Re-confirmed during AE audit on 2026-04-23. Still present.
+
+**Fix (pre any unique-constraint addition):**
+```sql
+-- Verify no foreign keys point at id 21 first (clients.zone_id, jobs.zone_id)
+SELECT COUNT(*) FROM clients WHERE zone_id = 21;
+SELECT COUNT(*) FROM jobs    WHERE zone_id = 21;
+-- If zero, safe to:
+DELETE FROM service_zones WHERE id = 21;
+```
+If any FK points at id 21, re-point to id 26 before delete.
+
+---
+
 ## Source file has unencoded HTML entities (2026-04-18)
 
 **Severity:** Low (blocks 1 client match; trivial fix in ingest script)
