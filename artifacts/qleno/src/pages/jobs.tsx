@@ -1530,17 +1530,25 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
   const isRecurring = job.frequency && job.frequency !== "on_demand";
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
 
-  // Card background is ZONE color (address-based) — matches MaidCentral convention.
-  // Falls back to status color when zone is unknown. Text color flips based on
-  // perceptual brightness of the chosen bg so vivid zone colors stay readable.
+  // [V] Zone color always drives the chip background; status is shown
+  // ONLY via the border. The two visual channels are now independent —
+  // zone = geography (where), status = state (what). Previously, chips
+  // without a resolved zone fell back to status-colored bg (which looked
+  // identical to status-colored border), making the status signal
+  // indistinguishable for unzoned jobs. A neutral light-grey fallback bg
+  // keeps the chip visible while making the status border the single
+  // source of truth for job state.
   const hasZone = !!job.zone_color;
-  const bgColor = hasZone ? job.zone_color! : sc.bg;
+  const bgColor = hasZone ? job.zone_color! : "#E5E7EB"; // neutral grey when no zone
   const dark = hasZone ? isDarkHex(job.zone_color) : false;
   const primaryText   = dark ? "#FFFFFF"              : "#1A1917";
   const secondaryText = dark ? "rgba(255,255,255,0.88)" : "#4B5563";
   const tertiaryText  = dark ? "rgba(255,255,255,0.72)" : "#6B7280";
-  const iconTint      = dark ? "rgba(255,255,255,0.88)" : sc.dot;
-  const borderColor   = hasZone ? job.zone_color! : sc.dot;
+  const iconTint      = dark ? "rgba(255,255,255,0.88)" : "#6B7280";
+  // Border always = status color (sc.dot) — independent of zone. Bumped
+  // from 1px to 2px so the status signal stays visible on both light and
+  // dark zone backgrounds.
+  const borderColor   = sc.dot;
 
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1553,7 +1561,7 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
       onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}
       {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `1px solid ${borderColor}`, padding: "6px 8px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.10)" }}>
+      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `2px solid ${borderColor}`, padding: "5px 7px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.10)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
         {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: iconTint, flexShrink: 0 }} />}
         {job.after_photo_count > 0 && <Camera size={9} style={{ color: iconTint, flexShrink: 0 }} />}
@@ -2193,7 +2201,7 @@ export default function JobsPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
                     {allJobs.map(j => (
                       <div key={j.id} onClick={() => setSelectedJob(j)}
-                        style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", borderLeft: `4px solid ${j.zone_color || (STATUS[j.status] || STATUS.scheduled).dot}` }}>
+                        style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", borderLeft: `4px solid ${j.zone_color || "#E5E7EB"}` }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{j.client_name}</div>
