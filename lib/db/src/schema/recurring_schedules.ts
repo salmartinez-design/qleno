@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, boolean, date, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, boolean, date, time, timestamp, pgEnum } from "drizzle-orm/pg-core";
 import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { usersTable } from "./users";
@@ -27,6 +27,14 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   is_active: boolean("is_active").notNull().default(true),
   last_generated_date: date("last_generated_date"),
   created_at: timestamp("created_at").notNull().defaultNow(),
+  // [AG] Cascade-from-edit fields. Stay null on existing schedules until
+  // the user picks "this and all future" in the edit modal.
+  scheduled_time: time("scheduled_time"),
+  instructions: text("instructions"),
+  manual_rate_override: boolean("manual_rate_override").notNull().default(false),
+  // Used when jobs.frequency='every_3_weeks' (no matching enum value on
+  // recurring_schedules.frequency, which only has weekly/biweekly/monthly/custom).
+  custom_frequency_weeks: integer("custom_frequency_weeks"),
 });
 
 export type RecurringSchedule = typeof recurringSchedulesTable.$inferSelect;

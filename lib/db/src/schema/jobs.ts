@@ -90,6 +90,10 @@ export const jobsTable = pgTable("jobs", {
   // ── Office notes (pushed from quote call notes) ─────────────────────────────
   office_notes: text("office_notes"),
   flagged: boolean("flagged").notNull().default(false),
+  // [AG] Set true when a user manually overrides the calculated base_fee in
+  // the edit modal. Cleared when scope/freq/add-ons change AND base_fee is
+  // omitted from the patch (recalc pulls a fresh value from pricing engine).
+  manual_rate_override: boolean("manual_rate_override").notNull().default(false),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });
