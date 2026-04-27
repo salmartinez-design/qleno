@@ -381,6 +381,40 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE INDEX IF NOT EXISTS idx_client_audit_log_client_id ON client_audit_log(client_id)` },
     { label: "idx_client_audit_log_edited_at",
       stmt: `CREATE INDEX IF NOT EXISTS idx_client_audit_log_edited_at ON client_audit_log(edited_at DESC)` },
+
+    // ── AI: Multi-day scheduling (2026-04-27) ────────────────────────────────
+    // New column on recurring_schedules to store the array of weekday indices
+    // (0=Sunday … 6=Saturday) that a multi-day schedule fires on. Used by
+    // frequency in (daily, weekdays, custom_days). Existing weekly/biweekly/
+    // monthly/every_3_weeks schedules continue to use the string day_of_week
+    // column. Inconsistency logged as design debt in KNOWN_BUGS.md.
+    { label: "recurring_schedules.days_of_week",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS days_of_week INTEGER[]` },
+
+    // Frequency enum extensions. These ALTER TYPE statements cannot run
+    // inside a transaction; the schema-guard runs each statement individually
+    // via db.execute, which is implicit-commit per-statement. Safe.
+    //
+    // jobs.frequency — three new values for the multi-day case. Child jobs
+    // mirror their parent recurring_schedules.frequency.
+    { label: "frequency.daily",
+      stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'daily'` },
+    { label: "frequency.weekdays",
+      stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'weekdays'` },
+    { label: "frequency.custom_days",
+      stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'custom_days'` },
+
+    // recurring_schedules.frequency (recurring_frequency type) — was missing
+    // every_3_weeks (AG worked around via custom + custom_frequency_weeks);
+    // adding it now closes that latent bug. Plus the three multi-day values.
+    { label: "recurring_frequency.every_3_weeks",
+      stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'every_3_weeks'` },
+    { label: "recurring_frequency.daily",
+      stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'daily'` },
+    { label: "recurring_frequency.weekdays",
+      stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'weekdays'` },
+    { label: "recurring_frequency.custom_days",
+      stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'custom_days'` },
   ];
 
   for (const { label, stmt } of guards) {

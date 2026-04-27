@@ -28,6 +28,13 @@ function mapFrequency(freq: string): string {
   if (freq === "weekly") return "weekly";
   if (freq === "biweekly") return "biweekly";
   if (freq === "monthly") return "monthly";
+  // [AI] every_3_weeks now lives on both enums (was AG bug — fell back to
+  // 'custom' on recurring_schedules.frequency); pass through unchanged.
+  if (freq === "every_3_weeks") return "every_3_weeks";
+  // [AI] Multi-day frequencies — child jobs mirror the parent's frequency.
+  if (freq === "daily") return "daily";
+  if (freq === "weekdays") return "weekdays";
+  if (freq === "custom_days") return "custom_days";
   return "biweekly";
 }
 
@@ -61,8 +68,35 @@ function getFirstOccurrence(start: Date, targetDow: number, fromDate: Date): Dat
   return addDays(d, diff);
 }
 
+// Resolve the multi-day pattern from a schedule's frequency + days_of_week.
+// Returns an array of weekday integers (0=Sunday..6=Saturday) or null when
+// the schedule is single-day (handled by the legacy day_of_week branch).
+//
+// [AI] daily      → [0,1,2,3,4,5,6] regardless of days_of_week column
+// [AI] weekdays   → [1,2,3,4,5]     regardless of days_of_week column
+// [AI] custom_days → days_of_week  (validated at write-time; ≥1 entry)
+function resolveMultiDayPattern(
+  freq: string,
+  daysOfWeek: number[] | null,
+): number[] | null {
+  if (freq === "daily") return [0, 1, 2, 3, 4, 5, 6];
+  if (freq === "weekdays") return [1, 2, 3, 4, 5];
+  if (freq === "custom_days") {
+    const arr = (daysOfWeek ?? []).filter(n => Number.isInteger(n) && n >= 0 && n <= 6);
+    return arr.length > 0 ? Array.from(new Set(arr)).sort() : null;
+  }
+  return null;
+}
+
 function generateOccurrences(
-  schedule: { frequency: string; day_of_week: string | null; start_date: string; end_date?: string | null },
+  schedule: {
+    frequency: string;
+    day_of_week: string | null;
+    days_of_week?: number[] | null;
+    custom_frequency_weeks?: number | null;
+    start_date: string;
+    end_date?: string | null;
+  },
   fromDate: Date,
   toDate: Date
 ): Date[] {
@@ -70,12 +104,38 @@ function generateOccurrences(
   const endLimit = schedule.end_date ? parseDate(schedule.end_date) : toDate;
   const effectiveEnd = endLimit < toDate ? endLimit : toDate;
 
+  const freq = schedule.frequency;
+  const dates: Date[] = [];
+
+  // [AI] If both day_of_week and days_of_week are populated, prefer the
+  // multi-day path and warn. PATCH endpoint enforces exclusivity but defend
+  // against bad data (manual SQL, future code paths, etc.).
+  if (schedule.day_of_week && (schedule.days_of_week?.length ?? 0) > 0) {
+    console.warn(
+      `[recurring-engine] schedule has BOTH day_of_week and days_of_week populated — preferring days_of_week`,
+    );
+  }
+
+  // ── Multi-day path: daily / weekdays / custom_days ──────────────────────
+  // Walk every date from fromDate to effectiveEnd, emit when DOW matches.
+  // No interval math — every matching weekday in the window produces a job.
+  const multiDay = resolveMultiDayPattern(freq, schedule.days_of_week ?? null);
+  if (multiDay) {
+    const targetSet = new Set(multiDay);
+    let current = new Date(fromDate);
+    while (current <= effectiveEnd) {
+      if (current >= start && targetSet.has(current.getDay())) {
+        dates.push(new Date(current));
+      }
+      current = addDays(current, 1);
+    }
+    return dates;
+  }
+
+  // ── Single-day path: weekly / biweekly / every_3_weeks / monthly ────────
   const targetDow = schedule.day_of_week
     ? (DAY_NAME_TO_NUM[schedule.day_of_week.toLowerCase()] ?? start.getDay())
     : start.getDay();
-
-  const freq = schedule.frequency;
-  const dates: Date[] = [];
 
   if (freq === "monthly") {
     const dayOfMonth = start.getDate();
@@ -86,7 +146,23 @@ function generateOccurrences(
       current = addMonths(current, 1);
     }
   } else {
-    const intervalDays = freq === "weekly" ? 7 : 14;
+    // Interval picker. Order matters — explicit checks before the legacy
+    // fallback. [AI] every_3_weeks honored; AG's custom_frequency_weeks
+    // honored as a fallback when frequency='custom' on recurring_schedules.
+    let intervalDays: number;
+    if (freq === "weekly") {
+      intervalDays = 7;
+    } else if (freq === "biweekly") {
+      intervalDays = 14;
+    } else if (freq === "every_3_weeks") {
+      intervalDays = 21;
+    } else if (freq === "custom" && schedule.custom_frequency_weeks != null) {
+      intervalDays = schedule.custom_frequency_weeks * 7;
+    } else {
+      // Conservative fallback for any unrecognized frequency string. Keeps
+      // historical behavior for rows without custom_frequency_weeks.
+      intervalDays = 14;
+    }
     let current = getFirstOccurrence(start, targetDow, fromDate);
     while (current <= effectiveEnd) {
       if (current >= fromDate) dates.push(new Date(current));
@@ -103,6 +179,12 @@ type ScheduleInput = {
   customer_id: number;
   frequency: string;
   day_of_week: string | null;
+  // [AI] Multi-day fields. days_of_week is the int array (0=Sun..6=Sat) for
+  // daily/weekdays/custom_days. custom_frequency_weeks is AG's column for
+  // walking N-week intervals when frequency='custom' (now superseded by
+  // 'every_3_weeks' enum value but the column remains for backward compat).
+  days_of_week?: number[] | null;
+  custom_frequency_weeks?: number | null;
   start_date: string;
   end_date?: string | null;
   assigned_employee_id: number | null;

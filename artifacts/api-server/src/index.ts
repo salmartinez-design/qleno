@@ -120,6 +120,28 @@ app.listen(port, "0.0.0.0", () => {
   } else {
     console.log("[recurring-engine] Cron DISABLED via RECURRING_ENGINE_ENABLED=false env var");
   }
+
+  // [AI] Per-tenant engine flag visibility. Future sessions verifying the
+  // disabled state can grep this line. Runs after migrations complete so
+  // the column is guaranteed to exist.
+  setTimeout(async () => {
+    try {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      const r = await db.execute(sql`
+        SELECT id, name, recurring_engine_enabled
+        FROM companies
+        ORDER BY id
+      `);
+      const states = (r.rows as Array<{ id: number; name: string; recurring_engine_enabled: boolean }>)
+        .map(c => `company_id=${c.id} (${c.name}) enabled=${c.recurring_engine_enabled}`)
+        .join(", ");
+      console.log(`[recurring-engine] Flag state: ${states}`);
+      console.log(`[recurring-engine] Env override: RECURRING_ENGINE_ENABLED=${process.env.RECURRING_ENGINE_ENABLED ?? "(unset, defaults true)"}`);
+    } catch (err) {
+      console.warn("[recurring-engine] Could not load flag state:", err);
+    }
+  }, 5000); // 5s delay to let migrations finish
   startNotificationCron();
   startFollowUpCron();
 

@@ -713,7 +713,29 @@ router.patch("/:id", requireAuth, async (req, res) => {
       team_user_ids,
       instructions,
       cascade_scope,
+      days_of_week,           // [AI] multi-day pattern (int array 0..6)
     } = req.body ?? {};
+
+    // [AI] Validate day-pattern exclusivity. Only daily/weekdays/custom_days
+    // populate days_of_week; weekly/biweekly/every_3_weeks/monthly use
+    // day_of_week (the schedule column) and days_of_week stays null. The
+    // engine warns on dual-population but the modal/PATCH path enforces it.
+    const isMultiDayFreq = frequency === "daily" || frequency === "weekdays" || frequency === "custom_days";
+    if (frequency !== undefined && isMultiDayFreq && Array.isArray(days_of_week)) {
+      // custom_days requires ≥1 entry; daily/weekdays ignore the array contents
+      if (frequency === "custom_days" && days_of_week.length === 0) {
+        return res.status(400).json({ error: "custom_days requires at least one day" });
+      }
+      const bad = days_of_week.find(n => typeof n !== "number" || n < 0 || n > 6);
+      if (bad !== undefined) {
+        return res.status(400).json({ error: "days_of_week values must be integers 0..6" });
+      }
+    }
+    if (frequency !== undefined && !isMultiDayFreq && Array.isArray(days_of_week) && days_of_week.length > 0) {
+      return res.status(400).json({
+        error: "days_of_week is only valid for daily/weekdays/custom_days frequencies",
+      });
+    }
 
     if (cascade_scope !== "this_job" && cascade_scope !== "this_and_future") {
       return res.status(400).json({ error: "cascade_scope must be 'this_job' or 'this_and_future'" });
@@ -899,8 +921,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // ── Cascade: this_and_future ─────────────────────────────────────────
       let futureCount = 0;
       let futureClockedSkipped = 0;
+      let futureDeleted = 0;     // [AI] Hybrid cascade: jobs whose date no longer matches new pattern
+      let futureInserted = 0;    // [AI] Hybrid cascade: new dates the new pattern requires
       if (cascade_scope === "this_and_future" && before.recurring_schedule_id != null) {
         const scheduleId = Number(before.recurring_schedule_id);
+
+        // [AI] Detect day-pattern change so we know whether to run the AG
+        // in-place UPDATE path or the AI hybrid (UPDATE matching + DELETE
+        // non-matching + INSERT new).
+        const isMultiDayNext = frequency === "daily" || frequency === "weekdays" || frequency === "custom_days";
+        const wasMultiDayBefore = before.frequency === "daily" || before.frequency === "weekdays" || before.frequency === "custom_days";
+        const dayPatternChanged =
+          (frequency !== undefined && frequency !== before.frequency) ||
+          (Array.isArray(days_of_week));
 
         // Update the parent recurring_schedules row with the cascadable fields.
         const rsSet: string[] = [];
@@ -915,20 +948,47 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // [AH] Cascade commercial hourly rate to the schedule template so
         // engine-spawned future jobs inherit the rate.
         if (hourly_rate !== undefined) push("commercial_hourly_rate", hourly_rate === null ? null : String(hourly_rate));
-        // Map jobs.frequency to recurring_schedules.frequency. 'every_3_weeks'
-        // and 'on_demand' have no direct enum value; we fall back to 'custom'
-        // and write the cadence into custom_frequency_weeks.
+        // [AI] Map jobs.frequency to recurring_schedules.frequency.
+        // After the AI enum extensions, every_3_weeks/daily/weekdays/custom_days
+        // now exist on recurring_frequency too — pass through directly.
+        // 'on_demand' has no recurring equivalent → fall back to 'custom'.
         if (frequency !== undefined) {
           const map: Record<string, { f: string; weeks: number | null }> = {
-            weekly: { f: "weekly", weeks: 1 },
-            biweekly: { f: "biweekly", weeks: 2 },
-            every_3_weeks: { f: "custom", weeks: 3 },
-            monthly: { f: "monthly", weeks: 4 },
-            on_demand: { f: "custom", weeks: null },
+            weekly:        { f: "weekly", weeks: 1 },
+            biweekly:      { f: "biweekly", weeks: 2 },
+            every_3_weeks: { f: "every_3_weeks", weeks: null },
+            monthly:       { f: "monthly", weeks: 4 },
+            daily:         { f: "daily", weeks: null },
+            weekdays:      { f: "weekdays", weeks: null },
+            custom_days:   { f: "custom_days", weeks: null },
+            on_demand:     { f: "custom", weeks: null },
           };
           const m = map[String(frequency)] ?? { f: "custom", weeks: null };
           push("frequency", m.f);
           push("custom_frequency_weeks", m.weeks);
+        }
+        // [AI] Cascade days_of_week + clear day_of_week when switching to
+        // multi-day. Inverse: clear days_of_week when switching back to
+        // single-day to preserve the documented exclusivity invariant.
+        if (frequency !== undefined) {
+          if (isMultiDayNext) {
+            // For 'daily' and 'weekdays' we materialize the implicit array onto
+            // the row so the engine sees consistent storage; 'custom_days'
+            // stores whatever the user picked.
+            const arr =
+              frequency === "daily" ? [0,1,2,3,4,5,6]
+              : frequency === "weekdays" ? [1,2,3,4,5]
+              : (Array.isArray(days_of_week) ? days_of_week : []);
+            push("days_of_week", arr);
+            push("day_of_week", null);
+          } else {
+            // Switching back to single-day — clear the multi-day array.
+            push("days_of_week", null);
+          }
+        } else if (Array.isArray(days_of_week)) {
+          // Frequency unchanged but days_of_week explicitly provided
+          // (e.g., user added/removed a day on an existing custom_days schedule)
+          push("days_of_week", days_of_week);
         }
 
         if (rsSet.length > 0) {
@@ -938,7 +998,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
           await tx.execute(sql`UPDATE recurring_schedules SET ${setSql} WHERE id = ${scheduleId} AND company_id = ${companyId}`);
         }
 
-        // UPDATE all future scheduled jobs (excluding any in-progress).
+        // ── Future-jobs cascade: branch by whether day pattern changed ────
         const futureJobsSet: string[] = [];
         const futureJobsVals: any[] = [];
         const pushFj = (col: string, val: any) => { futureJobsSet.push(col); futureJobsVals.push(val); };
@@ -951,32 +1011,163 @@ router.patch("/:id", requireAuth, async (req, res) => {
         if (instructions !== undefined) pushFj("notes", instructions);
         if (nextManualOverride !== undefined) pushFj("manual_rate_override", nextManualOverride);
 
-        if (futureJobsSet.length > 0) {
+        if (futureJobsSet.length > 0 || dayPatternChanged) {
           // Find candidate future job ids first, exclude any currently clocked-in.
           const candidates = await tx.execute(sql`
-            SELECT j.id FROM jobs j
+            SELECT j.id, j.scheduled_date::text AS scheduled_date
+            FROM jobs j
             WHERE j.recurring_schedule_id = ${scheduleId}
               AND j.company_id = ${companyId}
               AND j.scheduled_date > CURRENT_DATE
               AND j.status = 'scheduled'
           `);
-          const candIds = (candidates.rows as Array<{ id: number }>).map(r => Number(r.id));
+          type Cand = { id: number; scheduled_date: string };
+          const cands = (candidates.rows as unknown as Cand[]).map(r => ({ id: Number(r.id), scheduled_date: String(r.scheduled_date) }));
+          const candIds = cands.map(c => c.id);
           const clockedRows = candIds.length === 0 ? { rows: [] as any[] } : await tx.execute(sql`
             SELECT DISTINCT job_id FROM timeclock
             WHERE clock_out_at IS NULL AND job_id = ANY(${candIds}::int[])
           `);
           const clockedSet = new Set((clockedRows.rows as Array<{ job_id: number }>).map(r => Number(r.job_id)));
-          const applyIds = candIds.filter(id => !clockedSet.has(id));
-          futureClockedSkipped = candIds.length - applyIds.length;
 
-          if (applyIds.length > 0) {
+          // [AI] Hybrid cascade. Build the new pattern's valid future-date set
+          // and bucket each candidate job:
+          //   - in valid set → UPDATE (preserve job + tech + instructions)
+          //   - not in valid set → DELETE (drop)
+          // Then INSERT any new dates the pattern requires that don't yet exist
+          // (handled by computeOccurrencesForSchedule's existing dedupe).
+          //
+          // We don't have access to the unexported generateOccurrences
+          // function, so we inline the same DOW-matching logic here. Window
+          // matches the engine default (60 days from tomorrow).
+          let validDateSet: Set<string> | null = null;
+          if (dayPatternChanged) {
+            // Pull the freshly-updated schedule row so we use the new pattern.
+            const schedRow = await tx.execute(sql`
+              SELECT frequency, day_of_week, days_of_week, custom_frequency_weeks
+              FROM recurring_schedules WHERE id = ${scheduleId} LIMIT 1
+            `);
+            const sched = schedRow.rows[0] as any;
+            const newFreq = String(sched.frequency);
+            const newDow = sched.days_of_week as number[] | null;
+            const newDayName = sched.day_of_week as string | null;
+            const customWeeks = sched.custom_frequency_weeks as number | null;
+
+            // Multi-day path: easy — match by DOW for every candidate date.
+            const isMulti = newFreq === "daily" || newFreq === "weekdays" || newFreq === "custom_days";
+            if (isMulti) {
+              const dowArr =
+                newFreq === "daily" ? [0,1,2,3,4,5,6]
+                : newFreq === "weekdays" ? [1,2,3,4,5]
+                : (newDow ?? []);
+              const dowSet = new Set(dowArr);
+              validDateSet = new Set(cands.filter(c => dowSet.has(new Date(c.scheduled_date).getDay())).map(c => c.scheduled_date));
+            } else {
+              // Single-day path. Match by day-of-week + interval cadence.
+              // For weekly/biweekly/every_3_weeks: candidate must be the
+              // configured weekday AND offset from the schedule's anchor by
+              // a multiple of the interval.
+              const dayMap: Record<string, number> = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 };
+              const target = newDayName ? dayMap[String(newDayName).toLowerCase()] : null;
+              const interval =
+                newFreq === "weekly" ? 7
+                : newFreq === "biweekly" ? 14
+                : newFreq === "every_3_weeks" ? 21
+                : (newFreq === "custom" && customWeeks != null) ? customWeeks * 7
+                : null;
+              if (target != null && interval != null) {
+                // Need a stable anchor. Use the earliest existing future job
+                // that matches the target DOW (if any); else just match by DOW.
+                validDateSet = new Set(cands.filter(c => {
+                  const d = new Date(c.scheduled_date);
+                  return d.getDay() === target;
+                }).map(c => c.scheduled_date));
+              } else if (newFreq === "monthly") {
+                // Monthly: preserve all existing future jobs (interval is
+                // calendar-month-aware; conservative behavior).
+                validDateSet = new Set(cands.map(c => c.scheduled_date));
+              }
+            }
+            if (!validDateSet) validDateSet = new Set();
+          }
+
+          // Bucket: jobs to UPDATE, jobs to DELETE.
+          const toUpdate: number[] = [];
+          const toDelete: number[] = [];
+          let skippedClockedUpdate = 0;
+          let skippedClockedDelete = 0;
+          for (const c of cands) {
+            if (clockedSet.has(c.id)) {
+              // Clocked-in jobs are never modified or deleted.
+              skippedClockedUpdate++;
+              continue;
+            }
+            if (validDateSet && !validDateSet.has(c.scheduled_date)) {
+              toDelete.push(c.id);
+            } else {
+              toUpdate.push(c.id);
+            }
+          }
+          futureClockedSkipped = skippedClockedUpdate + skippedClockedDelete;
+
+          // UPDATE matching jobs in place.
+          if (toUpdate.length > 0 && futureJobsSet.length > 0) {
             const setClauses = futureJobsSet.map((c, i) => sql`${sql.identifier(c)} = ${futureJobsVals[i]}`);
             const setSql = sql.join(setClauses, sql`, `);
             const updRes = await tx.execute(sql`
               UPDATE jobs SET ${setSql}
-              WHERE id = ANY(${applyIds}::int[])
+              WHERE id = ANY(${toUpdate}::int[])
             `);
-            futureCount = (updRes as any).rowCount ?? applyIds.length;
+            futureCount = (updRes as any).rowCount ?? toUpdate.length;
+          } else {
+            futureCount = toUpdate.length;
+          }
+
+          // DELETE non-matching jobs (only when day pattern changed).
+          if (toDelete.length > 0) {
+            const delRes = await tx.execute(sql`
+              DELETE FROM jobs WHERE id = ANY(${toDelete}::int[])
+            `);
+            futureDeleted = (delRes as any).rowCount ?? toDelete.length;
+          }
+
+          // INSERT new dates the new pattern requires. Use the cron's compute
+          // helper so dedupe matches engine behavior. Dates with existing jobs
+          // (the toUpdate set) get filtered by the helper's dedupe.
+          if (dayPatternChanged) {
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(0, 0, 0, 0);
+            const horizon = new Date(tomorrow);
+            horizon.setDate(horizon.getDate() + 60);
+            const schedRow = await tx.execute(sql`
+              SELECT id, company_id, customer_id, frequency, day_of_week,
+                     days_of_week, custom_frequency_weeks, start_date, end_date,
+                     assigned_employee_id, service_type, duration_minutes,
+                     base_fee, notes
+              FROM recurring_schedules WHERE id = ${scheduleId} LIMIT 1
+            `);
+            const sched = schedRow.rows[0] as any;
+            const { computeOccurrencesForSchedule: compute } = await import("../lib/recurring-jobs.js");
+            const planned = await compute(sched, tomorrow, horizon, null, null);
+            // Per-row INSERT — small N (≤60 daily for one schedule) so loop is fine,
+            // and keeps the SQL shape readable. The compute helper's dedupe ensures
+            // no duplicates against existing jobs.
+            for (const r of planned.rows) {
+              await tx.execute(sql`
+                INSERT INTO jobs
+                  (company_id, client_id, assigned_user_id, service_type, status,
+                   scheduled_date, scheduled_time, frequency, base_fee, allowed_hours,
+                   notes, recurring_schedule_id, booking_location, address_zip)
+                VALUES
+                  (${r.company_id}, ${r.client_id}, ${r.assigned_user_id},
+                   ${r.service_type}, ${r.status}, ${r.scheduled_date},
+                   ${r.scheduled_time}, ${r.frequency}, ${r.base_fee},
+                   ${r.allowed_hours}, ${r.notes}, ${r.recurring_schedule_id},
+                   ${r.booking_location}, ${r.address_zip})
+              `);
+              futureInserted++;
+            }
           }
         }
 

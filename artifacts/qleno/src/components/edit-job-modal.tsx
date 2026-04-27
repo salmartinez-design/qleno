@@ -88,12 +88,28 @@ interface CalcResponse {
   final_total: number;
 }
 
-const FREQUENCIES: Array<{ value: string; label: string }> = [
+// [AI] Frequency options grouped via <optgroup>. Standard set is shown to
+// every client. Commercial multi-day group only renders when
+// client.client_type === 'commercial'.
+const FREQUENCIES_STANDARD: Array<{ value: string; label: string }> = [
   { value: "on_demand", label: "One-time" },
   { value: "weekly", label: "Weekly" },
   { value: "biweekly", label: "Biweekly" },
   { value: "every_3_weeks", label: "Every 3 weeks" },
   { value: "monthly", label: "Every 4 weeks / Monthly" },
+];
+const FREQUENCIES_COMMERCIAL_MULTI: Array<{ value: string; label: string }> = [
+  { value: "daily",       label: "Daily (every day)" },
+  { value: "weekdays",    label: "Weekdays (M–F)" },
+  { value: "custom_days", label: "Custom days" },
+];
+
+// Day picker labels for custom_days. Order is Sun..Sat, value 0..6 to match
+// JS Date.getDay() and the DB days_of_week array.
+const DAY_PICKER: Array<{ value: number; short: string }> = [
+  { value: 0, short: "Sun" }, { value: 1, short: "Mon" }, { value: 2, short: "Tue" },
+  { value: 3, short: "Wed" }, { value: 4, short: "Thu" }, { value: 5, short: "Fri" },
+  { value: 6, short: "Sat" },
 ];
 
 const SECTION: React.CSSProperties = {
@@ -175,6 +191,15 @@ export default function EditJobModal({
   const [hourlyRate, setHourlyRate] = useState<number>(
     job.hourly_rate != null ? Number(job.hourly_rate) : 0
   );
+
+  // [AI] Multi-day picker state. Only used when frequency='custom_days'.
+  // Initialized empty; user must check at least one day to save.
+  // TODO(AJ): preload from recurring_schedules.days_of_week when opening a
+  // custom_days job — requires fetching the schedule row alongside the
+  // client load. For now the user re-picks on edit; canSave guards against
+  // accidental empty-array saves.
+  const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
+  const isMultiDayFreq = frequency === "daily" || frequency === "weekdays" || frequency === "custom_days";
 
   const [calcResult, setCalcResult] = useState<CalcResponse | null>(null);
   const [calcBusy, setCalcBusy] = useState(false);
@@ -372,8 +397,12 @@ export default function EditJobModal({
       const prevRate = job.hourly_rate != null ? Number(job.hourly_rate) : 0;
       if (Math.abs(hourlyRate - prevRate) > 0.001) return true;
     }
+    // [AI] Multi-day picker — frequency change to daily/weekdays/custom_days
+    // already counts as dirty via the frequency check; days_of_week change
+    // (when staying in custom_days) is also dirty.
+    if (frequency === "custom_days" && daysOfWeek.length > 0) return true;
     return false;
-  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate]);
+  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek]);
 
   const canSave = dirty
     && !saving
@@ -381,7 +410,9 @@ export default function EditJobModal({
     && selectedTechIds.length > 0
     && /^\d{2}:\d{2}$/.test(scheduledTime)
     // [AH] Commercial requires a positive hourly rate.
-    && (!isCommercial || hourlyRate > 0);
+    && (!isCommercial || hourlyRate > 0)
+    // [AI] custom_days requires at least one day checked.
+    && (frequency !== "custom_days" || daysOfWeek.length > 0);
 
   // ── Cascade prompt or direct submit ─────────────────────────────────────
   function onSaveClick() {
@@ -434,6 +465,17 @@ export default function EditJobModal({
       if (isCommercial) {
         payload.service_type = commercialServiceType;
         payload.hourly_rate = hourlyRate;
+      }
+      // [AI] Multi-day fields. days_of_week is only meaningful when frequency
+      // is one of the multi-day values; PATCH endpoint validates exclusivity.
+      if (isMultiDayFreq) {
+        if (frequency === "custom_days") {
+          payload.days_of_week = [...daysOfWeek].sort();
+        } else if (frequency === "daily") {
+          payload.days_of_week = [0, 1, 2, 3, 4, 5, 6];
+        } else if (frequency === "weekdays") {
+          payload.days_of_week = [1, 2, 3, 4, 5];
+        }
       }
 
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
@@ -527,10 +569,50 @@ export default function EditJobModal({
                   <div>
                     <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Frequency</span>
                     <select value={frequency} onChange={e => setFrequency(e.target.value)} style={INPUT}>
-                      {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                      <optgroup label="Standard">
+                        {FREQUENCIES_STANDARD.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                      </optgroup>
+                      <optgroup label="Commercial multi-day">
+                        {FREQUENCIES_COMMERCIAL_MULTI.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                      </optgroup>
                     </select>
                   </div>
                 </div>
+                {/* [AI] Custom-days picker — 7 checkboxes, only when frequency='custom_days' */}
+                {frequency === "custom_days" && (
+                  <div style={{ marginTop: 10 }}>
+                    <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 6 }}>
+                      Days {daysOfWeek.length === 0 && (
+                        <span style={{ color: "#D97706", fontWeight: 600 }}>· pick at least one</span>
+                      )}
+                    </span>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {DAY_PICKER.map(d => {
+                        const checked = daysOfWeek.includes(d.value);
+                        return (
+                          <label key={d.value}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 4,
+                              padding: "6px 10px", borderRadius: 6,
+                              border: `1.5px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                              backgroundColor: checked ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                              fontSize: 12, fontFamily: FF, cursor: "pointer",
+                              color: checked ? "var(--brand, #00C9A0)" : "#1A1917",
+                              fontWeight: checked ? 700 : 500,
+                            }}>
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                setDaysOfWeek(prev =>
+                                  prev.includes(d.value) ? prev.filter(x => x !== d.value) : [...prev, d.value]
+                                );
+                              }} />
+                            {d.short}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 10, marginTop: 10 }}>
                   <div>
                     <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Hourly rate</span>
@@ -576,7 +658,9 @@ export default function EditJobModal({
                   <div>
                     <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Frequency</span>
                     <select value={frequency} onChange={e => setFrequency(e.target.value)} style={INPUT}>
-                      {FREQUENCIES.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                      {/* Residential: only Standard group. Commercial multi-day options
+                          are deliberately not exposed here. */}
+                      {FREQUENCIES_STANDARD.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>
                   </div>
                 </div>

@@ -5,6 +5,11 @@ import { usersTable } from "./users";
 
 export const recurringFrequencyEnum = pgEnum("recurring_frequency", [
   "weekly", "biweekly", "monthly", "custom",
+  // [AI] every_3_weeks closes AG bug (was falling back to 'custom' and
+  // walking 14-day intervals via the biweekly path).
+  "every_3_weeks",
+  // [AI] Multi-day commercial scheduling (2026-04-27)
+  "daily", "weekdays", "custom_days",
 ]);
 
 export const recurringDayEnum = pgEnum("recurring_day", [
@@ -39,6 +44,13 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // "this and all future" on a commercial recurring job, this column gets
   // the rate so the engine can re-derive base_fee for spawned jobs.
   commercial_hourly_rate: numeric("commercial_hourly_rate", { precision: 10, scale: 2 }),
+  // [AI] Multi-day weekday pattern for daily/weekdays/custom_days. Array of
+  // integers 0–6 (0=Sunday). Mutually exclusive with day_of_week:
+  //   weekly/biweekly/every_3_weeks/monthly → day_of_week (string enum)
+  //   daily/weekdays/custom_days            → days_of_week (int array)
+  // PATCH endpoint enforces exclusivity; engine warns and prefers
+  // days_of_week if both end up populated.
+  days_of_week: integer("days_of_week").array(),
 });
 
 export type RecurringSchedule = typeof recurringSchedulesTable.$inferSelect;

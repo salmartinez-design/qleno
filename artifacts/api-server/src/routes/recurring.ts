@@ -4,7 +4,7 @@ import { recurringSchedulesTable, clientsTable, usersTable, jobsTable } from "@w
 import { eq, and, isNull, lte, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
-import { generateRecurringJobs } from "../lib/recurring-jobs.js";
+import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule } from "../lib/recurring-jobs.js";
 
 const router = Router();
 
@@ -101,14 +101,80 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, re
 });
 
 // POST /api/recurring/trigger — admin-triggered job generation (60-day horizon).
+//
 // Pass ?dry_run=true (or body.dry_run=true) to compute occurrences without
 // inserting; response includes planned_inserts, skipped_schedules, and
 // would-have-been counts for NULL/zero-fee schedules.
+//
+// [AI] Pass ?schedule_id=X (or body.schedule_id) to scope the run to a single
+// recurring schedule. Useful for smoke-testing AI's multi-day generation
+// without re-enabling the engine globally. Both dry-run and live modes
+// supported. Live single-schedule mode bypasses the per-tenant engine flag
+// (intentional — the user is explicitly opting that schedule into generation).
 router.post("/trigger", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const daysAhead = typeof req.body?.days_ahead === "number" ? req.body.days_ahead : 60;
     const dryRun = req.query.dry_run === "true" || req.body?.dry_run === true;
+    const scheduleIdRaw = req.query.schedule_id ?? req.body?.schedule_id;
+    const scheduleId = scheduleIdRaw != null ? parseInt(String(scheduleIdRaw)) : null;
+
+    // Per-schedule path
+    if (scheduleId != null && Number.isFinite(scheduleId)) {
+      const rows = await db.select().from(recurringSchedulesTable)
+        .where(and(
+          eq(recurringSchedulesTable.id, scheduleId),
+          eq(recurringSchedulesTable.company_id, companyId),
+        ))
+        .limit(1);
+      if (!rows.length) return res.status(404).json({ error: "Schedule not found" });
+      const sched = rows[0] as any;
+
+      const today = new Date();
+      const horizon = new Date(today.getTime() + daysAhead * 24 * 60 * 60 * 1000);
+
+      // Look up client zip + booking location for compute helper
+      let clientZip: string | null = null;
+      if (sched.customer_id) {
+        const cl = await db.select({ zip: clientsTable.zip })
+          .from(clientsTable)
+          .where(eq(clientsTable.id, sched.customer_id))
+          .limit(1);
+        clientZip = (cl[0]?.zip as any) ?? null;
+      }
+
+      if (dryRun) {
+        const { rows: planned, skipped } = await computeOccurrencesForSchedule(
+          sched, today, horizon, null, clientZip,
+        );
+        return res.json({
+          mode: "dry_run",
+          schedule_id: scheduleId,
+          frequency: sched.frequency,
+          day_of_week: sched.day_of_week,
+          days_of_week: sched.days_of_week,
+          custom_frequency_weeks: sched.custom_frequency_weeks,
+          planned_count: planned.length,
+          skipped_dedupe: skipped,
+          planned: planned.map((r: any) => ({
+            scheduled_date: String(r.scheduled_date),
+            base_fee: String(r.base_fee),
+          })),
+        });
+      }
+
+      const { created, skipped } = await generateJobsFromSchedule(
+        sched, today, horizon, null, clientZip,
+      );
+      return res.json({
+        mode: "live",
+        schedule_id: scheduleId,
+        created,
+        skipped_dedupe: skipped,
+      });
+    }
+
+    // Company-wide path (existing)
     const result = await generateRecurringJobs(companyId, daysAhead, { dryRun });
     return res.json(result);
   } catch (err) {

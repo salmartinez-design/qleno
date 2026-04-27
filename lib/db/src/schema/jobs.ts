@@ -17,7 +17,9 @@ export const serviceTypeEnum = pgEnum("service_type", [
 ]);
 
 export const frequencyEnum = pgEnum("frequency", [
-  "weekly", "biweekly", "every_3_weeks", "monthly", "on_demand"
+  "weekly", "biweekly", "every_3_weeks", "monthly", "on_demand",
+  // [AI] Multi-day commercial scheduling (2026-04-27)
+  "daily", "weekdays", "custom_days",
 ]);
 
 export const jobsTable = pgTable("jobs", {

@@ -7,6 +7,11 @@
 - **GitHub:** salmartinez-design/qleno, branch main
 - **Replit:** clean-ops-pro.replit.app — backup only, do not deploy from here
 
+## Design docs
+- `docs/COMMERCIAL_BILLING_DESIGN.md` — multi-day scheduling + weekly invoicing
+  + cancellation policies + effective-dated rate changes. Source of truth for
+  AI / AJ / AK sessions. Read before touching commercial billing code.
+
 ## Tech Stack
 - Frontend: React 18, Tailwind CSS, Vite, Wouter (routing)
 - Backend: Node.js, Express 5, TypeScript

@@ -230,3 +230,38 @@ holds company names is left alone — see "Schema smell — commercial
 clients stored in first_name" entry above. Backfill into `accounts` is
 a separate project.
 Apply this BEFORE the existing normalization steps so all downstream logic sees clean strings.
+
+---
+
+## AI day-of-week storage inconsistency (2026-04-27)
+
+**Severity:** Low — design debt; both formats work; no operational impact
+
+`recurring_schedules` now stores day-of-week in two parallel formats depending
+on the frequency type:
+
+- **`day_of_week`** (`recurring_day` enum: `monday | tuesday | ... | sunday`)
+  used by `weekly`, `biweekly`, `every_3_weeks`, `monthly` schedules. Single
+  string value. Original AG / pre-AI storage.
+- **`days_of_week`** (`INTEGER[]`, 0=Sunday … 6=Saturday) used by `daily`
+  (`[0,1,2,3,4,5,6]`), `weekdays` (`[1,2,3,4,5]`), `custom_days` (any subset).
+  Added in AI for multi-day commercial scheduling.
+
+`generateOccurrences()` in `recurring-jobs.ts` branches on which column is
+populated. Schedules cannot have both populated simultaneously; the PATCH
+endpoint validates this. If both end up set somehow, the engine prefers
+`days_of_week` and logs a warning.
+
+**Why two formats:** legacy weekly/biweekly logic uses string day names via
+`DAY_NAME_TO_NUM`. Multi-day arrays are int-native because EXTRACT(DOW)
+returns an int and array filtering is cleaner. Refactoring the legacy column
+to int would touch every weekly/biweekly schedule across all tenants — risky
+for no immediate operational benefit.
+
+**Future cleanup pass:**
+1. Normalize `day_of_week` → integer (0–6) so both columns match
+2. OR collapse into a single `days_of_week INTEGER[]` and migrate weekly
+   schedules to single-element arrays
+3. Update engine + PATCH endpoint accordingly
+
+Not blocking AJ or AK. Park until there's a quiet sprint.
