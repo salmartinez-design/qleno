@@ -8,7 +8,7 @@
 // a custom rate.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Loader2 } from "lucide-react";
-import { useAuthStore } from "@/store/auth";
+import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -471,7 +471,7 @@ export default function EditJobModal({
             <span style={LABEL}>Add-ons</span>
             {addonsLoading ? (
               <div style={{ fontSize: 12, color: "#9E9B94", display: "flex", alignItems: "center", gap: 6 }}>
-                <Loader2 size={12} className="spin" /> Loading add-ons…
+                <Loader2 size={12} className="animate-spin" /> Loading add-ons…
               </div>
             ) : availableAddons.length === 0 ? (
               <span style={{ fontSize: 12, color: "#9E9B94" }}>No add-ons configured for this scope.</span>
