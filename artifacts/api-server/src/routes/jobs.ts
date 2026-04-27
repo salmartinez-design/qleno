@@ -681,6 +681,399 @@ router.put("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// [AG] PATCH /api/jobs/:id — focused job edit modal endpoint.
+//
+// Distinct from PUT (above) which is bare-bones and used by drag-and-drop /
+// quick reschedule flows. This handler:
+//   - Diffs each editable field and writes per-field rows into job_audit_log
+//   - Honors a cascade flag ('this_job' | 'this_and_future') for recurring jobs
+//   - Blocks edits to date/time/team when a tech is currently clocked in
+//   - Persists multi-tech assignments via job_technicians (replaces existing)
+//   - Persists add-ons via job_add_ons (replaces existing) with pricing_addon_id
+//   - Trusts the client-computed base_fee; client owns manual_rate_override flag
+//
+// 409 Conflict when status in (complete, cancelled) OR locked_at is non-null.
+router.patch("/:id", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Invalid job id" });
+
+    const {
+      service_type,
+      frequency,
+      scheduled_date,
+      scheduled_time,
+      allowed_hours,
+      base_fee,
+      manual_rate_override,
+      add_ons,
+      team_user_ids,
+      instructions,
+      cascade_scope,
+    } = req.body ?? {};
+
+    if (cascade_scope !== "this_job" && cascade_scope !== "this_and_future") {
+      return res.status(400).json({ error: "cascade_scope must be 'this_job' or 'this_and_future'" });
+    }
+
+    // ── Pull current job + actor identity ──────────────────────────────────
+    const jobRows = await db.execute(sql`
+      SELECT id, company_id, recurring_schedule_id, status, locked_at,
+             service_type, frequency, scheduled_date, scheduled_time,
+             allowed_hours, base_fee, manual_rate_override, notes,
+             assigned_user_id
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+    const before = jobRows.rows[0] as Record<string, unknown>;
+
+    if (before.status === "complete" || before.status === "cancelled" || before.locked_at != null) {
+      return res.status(409).json({
+        error: "Job is locked",
+        message: "Completed, cancelled, or locked jobs cannot be edited.",
+      });
+    }
+
+    if (cascade_scope === "this_and_future" && before.recurring_schedule_id == null) {
+      return res.status(400).json({
+        error: "Cannot cascade",
+        message: "This job is not part of a recurring schedule. Use cascade_scope='this_job'.",
+      });
+    }
+
+    // ── In-progress guard: open timeclock blocks date/time/team edits ──────
+    const tcRows = await db.execute(sql`
+      SELECT user_id FROM timeclock
+      WHERE job_id = ${jobId} AND clock_out_at IS NULL
+      LIMIT 1
+    `);
+    const isClockedIn = tcRows.rows.length > 0;
+    if (isClockedIn) {
+      const blockedFields: string[] = [];
+      if (scheduled_date !== undefined && scheduled_date !== before.scheduled_date) blockedFields.push("scheduled_date");
+      if (scheduled_time !== undefined && scheduled_time !== before.scheduled_time) blockedFields.push("scheduled_time");
+      if (team_user_ids !== undefined) blockedFields.push("team_user_ids");
+      if (blockedFields.length) {
+        return res.status(409).json({
+          error: "Tech clocked in",
+          message: "A technician is currently clocked in. Stop the timer before changing date, time, or team.",
+          blocked_fields: blockedFields,
+        });
+      }
+    }
+
+    // ── Lookup actor (user_name + email at time of edit, for audit snapshot) ─
+    const userRows = await db.execute(sql`
+      SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+    `);
+    const actor = (userRows.rows[0] as Record<string, unknown>) ?? {};
+    const actorName = `${actor.first_name ?? ""} ${actor.last_name ?? ""}`.trim() || "Unknown";
+    const actorEmail = String(actor.email ?? "");
+
+    // ── Build per-field change set (only fields actually present in body) ──
+    type FieldName =
+      | "service_type" | "frequency" | "scheduled_date" | "scheduled_time"
+      | "allowed_hours" | "base_fee" | "manual_rate_override" | "instructions"
+      | "add_ons" | "team_user_ids";
+    const changes: Array<{ field: FieldName; old: unknown; next: unknown }> = [];
+    const pushChange = (field: FieldName, next: unknown, prev: unknown) => {
+      const norm = (v: unknown) => v === null || v === undefined ? null : v;
+      if (JSON.stringify(norm(next)) !== JSON.stringify(norm(prev))) {
+        changes.push({ field, old: prev ?? null, next: next ?? null });
+      }
+    };
+
+    if (service_type !== undefined) pushChange("service_type", service_type, before.service_type);
+    if (frequency !== undefined) pushChange("frequency", frequency, before.frequency);
+    if (scheduled_date !== undefined) pushChange("scheduled_date", scheduled_date, before.scheduled_date);
+    if (scheduled_time !== undefined) pushChange("scheduled_time", scheduled_time, before.scheduled_time);
+    if (allowed_hours !== undefined) pushChange("allowed_hours", String(allowed_hours), String(before.allowed_hours ?? ""));
+    if (base_fee !== undefined) pushChange("base_fee", String(base_fee), String(before.base_fee ?? ""));
+    if (manual_rate_override !== undefined) pushChange("manual_rate_override", !!manual_rate_override, !!before.manual_rate_override);
+    if (instructions !== undefined) pushChange("instructions", instructions, before.notes);
+
+    // For add_ons + team_user_ids we always emit an audit row when payload is present,
+    // since per-row diff is verbose; the JSON payload carries the full new value.
+    let addOnsProvided = false;
+    let teamProvided = false;
+    if (Array.isArray(add_ons)) {
+      addOnsProvided = true;
+      pushChange("add_ons", add_ons, "[unknown — see job_add_ons history]");
+    }
+    if (Array.isArray(team_user_ids)) {
+      if (team_user_ids.length === 0) {
+        return res.status(400).json({ error: "team_user_ids must include at least one user" });
+      }
+      teamProvided = true;
+      pushChange("team_user_ids", team_user_ids, "[unknown — see job_technicians history]");
+    }
+
+    if (changes.length === 0) {
+      return res.status(200).json({ ok: true, changed: false, message: "No changes detected" });
+    }
+
+    // ── manual_rate_override semantics ─────────────────────────────────────
+    // Honor explicit flag from client. If client omitted it but sent a base_fee,
+    // assume manual override. If client changed scope/freq/addons/hours but sent
+    // no base_fee, clear the override flag (caller has accepted recalc-driven price).
+    let nextManualOverride: boolean | undefined = undefined;
+    if (manual_rate_override !== undefined) {
+      nextManualOverride = !!manual_rate_override;
+    } else if (base_fee !== undefined) {
+      nextManualOverride = true;
+    } else if (
+      service_type !== undefined || frequency !== undefined ||
+      addOnsProvided || allowed_hours !== undefined
+    ) {
+      nextManualOverride = false;
+    }
+
+    // ── Apply changes in a transaction ─────────────────────────────────────
+    await db.transaction(async (tx) => {
+      // Update the jobs row itself.
+      const setParts: any = {};
+      if (service_type !== undefined) setParts.service_type = service_type;
+      if (frequency !== undefined) setParts.frequency = frequency;
+      if (scheduled_date !== undefined) setParts.scheduled_date = scheduled_date;
+      if (scheduled_time !== undefined) setParts.scheduled_time = scheduled_time;
+      if (allowed_hours !== undefined) setParts.allowed_hours = String(allowed_hours);
+      if (base_fee !== undefined) setParts.base_fee = String(base_fee);
+      if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
+      if (instructions !== undefined) setParts.notes = instructions;
+
+      if (Object.keys(setParts).length > 0) {
+        await tx.update(jobsTable).set(setParts).where(and(
+          eq(jobsTable.id, jobId),
+          eq(jobsTable.company_id, companyId),
+        ));
+      }
+
+      // Replace job_technicians if team_user_ids provided. First user = primary.
+      if (teamProvided && Array.isArray(team_user_ids)) {
+        await tx.execute(sql`DELETE FROM job_technicians WHERE job_id = ${jobId}`);
+        for (let i = 0; i < team_user_ids.length; i++) {
+          const uid = team_user_ids[i];
+          const isPrimary = i === 0;
+          await tx.execute(sql`
+            INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+            VALUES (${jobId}, ${uid}, ${companyId}, ${isPrimary})
+            ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+          `);
+        }
+        // Mirror the primary onto jobs.assigned_user_id so the dispatch grid
+        // (which reads assigned_user_id, not job_technicians) shows the new
+        // tech immediately. Fixes the Jaira-Estrada split-brain we saw.
+        await tx.update(jobsTable).set({ assigned_user_id: team_user_ids[0] }).where(and(
+          eq(jobsTable.id, jobId),
+          eq(jobsTable.company_id, companyId),
+        ));
+      }
+
+      // Replace job_add_ons if add_ons provided.
+      if (addOnsProvided && Array.isArray(add_ons)) {
+        await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+        for (const a of add_ons as Array<{ pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number }>) {
+          const pricingId = Number(a.pricing_addon_id ?? 0) || null;
+          const addOnId = Number(a.add_on_id ?? 0);
+          const qty = Number(a.qty ?? 1) || 1;
+          const unitPrice = a.unit_price != null ? String(a.unit_price) : "0";
+          const subtotal = a.subtotal != null ? String(a.subtotal) : "0";
+          if (!addOnId) continue;
+          await tx.execute(sql`
+            INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+            VALUES (${jobId}, ${addOnId}, ${qty}, ${unitPrice}, ${subtotal}, ${pricingId})
+            ON CONFLICT (job_id, add_on_id) DO UPDATE
+              SET quantity = EXCLUDED.quantity,
+                  unit_price = EXCLUDED.unit_price,
+                  subtotal = EXCLUDED.subtotal,
+                  pricing_addon_id = EXCLUDED.pricing_addon_id
+          `);
+        }
+      }
+
+      // ── Cascade: this_and_future ─────────────────────────────────────────
+      let futureCount = 0;
+      let futureClockedSkipped = 0;
+      if (cascade_scope === "this_and_future" && before.recurring_schedule_id != null) {
+        const scheduleId = Number(before.recurring_schedule_id);
+
+        // Update the parent recurring_schedules row with the cascadable fields.
+        const rsSet: string[] = [];
+        const rsVals: any[] = [];
+        const push = (col: string, val: any) => { rsSet.push(col); rsVals.push(val); };
+        if (service_type !== undefined) push("service_type", service_type);
+        if (scheduled_time !== undefined) push("scheduled_time", scheduled_time);
+        if (allowed_hours !== undefined) push("duration_minutes", Math.round(parseFloat(String(allowed_hours)) * 60));
+        if (base_fee !== undefined) push("base_fee", String(base_fee));
+        if (instructions !== undefined) push("instructions", instructions);
+        if (nextManualOverride !== undefined) push("manual_rate_override", nextManualOverride);
+        // Map jobs.frequency to recurring_schedules.frequency. 'every_3_weeks'
+        // and 'on_demand' have no direct enum value; we fall back to 'custom'
+        // and write the cadence into custom_frequency_weeks.
+        if (frequency !== undefined) {
+          const map: Record<string, { f: string; weeks: number | null }> = {
+            weekly: { f: "weekly", weeks: 1 },
+            biweekly: { f: "biweekly", weeks: 2 },
+            every_3_weeks: { f: "custom", weeks: 3 },
+            monthly: { f: "monthly", weeks: 4 },
+            on_demand: { f: "custom", weeks: null },
+          };
+          const m = map[String(frequency)] ?? { f: "custom", weeks: null };
+          push("frequency", m.f);
+          push("custom_frequency_weeks", m.weeks);
+        }
+
+        if (rsSet.length > 0) {
+          // Build a parameterised UPDATE … SET col = $n
+          const setClauses = rsSet.map((c, i) => sql`${sql.identifier(c)} = ${rsVals[i]}`);
+          const setSql = sql.join(setClauses, sql`, `);
+          await tx.execute(sql`UPDATE recurring_schedules SET ${setSql} WHERE id = ${scheduleId} AND company_id = ${companyId}`);
+        }
+
+        // UPDATE all future scheduled jobs (excluding any in-progress).
+        const futureJobsSet: string[] = [];
+        const futureJobsVals: any[] = [];
+        const pushFj = (col: string, val: any) => { futureJobsSet.push(col); futureJobsVals.push(val); };
+        if (service_type !== undefined) pushFj("service_type", service_type);
+        if (frequency !== undefined) pushFj("frequency", frequency);
+        if (scheduled_time !== undefined) pushFj("scheduled_time", scheduled_time);
+        if (allowed_hours !== undefined) pushFj("allowed_hours", String(allowed_hours));
+        if (base_fee !== undefined) pushFj("base_fee", String(base_fee));
+        if (instructions !== undefined) pushFj("notes", instructions);
+        if (nextManualOverride !== undefined) pushFj("manual_rate_override", nextManualOverride);
+
+        if (futureJobsSet.length > 0) {
+          // Find candidate future job ids first, exclude any currently clocked-in.
+          const candidates = await tx.execute(sql`
+            SELECT j.id FROM jobs j
+            WHERE j.recurring_schedule_id = ${scheduleId}
+              AND j.company_id = ${companyId}
+              AND j.scheduled_date > CURRENT_DATE
+              AND j.status = 'scheduled'
+          `);
+          const candIds = (candidates.rows as Array<{ id: number }>).map(r => Number(r.id));
+          const clockedRows = candIds.length === 0 ? { rows: [] as any[] } : await tx.execute(sql`
+            SELECT DISTINCT job_id FROM timeclock
+            WHERE clock_out_at IS NULL AND job_id = ANY(${candIds}::int[])
+          `);
+          const clockedSet = new Set((clockedRows.rows as Array<{ job_id: number }>).map(r => Number(r.job_id)));
+          const applyIds = candIds.filter(id => !clockedSet.has(id));
+          futureClockedSkipped = candIds.length - applyIds.length;
+
+          if (applyIds.length > 0) {
+            const setClauses = futureJobsSet.map((c, i) => sql`${sql.identifier(c)} = ${futureJobsVals[i]}`);
+            const setSql = sql.join(setClauses, sql`, `);
+            const updRes = await tx.execute(sql`
+              UPDATE jobs SET ${setSql}
+              WHERE id = ANY(${applyIds}::int[])
+            `);
+            futureCount = (updRes as any).rowCount ?? applyIds.length;
+          }
+        }
+
+        // Replace recurring_schedule_add_ons + recurring_schedule_technicians.
+        if (addOnsProvided && Array.isArray(add_ons)) {
+          await tx.execute(sql`DELETE FROM recurring_schedule_add_ons WHERE recurring_schedule_id = ${scheduleId}`);
+          for (const a of add_ons as Array<{ pricing_addon_id?: number; qty?: number }>) {
+            const pricingId = Number(a.pricing_addon_id ?? 0);
+            const qty = Number(a.qty ?? 1) || 1;
+            if (!pricingId) continue;
+            await tx.execute(sql`
+              INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
+              VALUES (${scheduleId}, ${pricingId}, ${qty})
+            `);
+          }
+        }
+        if (teamProvided && Array.isArray(team_user_ids)) {
+          await tx.execute(sql`DELETE FROM recurring_schedule_technicians WHERE recurring_schedule_id = ${scheduleId}`);
+          for (let i = 0; i < team_user_ids.length; i++) {
+            const uid = team_user_ids[i];
+            const isPrimary = i === 0;
+            await tx.execute(sql`
+              INSERT INTO recurring_schedule_technicians (recurring_schedule_id, user_id, is_primary)
+              VALUES (${scheduleId}, ${uid}, ${isPrimary})
+              ON CONFLICT (recurring_schedule_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+            `);
+          }
+          // Mirror primary onto recurring_schedules.assigned_employee_id so the
+          // existing recurring engine (which still reads the single column) sees
+          // the new owner.
+          await tx.execute(sql`
+            UPDATE recurring_schedules SET assigned_employee_id = ${team_user_ids[0]}
+            WHERE id = ${scheduleId} AND company_id = ${companyId}
+          `);
+        }
+
+        // Single summary audit row for the cascade. new_value carries the full
+        // payload; field_name='cascade_summary'.
+        const summary = {
+          changed_fields: changes.map(c => c.field),
+          values: Object.fromEntries(changes.map(c => [c.field, c.next])),
+          future_jobs_updated: futureCount,
+          future_jobs_skipped_in_progress: futureClockedSkipped,
+        };
+        await tx.execute(sql`
+          INSERT INTO job_audit_log
+            (job_id, company_id, user_id, user_name, user_email,
+             field_name, old_value, new_value, cascade_scope, schedule_id)
+          VALUES
+            (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+             'cascade_summary',
+             ${null}::jsonb,
+             ${JSON.stringify(summary)}::jsonb,
+             'this_and_future', ${scheduleId})
+        `);
+      }
+
+      // Per-field audit rows (always written, regardless of cascade).
+      for (const c of changes) {
+        await tx.execute(sql`
+          INSERT INTO job_audit_log
+            (job_id, company_id, user_id, user_name, user_email,
+             field_name, old_value, new_value, cascade_scope, schedule_id)
+          VALUES
+            (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+             ${c.field},
+             ${JSON.stringify(c.old)}::jsonb,
+             ${JSON.stringify(c.next)}::jsonb,
+             ${cascade_scope},
+             ${cascade_scope === "this_and_future" ? Number(before.recurring_schedule_id) : null})
+        `);
+      }
+
+      // Stash counters for the response (read after commit via closure).
+      (req as any)._agFutureCount = futureCount;
+      (req as any)._agFutureSkipped = futureClockedSkipped;
+    });
+
+    // ── Build response ────────────────────────────────────────────────────
+    const updatedRows = await db.execute(sql`
+      SELECT id, status, service_type, frequency, scheduled_date, scheduled_time,
+             allowed_hours, base_fee, manual_rate_override, notes, assigned_user_id,
+             recurring_schedule_id
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `);
+    const updated = updatedRows.rows[0];
+
+    return res.json({
+      ok: true,
+      changed: true,
+      job: updated,
+      diff: changes.map(c => ({ field: c.field, old: c.old, new: c.next })),
+      cascade: {
+        scope: cascade_scope,
+        future_jobs_updated: (req as any)._agFutureCount ?? 0,
+        future_jobs_skipped_in_progress: (req as any)._agFutureSkipped ?? 0,
+      },
+    });
+  } catch (err) {
+    console.error("PATCH /jobs/:id error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to edit job" });
+  }
+});
+
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);

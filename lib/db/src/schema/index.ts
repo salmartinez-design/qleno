@@ -69,3 +69,8 @@ export * from "./rate_locks";
 export * from "./offer_settings";
 export * from "./notifications";
 export * from "./user_views";
+// [AG] Job edit modal — audit trail + multi-tech junctions
+export * from "./job_audit_log";
+export * from "./job_technicians";
+export * from "./recurring_schedule_add_ons";
+export * from "./recurring_schedule_technicians";

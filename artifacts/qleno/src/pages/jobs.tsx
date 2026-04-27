@@ -4,6 +4,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
 import { JobWizard } from "@/components/job-wizard";
+import EditJobModal from "@/components/edit-job-modal";
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
@@ -357,6 +358,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [smsMessage, setSmsMessage] = useState("");
   const [smsBusy, setSmsBusy] = useState(false);
   const [smsTwilioOk, setSmsTwilioOk] = useState<boolean | null>(null);
+  // [AG] Edit modal state — triggered by the Edit button in the drawer footer.
+  const [editOpen, setEditOpen] = useState(false);
 
   // Commission override state
   const [commTechs, setCommTechs] = useState<JobTechCommission[]>(job.technicians ?? []);
@@ -907,6 +910,14 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <DollarSign size={13} /> Charge Client
             </button>
           )}
+          {/* [AG] Edit button — opens the focused edit modal. Disabled with the
+              same isLocked rule as Reschedule (complete / cancelled / locked_at). */}
+          <button
+            disabled={isLocked}
+            onClick={() => { if (!isLocked) setEditOpen(true); }}
+            style={{ padding: "10px 12px", border: `1px solid ${isLocked ? "#E5E2DC" : "#A7F3D0"}`, borderRadius: 8, backgroundColor: isLocked ? "#F8F7F4" : "#ECFDF5", color: isLocked ? "#9E9B94" : "#065F46", fontSize: 13, fontWeight: 600, cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+            Edit
+          </button>
           <button
             disabled={isLocked}
             onClick={() => {
@@ -1290,6 +1301,42 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           </div>
         </div>
+      )}
+
+      {/* [AG] Edit Job modal */}
+      {editOpen && (
+        <EditJobModal
+          job={{
+            id: job.id,
+            client_id: job.client_id,
+            client_name: job.client_name,
+            recurring_schedule_id: (job as any).recurring_schedule_id ?? null,
+            service_type: job.service_type,
+            frequency: job.frequency,
+            scheduled_date: job.scheduled_date,
+            scheduled_time: job.scheduled_time,
+            duration_minutes: job.duration_minutes,
+            amount: job.amount,
+            base_fee: (job as any).base_fee ?? job.amount,
+            notes: job.notes,
+            status: job.status,
+            locked_at: job.locked_at,
+            assigned_user_id: job.assigned_user_id,
+          }}
+          employees={employees.map(e => ({ id: e.id, name: e.name, role: e.role }))}
+          mobile={mobile}
+          onClose={() => setEditOpen(false)}
+          onSaved={(info) => {
+            setEditOpen(false);
+            const skipped = info.future_jobs_skipped_in_progress;
+            const updated = info.future_jobs_updated;
+            const desc = updated > 0
+              ? `${updated} future job${updated === 1 ? "" : "s"} updated${skipped > 0 ? `. ${skipped} job${skipped === 1 ? " is" : "s are"} in progress and was not modified.` : "."}`
+              : "Changes saved.";
+            toast({ title: "Job updated", description: desc });
+            onUpdate();
+          }}
+        />
       )}
     </>
   );

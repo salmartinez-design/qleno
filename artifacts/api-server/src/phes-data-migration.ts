@@ -270,6 +270,81 @@ async function runBookingSchemaGuard(): Promise<void> {
         UNIQUE (user_id, page, column_key)
       )
     ` },
+
+    // ── AG: Job Edit modal — schema additions (2026-04-27) ───────────────────
+    // Manual-rate flag on jobs: set true when a user overrides the
+    // pricing-engine-calculated base_fee in the edit modal. Cleared when
+    // scope/freq/add-ons change AND base_fee is omitted from the patch.
+    { label: "jobs.manual_rate_override",
+      stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS manual_rate_override BOOLEAN NOT NULL DEFAULT false` },
+
+    // Add-ons traceability — link the per-job add-on row to the
+    // tenant's pricing_addon row for recalc lookups.
+    { label: "job_add_ons.pricing_addon_id",
+      stmt: `ALTER TABLE job_add_ons ADD COLUMN IF NOT EXISTS pricing_addon_id INTEGER` },
+
+    // Recurring schedule — fields that AG can cascade. Backfill is
+    // intentionally not done; existing schedules stay null until edited.
+    { label: "recurring_schedules.scheduled_time",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS scheduled_time TIME` },
+    { label: "recurring_schedules.instructions",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS instructions TEXT` },
+    { label: "recurring_schedules.manual_rate_override",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS manual_rate_override BOOLEAN NOT NULL DEFAULT false` },
+    { label: "recurring_schedules.custom_frequency_weeks",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS custom_frequency_weeks INTEGER` },
+
+    // Recurring add-ons junction — parent template for what spawns onto
+    // each child job.
+    { label: "CREATE recurring_schedule_add_ons", stmt: `
+      CREATE TABLE IF NOT EXISTS recurring_schedule_add_ons (
+        id                     SERIAL PRIMARY KEY,
+        recurring_schedule_id  INTEGER NOT NULL REFERENCES recurring_schedules(id) ON DELETE CASCADE,
+        pricing_addon_id       INTEGER NOT NULL,
+        qty                    NUMERIC(6,2) NOT NULL DEFAULT 1,
+        created_at             TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_rs_addons_schedule",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_rs_addons_schedule ON recurring_schedule_add_ons(recurring_schedule_id)` },
+
+    // Recurring techs junction — multi-tech default for spawned jobs.
+    { label: "CREATE recurring_schedule_technicians", stmt: `
+      CREATE TABLE IF NOT EXISTS recurring_schedule_technicians (
+        id                     SERIAL PRIMARY KEY,
+        recurring_schedule_id  INTEGER NOT NULL REFERENCES recurring_schedules(id) ON DELETE CASCADE,
+        user_id                INTEGER NOT NULL REFERENCES users(id),
+        is_primary             BOOLEAN NOT NULL DEFAULT false,
+        created_at             TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE (recurring_schedule_id, user_id)
+      )
+    ` },
+    { label: "idx_rs_techs_schedule",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_rs_techs_schedule ON recurring_schedule_technicians(recurring_schedule_id)` },
+
+    // Job audit log — per-field diffs for the edit modal.
+    { label: "CREATE job_audit_log", stmt: `
+      CREATE TABLE IF NOT EXISTS job_audit_log (
+        id             SERIAL PRIMARY KEY,
+        job_id         INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        company_id     INTEGER NOT NULL,
+        user_id        INTEGER NOT NULL REFERENCES users(id),
+        user_name      TEXT NOT NULL,
+        user_email     TEXT NOT NULL,
+        field_name     TEXT NOT NULL,
+        old_value      JSONB,
+        new_value      JSONB,
+        cascade_scope  TEXT,
+        schedule_id    INTEGER,
+        edited_at      TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_job_audit_log_job_id",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_job_audit_log_job_id ON job_audit_log(job_id)` },
+    { label: "idx_job_audit_log_user_id",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_job_audit_log_user_id ON job_audit_log(user_id)` },
+    { label: "idx_job_audit_log_edited_at",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_job_audit_log_edited_at ON job_audit_log(edited_at DESC)` },
   ];
 
   for (const { label, stmt } of guards) {
