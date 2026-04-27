@@ -736,11 +736,13 @@ export default function EditJobModal({
                       <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 16, color: "#6B6860", pointerEvents: "none" }}>$</span>
                       <input type="number" min={0} step={0.01} inputMode="decimal"
                         value={hourlyRate === 0 ? "" : hourlyRate}
-                        placeholder="0"
+                        // [AI.6.1] No placeholder "0" — it read as a literal value
+                        // users tried to backspace. Empty state stays empty.
+                        // onFocus selects existing content so tapping a field with
+                        // a value lets typing replace it (iOS-native expectation).
+                        onFocus={e => e.target.select()}
                         onChange={e => {
                           const v = e.target.value;
-                          // [AI.6] Strip leading zeros visually (typing "50" no
-                          // longer shows "050" on mobile Safari). Empty becomes 0.
                           const cleaned = v.replace(/^0+(?=\d)/, "");
                           setHourlyRate(parseFloat(cleaned) || 0);
                         }}
@@ -764,7 +766,7 @@ export default function EditJobModal({
                         zeros. Empty input = 0 (validation catches it). */}
                     <input type="number" min={0.25} step={0.25} inputMode="decimal"
                       value={allowedHours === 0 ? "" : allowedHours}
-                      placeholder="0"
+                      onFocus={e => e.target.select()}
                       onChange={e => {
                         const v = e.target.value.replace(/^0+(?=\d)/, "");
                         setAllowedHours(parseFloat(v) || 0);
@@ -799,7 +801,7 @@ export default function EditJobModal({
                   <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Allowed hours</span>
                   <input type="number" min={0.25} step={0.25} inputMode="decimal"
                     value={allowedHours === 0 ? "" : allowedHours}
-                    placeholder="0"
+                    onFocus={e => e.target.select()}
                     onChange={e => {
                       const v = e.target.value.replace(/^0+(?=\d)/, "");
                       setAllowedHours(parseFloat(v) || 0);
