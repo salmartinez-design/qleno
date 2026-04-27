@@ -488,10 +488,15 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   async function addTechToJob(techId: number) {
     setAddTechBusy(true);
     try {
+      // [AI.1] Pass is_primary explicitly when the job has no current
+      // assignment so the server promotes this tech AND mirrors to
+      // jobs.assigned_user_id. Without this, drawer "Add Team Member" on an
+      // unassigned job leaves the dispatch chip in the Unassigned row.
+      const isUnassigned = job.assigned_user_id == null;
       const r = await fetch(`${_API3}/api/jobs/${job.id}/technicians`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: techId }),
+        body: JSON.stringify({ user_id: techId, is_primary: isUnassigned ? true : undefined }),
       });
       const d = await r.json();
       if (d.data) setCommTechs(d.data);
@@ -1323,6 +1328,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             locked_at: job.locked_at,
             assigned_user_id: job.assigned_user_id,
             hourly_rate: job.hourly_rate ?? null,
+            // [AI.1] Pass account_id through so the modal's broadened
+            // isCommercial detection (client_type='commercial' OR account_id)
+            // can fire on jobs whose client_type drifted during MC import.
+            account_id: job.account_id ?? null,
           }}
           employees={employees.map(e => ({ id: e.id, name: e.name, role: e.role }))}
           mobile={mobile}

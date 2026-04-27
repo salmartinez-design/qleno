@@ -1,5 +1,89 @@
 # Known Bugs
 
+## RESOLVED — Tech reassignment didn't persist (2026-04-27, AI.1)
+
+**Status:** Fixed in commit AI.1.
+
+**Symptoms (production):**
+- Open an unassigned job (e.g., CJ Jimenez · Standard Clean) in the dispatch
+  drawer → click Add Team Member → pick Guadalupe Mejia → save → toast
+  "Team member added" → reopen the job → reverts to Unassigned.
+
+**Root cause:** Two bugs compounded on the drawer's `addTechToJob` path:
+1. `POST /api/jobs/:id/technicians` referenced `drizzleSql` which was
+   undefined at module scope (only some sibling handlers had local
+   `const { sql: drizzleSql } = await import("drizzle-orm")` shims). The
+   handler threw `ReferenceError` at runtime → returned 500 → toast still
+   said "Team member added" because the catch only handles thrown
+   exceptions in the promise chain, not non-2xx responses.
+2. Even if the handler had worked, it never updated `jobs.assigned_user_id`.
+   The dispatch grid reads `jobs.assigned_user_id` (not `job_technicians`),
+   so the chip would have stayed in the Unassigned row regardless.
+
+**Fix:**
+- Replaced all `drizzleSql` references in `routes/jobs.ts` with `sql` (the
+  actual module-top import name). Removed the now-redundant local shims.
+  Also fixes `calculateTechPay` and several other handlers that had the
+  same broken reference.
+- POST handler now promotes the new tech to primary when no current primary
+  exists, AND mirrors `jobs.assigned_user_id`. Drawer's `addTechToJob`
+  passes `is_primary: true` explicitly when the job is unassigned.
+- DELETE handler now promotes the next remaining tech on primary removal
+  and mirrors (NULL when none remain).
+- Both handlers write a `job_audit_log` row (`field_name='tech_assigned'`
+  or `'tech_removed'`) with full before/after state.
+- Added invariant note in CLAUDE.md so future code can't regress.
+
+---
+
+## RESOLVED — Recurring schedule edit modal missing AI frequency options (2026-04-27, AI.1)
+
+**Status:** Fixed in commit AI.1.
+
+**Symptom:** The Recurring section of the client profile (`ServiceDetailsSection`
+in `customer-profile.tsx`) had a hard-coded frequency dropdown that never
+got the AI multi-day options (daily/weekdays/custom_days). Operators editing
+a recurring schedule from the client profile saw only the standard 5 options.
+
+**Fix:** New shared `FREQ_OPTIONS_STANDARD` + `FREQ_OPTIONS_COMMERCIAL_MULTI`
+arrays. Dropdown now uses `<optgroup>` with the commercial group rendered
+only when `client.client_type === 'commercial' || client.account_id != null`
+— same broadening as the job edit modal. `FREQ_LABELS` extended with daily,
+weekdays, custom_days for downstream display.
+
+(The dead `RecurringTab` component at line 1870 is unused and was left
+alone — it doesn't render anywhere in the current UI.)
+
+---
+
+## RESOLVED — Job edit modal Frequency dropdown — defensive broadening (2026-04-27, AI.1)
+
+**Status:** Fixed in commit AI.1.
+
+**Symptom:** Job edit modal showed only standard 5 options for Jaira Estrada.
+The AI optgroup code was correct; root cause was that Jaira's
+`clients.client_type` may have been `'residential'` from MC import (the
+PHES commercial-clients-stored-as-residential issue documented above).
+
+**Fix (defensive):** `isCommercial` detection in `edit-job-modal.tsx` is now
+`clientType === 'commercial' || job.account_id != null`. Aligned with how
+`dispatch.ts:290` already determines commercial. Jobs flagged commercial by
+either signal get the commercial UI fork. If Jaira's `client_type` is still
+`'residential'` in the DB but her job has an `account_id`, the modal now
+shows the commercial group correctly.
+
+**Action item still pending (data, not code):** verify Jaira's
+`clients.client_type` and `clients.account_id` values via Railway DB shell.
+If both are residential / null, neither code signal will fire and her data
+needs cleanup. SQL to inspect:
+```sql
+SELECT id, first_name, last_name, client_type, account_id
+FROM clients
+WHERE company_id = 1 AND first_name ILIKE 'jaira%';
+```
+
+---
+
 ## Add Client button does nothing (2026-04-18)
 
 **Severity:** High (blocks new client onboarding via UI)

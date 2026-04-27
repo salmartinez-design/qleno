@@ -517,10 +517,9 @@ router.get("/availability", requireAuth, async (req, res) => {
 router.get("/ready-to-charge", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { sql: drizzleSql } = await import("drizzle-orm");
     const todayStr = new Date().toISOString().slice(0, 10);
 
-    const rows = await db.execute(drizzleSql`
+    const rows = await db.execute(sql`
       SELECT j.id, j.client_id, j.scheduled_date, j.base_fee, j.billed_amount, j.service_type,
              j.charge_failed_at,
              c.first_name, c.last_name, c.card_last_four, c.card_brand, c.payment_source
@@ -1690,8 +1689,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
 
     // Load job with client info
-    const { sql: drizzleSql } = await import("drizzle-orm");
-    const jobRows = await db.execute(drizzleSql`
+    const jobRows = await db.execute(sql`
       SELECT j.id, j.company_id, j.client_id, j.status, j.base_fee, j.billed_amount,
              j.charge_failed_at, j.charge_succeeded_at,
              c.stripe_customer_id, c.stripe_payment_method_id, c.payment_source,
@@ -1716,7 +1714,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     if (job.charge_succeeded_at) return res.status(400).json({ error: "Job already charged successfully" });
 
     // Check for existing successful payment
-    const existingPmt = await db.execute(drizzleSql`
+    const existingPmt = await db.execute(sql`
       SELECT id FROM payments WHERE job_id = ${jobId} AND status = 'completed' LIMIT 1
     `);
     if (existingPmt.rows.length > 0) return res.status(400).json({ error: "Payment already recorded for this job" });
@@ -1769,14 +1767,14 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
 
       // Mark invoice paid
       if (job.invoice_id) {
-        await db.execute(drizzleSql`
+        await db.execute(sql`
           UPDATE invoices SET status = 'paid', paid_at = NOW(), stripe_payment_intent_id = ${paymentIntent.id}
           WHERE id = ${job.invoice_id}
         `);
       }
 
       // Mark job charged
-      await db.execute(drizzleSql`
+      await db.execute(sql`
         UPDATE jobs SET charge_succeeded_at = NOW(), charge_failed_at = NULL WHERE id = ${jobId}
       `);
 
@@ -1824,7 +1822,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
       });
 
       // Mark job charge failed
-      await db.execute(drizzleSql`
+      await db.execute(sql`
         UPDATE jobs SET charge_failed_at = NOW() WHERE id = ${jobId}
       `);
 
@@ -1846,19 +1844,19 @@ async function calculateTechPay(jobId: number, companyId: number): Promise<Array
   user_id: number; name: string; is_primary: boolean; est_hours: number;
   calc_pay: number; final_pay: number; pay_override: number | null;
 }>> {
-  const jobRows = await db.execute(drizzleSql`
+  const jobRows = await db.execute(sql`
     SELECT id, base_fee, billed_amount, estimated_hours, assigned_user_id, commission_pool_rate
     FROM jobs WHERE id = ${jobId} AND company_id = ${companyId}
   `);
   if (!jobRows.rows.length) return [];
   const job = jobRows.rows[0] as any;
 
-  const compRows = await db.execute(drizzleSql`
+  const compRows = await db.execute(sql`
     SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1
   `);
   const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
 
-  const techRows = await db.execute(drizzleSql`
+  const techRows = await db.execute(sql`
     SELECT jt.user_id, jt.is_primary, jt.pay_override, u.first_name, u.last_name
     FROM job_technicians jt
     JOIN users u ON u.id = jt.user_id
@@ -1869,7 +1867,7 @@ async function calculateTechPay(jobId: number, companyId: number): Promise<Array
   let techs: any[] = techRows.rows;
 
   if (techs.length === 0 && job.assigned_user_id) {
-    const userRow = await db.execute(drizzleSql`
+    const userRow = await db.execute(sql`
       SELECT id, first_name, last_name FROM users WHERE id = ${job.assigned_user_id} LIMIT 1
     `);
     if (userRow.rows.length) {
@@ -1914,24 +1912,100 @@ router.get("/:id/technicians", requireAuth, async (req, res) => {
 });
 
 // POST /api/jobs/:id/technicians — add a tech to the job
+//
+// [AI.1] Two invariants we maintain here that the original handler missed:
+//   1. jobs.assigned_user_id MUST mirror the primary tech in job_technicians.
+//      The dispatch grid keys off jobs.assigned_user_id, so writes that don't
+//      mirror create a split-brain (Jaira commission/assignment in AH; CJ
+//      Jimenez stays in Unassigned after Add Team Member in AI).
+//   2. Adding a tech to a job that has NO primary (typical for drawer "Add
+//      Team Member" on an unassigned job) auto-promotes the new tech to
+//      primary and mirrors. Caller can still pass is_primary explicitly.
+// Audit row written for traceability since this is the most-used path.
 router.post("/:id/technicians", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
-    const companyId = req.auth!.companyId;
-    const { user_id, is_primary } = req.body;
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const { user_id, is_primary: isPrimaryReq } = req.body;
     if (!user_id) return res.status(400).json({ error: "user_id required" });
 
-    const jobRows = await db.execute(drizzleSql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    const jobRows = await db.execute(sql`
+      SELECT id, assigned_user_id FROM jobs
+      WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `);
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+    const oldAssignedUserId = (jobRows.rows[0] as any).assigned_user_id ?? null;
 
-    await db.execute(drizzleSql`
-      INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-      VALUES (${jobId}, ${user_id}, ${companyId}, ${is_primary ?? false})
-      ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+    // Decide primary status: explicit request wins; else auto-promote when
+    // there's no existing primary (covers unassigned jobs and any legacy
+    // rows where is_primary was never set).
+    const existingPrimary = await db.execute(sql`
+      SELECT user_id FROM job_technicians
+      WHERE job_id = ${jobId} AND is_primary = true LIMIT 1
+    `);
+    const noPrimary = existingPrimary.rows.length === 0;
+    const willBePrimary = isPrimaryReq === true || (isPrimaryReq !== false && noPrimary);
+
+    // Capture before-state for audit log
+    const techsBefore = await db.execute(sql`
+      SELECT user_id, is_primary FROM job_technicians
+      WHERE job_id = ${jobId} ORDER BY is_primary DESC, id
     `);
 
+    await db.transaction(async (tx) => {
+      // If we're promoting this tech to primary, demote any existing primary first.
+      if (willBePrimary) {
+        await tx.execute(sql`
+          UPDATE job_technicians SET is_primary = false
+          WHERE job_id = ${jobId} AND user_id != ${user_id}
+        `);
+      }
+      // Upsert the (job, tech) row with the resolved primary flag.
+      await tx.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary})
+        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+      `);
+      // Mirror primary onto jobs.assigned_user_id so the dispatch grid sees the change.
+      if (willBePrimary) {
+        await tx.execute(sql`
+          UPDATE jobs SET assigned_user_id = ${user_id}
+          WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      }
+
+      // Audit row — drawer "Add Team Member" is the most common assignment
+      // flow in production, so we want traceability here even though it
+      // bypasses the PATCH endpoint's per-field audit machinery.
+      const userRows = await tx.execute(sql`
+        SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+      `);
+      const u = (userRows.rows[0] as any) ?? {};
+      const actorName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+      const actorEmail = String(u.email ?? "");
+      const summary = {
+        action: "tech_assigned",
+        added_user_id: Number(user_id),
+        is_primary: willBePrimary,
+        mirrored_to_assigned_user_id: willBePrimary && oldAssignedUserId !== Number(user_id),
+        previous_assigned_user_id: oldAssignedUserId,
+      };
+      await tx.execute(sql`
+        INSERT INTO job_audit_log
+          (job_id, company_id, user_id, user_name, user_email,
+           field_name, old_value, new_value, cascade_scope, schedule_id)
+        VALUES
+          (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+           'tech_assigned',
+           ${JSON.stringify({ techs: techsBefore.rows, assigned_user_id: oldAssignedUserId })}::jsonb,
+           ${JSON.stringify(summary)}::jsonb,
+           'this_job', ${null})
+      `);
+    });
+
     const result = await calculateTechPay(jobId, companyId);
-    return res.json({ data: result });
+    return res.json({ data: result, primary: willBePrimary });
   } catch (err) {
     console.error("POST /jobs/:id/technicians error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -1939,15 +2013,89 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
 });
 
 // DELETE /api/jobs/:id/technicians/:techId
+//
+// [AI.1] Mirror invariant. If we're removing the primary tech, promote the
+// next remaining tech (lowest job_technicians.id) to primary and update
+// jobs.assigned_user_id. If no techs remain, jobs.assigned_user_id goes
+// NULL (job back to unassigned). Audit row written for traceability.
 router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const techId = parseInt(req.params.techId);
-    const companyId = req.auth!.companyId;
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
 
-    await db.execute(drizzleSql`
-      DELETE FROM job_technicians WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
+    const jobRows = await db.execute(sql`
+      SELECT assigned_user_id FROM jobs
+      WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+    const oldAssignedUserId = (jobRows.rows[0] as any).assigned_user_id ?? null;
+
+    const removingRow = await db.execute(sql`
+      SELECT is_primary FROM job_technicians
+      WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
+      LIMIT 1
+    `);
+    const wasRemovingPrimary = removingRow.rows.length > 0
+      && Boolean((removingRow.rows[0] as any).is_primary);
+
+    let newPrimary: number | null = null;
+
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        DELETE FROM job_technicians
+        WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
+      `);
+
+      if (wasRemovingPrimary) {
+        // Promote next remaining tech (oldest by row id). Could be no rows left.
+        const remaining = await tx.execute(sql`
+          SELECT user_id FROM job_technicians
+          WHERE job_id = ${jobId}
+          ORDER BY id ASC LIMIT 1
+        `);
+        if (remaining.rows.length > 0) {
+          newPrimary = Number((remaining.rows[0] as any).user_id);
+          await tx.execute(sql`
+            UPDATE job_technicians SET is_primary = true
+            WHERE job_id = ${jobId} AND user_id = ${newPrimary}
+          `);
+        }
+        // Mirror onto jobs.assigned_user_id (NULL when no techs remain).
+        await tx.execute(sql`
+          UPDATE jobs SET assigned_user_id = ${newPrimary}
+          WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      }
+
+      // Audit row.
+      const userRows = await tx.execute(sql`
+        SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+      `);
+      const u = (userRows.rows[0] as any) ?? {};
+      const actorName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+      const actorEmail = String(u.email ?? "");
+      const summary = {
+        action: "tech_removed",
+        removed_user_id: techId,
+        was_primary: wasRemovingPrimary,
+        new_primary_user_id: newPrimary,
+        mirrored_to_assigned_user_id: wasRemovingPrimary,
+        previous_assigned_user_id: oldAssignedUserId,
+      };
+      await tx.execute(sql`
+        INSERT INTO job_audit_log
+          (job_id, company_id, user_id, user_name, user_email,
+           field_name, old_value, new_value, cascade_scope, schedule_id)
+        VALUES
+          (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+           'tech_removed',
+           ${JSON.stringify({ removed_user_id: techId, was_primary: wasRemovingPrimary, assigned_user_id: oldAssignedUserId })}::jsonb,
+           ${JSON.stringify(summary)}::jsonb,
+           'this_job', ${null})
+      `);
+    });
 
     const result = await calculateTechPay(jobId, companyId);
     return res.json({ data: result });
@@ -1965,12 +2113,12 @@ router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) =>
     const companyId = req.auth!.companyId;
     const { pay_override } = req.body;
 
-    const jobRows = await db.execute(drizzleSql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    const jobRows = await db.execute(sql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
 
     const overrideVal = pay_override != null ? parseFloat(String(pay_override)) : null;
 
-    await db.execute(drizzleSql`
+    await db.execute(sql`
       INSERT INTO job_technicians (job_id, user_id, company_id, pay_override, final_pay)
       VALUES (${jobId}, ${techId}, ${companyId}, ${overrideVal}, ${overrideVal})
       ON CONFLICT (job_id, user_id) DO UPDATE SET
@@ -1993,7 +2141,7 @@ router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const { commission_pool_rate } = req.body;
 
-    await db.execute(drizzleSql`
+    await db.execute(sql`
       UPDATE jobs SET commission_pool_rate = ${parseFloat(String(commission_pool_rate))}
       WHERE id = ${jobId} AND company_id = ${companyId}
     `);

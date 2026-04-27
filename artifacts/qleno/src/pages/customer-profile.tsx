@@ -2268,7 +2268,26 @@ const FREQ_LABELS: Record<string, string> = {
   weekly: "Weekly", biweekly: "Bi-Weekly", monthly: "Monthly",
   on_demand: "On Demand", every_3_weeks: "Every 3 Weeks",
   custom: "Custom", semi_monthly: "Semi-Monthly",
+  // [AI.1] Commercial multi-day frequencies. Surfaced in dropdowns when
+  // the client is commercial; hidden for residential clients.
+  daily: "Daily", weekdays: "Weekdays (M–F)", custom_days: "Custom days",
 };
+
+// [AI.1] Frequency options grouped by audience. Standard always shown;
+// Commercial multi-day shown only when client_type='commercial' or the
+// schedule belongs to a commercial account (account_id != null).
+const FREQ_OPTIONS_STANDARD: Array<{ value: string; label: string }> = [
+  { value: "weekly", label: "Weekly" },
+  { value: "biweekly", label: "Bi-Weekly" },
+  { value: "every_3_weeks", label: "Every 3 Weeks" },
+  { value: "monthly", label: "Monthly" },
+  { value: "on_demand", label: "On Demand" },
+];
+const FREQ_OPTIONS_COMMERCIAL_MULTI: Array<{ value: string; label: string }> = [
+  { value: "daily", label: "Daily (every day)" },
+  { value: "weekdays", label: "Weekdays (M–F)" },
+  { value: "custom_days", label: "Custom days" },
+];
 
 const SOURCE_LABELS: Record<string, string> = {
   google_lsa: "Google Local Services", google_ads: "Google Ads",
@@ -2988,9 +3007,21 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   {lbl("Frequency")}
+                  {/* [AI.1] Grouped via <optgroup>. Commercial multi-day options
+                      (daily/weekdays/custom_days) only shown when client is
+                      commercial OR linked to an account. Defensive against
+                      MC-import client_type drift — same broadening as the
+                      job edit modal. */}
                   <select value={form.rec_frequency} onChange={upd("rec_frequency")} style={{ ...inp }}>
                     <option value="">Not set</option>
-                    {Object.entries(FREQ_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    <optgroup label="Standard">
+                      {FREQ_OPTIONS_STANDARD.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                    </optgroup>
+                    {(client.client_type === "commercial" || client.account_id != null) && (
+                      <optgroup label="Commercial multi-day">
+                        {FREQ_OPTIONS_COMMERCIAL_MULTI.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                      </optgroup>
+                    )}
                   </select>
                 </div>
                 <div>

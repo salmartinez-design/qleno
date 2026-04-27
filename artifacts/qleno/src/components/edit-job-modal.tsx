@@ -41,6 +41,10 @@ export interface EditableJob {
   locked_at?: string | null;
   assigned_user_id: number | null;
   hourly_rate?: number | string | null;
+  // [AI.1] account_id !== null is an additional commercial signal. Defensive
+  // against MC-import client_type drift — clients linked to a commercial
+  // account but tagged residential still get the commercial UI fork.
+  account_id?: number | null;
 }
 
 // [AH] Commercial service_type enum values. Matches jobs.ts:14 enum.
@@ -239,7 +243,13 @@ export default function EditJobModal({
     return () => { cancelled = true; };
   }, [API, token, job.client_id, job.hourly_rate]);
 
-  const isCommercial = clientType === "commercial";
+  // [AI.1] Broadened: client_type='commercial' OR job has an account_id set.
+  // The job-level account_id signal is defensive — MC import sometimes left
+  // commercial clients tagged client_type='residential', and the dispatch
+  // route already uses `!!j.account_id` as its commercial test (dispatch.ts).
+  // Aligning here means jobs flagged commercial by either signal get the
+  // commercial UI fork.
+  const isCommercial = clientType === "commercial" || job.account_id != null;
 
   // ── Load scopes once ────────────────────────────────────────────────────
   // Skipped for commercial clients (modal uses the commercial dropdown instead).

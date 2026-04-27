@@ -39,6 +39,21 @@
 - `getBranchByZip` routes all comms (SMS, email, assignments) to Oak Lawn vs Schaumburg based on zip code
 - Every communication must go through this function — never hardcode a branch
 
+## Code invariants
+- **Assignment mirror**: any code that writes to `job_technicians` MUST also
+  mirror the primary tech onto `jobs.assigned_user_id`. The dispatch grid
+  reads `jobs.assigned_user_id`, NOT `job_technicians`. Failure to mirror
+  creates a split-brain (chip in Unassigned row even though a tech is
+  actually assigned). All four entry points enforce this:
+  - `PATCH /api/jobs/:id` (modal save) — mirrors team_user_ids[0]
+  - `POST /api/jobs/:id/technicians` (drawer Add Team Member) — promotes
+    new tech to primary on unassigned jobs and mirrors
+  - `DELETE /api/jobs/:id/technicians/:techId` — promotes next remaining
+    tech on primary removal and mirrors (NULL if none remain)
+  - `PUT /api/jobs/:id` (drag-and-drop quick-reschedule) — only writes
+    `assigned_user_id` directly; doesn't touch `job_technicians`. Acceptable
+    because PATCH is the canonical full-edit path.
+
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
 - Square is for existing Phes clients only — new bookings always use Stripe
