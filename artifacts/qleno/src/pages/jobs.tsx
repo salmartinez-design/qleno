@@ -307,40 +307,43 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const { toast } = useToast();
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-  const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string }>>([]);
+  const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string; name: string }>>([]);
   const [loadingTechs, setLoadingTechs] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Fetch the candidate techs for this job's branch eagerly when the drawer
-  // opens. The /api/users response wraps the list under `data`, not `users`,
-  // and ships a small payload (tens of rows). Eager fetch means the dropdown
-  // is populated before the user opens it. Branch filter enforces isolation.
+  // Fetch candidate techs from /api/users/techs-with-status (the same
+  // endpoint the existing Add Team Member picker uses, so role and active
+  // filtering match production behavior — covers technician AND team_lead
+  // roles, not just "technician"). Branch isolation is applied via the
+  // branch_id query param when the job has a branch set; legacy users with
+  // null branch are still surfaced (treated as assignable anywhere).
   useEffect(() => {
     setLoadingTechs(true);
-    const params = new URLSearchParams({
-      role: "technician",
-      is_active: "true",
-      limit: "100",
-    });
+    const params = new URLSearchParams();
     if (job.branch_id != null) params.set("branch_id", String(job.branch_id));
-    fetch(`${API}/api/users?${params}`, { headers: { Authorization: `Bearer ${token}` } })
+    const qs = params.toString() ? `?${params}` : "";
+    fetch(`${API}/api/users/techs-with-status${qs}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
       .then(r => r.ok ? r.json() : { data: [] })
       .then((d: any) => {
-        const list = Array.isArray(d?.data) ? d.data
-          : Array.isArray(d?.users) ? d.users
-          : Array.isArray(d) ? d : [];
+        const list = Array.isArray(d?.data) ? d.data : [];
         setTechs(list);
       })
       .catch(() => setTechs([]))
       .finally(() => setLoadingTechs(false));
   }, [API, token, job.branch_id]);
 
+  // Resolve the current tech's display name. Prefer assigned_user_name
+  // from the dispatch payload (always populated when a tech is assigned),
+  // then fall back to the techs list once it loads. Final fallback is a
+  // neutral placeholder so the dropdown never renders just a checkmark.
+  const currentTechFromList = job.assigned_user_id != null
+    ? techs.find(t => t.id === job.assigned_user_id)
+    : null;
   const currentName = job.assigned_user_name
-    || (job.assigned_user_id != null
-        ? techs.find(t => t.id === job.assigned_user_id)
-          ? `${techs.find(t => t.id === job.assigned_user_id)!.first_name} ${techs.find(t => t.id === job.assigned_user_id)!.last_name}`
-          : ""
-        : "Unassigned");
+    || (currentTechFromList ? currentTechFromList.name : null)
+    || (job.assigned_user_id != null ? `Technician #${job.assigned_user_id}` : "Unassigned");
 
   async function onChange(newId: number) {
     if (newId === job.assigned_user_id) return;
@@ -389,7 +392,7 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
         {techs
           .filter(t => t.id !== job.assigned_user_id)
           .map(t => (
-            <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
+            <option key={t.id} value={t.id}>{t.name || `${t.first_name} ${t.last_name}`}</option>
           ))}
       </select>
       {saving && <span style={{ fontSize: 11, color: "#9E9B94" }}>Saving…</span>}

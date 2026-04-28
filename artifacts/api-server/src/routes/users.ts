@@ -69,10 +69,18 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
     const excludeParam = (req.query.exclude as string | undefined) ?? "";
     const excludeIds = excludeParam.split(",").map(s => parseInt(s.trim(), 10)).filter(n => Number.isFinite(n));
 
+    // Optional branch isolation. The dispatch drawer's inline tech editor
+    // passes the job's branch_id so the dropdown only lists techs assignable
+    // to that branch. Omit (or pass "all") to get the unfiltered list (the
+    // legacy "Add Team Member" picker behavior).
+    const branchIdRaw = req.query.branch_id;
+    const branchIdNum = (typeof branchIdRaw === "string" && branchIdRaw !== "all" && branchIdRaw !== "")
+      ? parseInt(branchIdRaw, 10) : null;
+
     // Roles are a pg enum, so filter the list after fetch rather than build a
     // complex or() chain. Small set (tens of rows) — no perf concern.
     const rows = await db.execute(sql`
-      SELECT u.id, u.first_name, u.last_name, u.role,
+      SELECT u.id, u.first_name, u.last_name, u.role, u.branch_id,
              -- Active clock-in for this user = any timeclock row with NULL
              -- clock_out_at. Today-only filter by clock_in_at::date = CURRENT_DATE
              -- (America/Chicago is handled at ingest; we just compare UTC dates
@@ -85,6 +93,9 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
        WHERE u.company_id = ${companyId}
          AND u.is_active = true
          AND u.role IN ('technician','team_lead')
+         ${branchIdNum != null && Number.isFinite(branchIdNum)
+           ? sql`AND (u.branch_id = ${branchIdNum} OR u.branch_id IS NULL)`
+           : sql``}
        ORDER BY u.first_name, u.last_name
     `);
 
@@ -115,6 +126,7 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
         last_name: r.last_name,
         name: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
         role: r.role,
+        branch_id: r.branch_id ?? null,
         is_clocked_in: r.active_job_id !== null,
         currently_at: r.active_job_id ? (clientByJob.get(r.active_job_id) ?? null) : null,
       }));
