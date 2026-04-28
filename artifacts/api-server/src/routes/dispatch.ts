@@ -51,6 +51,12 @@ router.get("/", requireAuth, async (req, res) => {
         client_zip: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip})`,
         address: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address})`,
         city:    sql<string | null>`COALESCE(NULLIF(${jobsTable.address_city}, ''),   ${clientsTable.city})`,
+        // [AI.7.6] State + zip pulled through so the canonical address
+        // formatter can render "<street>, <city>, <state> <zip>" everywhere.
+        // Job-level preferred, client-level fallback (mirrors the
+        // address/city resolution above).
+        state:   sql<string | null>`COALESCE(NULLIF(${jobsTable.address_state}, ''),  ${clientsTable.state})`,
+        zip:     sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''),    ${clientsTable.zip})`,
         // [Q2] New: surface notes + payment method on the client row for hover card
         client_notes: clientsTable.notes,
         client_payment_method: clientsTable.payment_method,
@@ -76,14 +82,28 @@ router.get("/", requireAuth, async (req, res) => {
         // different site colors from that site's zip. If neither jobs.address_zip
         // nor clients.zip is set, we still fall back to the 5-digit
         // pattern embedded in the street (same heuristic as S).
+        // [AI.7.6] Zone resolution — extended to include
+        // account_properties.zip / account_properties.address so commercial
+        // jobs route to the right zone via the property's zip (was missing
+        // — caused gray tiles on commercial jobs whose clients.zip was
+        // null but the property had a zip). Resolution order:
+        //   1. jobs.zone_id direct join (when explicit)
+        //   2. jobs.address_zip → service_zones.zip_codes
+        //   3. clients.zip → service_zones.zip_codes
+        //   4. account_properties.zip → service_zones.zip_codes (NEW)
+        //   5. regex-extracted 5-digit zip from any address text
         zone_color: sql<string | null>`COALESCE(
           ${serviceZonesTable.color},
           (SELECT z.color FROM service_zones z
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
                AND (
-                 COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip}) = ANY(z.zip_codes)
-                 OR SUBSTRING(COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address}) FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 NULLIF(${jobsTable.address_zip}, '') = ANY(z.zip_codes)
+                 OR NULLIF(${clientsTable.zip}, '') = ANY(z.zip_codes)
+                 OR NULLIF(${accountPropertiesTable.zip}, '') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${jobsTable.address_street}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${clientsTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${accountPropertiesTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
              LIMIT 1)
         )`,
@@ -93,8 +113,12 @@ router.get("/", requireAuth, async (req, res) => {
              WHERE z.company_id = ${companyId}
                AND z.is_active = true
                AND (
-                 COALESCE(NULLIF(${jobsTable.address_zip}, ''), ${clientsTable.zip}) = ANY(z.zip_codes)
-                 OR SUBSTRING(COALESCE(NULLIF(${jobsTable.address_street}, ''), ${clientsTable.address}) FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 NULLIF(${jobsTable.address_zip}, '') = ANY(z.zip_codes)
+                 OR NULLIF(${clientsTable.zip}, '') = ANY(z.zip_codes)
+                 OR NULLIF(${accountPropertiesTable.zip}, '') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${jobsTable.address_street}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${clientsTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+                 OR SUBSTRING(NULLIF(${accountPropertiesTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
              LIMIT 1)
         )`,
@@ -127,6 +151,8 @@ router.get("/", requireAuth, async (req, res) => {
         account_property_id: jobsTable.account_property_id,
         property_address: accountPropertiesTable.address,
         property_city: accountPropertiesTable.city,
+        property_state: accountPropertiesTable.state,
+        property_zip: accountPropertiesTable.zip,
         property_access_notes: accountPropertiesTable.access_notes,
         office_notes: jobsTable.office_notes,
         // [AF] Completion flow surface-area — drawer renders read-only state
@@ -315,9 +341,22 @@ router.get("/", requireAuth, async (req, res) => {
         ? Math.max(30, Math.round((parseFloat(j.allowed_hours) / numTechsForDur) * 60))
         : 120;
       const isCommercial = !!j.account_id;
+      // [AI.7.6] Canonical address render: "<street>, <city>, <state> <zip>".
+      // formatAddress() inlined here on the server side; the same shape
+      // ships to the frontend so there's only one rule. State + zip are
+      // mandatory if address is shown — see CLAUDE.md "Address display"
+      // invariant.
+      const fmtAddr = (street?: string | null, city?: string | null, state?: string | null, zip?: string | null): string | null => {
+        const parts: string[] = [];
+        if (street) parts.push(street.trim());
+        if (city) parts.push(city.trim());
+        const stateZip = [state?.trim(), zip?.trim()].filter(Boolean).join(" ");
+        if (stateZip) parts.push(stateZip);
+        return parts.length > 0 ? parts.join(", ") : null;
+      };
       const displayAddress = isCommercial
-        ? (j.property_address ? `${j.property_address}${j.property_city ? `, ${j.property_city}` : ""}` : null)
-        : (j.address ? `${j.address}${j.city ? `, ${j.city}` : ""}` : null);
+        ? fmtAddr(j.property_address, j.property_city, j.property_state, j.property_zip)
+        : fmtAddr(j.address, j.city, j.state, j.zip);
       const jobTotal = j.billed_amount ? parseFloat(j.billed_amount) : (j.base_fee ? parseFloat(j.base_fee) : 0);
       // [AI.7.4] Commission engine routes on isCommercial. Residential
       // = jobTotal × resPct (pool, default 35%). Commercial = hourly
@@ -535,6 +574,121 @@ router.get("/week-summary", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Week summary error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to load week summary" });
+  }
+});
+
+// [AI.7.6] Zone coverage audit — segments today's jobs by why zone
+// resolution failed, so the operator sees the gap (no_zip / zip
+// outside zones / other) and can fix the underlying data instead of
+// papering over with a default zone. Per Sal's standing rule, every
+// job must surface its zone color; failures are data errors.
+//
+// GET /api/dispatch/zone-coverage-audit?from=YYYY-MM-DD&to=YYYY-MM-DD
+//   defaults to today.
+//
+// Response shape:
+//   {
+//     window: { from, to },
+//     total: number,
+//     resolved: number,
+//     unresolved: {
+//       a_no_zip:           { count, samples: [{ id, client_name, scheduled_date }] },
+//       b_zip_outside_zones:{ count, samples: [...], unmatched_zips: string[] },
+//       c_other:            { count, samples: [...] },
+//     },
+//   }
+router.get("/zone-coverage-audit", requireAuth, async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+    const from = (req.query.from as string) || todayStr;
+    const to = (req.query.to as string) || todayStr;
+
+    // Pull jobs in window with all candidate zip / address sources so we
+    // can segment failures by root cause without re-running the resolver
+    // SQL multiple times.
+    const rows = await db.execute(sql`
+      SELECT
+        j.id,
+        j.scheduled_date::text AS scheduled_date,
+        CASE WHEN j.account_id IS NOT NULL
+             THEN a.account_name
+             ELSE concat(c.first_name, ' ', c.last_name) END AS client_name,
+        NULLIF(j.address_zip, '')                              AS job_zip,
+        NULLIF(c.zip, '')                                      AS client_zip,
+        NULLIF(ap.zip, '')                                     AS property_zip,
+        SUBSTRING(NULLIF(j.address_street, '') FROM '\\y(\\d{5})\\y') AS job_addr_zip_extracted,
+        SUBSTRING(NULLIF(c.address, '')      FROM '\\y(\\d{5})\\y') AS client_addr_zip_extracted,
+        SUBSTRING(NULLIF(ap.address, '')     FROM '\\y(\\d{5})\\y') AS property_addr_zip_extracted,
+        j.zone_id,
+        (SELECT z.id FROM service_zones z
+           WHERE z.company_id = ${companyId}
+             AND z.is_active = true
+             AND (
+               NULLIF(j.address_zip, '') = ANY(z.zip_codes)
+               OR NULLIF(c.zip, '') = ANY(z.zip_codes)
+               OR NULLIF(ap.zip, '') = ANY(z.zip_codes)
+               OR SUBSTRING(NULLIF(j.address_street, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+               OR SUBSTRING(NULLIF(c.address, '')      FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+               OR SUBSTRING(NULLIF(ap.address, '')     FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
+             )
+           LIMIT 1) AS resolved_zone_id
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN account_properties ap ON ap.id = j.account_property_id
+      WHERE j.company_id = ${companyId}
+        AND j.scheduled_date >= ${from}
+        AND j.scheduled_date <= ${to}
+    `);
+
+    type Bucket = { count: number; samples: Array<{ id: number; client_name: string; scheduled_date: string }> };
+    const noZip: Bucket = { count: 0, samples: [] };
+    const outsideZones: Bucket & { unmatched_zips: Set<string> } = { count: 0, samples: [], unmatched_zips: new Set() };
+    const other: Bucket = { count: 0, samples: [] };
+    let resolved = 0;
+    const total = rows.rows.length;
+
+    for (const r of rows.rows as any[]) {
+      const candidateZips = [
+        r.job_zip, r.client_zip, r.property_zip,
+        r.job_addr_zip_extracted, r.client_addr_zip_extracted, r.property_addr_zip_extracted,
+      ].filter(Boolean) as string[];
+      const hasResolution = r.zone_id != null || r.resolved_zone_id != null;
+      const sample = { id: Number(r.id), client_name: String(r.client_name ?? ""), scheduled_date: String(r.scheduled_date ?? "") };
+
+      if (hasResolution) {
+        resolved++;
+        continue;
+      }
+      if (candidateZips.length === 0) {
+        noZip.count++;
+        if (noZip.samples.length < 20) noZip.samples.push(sample);
+      } else {
+        // Has at least one zip but no zone matched → zip outside coverage.
+        outsideZones.count++;
+        if (outsideZones.samples.length < 20) outsideZones.samples.push(sample);
+        for (const z of candidateZips) outsideZones.unmatched_zips.add(z);
+      }
+    }
+    // c_other reserved for future cases (e.g. service_zones row exists
+    // but is_active=false). Always returned for shape stability.
+    void other;
+
+    return res.json({
+      window: { from, to },
+      total,
+      resolved,
+      unresolved: {
+        a_no_zip: noZip,
+        b_zip_outside_zones: { ...outsideZones, unmatched_zips: Array.from(outsideZones.unmatched_zips).sort() },
+        c_other: other,
+      },
+    });
+  } catch (err) {
+    console.error("Zone coverage audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to run audit" });
   }
 });
 

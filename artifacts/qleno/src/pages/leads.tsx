@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatAddress } from "@/lib/format-address";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -435,7 +436,7 @@ function LeadDetailDrawer({
             )}
             {lead.address && (
               <span style={{ ...contactLink, cursor: "default" }}>
-                <MapPin size={13} /> {lead.address}{lead.city ? `, ${lead.city}` : ""}{lead.zip ? ` ${lead.zip}` : ""}
+                <MapPin size={13} /> {formatAddress(lead.address, lead.city, lead.state, lead.zip)}
               </span>
             )}
           </div>
@@ -852,7 +853,7 @@ export default function LeadsPage() {
                       <div style={{ fontWeight: 600, color: "#1A1917" }}>{name}</div>
                       {lead.address && (
                         <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 1 }}>
-                          {lead.address}{lead.city ? `, ${lead.city}` : ""}
+                          {formatAddress(lead.address, lead.city, lead.state, lead.zip)}
                         </div>
                       )}
                     </td>

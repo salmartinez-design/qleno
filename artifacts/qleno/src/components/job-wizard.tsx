@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatAddress } from "@/lib/format-address";
 import { useBranch } from "@/contexts/branch-context";
 import { X, ChevronRight, ChevronLeft, Search, Check, Clock, User, Calendar, Sparkles, Zap, ArrowRightCircle, Home, RefreshCw, Wrench, Building2, LayoutGrid, MapPin, AlertTriangle, DollarSign } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -746,7 +747,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
                                 <div>
                                   <p style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", margin: "0 0 2px" }}>{p.property_name || p.address}</p>
                                   <p style={{ fontSize: 11, color: "#9E9B94", margin: 0 }}>
-                                    {p.address}{p.city ? `, ${p.city}` : ""}{p.state ? `, ${p.state}` : ""}
+                                    {formatAddress(p.address, p.city, p.state, (p as any).zip)}
                                     {p.property_type && <span style={{ marginLeft: 6, padding: "1px 6px", background: "#F3F4F6", borderRadius: 4, fontSize: 10, fontWeight: 600, color: "#6B7280" }}>{p.property_type.replace(/_/g, " ")}</span>}
                                   </p>
                                 </div>
@@ -765,7 +766,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
                         <MapPin size={15} style={{ color: "var(--brand, #00C9A0)", flexShrink: 0 }}/>
                         <div style={{ flex: 1 }}>
                           <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{selectedProperty.property_name || selectedProperty.address}</p>
-                          <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{selectedProperty.address}{selectedProperty.city ? `, ${selectedProperty.city}` : ""}</p>
+                          <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{formatAddress(selectedProperty.address, selectedProperty.city, (selectedProperty as any).state, (selectedProperty as any).zip)}</p>
                         </div>
                         <button onClick={() => setSelectedProperty(null)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={14}/></button>
@@ -1306,7 +1307,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Job Summary</p>
                 {[
                   { label: "Account", value: selectedAccount?.account_name },
-                  { label: "Property", value: `${selectedProperty?.address}${selectedProperty?.city ? `, ${selectedProperty.city}` : ""}` },
+                  { label: "Property", value: formatAddress(selectedProperty?.address, selectedProperty?.city, (selectedProperty as any)?.state, (selectedProperty as any)?.zip) },
                   { label: "Service", value: fmtSvcLabel(commercialServiceType) },
                   {
                     label: "Billing",

@@ -820,6 +820,50 @@ export async function runPhesDataMigration(): Promise<void> {
     console.warn("[phes-migration] jaira-client_type-fix — non-fatal:", err?.message ?? err);
   }
 
+  // [AI.7.6] Backfill clients.zip from clients.address text where the zip
+  // column is null but the address has a 5-digit zip embedded (MC import
+  // dropped zip into address only on some rows). Without this, the
+  // dispatch zone resolver falls back to regex on every render — slow,
+  // and only catches embedded zips in specific positions. A real
+  // clients.zip lets the resolver hit the indexed array test on
+  // service_zones.zip_codes.
+  //
+  // Idempotent — only fires when zip is null AND a 5-digit pattern
+  // exists in the address. Does NOT bulk-assign or guess: extracted
+  // value is exactly what's in the address text. Per Sal's standing
+  // rule we don't paper over with a default zone.
+  try {
+    const r = await db.execute(sql`
+      UPDATE clients
+      SET zip = SUBSTRING(address FROM '\\y(\\d{5})\\y')
+      WHERE zip IS NULL
+        AND address IS NOT NULL
+        AND SUBSTRING(address FROM '\\y(\\d{5})\\y') IS NOT NULL
+      RETURNING id
+    `);
+    const n = (r.rows ?? []).length;
+    if (n > 0) console.log(`[phes-migration] Backfilled clients.zip from address text on ${n} rows`);
+  } catch (err: any) {
+    console.warn("[phes-migration] zip-backfill — non-fatal:", err?.message ?? err);
+  }
+
+  // [AI.7.6] Same backfill for account_properties.zip — commercial
+  // properties imported from MC may have address but not zip.
+  try {
+    const r = await db.execute(sql`
+      UPDATE account_properties
+      SET zip = SUBSTRING(address FROM '\\y(\\d{5})\\y')
+      WHERE zip IS NULL
+        AND address IS NOT NULL
+        AND SUBSTRING(address FROM '\\y(\\d{5})\\y') IS NOT NULL
+      RETURNING id
+    `);
+    const n = (r.rows ?? []).length;
+    if (n > 0) console.log(`[phes-migration] Backfilled account_properties.zip on ${n} rows`);
+  } catch (err: any) {
+    console.warn("[phes-migration] property-zip-backfill — non-fatal:", err?.message ?? err);
+  }
+
   // ── Seed booking_settings for PHES (company_id=1) ──────────────────────────
   try {
     await db.execute(sql`

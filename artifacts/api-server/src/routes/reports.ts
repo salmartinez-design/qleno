@@ -809,7 +809,7 @@ router.get("/hot-sheet", requireAuth, ROLE, async (req, res) => {
     const rows = await db.execute(sql`
       SELECT
         j.id, j.scheduled_time, j.service_type, j.status, j.notes, j.base_fee, j.allowed_hours,
-        c.first_name AS client_first, c.last_name AS client_last, c.address, c.city, c.notes AS client_notes,
+        c.first_name AS client_first, c.last_name AS client_last, c.address, c.city, c.state, c.zip, c.notes AS client_notes,
         u.first_name AS emp_first, u.last_name AS emp_last,
         sc_last.score AS last_score,
         (SELECT count(*) = 0 FROM jobs pj WHERE pj.client_id=c.id AND pj.status='complete' AND pj.id != j.id) AS is_first_time
@@ -827,7 +827,7 @@ router.get("/hot-sheet", requireAuth, ROLE, async (req, res) => {
     const data = (rows.rows as any[]).map(r => ({
       id: r.id, time: r.scheduled_time, service_type: r.service_type, status: r.status,
       client_name: `${r.client_first} ${r.client_last}`,
-      address: r.address, city: r.city,
+      address: r.address, city: r.city, state: r.state, zip: r.zip,
       employee_name: r.emp_first ? `${r.emp_first} ${r.emp_last}` : "Unassigned",
       special_instructions: r.client_notes, notes: r.notes,
       last_score: r.last_score, is_first_time: r.is_first_time,

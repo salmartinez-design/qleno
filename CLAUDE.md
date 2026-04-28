@@ -177,6 +177,39 @@
   `scheduled | in_progress | complete | cancelled` because operational
   state lives in the clock entry + scheduled time, not the status
   column.
+- **Address display — single canonical format**: every surface that
+  renders an address MUST route through
+  `formatAddress(street, city, state, zip)` in `lib/format-address.ts`.
+  Format: `"<street>, <city>, <state> <zip>"` — comma + space between
+  street/city/state-zip, single space between state and zip.
+  **If address is shown, zip MUST be shown.** No exceptions.
+  Do NOT inline `${address}, ${city}` concatenations — they always
+  end up dropping zip + state. The dispatch API server returns a
+  pre-formatted `address` string already in canonical shape (via the
+  inlined `fmtAddr()` in `routes/dispatch.ts`), so consumers can
+  render `{job.address}` directly. For surfaces that receive raw
+  fields (customer profile, my-jobs, leads, hot-sheet, jobs-list,
+  job-wizard property pickers), call `formatAddress()` explicitly.
+  When data is missing (zip null on import), render whatever's
+  available — the gap is then visible to the operator. Don't paper
+  over with a default.
+- **Job zone resolution — every job must surface its zone**: the
+  dispatch SELECT resolves a job's zone via this priority chain:
+  (1) `jobs.zone_id` direct join,
+  (2) `jobs.address_zip` → `service_zones.zip_codes`,
+  (3) `clients.zip` → `service_zones.zip_codes`,
+  (4) `account_properties.zip` → `service_zones.zip_codes`,
+  (5) regex-extracted 5-digit zip from any address text.
+  A gray (zone-less) tile is a data error. Diagnose with
+  `GET /api/dispatch/zone-coverage-audit?from=YYYY-MM-DD&to=YYYY-MM-DD`
+  which returns failures segmented by root cause:
+  `a_no_zip` (client missing zip entirely),
+  `b_zip_outside_zones` (zip exists but doesn't match any zone),
+  `c_other` (reserved). Do NOT bulk-assign unmatched zips to a default
+  zone — fix the underlying client zip data or extend zone coverage.
+  Phes data migration backfills `clients.zip` and `account_properties.zip`
+  from any 5-digit pattern in the address text on every cold-start
+  (idempotent, only fires when zip IS NULL).
 
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)

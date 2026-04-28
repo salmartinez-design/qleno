@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Car, X, Check, Eye } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
+import { formatAddress } from "@/lib/format-address";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -418,7 +419,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
       )}
       {job.address && (
         <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>
-          {job.address}{job.city ? `, ${job.city}` : ""}
+          {formatAddress(job.address, job.city, job.state, job.zip)}
         </p>
       )}
       {job.account_id && job.property_name && (
@@ -781,7 +782,7 @@ export default function MyJobsPage() {
                       <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{job.client_name}</p>
                       <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                       {job.scheduled_time && <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{formatTime(job.scheduled_time)}</p>}
-                      {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{job.address}{job.city ? `, ${job.city}` : ""}</p>}
+                      {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
                       <DistanceBadge jobLat={job.job_lat} jobLng={job.job_lng} empPos={empPos} />
                     </div>
                   ))}

@@ -4,6 +4,7 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { formatAddress } from "@/lib/format-address";
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
@@ -2498,7 +2499,7 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { cl
           <a href={`mailto:${client.email}`} style={{ color: "var(--brand)", textDecoration: "none", fontWeight: 600, fontSize: 13, wordBreak: "break-all" as const }}>{client.email}</a>
         </div>
       )}
-      {client.address && <DL label="Service Address" value={[client.address, client.city, client.state, client.zip].filter(Boolean).join(", ")} />}
+      {client.address && <DL label="Service Address" value={formatAddress(client.address, client.city, client.state, client.zip)} />}
       {client.service_type && <DL label="Home / Service Type" value={client.service_type} />}
       {client.home_access_notes && (
         <div>

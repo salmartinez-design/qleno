@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatAddress } from "@/lib/format-address";
 import { useBranch } from "@/contexts/branch-context";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -511,7 +512,7 @@ export default function JobsListPage() {
                               </Link>
                               {job.client_address && (
                                 <div style={{ fontSize: 11, color: TXT2, marginTop: 1 }}>
-                                  {job.client_address}{job.client_city ? `, ${job.client_city}` : ""}
+                                  {formatAddress(job.client_address, (job as any).client_city, (job as any).client_state, (job as any).client_zip)}
                                 </div>
                               )}
                             </div>

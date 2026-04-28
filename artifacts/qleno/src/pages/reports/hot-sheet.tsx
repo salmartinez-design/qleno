@@ -2,10 +2,11 @@ import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$c, fmtSvc, fmtH, clr, KpiCard, ReportHeader, DataTable, useReportData, StatusBadge, ScoreBadge } from "./_shared";
 import { MapPin, Star, AlertTriangle } from "lucide-react";
+import { formatAddress } from "@/lib/format-address";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 
-interface HotRow { id: number; time: string | null; service_type: string; status: string; client_name: string; address: string | null; city: string | null; employee_name: string; special_instructions: string | null; notes: string | null; last_score: number | null; is_first_time: boolean; base_fee: number; allowed_hours: number; }
+interface HotRow { id: number; time: string | null; service_type: string; status: string; client_name: string; address: string | null; city: string | null; state: string | null; zip: string | null; employee_name: string; special_instructions: string | null; notes: string | null; last_score: number | null; is_first_time: boolean; base_fee: number; allowed_hours: number; }
 interface HotData { date: string; data: HotRow[]; }
 
 export default function HotSheetPage() {
@@ -24,7 +25,7 @@ export default function HotSheetPage() {
           {r.is_first_time && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#5B9BD518", color: clr.brand, borderRadius: 4, padding: "1px 5px" }}>FIRST</span>}
           {r.last_score !== null && r.last_score <= 2 && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#FEF2F2", color: clr.red, borderRadius: 4, padding: "1px 5px" }}>LOW SCORE</span>}
         </div>
-        {r.address && <div style={{ fontSize: 11, color: clr.secondary, display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}><MapPin size={10} />{r.address}{r.city ? `, ${r.city}` : ""}</div>}
+        {r.address && <div style={{ fontSize: 11, color: clr.secondary, display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}><MapPin size={10} />{formatAddress(r.address, r.city, r.state, r.zip)}</div>}
       </div>
     )},
     { header: "Service", render: (r: HotRow) => fmtSvc(r.service_type) },

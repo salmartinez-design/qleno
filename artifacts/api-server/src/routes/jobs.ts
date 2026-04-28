@@ -2393,7 +2393,7 @@ router.get("/v2/list", requireAuth, async (req, res) => {
         j.charge_succeeded_at, j.charge_failed_at, j.charge_attempted_at,
         j.created_at, j.office_notes,
         concat(c.first_name, ' ', c.last_name) AS client_name,
-        c.address AS client_address, c.city AS client_city, c.referral_source,
+        c.address AS client_address, c.city AS client_city, c.state AS client_state, c.zip AS client_zip, c.referral_source,
         concat(u.first_name, ' ', u.last_name) AS tech_name,
         sz.name AS zone_name, sz.color AS zone_color, b.name AS branch_name
       ${JOBS_V2_FROM} WHERE ${where}

@@ -249,7 +249,11 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     for (const job of jobs) {
       const jobZip = job.address_zip || job.zip || "";
       const branchConfig = getBranchByZip(jobZip);
-      const serviceAddress = [job.address_street, job.address_city, job.address_state].filter(Boolean).join(", ") || "On file";
+      // [AI.7.6] Canonical address format — "<street>, <city>, <state> <zip>".
+      // Same rule as the frontend formatAddress(): zip MUST be shown when
+      // address is shown.
+      const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
+      const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
       const arrivalWindowLabel = job.arrival_window === "morning"
         ? "9:00 AM – 12:00 PM"
         : job.arrival_window === "afternoon"
