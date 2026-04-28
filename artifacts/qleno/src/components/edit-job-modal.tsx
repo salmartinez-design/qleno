@@ -568,12 +568,15 @@ export default function EditJobModal({
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const d = await r.json();
+      // [AI.6.2] Always log status + body so DevTools shows the actual server
+      // response when "I hit Save but nothing happened" repros.
+      const d = await r.json().catch(() => ({}));
       if (!r.ok) {
+        console.error("[edit-job-modal] PATCH failed", { status: r.status, body: d, payload });
         if (r.status === 409) {
           toast({ title: "Cannot edit", description: d.message || "Job is locked or a tech is clocked in.", variant: "destructive" });
         } else {
-          toast({ title: "Save failed", description: d.message || d.error || "Try again", variant: "destructive" });
+          toast({ title: "Save failed", description: d.message || d.error || `HTTP ${r.status}`, variant: "destructive" });
         }
         return;
       }
@@ -581,8 +584,11 @@ export default function EditJobModal({
         future_jobs_updated: d.cascade?.future_jobs_updated ?? 0,
         future_jobs_skipped_in_progress: d.cascade?.future_jobs_skipped_in_progress ?? 0,
       });
-    } catch {
-      toast({ title: "Network error", description: "Could not save changes", variant: "destructive" });
+    } catch (err) {
+      // [AI.6.2] Surface the real exception so a network/CORS/parse failure
+      // doesn't silently disappear under the modal.
+      console.error("[edit-job-modal] PATCH exception", err);
+      toast({ title: "Network error", description: "Could not save changes — see DevTools console", variant: "destructive" });
     } finally {
       setSaving(false);
       setCascadePromptOpen(false);

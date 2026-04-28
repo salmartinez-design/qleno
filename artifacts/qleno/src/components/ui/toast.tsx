@@ -14,7 +14,11 @@ const ToastViewport = React.forwardRef<
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
+      // [AI.6.2] z-[1000] (was z-[100]) so toasts surface above modals
+      // (overlay z-399, shell z-400). Previously, errors fired during a
+      // modal-save flow rendered behind the modal — invisible to the user
+      // and the source of "I hit Save but nothing happened".
+      "fixed top-0 z-[1000] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]",
       className
     )}
     {...props}

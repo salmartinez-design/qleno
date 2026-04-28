@@ -117,6 +117,11 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         billed_hours: jobsTable.billed_hours,
         billed_amount: jobsTable.billed_amount,
+        // [AI.6.2] Drives the cascade prompt in the edit modal. Without this
+        // field surfaced, every recurring job's edit modal silently submits
+        // as cascade_scope='this_job' — operators never see the
+        // "this and all future" option.
+        recurring_schedule_id: jobsTable.recurring_schedule_id,
         charge_failed_at: jobsTable.charge_failed_at,
         charge_succeeded_at: jobsTable.charge_succeeded_at,
         account_property_id: jobsTable.account_property_id,
@@ -334,6 +339,9 @@ router.get("/", requireAuth, async (req, res) => {
         last_service_date: j.last_service_date ?? null,
         account_id: j.account_id ?? null,
         account_name: j.account_name ?? null,
+        // [AI.6.2] Surface schedule linkage so the edit modal's cascade
+        // prompt fires for recurring jobs.
+        recurring_schedule_id: (j as any).recurring_schedule_id ?? null,
         billing_method: j.billing_method ?? null,
         hourly_rate: j.hourly_rate ? parseFloat(j.hourly_rate) : null,
         estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,
