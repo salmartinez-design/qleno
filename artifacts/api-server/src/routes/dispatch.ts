@@ -72,6 +72,9 @@ router.get("/", requireAuth, async (req, res) => {
         // [Q2] New: surface notes + payment method on the client row for hover card
         client_notes: clientsTable.notes,
         client_payment_method: clientsTable.payment_method,
+        // [tile redesign] Client type drives the Res/Comm pill on the tile.
+        // Commercial detection on the tile uses account_id OR client_type.
+        client_type: clientsTable.client_type,
         assigned_user_id: jobsTable.assigned_user_id,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
@@ -406,6 +409,7 @@ router.get("/", requireAuth, async (req, res) => {
         client_zip: j.client_zip ?? null,
         client_notes: j.client_notes ?? null,
         client_payment_method: j.client_payment_method ?? null,
+        client_type: (j as any).client_type ?? null,
         address: displayAddress,
         // [inline-edit] Raw fields for the address editor's mode detection.
         job_address_street: (j as any).job_address_street ?? null,

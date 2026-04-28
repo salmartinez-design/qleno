@@ -62,7 +62,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -2381,20 +2381,61 @@ function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJo
           borderTopLeftRadius: 6, borderBottomLeftRadius: 6, flexShrink: 0,
         }} />
       )}
-      <div style={{ flex: 1, minWidth: 0, padding: "8px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
+      {/* [tile redesign] 3-line hero per spec:
+            line 1: client name + Res/Comm pill (corner)
+            line 2: service type
+            line 3: $price (right-aligned)
+          Time is implied by the chip's horizontal position on the Gantt
+          axis, so the textual time line was dropped to make room. Glance
+          icons (clock-in, photos, recurring) still ride next to the client
+          name. Pill colors adapt to zone luminance.
+       */}
+      <div style={{ flex: 1, minWidth: 0, padding: "6px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
           {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: iconTint, flexShrink: 0 }} />}
           {job.after_photo_count > 0 && <Camera size={9} style={{ color: iconTint, flexShrink: 0 }} />}
           {isRecurring && <Repeat size={9} style={{ color: iconTint, flexShrink: 0 }} />}
-          <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-            {job.client_name} · {scopeLabel(job)}
+          <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+            {job.client_name}
           </span>
+          {/* Res/Comm pill: commercial when account_id is set OR client_type === 'commercial' */}
+          {(() => {
+            const isCommercial = !!job.account_id || job.client_type === "commercial";
+            return (
+              <span style={{
+                flexShrink: 0,
+                fontSize: 8, fontWeight: 800,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: isLightZone ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.20)",
+                color: primaryText,
+                textTransform: "uppercase", letterSpacing: "0.05em",
+                lineHeight: 1.2,
+              }}>
+                {isCommercial ? "Comm" : "Res"}
+              </span>
+            );
+          })()}
         </div>
-        {width > 100 && (
-          <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
-          </span>
-        )}
+        <span style={{ fontSize: 10, fontWeight: 500, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {scopeLabel(job)}
+        </span>
+        {/* [tile redesign] Reactive price. The dispatch payload's `amount`
+            field is the source of truth (server reads jobs.base_fee or
+            jobs.billed_amount). Every dispatch refresh picks up changes
+            from add-ons, manual rate overrides, hour adjustments, and
+            discounts applied via PATCH /api/jobs/:id. Hourly jobs show
+            the rate plus an "/hr" suffix so dispatchers see the unit. */}
+        {width > 80 && (() => {
+          const isHourly = job.billing_method === "hourly" && job.hourly_rate != null;
+          const display = isHourly
+            ? `$${(job.hourly_rate ?? 0).toFixed(0)}/hr`
+            : `$${Math.round(Number(job.amount ?? 0))}`;
+          return (
+            <span style={{ fontSize: 11, fontWeight: 800, color: primaryText, whiteSpace: "nowrap", alignSelf: "flex-start" }}>
+              {display}
+            </span>
+          );
+        })()}
       </div>
       {/* [AI.7.5] Completed checkmark badge — top-right corner. */}
       {visual.showCheckmark && (
