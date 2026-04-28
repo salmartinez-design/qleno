@@ -62,7 +62,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -294,6 +294,308 @@ async function fetchDispatch(date: string, token: string, branchId?: number | "a
     throw new Error(msg);
   }
   return r.json();
+}
+
+// ─── INLINE EDIT: TECHNICIAN DROPDOWN ─────────────────────────────────────────
+// Replaces the static "Technician: <name>" row in the drawer with a Select
+// that swaps the primary tech in place via PATCH /api/jobs/:id/reassign-tech.
+// Branch isolated: dropdown lists only active techs whose branch_id matches
+// the job's. Optimistic intent: caller's onUpdate refreshes dispatch state
+// after success so the chip moves to the new tech's row.
+function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { toast } = useToast();
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string }>>([]);
+  const [loadingTechs, setLoadingTechs] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // Fetch the candidate techs for this job's branch on first interaction
+  // (lazy: avoids a list fetch on every drawer open if nobody edits tech).
+  const [opened, setOpened] = useState(false);
+  useEffect(() => {
+    if (!opened || techs.length > 0) return;
+    setLoadingTechs(true);
+    const params = new URLSearchParams({
+      role: "technician",
+      is_active: "true",
+      limit: "100",
+    });
+    if (job.branch_id != null) params.set("branch_id", String(job.branch_id));
+    fetch(`${API}/api/users?${params}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : { users: [] })
+      .then((d: any) => setTechs(Array.isArray(d?.users) ? d.users : (Array.isArray(d) ? d : [])))
+      .catch(() => setTechs([]))
+      .finally(() => setLoadingTechs(false));
+  }, [opened, API, token, job.branch_id, techs.length]);
+
+  const currentName = job.assigned_user_name
+    || (job.assigned_user_id != null
+        ? techs.find(t => t.id === job.assigned_user_id)
+          ? `${techs.find(t => t.id === job.assigned_user_id)!.first_name} ${techs.find(t => t.id === job.assigned_user_id)!.last_name}`
+          : ""
+        : "Unassigned");
+
+  async function onChange(newId: number) {
+    if (newId === job.assigned_user_id) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/reassign-tech`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ new_tech_id: newId }),
+      });
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error || `Failed (HTTP ${r.status})`);
+      }
+      toast({ title: "Technician reassigned" });
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Could not reassign", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><User size={14} /></span>
+      <select
+        value={job.assigned_user_id ?? ""}
+        onClick={() => setOpened(true)}
+        onFocus={() => setOpened(true)}
+        onChange={e => onChange(parseInt(e.target.value, 10))}
+        disabled={saving}
+        style={{
+          fontSize: 13, color: "#1A1917", fontFamily: FF, fontWeight: 500,
+          background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6,
+          padding: "4px 8px", cursor: saving ? "wait" : "pointer", flex: 1, minWidth: 0,
+        }}
+      >
+        {/* Default option: current state (so the Select shows the right name even before techs load) */}
+        <option value={job.assigned_user_id ?? ""} disabled={job.assigned_user_id == null}>
+          {currentName || "Unassigned"}
+        </option>
+        {loadingTechs && <option disabled>Loading…</option>}
+        {techs
+          .filter(t => t.id !== job.assigned_user_id)
+          .map(t => (
+            <option key={t.id} value={t.id}>{t.first_name} {t.last_name}</option>
+          ))}
+      </select>
+      {saving && <span style={{ fontSize: 11, color: "#9E9B94" }}>Saving…</span>}
+    </div>
+  );
+}
+
+// ─── INLINE EDIT: ADDRESS WITH GEOCODE VALIDATION ─────────────────────────────
+// Replaces the static "📍 <address>" row in the drawer with a pencil
+// affordance that expands an inline form. Save flow:
+//   1. POST /api/geocode/validate. On 422, render the error inline.
+//   2. On 200, PATCH /api/jobs/:id/address. Server auto-picks job-level
+//      vs client-level mode and re-resolves the zone.
+//   3. onUpdate refreshes dispatch state so the tile color flips if the
+//      new zip falls in a different zone.
+// Subtitle below the form tells the user which mode their save will use.
+function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { toast } = useToast();
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  // Mode detection mirrors the server-side decision so the subtitle is truthful.
+  const hasJobOverride = !!job.job_address_street && (
+    String(job.job_address_street ?? "").trim() !== String(job.client_address ?? "").trim()
+    || String(job.job_address_zip ?? "").trim() !== String(job.client_address_zip ?? "").trim()
+  );
+  const mode: "client" | "job" = hasJobOverride ? "job" : "client";
+
+  // Pre-fill from whichever level is active.
+  const initial = mode === "job"
+    ? {
+        address: job.job_address_street ?? "",
+        city:    job.job_address_city ?? "",
+        state:   job.job_address_state ?? "",
+        zip:     job.job_address_zip ?? "",
+      }
+    : {
+        address: job.client_address ?? "",
+        city:    job.client_city ?? "",
+        state:   job.client_state ?? "",
+        zip:     job.client_address_zip ?? "",
+      };
+
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState(initial);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function open() {
+    setForm(initial);
+    setError(null);
+    setEditing(true);
+  }
+  function cancel() {
+    setEditing(false);
+    setError(null);
+  }
+
+  async function save() {
+    if (!form.address.trim()) {
+      setError("Street address is required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      // Step 1: pre-flight geocode validation.
+      const v = await fetch(`${API}/api/geocode/validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      if (!v.ok) {
+        const body = await v.json().catch(() => ({}));
+        setError(body.error || "Could not verify address.");
+        setSaving(false);
+        return;
+      }
+      // Step 2: persist.
+      const p = await fetch(`${API}/api/jobs/${job.id}/address`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      });
+      if (!p.ok) {
+        const body = await p.json().catch(() => ({}));
+        setError(body.error || `Save failed (HTTP ${p.status})`);
+        setSaving(false);
+        return;
+      }
+      toast({
+        title: "Address updated",
+        description: mode === "client"
+          ? "Applied to all future jobs for this client."
+          : "Applied as a one-time override for this job only.",
+      });
+      setEditing(false);
+      onUpdate();
+    } catch (e: any) {
+      setError(e.message || "Network error.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><MapPin size={14} /></span>
+        <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5, flex: 1 }}>
+          {job.address || "(No address)"}
+        </span>
+        <button
+          onClick={open}
+          style={{
+            fontSize: 11, fontWeight: 600, color: "#2D9B83",
+            background: "transparent", border: "1px solid #A7F3D0",
+            borderRadius: 6, padding: "2px 8px", cursor: "pointer",
+            fontFamily: FF, flexShrink: 0,
+          }}
+          title="Edit address"
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  const inputStyle: React.CSSProperties = {
+    fontSize: 13, color: "#1A1917", fontFamily: FF,
+    border: "1px solid #E5E2DC", borderRadius: 6,
+    padding: "6px 8px", width: "100%", boxSizing: "border-box",
+    background: saving ? "#F8F7F4" : "#FFFFFF",
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+      <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 6 }}><MapPin size={14} /></span>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+        <input
+          type="text"
+          placeholder="Street address"
+          value={form.address}
+          onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
+          disabled={saving}
+          style={inputStyle}
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 6 }}>
+          <input
+            type="text"
+            placeholder="City"
+            value={form.city}
+            onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
+            disabled={saving}
+            style={inputStyle}
+          />
+          <input
+            type="text"
+            placeholder="State"
+            value={form.state}
+            onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
+            disabled={saving}
+            maxLength={2}
+            style={inputStyle}
+          />
+          <input
+            type="text"
+            placeholder="Zip"
+            value={form.zip}
+            onChange={e => setForm(f => ({ ...f, zip: e.target.value }))}
+            disabled={saving}
+            maxLength={10}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.4 }}>
+          {mode === "client"
+            ? "This updates all future jobs for this client."
+            : "This is a one-time override for this job only."}
+        </div>
+        {error && (
+          <div style={{ fontSize: 12, color: "#991B1B", background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 6, padding: "6px 8px" }}>
+            {error}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={save}
+            disabled={saving}
+            style={{
+              fontSize: 12, fontWeight: 700, color: "#FFFFFF",
+              background: saving ? "#9CA3AF" : "#2D9B83",
+              border: "none", borderRadius: 6, padding: "6px 14px",
+              cursor: saving ? "wait" : "pointer", fontFamily: FF,
+            }}
+          >
+            {saving ? "Verifying…" : "Save"}
+          </button>
+          <button
+            onClick={cancel}
+            disabled={saving}
+            style={{
+              fontSize: 12, fontWeight: 600, color: "#6B6860",
+              background: "transparent", border: "1px solid #E5E2DC",
+              borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontFamily: FF,
+            }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── JOB DETAIL PANEL ────────────────────────────────────────────────────────
@@ -634,7 +936,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             <IR icon={<Clock size={14} />} label={`${fmtTime(job.scheduled_time)} – ${fmtTime(minsToStr(endMins))}`} />
-            {job.address && <IR icon={<MapPin size={14} />} label={job.address} />}
+            {/* [inline-edit] Address with pencil affordance, geocode preflight, auto-pick mode. */}
+            <InlineAddressEdit job={job} onUpdate={onUpdate} />
             {job.client_phone && (
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Phone size={14} color="#9E9B94" style={{ flexShrink: 0 }} />
@@ -647,7 +950,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </button>
               </div>
             )}
-            {(assignedEmp || job.assigned_user_name) && <IR icon={<User size={14} />} label={assignedEmp?.name || job.assigned_user_name || ""} />}
+            {/* [inline-edit] Tech dropdown swaps the primary tech in place. */}
+            <InlineTechEdit job={job} onUpdate={onUpdate} />
             {job.billing_method === "hourly" && job.hourly_rate
               ? <IR icon={<DollarSign size={14} />} label={`$${job.hourly_rate.toFixed(2)}/hr · Hourly${job.billed_hours ? ` · ${job.billed_hours}h billed` : job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}`} bold />
               : <IR icon={<DollarSign size={14} />} label={`$${(job.billed_amount ?? job.amount ?? 0).toFixed(2)}`} bold />

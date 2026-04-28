@@ -2289,6 +2289,277 @@ router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
   }
 });
 
+// ─── INLINE EDIT: SWAP PRIMARY TECHNICIAN ─────────────────────────────────────
+//
+// PATCH /api/jobs/:id/reassign-tech
+//
+// Body: { new_tech_id: number }
+//
+// Atomic primary-tech swap used by the dispatch drawer's inline tech editor.
+// Branch isolated: the new tech must belong to the same branch as the job.
+// The swap demotes any existing primary, upserts the new tech with
+// is_primary=true, and mirrors onto jobs.assigned_user_id (per the
+// Assignment Mirror invariant in CLAUDE.md). Other team members on the job
+// are preserved; only the primary slot rotates. Audit row written to
+// job_audit_log so dispatcher activity is traceable.
+//
+// Differs from POST /:id/technicians (Add Team Member): that flow appends a
+// tech (sometimes promoting to primary on unassigned jobs); this flow
+// REPLACES the existing primary specifically.
+router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const newTechId = Number((req.body ?? {}).new_tech_id);
+    if (!Number.isFinite(newTechId) || newTechId <= 0) {
+      return res.status(400).json({ error: "new_tech_id required" });
+    }
+
+    // Read current job + its branch.
+    const jobRows = await db.execute(sql`
+      SELECT id, assigned_user_id, branch_id FROM jobs
+      WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+    const job = jobRows.rows[0] as any;
+    const oldAssignedUserId = job.assigned_user_id ?? null;
+    const jobBranchId = job.branch_id ?? null;
+
+    if (oldAssignedUserId === newTechId) {
+      // No change, return early.
+      return res.json({ data: { unchanged: true, assigned_user_id: newTechId } });
+    }
+
+    // Validate the new tech exists, is active, and is in the same branch as
+    // the job (branch isolation).
+    const techRows = await db.execute(sql`
+      SELECT id, branch_id, is_active, role, first_name, last_name
+      FROM users
+      WHERE id = ${newTechId} AND company_id = ${companyId} LIMIT 1
+    `);
+    if (!techRows.rows.length) return res.status(404).json({ error: "Technician not found" });
+    const tech = techRows.rows[0] as any;
+    if (!tech.is_active) {
+      return res.status(400).json({ error: "Technician is inactive" });
+    }
+    if (jobBranchId != null && tech.branch_id != null && jobBranchId !== tech.branch_id) {
+      return res.status(403).json({ error: "Technician belongs to a different branch" });
+    }
+
+    // Capture before-state for audit log.
+    const techsBefore = await db.execute(sql`
+      SELECT user_id, is_primary FROM job_technicians
+      WHERE job_id = ${jobId} ORDER BY is_primary DESC, id
+    `);
+
+    await db.transaction(async (tx) => {
+      // Demote any existing primary (and any row for the new tech that was
+      // sitting at non-primary before today).
+      await tx.execute(sql`
+        UPDATE job_technicians SET is_primary = false
+        WHERE job_id = ${jobId}
+      `);
+      // Upsert the new tech as primary.
+      await tx.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        VALUES (${jobId}, ${newTechId}, ${companyId}, true)
+        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = true
+      `);
+      // Mirror onto jobs.assigned_user_id so the dispatch grid sees the new row.
+      await tx.execute(sql`
+        UPDATE jobs SET assigned_user_id = ${newTechId}
+        WHERE id = ${jobId} AND company_id = ${companyId}
+      `);
+
+      // Audit row.
+      const userRows = await tx.execute(sql`
+        SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+      `);
+      const u = (userRows.rows[0] as any) ?? {};
+      const actorName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+      const actorEmail = String(u.email ?? "");
+      const summary = {
+        action: "tech_reassigned",
+        new_primary_user_id: newTechId,
+        previous_assigned_user_id: oldAssignedUserId,
+        previous_techs: techsBefore.rows,
+      };
+      await tx.execute(sql`
+        INSERT INTO job_audit_log
+          (job_id, company_id, user_id, user_name, user_email,
+           field_name, old_value, new_value, cascade_scope, schedule_id)
+        VALUES
+          (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+           'tech_reassigned',
+           ${JSON.stringify({ assigned_user_id: oldAssignedUserId, techs: techsBefore.rows })}::jsonb,
+           ${JSON.stringify(summary)}::jsonb,
+           'this_job', ${null})
+      `);
+    });
+
+    const techPay = await calculateTechPay(jobId, companyId);
+    return res.json({
+      data: {
+        assigned_user_id: newTechId,
+        assigned_user_name: `${tech.first_name ?? ""} ${tech.last_name ?? ""}`.trim(),
+        techs: techPay,
+      },
+    });
+  } catch (err) {
+    console.error("PATCH /jobs/:id/reassign-tech error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── INLINE EDIT: ADDRESS WITH GEOCODE VALIDATION ─────────────────────────────
+//
+// PATCH /api/jobs/:id/address
+//
+// Body: { address: string, city?: string, state?: string, zip?: string }
+//
+// Mode is auto-picked server-side:
+//   * If jobs.address_street is already set AND differs from clients.address,
+//     this job has a one-off site override and we keep writing at the job
+//     level (jobs.address_*).
+//   * Otherwise we write at the client level (clients.address/city/state/zip
+//     plus clients.lat/lng), which fixes all future occurrences.
+//
+// Defense in depth: server re-runs geocodeAddress before writing. Failure
+// returns 422 even though the popover already pre-validates via
+// /api/geocode/validate. Belt and suspenders.
+//
+// On success, re-resolves the zone via resolveZoneForZip so the dispatch
+// tile's zone color flips immediately on the next poll/refresh.
+router.patch("/:id/address", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const { address, city, state, zip } = (req.body ?? {}) as {
+      address?: string; city?: string; state?: string; zip?: string;
+    };
+
+    if (!address || !address.trim()) {
+      return res.status(400).json({ error: "Street address is required." });
+    }
+
+    // Read current state for mode decision and audit.
+    const ctx = await db.execute(sql`
+      SELECT
+        j.id, j.client_id, j.zone_id AS job_zone_id,
+        j.address_street AS j_addr, j.address_city AS j_city,
+        j.address_state AS j_state, j.address_zip AS j_zip,
+        c.address AS c_addr, c.city AS c_city,
+        c.state AS c_state, c.zip AS c_zip
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
+    `);
+    if (!ctx.rows.length) return res.status(404).json({ error: "Job not found" });
+    const r = ctx.rows[0] as any;
+
+    const hasJobOverride = !!r.j_addr && (
+      String(r.j_addr ?? "").trim() !== String(r.c_addr ?? "").trim()
+      || String(r.j_zip ?? "").trim() !== String(r.c_zip ?? "").trim()
+    );
+    const mode: "client" | "job" = hasJobOverride ? "job" : "client";
+
+    // Server-side geocode (defense in depth).
+    const fullAddress = [address, city, state, zip].filter(Boolean).join(", ");
+    const coords = await geocodeAddress(fullAddress);
+    if (!coords) {
+      return res.status(422).json({
+        error: "Could not verify address. Check spelling, city, and zip.",
+      });
+    }
+
+    const newZoneId = zip ? await resolveZoneForZip(companyId, zip) : null;
+
+    const before = {
+      mode,
+      address: r.j_addr ?? r.c_addr ?? null,
+      city:    r.j_city ?? r.c_city ?? null,
+      state:   r.j_state ?? r.c_state ?? null,
+      zip:     r.j_zip ?? r.c_zip ?? null,
+      zone_id: r.job_zone_id ?? null,
+    };
+
+    await db.transaction(async (tx) => {
+      if (mode === "job") {
+        await tx.execute(sql`
+          UPDATE jobs SET
+            address_street   = ${address},
+            address_city     = ${city ?? null},
+            address_state    = ${state ?? null},
+            address_zip      = ${zip ?? null},
+            address_lat      = ${String(coords.lat)},
+            address_lng      = ${String(coords.lng)},
+            address_verified = true,
+            zone_id          = ${newZoneId}
+          WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      } else {
+        // Client level: the canonical address for this customer.
+        await tx.execute(sql`
+          UPDATE clients SET
+            address = ${address},
+            city    = ${city ?? null},
+            state   = ${state ?? null},
+            zip     = ${zip ?? null},
+            lat     = ${String(coords.lat)},
+            lng     = ${String(coords.lng)},
+            zone_id = ${newZoneId}
+          WHERE id = ${r.client_id} AND company_id = ${companyId}
+        `);
+        // Mirror the resolved zone onto the job too so the dispatch tile
+        // updates without waiting for the recurring engine to regenerate.
+        await tx.execute(sql`
+          UPDATE jobs SET zone_id = ${newZoneId}
+          WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      }
+
+      // Audit row.
+      const userRows = await tx.execute(sql`
+        SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+      `);
+      const u = (userRows.rows[0] as any) ?? {};
+      const actorName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+      const actorEmail = String(u.email ?? "");
+      const after = {
+        mode,
+        address, city: city ?? null, state: state ?? null, zip: zip ?? null,
+        zone_id: newZoneId,
+        lat: String(coords.lat), lng: String(coords.lng),
+      };
+      await tx.execute(sql`
+        INSERT INTO job_audit_log
+          (job_id, company_id, user_id, user_name, user_email,
+           field_name, old_value, new_value, cascade_scope, schedule_id)
+        VALUES
+          (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+           'address_changed',
+           ${JSON.stringify(before)}::jsonb,
+           ${JSON.stringify(after)}::jsonb,
+           ${mode === "client" ? "all_future" : "this_job"}, ${null})
+      `);
+    });
+
+    return res.json({
+      data: {
+        mode,
+        address, city, state, zip,
+        lat: coords.lat, lng: coords.lng,
+        zone_id: newZoneId,
+      },
+    });
+  } catch (err) {
+    console.error("PATCH /jobs/:id/address error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // JOBS PAGE V2 — KPI, enhanced list, bulk actions, views, column prefs, export
 // ═══════════════════════════════════════════════════════════════════════════════

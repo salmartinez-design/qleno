@@ -57,6 +57,18 @@ router.get("/", requireAuth, async (req, res) => {
         // address/city resolution above).
         state:   sql<string | null>`COALESCE(NULLIF(${jobsTable.address_state}, ''),  ${clientsTable.state})`,
         zip:     sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''),    ${clientsTable.zip})`,
+        // [inline-edit] Raw fields needed by the popover address editor to
+        // detect mode (job-level override vs client-level default) before
+        // showing the form. Frontend compares jobs.address_* against
+        // clients.* to pick the correct subtitle.
+        job_address_street: jobsTable.address_street,
+        job_address_city:   jobsTable.address_city,
+        job_address_state:  jobsTable.address_state,
+        job_address_zip:    jobsTable.address_zip,
+        client_address: clientsTable.address,
+        client_city:    clientsTable.city,
+        client_state:   clientsTable.state,
+        client_address_zip: clientsTable.zip,
         // [Q2] New: surface notes + payment method on the client row for hover card
         client_notes: clientsTable.notes,
         client_payment_method: clientsTable.payment_method,
@@ -395,6 +407,15 @@ router.get("/", requireAuth, async (req, res) => {
         client_notes: j.client_notes ?? null,
         client_payment_method: j.client_payment_method ?? null,
         address: displayAddress,
+        // [inline-edit] Raw fields for the address editor's mode detection.
+        job_address_street: (j as any).job_address_street ?? null,
+        job_address_city:   (j as any).job_address_city ?? null,
+        job_address_state:  (j as any).job_address_state ?? null,
+        job_address_zip:    (j as any).job_address_zip ?? null,
+        client_address: (j as any).client_address ?? null,
+        client_city:    (j as any).client_city ?? null,
+        client_state:   (j as any).client_state ?? null,
+        client_address_zip: (j as any).client_address_zip ?? null,
         assigned_user_id: j.assigned_user_id,
         service_type: j.service_type,
         status: j.status,
