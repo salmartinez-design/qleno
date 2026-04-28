@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
@@ -1651,11 +1651,72 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   const valueStyle: React.CSSProperties = {
     fontSize: 17, fontWeight: 600, color: "#1A1917", lineHeight: 1.25,
   };
-  // Zone chip color (15% opacity tint of the actual zone color, gray
-  // fallback when unmapped — the missing-zone state is now the loud red
-  // chip on the card body, so a soft chip here is fine).
-  const zoneChipBg = job.zone_color ? `${job.zone_color}26` : "#F3F4F6";
-  const zoneChipBorder = job.zone_color ? `${job.zone_color}55` : "#E5E2DC";
+  // [bugfix 2026-04-28] Dynamic popover positioning. Previous code anchored
+  // top: calc(100% + 8px), left: 0 unconditionally, which clipped chips near
+  // the bottom or right edges of the viewport. Now we measure after first
+  // paint and flip vertically (above the chip) and horizontally (right
+  // edge to chip's right) when an edge would otherwise cut the card off.
+  // Single re-render. No flash because useLayoutEffect runs synchronously
+  // before the browser paints the initial position.
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const [anchor, setAnchor] = useState<{ vertical: "below" | "above"; horizontal: "left" | "right" }>({
+    vertical: "below", horizontal: "left",
+  });
+
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const margin = 12;
+
+    let nextVertical = anchor.vertical;
+    let nextHorizontal = anchor.horizontal;
+
+    // Vertical: if the bottom of the card overflows AND there's room above
+    // the chip for the card's full height, flip up. Default stays "below".
+    if (rect.bottom > vh - margin) {
+      // Approximate space above the chip: rect.top minus the gap (8px) and
+      // the chip's height. Without a chip ref handy we use rect.top as a
+      // reasonable proxy. If even flipping won't fully fit, prefer the
+      // direction with more room.
+      const spaceAbove = rect.top;
+      const spaceBelow = vh - (rect.top - rect.height);
+      if (spaceAbove > spaceBelow) nextVertical = "above";
+    }
+
+    // Horizontal: if right edge overflows AND there's room to anchor right.
+    if (rect.right > vw - margin) {
+      const spaceLeft = rect.right;  // approximation: chip's right roughly equals popover's right when left:0
+      if (spaceLeft > rect.width + margin) nextHorizontal = "right";
+    }
+
+    if (nextVertical !== anchor.vertical || nextHorizontal !== anchor.horizontal) {
+      setAnchor({ vertical: nextVertical, horizontal: nextHorizontal });
+    }
+  }, []);
+
+  const positionStyle: React.CSSProperties = {
+    ...(anchor.vertical === "below"
+      ? { top: "calc(100% + 8px)" }
+      : { bottom: "calc(100% + 8px)" }),
+    ...(anchor.horizontal === "left"
+      ? { left: 0 }
+      : { right: 0 }),
+  };
+
+  // [bugfix 2026-04-28] Zone chip color matches the tile bg exactly.
+  // Previous 15% alpha tint read as a different shade than the saturated
+  // tile and broke the visual link between tile and popover. Now the
+  // chip uses the raw zone_color at full opacity, with text color
+  // flipping to dark on light zones (gold etc.) the same way the tile
+  // does via zoneLuminance. Gray fallback when unmapped, dark text.
+  const zoneChipBg = job.zone_color || "#F3F4F6";
+  const zoneChipIsLight = !job.zone_color || zoneLuminance(job.zone_color) > 0.65;
+  const zoneChipFg = zoneChipIsLight ? "#1A1917" : "#FFFFFF";
+  const zoneChipMutedFg = zoneChipIsLight ? "#4B5563" : "rgba(255,255,255,0.85)";
+  const zoneChipDot = zoneChipIsLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.85)";
 
   return (
     // Native click bubbles up to parent JobChip → opens JobPanel drawer.
@@ -1666,8 +1727,8 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
     // the chip) so the critical header (client name + status) is always
     // visible even when hovering chips near the top of the viewport. Very
     // tall content scrolls inside the card rather than overflowing.
-    <div style={{
-      position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 9999,
+    <div ref={popoverRef} style={{
+      position: "absolute", ...positionStyle, zIndex: 9999,
       width: 320,
       maxHeight: "calc(100vh - 120px)", overflowY: "auto",
       backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
@@ -1707,17 +1768,17 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           <div style={{ marginTop: 10 }}>
             <span style={{
               display: "inline-flex", alignItems: "center", gap: 6,
-              fontSize: 13, fontWeight: 600, color: "#1A1917",
+              fontSize: 13, fontWeight: 600, color: zoneChipFg,
               padding: "4px 10px", borderRadius: 12,
-              backgroundColor: zoneChipBg, border: `1px solid ${zoneChipBorder}`,
+              backgroundColor: zoneChipBg,
             }}>
               <div style={{
                 width: 8, height: 8, borderRadius: "50%",
-                backgroundColor: job.zone_color || "#9CA3AF",
+                backgroundColor: zoneChipDot,
                 flexShrink: 0,
               }} />
               {job.zone_name && <span>{job.zone_name}</span>}
-              {job.client_zip && <span style={{ color: "#6B6860", fontWeight: 500 }}>{job.client_zip}</span>}
+              {job.client_zip && <span style={{ color: zoneChipMutedFg, fontWeight: 500 }}>{job.client_zip}</span>}
             </span>
           </div>
         )}
