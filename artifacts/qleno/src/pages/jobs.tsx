@@ -284,7 +284,18 @@ async function fetchDispatch(date: string, token: string, branchId?: number | "a
   const params = new URLSearchParams({ date });
   if (branchId && branchId !== "all") params.set("branch_id", String(branchId));
   const r = await fetch(`${API}/api/dispatch?${params}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!r.ok) throw new Error("Failed to load dispatch");
+  // [AI.7.5.hotfix2] Surface the real server error in DevTools so a 500
+  // doesn't hide behind a generic "Failed to load dispatch" toast. The
+  // actual message helps diagnose env/migration issues without Railway
+  // log access.
+  if (!r.ok) {
+    const bodyText = await r.text().catch(() => "");
+    let parsed: any = null;
+    try { parsed = JSON.parse(bodyText); } catch { /* not JSON */ }
+    console.error("[fetchDispatch] failed", { status: r.status, body: parsed ?? bodyText, url: `${API}/api/dispatch?${params}` });
+    const msg = parsed?.message || parsed?.error || bodyText.slice(0, 240) || `HTTP ${r.status}`;
+    throw new Error(msg);
+  }
   return r.json();
 }
 
@@ -2122,7 +2133,13 @@ export default function JobsPage() {
         allJobs.forEach((j: DispatchJob) => next.add(j.scheduled_date));
         return next;
       });
-    } catch { toast({ title: "Could not load schedule", variant: "destructive" }); }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      // [AI.7.5.hotfix2] Surface the real error so the user can paste it
+      // back when the toast says nothing useful.
+      console.error("[jobs.load] failed:", err);
+      toast({ title: "Could not load schedule", description: detail, variant: "destructive" });
+    }
     finally { setLoading(false); }
   }, [selectedDate, token, activeBranchId]);
 
