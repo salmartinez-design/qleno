@@ -261,12 +261,30 @@ router.get("/", requireAuth, async (req, res) => {
     `);
 
     // Fetch company commission rates. resPct = residential pool fraction;
-    // commercialHourlyRate = flat $/hr commercial commission base. Default
-    // to $20/hr per Sal's standing rule when the column hasn't been
-    // populated yet (Phes seed sets it explicitly).
-    const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
-    const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
-    const commercialHourlyRate = parseFloat(String((compRows.rows[0] as any)?.commercial_hourly_rate ?? 20));
+    // commercialHourlyRate = flat $/hr commercial commission base.
+    // [AI.7.5.hotfix] Try the joint SELECT first; if commercial_hourly_rate
+    // column is absent (older DB, migration hadn't yet run on Railway when
+    // AI.7.4 deployed → blanked the dispatch board), retry with just
+    // res_tech_pay_pct and default the commercial rate to $20/hr.
+    // The migration in phes-data-migration.ts now provisions the column,
+    // but the fallback stays so a missing column never breaks dispatch
+    // again.
+    let resPct = 0.35;
+    let commercialHourlyRate = 20;
+    try {
+      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const row = (compRows.rows[0] as any);
+      if (row) {
+        resPct = parseFloat(String(row.res_tech_pay_pct ?? 0.35));
+        commercialHourlyRate = parseFloat(String(row.commercial_hourly_rate ?? 20));
+      }
+    } catch {
+      try {
+        const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+        const row = (fallback.rows[0] as any);
+        if (row) resPct = parseFloat(String(row.res_tech_pay_pct ?? 0.35));
+      } catch { /* keep defaults */ }
+    }
 
     const techByJob = new Map<number, Array<{ user_id: number; name: string; is_primary: boolean; pay_override: number | null; final_pay: number | null }>>();
     for (const r of techRows.rows as any[]) {

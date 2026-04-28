@@ -153,15 +153,20 @@ router.get("/detail", requireAuth, async (req, res) => {
     const filterUserId = role === "technician" ? myUserId : (user_id ? parseInt(user_id as string) : null);
 
     // Get company payroll settings (using raw SQL since columns added via ALTER TABLE)
-    const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
-    const compSettings = (compRows.rows[0] as any) || { res_tech_pay_pct: 0.35, commercial_hourly_rate: 20.00, commercial_comp_mode: "allowed_hours" };
+    // [AI.7.5.hotfix] Resilient SELECT — see routes/dispatch.ts for the
+    // same pattern. If commercial_* columns are absent (migration hadn't
+    // run), fall back to res_tech_pay_pct only and default the rest.
+    let compSettings: any = { res_tech_pay_pct: 0.35, commercial_hourly_rate: 20.00, commercial_comp_mode: "allowed_hours" };
+    try {
+      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+      if (compRows.rows[0]) compSettings = compRows.rows[0];
+    } catch {
+      try {
+        const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+        if (fallback.rows[0]) compSettings = { ...compSettings, res_tech_pay_pct: (fallback.rows[0] as any).res_tech_pay_pct };
+      } catch { /* keep defaults */ }
+    }
     const resPct = parseFloat(String(compSettings.res_tech_pay_pct ?? 0.35));
-    // [AI.7.4] Commercial commission base. See dispatch.ts for the same
-    // branching rule: commercial commission = hourly rate × hours, NOT
-    // jobTotal × resPct. commercial_comp_mode picks which hours signal
-    // we multiply: 'allowed_hours' (default — what the modal saved) or
-    // 'actual_hours' (clock-derived). Pre-launch we have no clock data
-    // so allowed_hours is the only meaningful value.
     const commercialHourlyRate = parseFloat(String(compSettings.commercial_hourly_rate ?? 20));
     const commercialCompMode = String(compSettings.commercial_comp_mode ?? "allowed_hours");
 
