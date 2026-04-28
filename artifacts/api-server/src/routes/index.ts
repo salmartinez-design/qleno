@@ -68,6 +68,7 @@ import complianceSettingsRouter from "./compliance-settings.js";
 import subscriptionRouter from "./subscription.js";
 import referralsRouter from "./referrals.js";
 import contactRouter from "./contact.js";
+import geocodeRouter from "./geocode.js";
 
 const router: IRouter = Router();
 
@@ -140,5 +141,6 @@ router.use("/compliance-settings", complianceSettingsRouter);
 router.use("/subscription", subscriptionRouter);
 router.use("/referrals", referralsRouter);
 router.use("/contact", contactRouter);
+router.use("/geocode", geocodeRouter);
 
 export default router;

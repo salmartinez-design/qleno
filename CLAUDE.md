@@ -88,6 +88,8 @@
 5. UI cleanup: inline address verification, collapsible call notes
 6. Recurring job timezone bug fix (parseDate local vs UTC)
 
+See PARKING_LOT.md for deferred items that are not code bugs.
+
 ## Dev Workflow
 - Edit locally in Claude Code
 - Verify changes work at localhost:3000 before pushing

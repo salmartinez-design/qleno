@@ -90,6 +90,10 @@ export const jobsTable = pgTable("jobs", {
   // ── Office notes (pushed from quote call notes) ─────────────────────────────
   office_notes: text("office_notes"),
   flagged: boolean("flagged").notNull().default(false),
+  // [AI.15a] Stamped by recalcJobCommissions / address change / tech reassign /
+  // base_fee edit. Used by dispatch /api/dispatch?since=<iso> polling to
+  // return only jobs whose state has changed since the last poll tick.
+  last_recalculated_at: timestamp("last_recalculated_at"),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });

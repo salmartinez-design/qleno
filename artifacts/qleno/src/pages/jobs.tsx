@@ -13,34 +13,18 @@ import {
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send,
 } from "lucide-react";
-
-// ─── CONSTANTS ───────────────────────────────────────────────────────────────
-const FF = "'Plus Jakarta Sans', sans-serif";
-// [AB] Shrunk SLOT_W 80 → 64 so the default 9-hour business window
-// (9 AM – 6 PM = 18 slots × 64 = 1152 px) fits inside a 1440 px viewport
-// alongside the 180 px sticky tech column (total 1332 px, ~100 px margin
-// for page padding/scrollbars). Previous 80 px/slot pushed the timeline
-// to 1620 px and forced horizontal scroll on first paint. ROW_H 64 → 72
-// gives the chip 52 px of vertical space (ROW_H - 20 top/bottom gutter)
-// to match MC's roomier card feel.
-const SLOT_W = 64;
-const COL_W = 180;
-const ROW_H = 72;
-// Mutable — overwritten by company dispatch_start_hour / dispatch_end_hour settings
-let DAY_START = 8 * 60;   // default: 8 AM
-let DAY_END   = 18 * 60;  // default: 6 PM
-let TOTAL_SLOTS = (DAY_END - DAY_START) / 30;
-let TIMES: string[] = [];
-
-function refreshTimeline() {
-  TOTAL_SLOTS = (DAY_END - DAY_START) / 30;
-  TIMES = Array.from({ length: TOTAL_SLOTS }, (_, i) => {
-    const mins = DAY_START + i * 30;
-    const h = Math.floor(mins / 60), m = mins % 60;
-    return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
-  });
-}
-refreshTimeline();
+// [AI.15a] JobChip + JobHoverCard + shared utils relocated to
+// components/dispatch/. The four mutable let bindings (DAY_START etc.)
+// became dayBounds + setDayBounds. Pure no op refactor; behavior
+// unchanged. Commit 2 layers feature work onto the new files.
+import { JobChip } from "@/components/dispatch/JobChip";
+import { JobHoverCard } from "@/components/dispatch/JobHoverCard";
+import {
+  FF, SLOT_W, COL_W, ROW_H,
+  dayBounds, setDayBounds,
+  timeToMins, minsToStr, fmtTime, fmtSvc, scopeLabel, zoneLuminance,
+  type ClockEntry, type JobTechCommission, type DispatchJob,
+} from "@/components/dispatch/utils";
 
 const STATUS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
   scheduled:   { bg: "#DBEAFE", border: "#93C5FD", text: "#1D4ED8", dot: "#3B82F6" },
@@ -50,87 +34,23 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
   flagged:     { bg: "#FEE2E2", border: "#FCA5A5", text: "#991B1B", dot: "#EF4444" },
 };
 
+// [AI.15a] STATUS (full status palette) and STATUS_PILL (in
+// components/dispatch/utils.ts) are NOT parallel structures. They share
+// the same key set ("scheduled" | "in_progress" | "complete" |
+// "cancelled") but render different shapes for different sites:
+// STATUS feeds JobPanel, MobileJobCard, drag preview, search results
+// (bg + border + text + dot). STATUS_PILL feeds the JobHoverCard pill
+// only (bg + fg + label). The "flagged" key on STATUS has no pill
+// counterpart because the hover popover does not render flagged status.
+// Keep them both around. If you change one, glance at the other.
+
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
-interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; address: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 const dateKey = (d: Date) => d.toISOString().split("T")[0];
 const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
-// [Y] timeToMins + fmtTime were broken for AM/PM-format strings coming
-// from MC (e.g. "1:30 PM"). The old `t.split(":").map(Number)` produced
-// `[1, NaN]` for "1:30 PM" because "30 PM" can't parse as a number, so
-// minutes got dropped AND the PM +12h offset was never applied. Result:
-// "1:30 PM" → 60 min (= 1 AM). Robust parser handles BOTH formats:
-//   • "H:MM AM" / "H:MM PM"       (12-hour, MC-imported rows)
-//   • "HH:MM" / "HH:MM:SS"        (24-hour, Quote Builder + engine-written
-//                                  via minsToStr below)
-const timeToMins = (t: string | null): number => {
-  if (!t) return DAY_START;
-  const trimmed = t.trim();
-  const ampm = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (ampm) {
-    let h = parseInt(ampm[1], 10) || 0;
-    const m = parseInt(ampm[2], 10) || 0;
-    const isPM = ampm[3].toUpperCase() === "PM";
-    if (h === 12) h = isPM ? 12 : 0;      // 12 AM → 0, 12 PM → 12
-    else if (isPM) h += 12;               // 1–11 PM → 13–23
-    return h * 60 + m;
-  }
-  const parts = trimmed.split(":").map(p => parseInt(p, 10));
-  const h = parts[0] || 0;
-  const m = parts[1] || 0;
-  return h * 60 + m;
-};
-const minsToStr = (mins: number) => { const c = Math.max(DAY_START, Math.min(DAY_END - 30, mins)); return `${String(Math.floor(c / 60)).padStart(2, "0")}:${String(c % 60).padStart(2, "0")}:00`; };
-function fmtTime(t: string | null): string {
-  if (!t) return "—";
-  const trimmed = t.trim();
-  const ampm = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (ampm) {
-    // Already AM/PM format — reformat cleanly (normalizes spacing/case).
-    const h = parseInt(ampm[1], 10) || 0;
-    const m = parseInt(ampm[2], 10) || 0;
-    return `${h}:${String(m).padStart(2, "0")} ${ampm[3].toUpperCase()}`;
-  }
-  const parts = trimmed.split(":").map(p => parseInt(p, 10));
-  const h = parts[0] || 0;
-  const m = parts[1] || 0;
-  const displayH = h === 0 ? 12 : h > 12 ? h - 12 : h;
-  const suffix = h < 12 ? "AM" : "PM";
-  return `${displayH}:${String(m).padStart(2, "0")} ${suffix}`;
-}
-function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
-
-// [X] scopeLabel — card-facing "scope" label. Prefers frequency when the
-// job is recurring (Weekly / Biweekly / Every 4 Weeks), falls back to
-// service_type when one-off. Matches MC's Job Schedule card convention.
-function scopeLabel(job: { service_type?: string | null; frequency?: string | null }): string {
-  const FREQ: Record<string, string> = {
-    weekly: "Weekly",
-    biweekly: "Biweekly",
-    every_3_weeks: "Every 3 Weeks",
-    monthly: "Every 4 Weeks",
-  };
-  if (job.frequency && FREQ[job.frequency]) return FREQ[job.frequency];
-  const SVC: Record<string, string> = {
-    standard_clean: "Standard Clean",
-    deep_clean: "Deep Clean",
-    move_in: "Move In",
-    move_out: "Move Out",
-    move_in_out: "Move In/Out",
-    post_construction: "Post-Construction",
-    office_cleaning: "Office",
-    common_areas: "Common Areas",
-    retail_store: "Retail",
-    medical_office: "Medical Office",
-    recurring: "Recurring",
-  };
-  return SVC[job.service_type ?? ""] ?? fmtSvc(job.service_type ?? "");
-}
 
 // [X] Convert hex color to rgba string with alpha, for zone-color-at-N%
 // styling. Falls back to a neutral taupe when hex is null/invalid.
@@ -144,23 +64,6 @@ function hexToRgba(hex: string | null | undefined, alpha: number): string {
   const b = parseInt(h.slice(4, 6), 16);
   if ([r, g, b].some(v => Number.isNaN(v))) return FALLBACK;
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-// [AB] Perceptual luminance of a hex color, 0..1. Used to pick between
-// white and dark text on full-opacity zone-color chip backgrounds.
-// Rec. 601 weights (0.299 R + 0.587 G + 0.114 B) — slightly cheaper than
-// the WCAG relative-luminance formula and close enough for a binary
-// light/dark decision. Gold (#FFD700) → ~0.79 → dark text; all other
-// PHES zone colors (magenta/purple/red/green) → < 0.4 → white text.
-function zoneLuminance(hex: string | null | undefined): number {
-  if (!hex) return 0;
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return 0;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  if ([r, g, b].some(v => Number.isNaN(v))) return 0;
-  return (0.299 * r + 0.587 * g + 0.114 * b) / 255;
 }
 
 // [Z] Strict 12-hour "H:MM AM/PM" parser. Returns null on invalid input.
@@ -1435,374 +1338,10 @@ function MiniCalendar({ value, onChange, jobDates }: { value: Date; onChange: (d
   );
 }
 
-// ─── DESKTOP: JOB HOVER CARD ────────────────────────────────────────────────
-// [Q2] Status pill — colored chip next to client name
-const STATUS_PILL: Record<string, { bg: string; fg: string; label: string }> = {
-  scheduled:   { bg: "#DBEAFE", fg: "#1D4ED8", label: "Scheduled" },
-  in_progress: { bg: "#FEF3C7", fg: "#92400E", label: "In Progress" },
-  complete:    { bg: "#DCFCE7", fg: "#15803D", label: "Complete" },
-  cancelled:   { bg: "#F3F4F6", fg: "#6B7280", label: "Cancelled" },
-};
-
-// [Q2] Human-readable payment_method labels. `manual` returns null → hide section.
-function fmtPayment(pm: string | null | undefined): string | null {
-  if (!pm || pm === "manual") return null;
-  const MAP: Record<string, string> = {
-    card_on_file: "Credit Card",
-    check:        "Check",
-    zelle:        "Zelle",
-    net_30:       "Invoice (Net 30)",
-    cash:         "Cash",
-  };
-  return MAP[pm] ?? pm;
-}
-
-// [Q2] "Last service" relative-time helper
-function fmtRelativeDate(isoDate: string): string {
-  const then = new Date(isoDate + "T12:00:00"); // noon to avoid DST edges
-  const now = new Date();
-  const days = Math.floor((now.getTime() - then.getTime()) / 86400000);
-  if (days <= 0) return "today";
-  if (days === 1) return "yesterday";
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.round(days / 7)} weeks ago`;
-  if (days < 365) return `${Math.round(days / 30)} months ago`;
-  return `${Math.round(days / 365)} years ago`;
-}
-
-// [Q2] Parse `act: 11:21 AM-1:25 PM` from jobs.notes (L4 import artifact).
-// Returns {start, end} times as strings, or null if no match.
-function parseActualTimes(notes: string | null | undefined): { start: string; end: string } | null {
-  if (!notes) return null;
-  const m = notes.match(/act:\s*(\d{1,2}:\d{2}\s*[AP]M)\s*-\s*(\d{1,2}:\d{2}\s*[AP]M)/i);
-  return m ? { start: m[1], end: m[2] } : null;
-}
-
-// [Q2] Strip `[mc_import_phase* ...]` tags when rendering notes to the user.
-function stripImportTags(notes: string | null | undefined): string {
-  if (!notes) return "";
-  return notes.replace(/\[mc_import_phase[^\]]*\]/g, "").trim();
-}
-
-function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: string }) {
-  const endTime = minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes);
-  const allowedH = job.duration_minutes / 60;
-  const isRecurring = job.frequency && job.frequency !== "on_demand";
-  const statusPill = STATUS_PILL[job.status] ?? STATUS_PILL.scheduled;
-  const actualTimes = parseActualTimes(job.notes);
-  const paymentLabel = fmtPayment(job.client_payment_method);
-  const entryInstructions = stripImportTags(job.client_notes) || null;
-  const liveClock = job.clock_entry;
-  const lastServiceRelative = job.last_service_date ? fmtRelativeDate(job.last_service_date) : null;
-  const officeNotesCleaned = stripImportTags(job.office_notes);
-
-  // [AD] Location line: zone color dot + zone name + zip. Branch name
-  // (previously shown as a prefix like "Oak Lawn · Chicago Central · 60643")
-  // is dropped — redundant with the page-level branch filter in the
-  // header, and visually competed with the zone name. If the resolved zip
-  // doesn't match any service_zone (zone_name null) we still render the
-  // zip with a muted gray dot, so unmapped one-offs like Shannon's
-  // Whitfield Rd still surface the zip for context.
-  const hasZoneBadge = !!(job.zone_name || job.client_zip);
-
-  const sectionBorder = "1px solid #F0EEE9";
-  const labelStyle: React.CSSProperties = {
-    fontSize: 10, fontWeight: 700, color: "#9E9B94",
-    textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: 4,
-  };
-
-  return (
-    // Native click bubbles up to parent JobChip → opens JobPanel drawer.
-    // Phone anchor and in-card buttons use their own stopPropagation as needed.
-    //
-    // [R] Positioning rebuilt after Q2's taller layout got clipped by the
-    // dispatch row container's overflow. Anchor is now TOP (renders below
-    // the chip) so the critical header (client name + status) is always
-    // visible even when hovering chips near the top of the viewport. Very
-    // tall content scrolls inside the card rather than overflowing.
-    <div style={{
-      position: "absolute", top: "calc(100% + 8px)", left: 0, zIndex: 9999,
-      width: 320,
-      maxHeight: "calc(100vh - 120px)", overflowY: "auto",
-      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
-      borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
-      fontFamily: FF, padding: 0,
-    }}>
-      {/* ─── HEADER ─── */}
-      <div style={{ padding: "14px 16px 12px", borderBottom: sectionBorder }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", flex: 1, minWidth: 0 }}>
-            {job.client_name}
-          </div>
-          <span style={{
-            flexShrink: 0, fontSize: 10, fontWeight: 700, padding: "2px 8px",
-            borderRadius: 10, backgroundColor: statusPill.bg, color: statusPill.fg,
-            textTransform: "uppercase" as const, letterSpacing: "0.03em",
-          }}>
-            {statusPill.label}
-          </span>
-        </div>
-        {job.address && (
-          <div style={{ fontSize: 12, color: "#6B6860", marginBottom: job.client_phone ? 6 : 0 }}>
-            {job.address}
-          </div>
-        )}
-        {job.client_phone && (
-          <a
-            href={`tel:${job.client_phone}`}
-            onClick={e => e.stopPropagation()}
-            style={{ fontSize: 12, color: "#2D9B83", textDecoration: "none", fontWeight: 600, display: "inline-block" }}
-          >
-            {job.client_phone}
-          </a>
-        )}
-        {hasZoneBadge && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            {/* Dot: zone_color when mapped, muted gray when the zip isn't
-                in any service_zones row (e.g. Shannon @ 60062 Northbrook). */}
-            <div style={{
-              width: 8, height: 8, borderRadius: "50%",
-              backgroundColor: job.zone_color || "#9CA3AF",
-              flexShrink: 0,
-            }} />
-            {job.zone_name && (
-              <span style={{ fontSize: 11, color: "#6B6860" }}>{job.zone_name}</span>
-            )}
-            {job.client_zip && (
-              <span style={{
-                fontSize: 11, fontWeight: 500, color: "#6B6860",
-                padding: "1px 6px", borderRadius: 4,
-                backgroundColor: "#F3F4F6", marginLeft: job.zone_name ? 2 : 0,
-              }}>
-                {job.client_zip}
-              </span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ─── SERVICE + FREQUENCY + LAST SERVICE ─── */}
-      <div style={{ padding: "10px 16px", borderBottom: sectionBorder }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
-          {fmtSvc(job.service_type)}
-          <span style={{ color: "#9E9B94", fontWeight: 500, margin: "0 6px" }}>·</span>
-          {isRecurring ? fmtSvc(job.frequency) : "One Time"}
-        </div>
-        {lastServiceRelative && (
-          <div style={{ fontSize: 11, color: "#6B6860", marginTop: 4 }}>
-            Last service: {job.last_service_date} ({lastServiceRelative})
-          </div>
-        )}
-      </div>
-
-      {/* ─── ENTRY INSTRUCTIONS (conditional) ─── */}
-      {entryInstructions && (
-        <div style={{ padding: "10px 16px", borderBottom: sectionBorder, backgroundColor: "#FFFBEB" }}>
-          <div style={{ ...labelStyle, color: "#92400E" }}>🔑 Entry</div>
-          <div style={{ fontSize: 12, color: "#1A1917", lineHeight: 1.4 }}>
-            {entryInstructions.length > 180 ? entryInstructions.slice(0, 180) + "…" : entryInstructions}
-          </div>
-        </div>
-      )}
-
-      {/* ─── TIME BLOCK ─── */}
-      <div style={{ padding: "10px 16px", borderBottom: sectionBorder }}>
-        <div style={labelStyle}>Time</div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
-          Scheduled: {fmtTime(job.scheduled_time)} – {fmtTime(endTime)}
-        </div>
-        {actualTimes && (
-          <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2 }}>
-            Actual: {actualTimes.start} – {actualTimes.end}
-            {job.actual_hours != null && (
-              <span style={{ marginLeft: 6, color: "#9E9B94" }}>({job.actual_hours.toFixed(2)}h)</span>
-            )}
-          </div>
-        )}
-        <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>
-          Allowed: {allowedH.toFixed(2)}h
-        </div>
-      </div>
-
-      {/* ─── TOTAL + PAYMENT ─── */}
-      <div style={{ padding: "10px 16px", borderBottom: sectionBorder, display: "grid", gridTemplateColumns: paymentLabel ? "1fr 1fr" : "1fr", gap: "0 16px" }}>
-        <div>
-          <div style={labelStyle}>Total</div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>${(job.amount || 0).toFixed(2)}</div>
-        </div>
-        {paymentLabel && (
-          <div>
-            <div style={labelStyle}>Payment</div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{paymentLabel}</div>
-          </div>
-        )}
-      </div>
-
-      {/* ─── TECHNICIAN (name only, no pay $) ─── */}
-      <div style={{ padding: "10px 16px", borderBottom: liveClock ? sectionBorder : undefined }}>
-        <div style={labelStyle}>
-          {(job.technicians?.length ?? 0) > 1 ? `Team (${job.technicians!.length})` : "Technician"}
-        </div>
-        {job.technicians && job.technicians.length > 0 ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {job.technicians.map((t, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                <div style={{
-                  width: 20, height: 20, borderRadius: "50%",
-                  backgroundColor: t.is_primary ? "#DCFCE7" : "#F3F4F6",
-                  color: t.is_primary ? "#15803D" : "#6B7280",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 9, fontWeight: 700, flexShrink: 0,
-                }}>
-                  {t.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
-                </div>
-                <span style={{ fontWeight: 600, color: "#1A1917" }}>{t.name}</span>
-                {t.is_primary && (job.technicians!.length > 1) && (
-                  <span style={{ fontSize: 9, color: "#9E9B94" }}>Primary</span>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : assignedName ? (
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{assignedName}</div>
-        ) : (
-          <div style={{ fontSize: 12, color: "#D97706", fontWeight: 600 }}>Unassigned</div>
-        )}
-      </div>
-
-      {/* ─── JOB CLOCKS (conditional — only when live clock entry exists) ─── */}
-      {liveClock && (
-        <div style={{ padding: "10px 16px", borderBottom: sectionBorder }}>
-          <div style={labelStyle}>Job Clocks</div>
-          <div style={{ fontSize: 12, color: "#1A1917", fontWeight: 500 }}>
-            {liveClock.clock_in_at && (
-              <div>
-                <span style={{ color: "#9E9B94" }}>In:</span>{" "}
-                {new Date(liveClock.clock_in_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                {liveClock.distance_from_job_ft != null && (
-                  <span style={{ color: "#9E9B94", marginLeft: 6 }}>
-                    ({Math.round(liveClock.distance_from_job_ft)} ft)
-                  </span>
-                )}
-              </div>
-            )}
-            {liveClock.clock_out_at && (
-              <div>
-                <span style={{ color: "#9E9B94" }}>Out:</span>{" "}
-                {new Date(liveClock.clock_out_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-              </div>
-            )}
-            {liveClock.is_flagged && (
-              <div style={{ color: "#D97706", fontWeight: 600, marginTop: 2 }}>Flagged</div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ─── OFFICE NOTES (optional, only when non-empty after tag strip) ─── */}
-      {officeNotesCleaned && (
-        <div style={{ padding: "8px 16px 10px", borderTop: sectionBorder }}>
-          <div style={{ fontSize: 11, color: "#6B6860", fontStyle: "italic", lineHeight: 1.4 }}>
-            {officeNotesCleaned.length > 120 ? officeNotesCleaned.slice(0, 120) + "…" : officeNotesCleaned}
-          </div>
-        </div>
-      )}
-
-      {/* ─── FOOTER ─── */}
-      <div style={{ padding: "8px 16px 12px", borderTop: sectionBorder, fontSize: 11, color: "#9E9B94", textAlign: "center" }}>
-        → Click for full details
-      </div>
-    </div>
-  );
-}
-
-// ─── DESKTOP: JOB CHIP ─────────────────────────────────────────────────────────
-function JobChip({ job, onClick, assignedName, isUnassigned }: { job: DispatchJob; onClick: (j: DispatchJob) => void; assignedName?: string; isUnassigned?: boolean }) {
-  // [X] `sc` (status color palette) no longer needed — border uses its own
-  // priority-based color logic below; zone-tinted bg replaces the
-  // status.bg fallback entirely. `assignedName` is still passed through
-  // to JobHoverCard (unassigned fallback display) but is not rendered in
-  // the card body itself.
-  const left = ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W;
-  const width = Math.max(SLOT_W, (job.duration_minutes / 30) * SLOT_W);
-  const isComplete = job.status === "complete";
-  const isRecurring = job.frequency && job.frequency !== "on_demand";
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
-
-  // [AB] Full-opacity zone-color card matching MC's Job Schedule visual
-  // weight. Previous 15% alpha tint was spec'd to feel "subtle" but read
-  // as washed-out in practice — failed the "glance from across the room"
-  // test. MC uses saturated fills with white text; matching that now.
-  //
-  // Border priority (unchanged from X/V):
-  //   1. red   — late clock-in OR at-risk (today, past start−15 min, no clock-in)
-  //   2. amber — in_progress
-  //   3. green — complete
-  //   4. zone color at full opacity — scheduled default (same as bg,
-  //      so status state-changes are the only visible border transition)
-  //
-  // Text: white by default, but if the zone color's perceptual luminance
-  // exceeds 0.65 (e.g. gold #FFD700 for Tinley/Orlando/Palos Park at
-  // ~0.79) we flip to dark text so the chip stays legible. Fallback when
-  // zone is null/missing: neutral #9CA3AF (Tailwind gray-400) with white
-  // text — distinct from "colored" chips without being alarming.
-  const todayKey = new Date().toISOString().split("T")[0];
-  const isLiveDay = job.scheduled_date === todayKey;
-  const nowMins = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
-  const startMins = timeToMins(job.scheduled_time);
-  const isRisky = isLiveDay
-    && job.status !== "cancelled"
-    && job.status !== "complete"
-    && !job.clock_entry?.clock_in_at
-    && nowMins >= (startMins - 15);
-  const isInProgressStatus = job.status === "in_progress";
-
-  const ZONE_FALLBACK = "#9CA3AF";
-  const bgColor = job.zone_color || ZONE_FALLBACK;
-  const isLightZone = zoneLuminance(job.zone_color) > 0.65;
-  const borderColor =
-    isRisky ? "#DC2626" :
-    isInProgressStatus ? "#F59E0B" :
-    isComplete ? "#16A34A" :
-    bgColor;
-
-  const primaryText   = isLightZone ? "#1A1917" : "#FFFFFF";
-  const secondaryText = isLightZone ? "#4B5563" : "rgba(255,255,255,0.90)";
-  const iconTint      = isLightZone ? "#6B7280" : "rgba(255,255,255,0.90)";
-
-  const [hovered, setHovered] = useState(false);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function onEnter() { hoverTimer.current = setTimeout(() => setHovered(true), 400); }
-  function onLeave() { if (hoverTimer.current) clearTimeout(hoverTimer.current); setHovered(false); }
-
-  return (
-    <div ref={setNodeRef}
-      onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
-      onMouseEnter={onEnter} onMouseLeave={onLeave}
-      {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{ position: "absolute", top: 10, left, width, height: ROW_H - 20, borderRadius: 8, backgroundColor: bgColor, border: `2px solid ${borderColor}`, padding: "8px 10px", boxSizing: "border-box", overflow: "visible", cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.3 : isComplete ? 0.7 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, zIndex: hovered ? 50 : isDragging ? 0 : 2, userSelect: "none", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2, boxShadow: "0 1px 4px rgba(0,0,0,0.12)" }}>
-      {/* [X] Primary label: {client_name} · {scope}. Tech name stays on the
-          row axis only (initials + label on the left) — kept out of the
-          card body entirely, per MC's Job Schedule convention. Icons still
-          glance-signal clock-in, photos, and recurring frequency. */}
-      <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-        {job.clock_entry?.clock_in_at && <Clock size={9} style={{ color: iconTint, flexShrink: 0 }} />}
-        {job.after_photo_count > 0 && <Camera size={9} style={{ color: iconTint, flexShrink: 0 }} />}
-        {isRecurring && <Repeat size={9} style={{ color: iconTint, flexShrink: 0 }} />}
-        <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {job.client_name} · {scopeLabel(job)}
-        </span>
-      </div>
-      {width > 100 && (
-        <span style={{ fontSize: 10, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes))}
-        </span>
-      )}
-      {hovered && !isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
-    </div>
-  );
-}
+// [AI.15a] STATUS_PILL, fmtPayment, fmtRelativeDate, parseActualTimes,
+// stripImportTags, JobHoverCard, and JobChip all relocated to
+// components/dispatch/{utils.ts, JobHoverCard.tsx, JobChip.tsx}.
+// JobChip and JobHoverCard are imported at the top of this file.
 
 // ─── DESKTOP: EMPLOYEE ROW ────────────────────────────────────────────────────
 const TIME_OFF_BG: Record<string, string> = {
@@ -1813,7 +1352,7 @@ const TIME_OFF_BG: Record<string, string> = {
 
 // Time-off band covers the full dispatch timeline (since the board IS business hours)
 function getBandLeft()  { return 0; }
-function getBandWidth() { return TOTAL_SLOTS * SLOT_W; }
+function getBandWidth() { return dayBounds.totalSlots * SLOT_W; }
 
 function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
@@ -1841,13 +1380,13 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
           </div>
         </div>
       </div>
-      <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
-        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }} />)}
+      <div ref={setNodeRef} style={{ position: "relative", width: dayBounds.totalSlots * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
+        {dayBounds.times.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }} />)}
         {/* Time-off band sits behind job chips (zIndex 0) */}
         {timeOffBg && (
           <div style={{ position: "absolute", left: getBandLeft(), width: getBandWidth(), top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />
         )}
-        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
+        {nowLine >= 0 && nowLine <= dayBounds.totalSlots * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} />)}
         {employee.jobs.length === 0 && (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -1871,9 +1410,9 @@ function UnassignedGanttRow({ jobs, onChipClick, nowLine }: { jobs: DispatchJob[
           <div style={{ fontSize: 10, color: "#D97706", marginTop: 1 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} · needs assignment</div>
         </div>
       </div>
-      <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: "#FFFBEB88" }}>
-        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #FDE68A" : "1px solid #FEF3C7" }} />)}
-        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
+      <div style={{ position: "relative", width: dayBounds.totalSlots * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: "#FFFBEB88" }}>
+        {dayBounds.times.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #FDE68A" : "1px solid #FEF3C7" }} />)}
+        {nowLine >= 0 && nowLine <= dayBounds.totalSlots * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} isUnassigned />)}
       </div>
     </div>
@@ -2018,10 +1557,8 @@ export default function JobsPage() {
       }
     }
 
-    if (DAY_START !== windowStart || DAY_END !== windowEnd) {
-      DAY_START = windowStart;
-      DAY_END = windowEnd;
-      refreshTimeline();
+    if (dayBounds.start !== windowStart || dayBounds.end !== windowEnd) {
+      setDayBounds(windowStart, windowEnd);
       forceUpdate(n => n + 1);
     }
   }, [data, businessHours, selectedDate]);
@@ -2058,7 +1595,7 @@ export default function JobsPage() {
     const now = new Date();
     if (dateKey(now) !== dateKey(selectedDate)) return -1;
     const mins = now.getHours() * 60 + now.getMinutes();
-    return ((mins - DAY_START) / 30) * SLOT_W;
+    return ((mins - dayBounds.start) / 30) * SLOT_W;
   })();
 
   // DnD
@@ -2073,7 +1610,7 @@ export default function JobsPage() {
     const empId = parseInt(String(over.id).replace("row-", ""), 10);
     const originalLeft: number = active.data.current?.originalLeft ?? chipLeft(job);
     const newLeft = originalLeft + delta.x;
-    const newMins = DAY_START + Math.round(newLeft / SLOT_W) * 30;
+    const newMins = dayBounds.start + Math.round(newLeft / SLOT_W) * 30;
     const patch: any = { scheduled_time: minsToStr(newMins) };
     if (empId !== job.assigned_user_id) {
       patch.assigned_user_id = empId;
@@ -2101,7 +1638,7 @@ export default function JobsPage() {
     try { await patchJob(job.id, patch, token); }
     catch { toast({ title: "Failed to update job", variant: "destructive" }); load(); }
   }
-  function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
+  function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - dayBounds.start) / 30) * SLOT_W; }
 
   // Zone + location filtered dispatch data
   const filteredData = data ? {
@@ -2390,7 +1927,7 @@ export default function JobsPage() {
             const techsWorking = filteredData?.employees?.filter(e => e.jobs?.length > 0).length ?? 0;
             const totalTechs = filteredData?.employees?.length ?? 0;
             const scheduledHrs = allJobs.reduce((s, j) => s + (j.duration_minutes || 120) / 60, 0);
-            const availableHrs = totalTechs * ((DAY_END - DAY_START) / 60);
+            const availableHrs = totalTechs * ((dayBounds.end - dayBounds.start) / 60);
             const utilization = availableHrs > 0 ? Math.round((scheduledHrs / availableHrs) * 100) : 0;
             const now = new Date();
             const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -2447,7 +1984,7 @@ export default function JobsPage() {
                   <div style={{ width: COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 11, backgroundColor: "#FAFAF9", borderRight: "1px solid #E5E2DC", padding: "8px 12px" }}>
                     <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94" }}>Technician</span>
                   </div>
-                  {TIMES.map((t, i) => (
+                  {dayBounds.times.map((t, i) => (
                     <div key={i} style={{ width: SLOT_W, flexShrink: 0, padding: "8px 0 4px 6px", borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }}>
                       {i % 2 === 0 && <span style={{ fontSize: 9, fontWeight: 600, color: "#9E9B94", whiteSpace: "nowrap" }}>{t}</span>}
                     </div>

@@ -8,6 +8,7 @@ import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { computeJobCommissions, recalcJobCommissions } from "../lib/commission-engine.js";
 
 const router = Router();
 
@@ -643,6 +644,25 @@ router.put("/:id", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes } = req.body;
 
+    // AI.15a: read the row before update so we can decide whether the
+    // mutation affects commission inputs (base_fee, estimated_hours,
+    // billing_method). Recalc only fires when one of those actually
+    // changed. Cheap one row read on the primary key. Avoids spamming
+    // polling tile updates on every notes or scheduled_time edit.
+    const beforeRows = await db
+      .select({
+        base_fee: jobsTable.base_fee,
+        estimated_hours: jobsTable.estimated_hours,
+        billing_method: jobsTable.billing_method,
+      })
+      .from(jobsTable)
+      .where(and(
+        eq(jobsTable.id, jobId),
+        eq(jobsTable.company_id, req.auth!.companyId)
+      ))
+      .limit(1);
+    const before = beforeRows[0] ?? null;
+
     const updated = await db
       .update(jobsTable)
       .set({
@@ -665,6 +685,31 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     if (!updated[0]) {
       return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    }
+
+    // AI.15a: dirty check on commission inputs. Today this PUT body only
+    // carries base_fee. estimated_hours and billing_method checks are
+    // forward compatible. If a future caller adds them to the body,
+    // recalc fires automatically without further plumbing.
+    //
+    // Use numeric tolerance (cent for money, tenth for hours) because the
+    // client typically sends numbers and Drizzle returns numeric columns
+    // as decimal strings. A naive String() compare would mark every
+    // base_fee touch as changed even when the value did not move.
+    if (before) {
+      const body = req.body as Record<string, unknown>;
+      const numEq = (a: unknown, b: unknown, eps: number) =>
+        Math.abs(parseFloat(String(a ?? 0)) - parseFloat(String(b ?? 0))) < eps;
+
+      const baseFeeChanged = base_fee !== undefined
+        && !numEq(base_fee, before.base_fee, 0.005);
+      const estHoursChanged = body.estimated_hours !== undefined
+        && !numEq(body.estimated_hours, before.estimated_hours, 0.05);
+      const billingMethodChanged = body.billing_method !== undefined
+        && body.billing_method !== before.billing_method;
+      if (baseFeeChanged || estHoursChanged || billingMethodChanged) {
+        await recalcJobCommissions(jobId, req.auth!.companyId);
+      }
     }
 
     logAudit(req, "UPDATE", "job", jobId, null, updated[0]);
@@ -1249,72 +1294,15 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
   }
 });
 
-// ── Commission Engine ──────────────────────────────────────────────────────────
-// Helper: calculate per-tech commission for a job
-async function calculateTechPay(jobId: number, companyId: number): Promise<Array<{
-  user_id: number; name: string; is_primary: boolean; est_hours: number;
-  calc_pay: number; final_pay: number; pay_override: number | null;
-}>> {
-  const jobRows = await db.execute(drizzleSql`
-    SELECT id, base_fee, billed_amount, estimated_hours, assigned_user_id, commission_pool_rate
-    FROM jobs WHERE id = ${jobId} AND company_id = ${companyId}
-  `);
-  if (!jobRows.rows.length) return [];
-  const job = jobRows.rows[0] as any;
-
-  const compRows = await db.execute(drizzleSql`
-    SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1
-  `);
-  const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
-
-  const techRows = await db.execute(drizzleSql`
-    SELECT jt.user_id, jt.is_primary, jt.pay_override, u.first_name, u.last_name
-    FROM job_technicians jt
-    JOIN users u ON u.id = jt.user_id
-    WHERE jt.job_id = ${jobId}
-    ORDER BY jt.is_primary DESC, jt.id
-  `);
-
-  let techs: any[] = techRows.rows;
-
-  if (techs.length === 0 && job.assigned_user_id) {
-    const userRow = await db.execute(drizzleSql`
-      SELECT id, first_name, last_name FROM users WHERE id = ${job.assigned_user_id} LIMIT 1
-    `);
-    if (userRow.rows.length) {
-      const u = userRow.rows[0] as any;
-      techs = [{ user_id: u.id, first_name: u.first_name, last_name: u.last_name, is_primary: true, pay_override: null }];
-    }
-  }
-
-  const numTechs = techs.length || 1;
-  const jobTotal = parseFloat(String(job.billed_amount || job.base_fee || 0));
-  const poolRate = job.commission_pool_rate != null ? parseFloat(String(job.commission_pool_rate)) : resPct;
-  const poolAmount = jobTotal * poolRate;
-  const estHours = parseFloat(String(job.estimated_hours || 0));
-  const estHoursPerTech = numTechs > 0 ? Math.round((estHours / numTechs) * 10) / 10 : estHours;
-
-  return techs.map((t: any) => {
-    const calcPay = Math.round((poolAmount / numTechs) * 100) / 100;
-    const override = t.pay_override != null ? parseFloat(String(t.pay_override)) : null;
-    return {
-      user_id: t.user_id,
-      name: `${t.first_name} ${t.last_name}`,
-      is_primary: !!t.is_primary,
-      est_hours: estHoursPerTech,
-      calc_pay: calcPay,
-      final_pay: override != null ? override : calcPay,
-      pay_override: override,
-    };
-  });
-}
+// Commission engine extracted to ../lib/commission-engine.ts.
+// computeJobCommissions for reads, recalcJobCommissions for mutations.
 
 // GET /api/jobs/:id/technicians
 router.get("/:id/technicians", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
-    const result = await calculateTechPay(jobId, companyId);
+    const result = await computeJobCommissions(jobId, companyId);
     return res.json({ data: result });
   } catch (err) {
     console.error("GET /jobs/:id/technicians error:", err);
@@ -1339,7 +1327,7 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
       ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
     `);
 
-    const result = await calculateTechPay(jobId, companyId);
+    const result = await recalcJobCommissions(jobId, companyId);
     return res.json({ data: result });
   } catch (err) {
     console.error("POST /jobs/:id/technicians error:", err);
@@ -1358,7 +1346,7 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
       DELETE FROM job_technicians WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
     `);
 
-    const result = await calculateTechPay(jobId, companyId);
+    const result = await recalcJobCommissions(jobId, companyId);
     return res.json({ data: result });
   } catch (err) {
     console.error("DELETE /jobs/:id/technicians/:techId error:", err);
@@ -1387,7 +1375,7 @@ router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) =>
         final_pay = EXCLUDED.final_pay
     `);
 
-    const result = await calculateTechPay(jobId, companyId);
+    const result = await recalcJobCommissions(jobId, companyId);
     return res.json({ data: result });
   } catch (err) {
     console.error("PUT /jobs/:id/technicians/:techId/override error:", err);
@@ -1407,7 +1395,7 @@ router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
       WHERE id = ${jobId} AND company_id = ${companyId}
     `);
 
-    const result = await calculateTechPay(jobId, companyId);
+    const result = await recalcJobCommissions(jobId, companyId);
     return res.json({ data: result });
   } catch (err) {
     console.error("POST /jobs/:id/commission/set-pool-rate error:", err);
@@ -1775,5 +1763,4 @@ router.get("/v2/export", requireAuth, async (req, res) => {
   }
 });
 
-export { calculateTechPay };
 export default router;
