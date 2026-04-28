@@ -1368,6 +1368,12 @@ function PBadge({ count, label, color, bg, border }: { count: number; label: str
 function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void }) {
   const sc = STATUS[job.status] || STATUS.scheduled;
   const isCommercial = !!job.account_id;
+  // [AI.7.2] Zone chip — every job MUST surface its zone so techs in the
+  // field know which area they're working before tapping in. zone_name
+  // when mapped, zip-fallback (gray dot) when unmapped, "No zone" only
+  // when neither exists. Mirrored on desktop list cards + UPCOMING rows.
+  const zoneColor = job.zone_color || "#9CA3AF";
+  const zoneLabel = job.zone_name || (job.client_zip ? `Zip ${job.client_zip}` : "No zone");
   return (
     <div onClick={onClick} style={{
       backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
@@ -1376,7 +1382,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>{job.client_name}</div>
             {isCommercial && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
@@ -1384,7 +1390,18 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
               </span>
             )}
           </div>
-          <div style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{fmtSvc(job.service_type)}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{fmtSvc(job.service_type)}</div>
+            <span style={{
+              display: "inline-flex", alignItems: "center", gap: 5,
+              fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 12,
+              backgroundColor: `${zoneColor}1A`, color: job.zone_name ? "#1A1917" : "#6B6860",
+              border: `1px solid ${zoneColor}40`,
+            }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: zoneColor, flexShrink: 0 }} />
+              {zoneLabel}
+            </span>
+          </div>
         </div>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 20, backgroundColor: sc.bg, border: `1px solid ${sc.border}`, fontSize: 11, fontWeight: 700, color: sc.text, textTransform: "capitalize", flexShrink: 0, marginLeft: 10 }}>
           <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: sc.dot }} />
@@ -2583,15 +2600,21 @@ export default function JobsPage() {
                           ) : (
                             dayJobs.map(({ job: j, tech }, jIdx) => {
                               const sc = STATUS[j.status] || STATUS.scheduled;
+                              // [AI.7.2] Zone color dot on every compact row so
+                              // operators can spot the zone at a glance without
+                              // expanding the card.
+                              const zoneColorRow = j.zone_color || "#9CA3AF";
                               return (
                                 <button key={j.id} onClick={() => setSelectedJob(j)}
+                                  title={j.zone_name || (j.client_zip ? `Zip ${j.client_zip}` : "No zone")}
                                   style={{
-                                    display: "flex", alignItems: "center", gap: 10, width: "100%",
+                                    display: "flex", alignItems: "center", gap: 8, width: "100%",
                                     padding: "9px 14px", border: "none", background: "transparent",
                                     cursor: "pointer", fontFamily: FF, textAlign: "left", minHeight: 44,
                                     borderTop: jIdx === 0 ? "none" : "1px solid #F0EEE9",
                                   }}>
                                   <div style={{ width: 3, height: 22, borderRadius: 2, backgroundColor: sc.dot, flexShrink: 0 }} />
+                                  <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: zoneColorRow, flexShrink: 0 }} />
                                   <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", width: 56, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                                     {j.scheduled_time ? fmtTime(j.scheduled_time) : "—"}
                                   </span>
@@ -2834,13 +2857,31 @@ export default function JobsPage() {
                   <div style={{ textAlign: "center", padding: 60, color: "#9E9B94", fontSize: 13 }}>No jobs scheduled.</div>
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
-                    {allJobs.map(j => (
+                    {allJobs.map(j => {
+                      // [AI.7.2] Zone chip — desktop list cards already show
+                      // zone via the colored left border, but the operator
+                      // had to memorize the color → zone mapping. Adding the
+                      // explicit zone name eliminates the recall step.
+                      const zoneColorD = j.zone_color || "#9CA3AF";
+                      const zoneLabelD = j.zone_name || (j.client_zip ? `Zip ${j.client_zip}` : "No zone");
+                      return (
                       <div key={j.id} onClick={() => setSelectedJob(j)}
                         style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", borderLeft: `4px solid ${j.zone_color || "#E5E7EB"}` }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                           <div>
                             <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{j.client_name}</div>
-                            <div style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", marginTop: 2 }}>{fmtSvc(j.service_type)}</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
+                              <div style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{fmtSvc(j.service_type)}</div>
+                              <span style={{
+                                display: "inline-flex", alignItems: "center", gap: 5,
+                                fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
+                                backgroundColor: `${zoneColorD}1A`, color: j.zone_name ? "#1A1917" : "#6B6860",
+                                border: `1px solid ${zoneColorD}40`,
+                              }}>
+                                <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: zoneColorD, flexShrink: 0 }} />
+                                {zoneLabelD}
+                              </span>
+                            </div>
                           </div>
                           <span style={{ fontSize: 11, fontWeight: 700, color: (STATUS[j.status] || STATUS.scheduled).text, backgroundColor: (STATUS[j.status] || STATUS.scheduled).bg, padding: "3px 8px", borderRadius: 20, textTransform: "capitalize" }}>{j.status.replace("_", " ")}</span>
                         </div>
@@ -2864,7 +2905,8 @@ export default function JobsPage() {
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
