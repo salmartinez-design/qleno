@@ -2476,6 +2476,19 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
 
     const newZoneId = zip ? await resolveZoneForZip(companyId, zip) : null;
 
+    // Per the product rule (Sal, 2026-04-28): the only valid failure case is
+    // when the resolved zip is not mapped to any active service zone in this
+    // tenant's database. Reject the save with 422 so the inline form can
+    // surface the message instead of silently saving an unmapped address
+    // (which would render as a gray tile on dispatch).
+    if (!newZoneId) {
+      return res.status(422).json({
+        error: zip
+          ? `Zip ${zip} is not in any of your service zones. Add it under Settings → Service Zones first.`
+          : "Could not determine a zip code from this address.",
+      });
+    }
+
     const before = {
       mode,
       address: r.j_addr ?? r.c_addr ?? null,

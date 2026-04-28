@@ -311,11 +311,11 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const [loadingTechs, setLoadingTechs] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Fetch the candidate techs for this job's branch on first interaction
-  // (lazy: avoids a list fetch on every drawer open if nobody edits tech).
-  const [opened, setOpened] = useState(false);
+  // Fetch the candidate techs for this job's branch eagerly when the drawer
+  // opens. The /api/users response wraps the list under `data`, not `users`,
+  // and ships a small payload (tens of rows). Eager fetch means the dropdown
+  // is populated before the user opens it. Branch filter enforces isolation.
   useEffect(() => {
-    if (!opened || techs.length > 0) return;
     setLoadingTechs(true);
     const params = new URLSearchParams({
       role: "technician",
@@ -324,11 +324,16 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
     });
     if (job.branch_id != null) params.set("branch_id", String(job.branch_id));
     fetch(`${API}/api/users?${params}`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : { users: [] })
-      .then((d: any) => setTechs(Array.isArray(d?.users) ? d.users : (Array.isArray(d) ? d : [])))
+      .then(r => r.ok ? r.json() : { data: [] })
+      .then((d: any) => {
+        const list = Array.isArray(d?.data) ? d.data
+          : Array.isArray(d?.users) ? d.users
+          : Array.isArray(d) ? d : [];
+        setTechs(list);
+      })
       .catch(() => setTechs([]))
       .finally(() => setLoadingTechs(false));
-  }, [opened, API, token, job.branch_id, techs.length]);
+  }, [API, token, job.branch_id]);
 
   const currentName = job.assigned_user_name
     || (job.assigned_user_id != null
@@ -364,21 +369,23 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
       <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><User size={14} /></span>
       <select
         value={job.assigned_user_id ?? ""}
-        onClick={() => setOpened(true)}
-        onFocus={() => setOpened(true)}
         onChange={e => onChange(parseInt(e.target.value, 10))}
-        disabled={saving}
+        disabled={saving || loadingTechs}
         style={{
           fontSize: 13, color: "#1A1917", fontFamily: FF, fontWeight: 500,
           background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6,
           padding: "4px 8px", cursor: saving ? "wait" : "pointer", flex: 1, minWidth: 0,
         }}
       >
-        {/* Default option: current state (so the Select shows the right name even before techs load) */}
-        <option value={job.assigned_user_id ?? ""} disabled={job.assigned_user_id == null}>
-          {currentName || "Unassigned"}
-        </option>
-        {loadingTechs && <option disabled>Loading…</option>}
+        {/* Placeholder for unassigned jobs so the user sees a neutral state. */}
+        {job.assigned_user_id == null && (
+          <option value="" disabled>{loadingTechs ? "Loading…" : "Select technician…"}</option>
+        )}
+        {/* Current tech first so the Select displays the right name. */}
+        {job.assigned_user_id != null && (
+          <option value={job.assigned_user_id}>{currentName}</option>
+        )}
+        {/* Other branch techs. Filter out the current one so the list reads as candidates. */}
         {techs
           .filter(t => t.id !== job.assigned_user_id)
           .map(t => (
@@ -390,15 +397,23 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   );
 }
 
-// ─── INLINE EDIT: ADDRESS WITH GEOCODE VALIDATION ─────────────────────────────
-// Replaces the static "📍 <address>" row in the drawer with a pencil
-// affordance that expands an inline form. Save flow:
-//   1. POST /api/geocode/validate. On 422, render the error inline.
-//   2. On 200, PATCH /api/jobs/:id/address. Server auto-picks job-level
-//      vs client-level mode and re-resolves the zone.
-//   3. onUpdate refreshes dispatch state so the tile color flips if the
-//      new zip falls in a different zone.
-// Subtitle below the form tells the user which mode their save will use.
+// ─── INLINE EDIT: ADDRESS WITH GOOGLE PLACES AUTOCOMPLETE ─────────────────────
+// Replaces the static "<map pin> <address>" row in the drawer with a pencil
+// affordance that expands a single Google Places Autocomplete input. Mirrors
+// the booking widget's pattern (pages/book.tsx). User flow:
+//   1. Click Edit. Form expands with one input + a confirmation row that
+//      stays empty until Google's autocomplete returns a verified place.
+//   2. User types, picks a suggestion. Place components are parsed into
+//      street / city / state / zip / lat / lng and shown read-only in the
+//      confirmation row. Save button enables.
+//   3. Save → PATCH /api/jobs/:id/address with the parsed components. The
+//      server re-runs geocode for defense in depth, picks job-level vs
+//      client-level mode based on whether jobs.address_street already
+//      diverges from clients.address, re-resolves the zone, and rejects
+//      with 422 if the resolved zip is not in any service zone in this
+//      tenant's database (per Sal's rule: the only valid failure case).
+//   4. onUpdate refreshes dispatch state so the tile zone color flips.
+// Subtitle tells the user which mode their save will use.
 function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => void }) {
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
@@ -411,65 +426,107 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   );
   const mode: "client" | "job" = hasJobOverride ? "job" : "client";
 
-  // Pre-fill from whichever level is active.
-  const initial = mode === "job"
-    ? {
-        address: job.job_address_street ?? "",
-        city:    job.job_address_city ?? "",
-        state:   job.job_address_state ?? "",
-        zip:     job.job_address_zip ?? "",
-      }
-    : {
-        address: job.client_address ?? "",
-        city:    job.client_city ?? "",
-        state:   job.client_state ?? "",
-        zip:     job.client_address_zip ?? "",
-      };
-
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mapsReady, setMapsReady] = useState(false);
+  const [pickedAddress, setPickedAddress] = useState<{
+    address: string; city: string; state: string; zip: string;
+    lat: number; lng: number; formatted: string;
+  } | null>(null);
+
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // Load the Maps JS once on first edit (lazy, mirrors booking widget).
+  useEffect(() => {
+    if (!editing) return;
+    const w = window as any;
+    if (w.google?.maps?.places) { setMapsReady(true); return; }
+    const scriptId = "gmap-places-script";
+    if (document.getElementById(scriptId)) {
+      const existing = document.getElementById(scriptId) as HTMLScriptElement;
+      existing.addEventListener("load", () => setMapsReady(true));
+      return;
+    }
+    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    if (!key) {
+      setError("Google Maps API key not configured.");
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = scriptId;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    s.async = true; s.defer = true;
+    s.onload = () => setMapsReady(true);
+    document.head.appendChild(s);
+  }, [editing]);
+
+  // Wire Google Places Autocomplete once Maps is loaded AND the input exists.
+  useEffect(() => {
+    if (!editing || !mapsReady || !inputRef.current) return;
+    const g = (window as any).google;
+    if (!g?.maps?.places?.Autocomplete) return;
+    const ac = new g.maps.places.Autocomplete(inputRef.current, {
+      componentRestrictions: { country: "us" },
+      fields: ["address_components", "formatted_address", "geometry"],
+      types: ["address"],
+    });
+    const listener = ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (!place?.address_components) return;
+      const longGet = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.long_name ?? "";
+      const shortGet = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.short_name ?? "";
+      const street = `${longGet("street_number")} ${longGet("route")}`.trim();
+      const city = longGet("locality") || longGet("sublocality") || longGet("postal_town");
+      const state = shortGet("administrative_area_level_1");
+      const zip = longGet("postal_code");
+      const lat = place.geometry?.location?.lat?.() ?? 0;
+      const lng = place.geometry?.location?.lng?.() ?? 0;
+      setPickedAddress({
+        address: street,
+        city, state, zip,
+        lat, lng,
+        formatted: place.formatted_address ?? `${street}, ${city}, ${state} ${zip}`,
+      });
+      setError(null);
+    });
+    return () => { g.maps.event.removeListener(listener); };
+  }, [editing, mapsReady]);
 
   function open() {
-    setForm(initial);
+    setPickedAddress(null);
     setError(null);
     setEditing(true);
   }
   function cancel() {
-    setEditing(false);
+    setPickedAddress(null);
     setError(null);
+    setEditing(false);
   }
 
   async function save() {
-    if (!form.address.trim()) {
-      setError("Street address is required.");
+    if (!pickedAddress) {
+      setError("Pick an address from the suggestions.");
       return;
     }
     setSaving(true);
     setError(null);
     try {
-      // Step 1: pre-flight geocode validation.
-      const v = await fetch(`${API}/api/geocode/validate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
-      if (!v.ok) {
-        const body = await v.json().catch(() => ({}));
-        setError(body.error || "Could not verify address.");
-        setSaving(false);
-        return;
-      }
-      // Step 2: persist.
-      const p = await fetch(`${API}/api/jobs/${job.id}/address`, {
+      const r = await fetch(`${API}/api/jobs/${job.id}/address`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          address: pickedAddress.address,
+          city:    pickedAddress.city,
+          state:   pickedAddress.state,
+          zip:     pickedAddress.zip,
+        }),
       });
-      if (!p.ok) {
-        const body = await p.json().catch(() => ({}));
-        setError(body.error || `Save failed (HTTP ${p.status})`);
+      if (!r.ok) {
+        const body = await r.json().catch(() => ({}));
+        setError(body.error || `Save failed (HTTP ${r.status})`);
         setSaving(false);
         return;
       }
@@ -480,6 +537,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
           : "Applied as a one-time override for this job only.",
       });
       setEditing(false);
+      setPickedAddress(null);
       onUpdate();
     } catch (e: any) {
       setError(e.message || "Network error.");
@@ -514,50 +572,37 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   const inputStyle: React.CSSProperties = {
     fontSize: 13, color: "#1A1917", fontFamily: FF,
     border: "1px solid #E5E2DC", borderRadius: 6,
-    padding: "6px 8px", width: "100%", boxSizing: "border-box",
+    padding: "8px 10px", width: "100%", boxSizing: "border-box",
     background: saving ? "#F8F7F4" : "#FFFFFF",
   };
 
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-      <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 6 }}><MapPin size={14} /></span>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
+      <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 8 }}><MapPin size={14} /></span>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
         <input
+          ref={inputRef}
           type="text"
-          placeholder="Street address"
-          value={form.address}
-          onChange={e => setForm(f => ({ ...f, address: e.target.value }))}
-          disabled={saving}
+          placeholder={mapsReady ? "Start typing the address…" : "Loading Google Maps…"}
+          autoFocus
+          disabled={saving || !mapsReady}
           style={inputStyle}
+          // Note: Google Places Autocomplete writes the formatted address back
+          // into this input as the user picks. We do not need to bind a value.
         />
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 6 }}>
-          <input
-            type="text"
-            placeholder="City"
-            value={form.city}
-            onChange={e => setForm(f => ({ ...f, city: e.target.value }))}
-            disabled={saving}
-            style={inputStyle}
-          />
-          <input
-            type="text"
-            placeholder="State"
-            value={form.state}
-            onChange={e => setForm(f => ({ ...f, state: e.target.value }))}
-            disabled={saving}
-            maxLength={2}
-            style={inputStyle}
-          />
-          <input
-            type="text"
-            placeholder="Zip"
-            value={form.zip}
-            onChange={e => setForm(f => ({ ...f, zip: e.target.value }))}
-            disabled={saving}
-            maxLength={10}
-            style={inputStyle}
-          />
-        </div>
+        {pickedAddress && (
+          <div style={{
+            fontSize: 12, color: "#1A1917", lineHeight: 1.4,
+            background: "#F0FDF4", border: "1px solid #BBF7D0",
+            borderRadius: 6, padding: "8px 10px",
+          }}>
+            <div style={{ fontWeight: 600, marginBottom: 2 }}>Verified address:</div>
+            <div>{pickedAddress.address || "(no street)"}</div>
+            <div style={{ color: "#4B5563" }}>
+              {pickedAddress.city}{pickedAddress.state ? `, ${pickedAddress.state}` : ""}{pickedAddress.zip ? ` ${pickedAddress.zip}` : ""}
+            </div>
+          </div>
+        )}
         <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.4 }}>
           {mode === "client"
             ? "This updates all future jobs for this client."
@@ -571,15 +616,15 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
         <div style={{ display: "flex", gap: 8 }}>
           <button
             onClick={save}
-            disabled={saving}
+            disabled={saving || !pickedAddress}
             style={{
               fontSize: 12, fontWeight: 700, color: "#FFFFFF",
-              background: saving ? "#9CA3AF" : "#2D9B83",
+              background: (saving || !pickedAddress) ? "#9CA3AF" : "#2D9B83",
               border: "none", borderRadius: 6, padding: "6px 14px",
-              cursor: saving ? "wait" : "pointer", fontFamily: FF,
+              cursor: (saving || !pickedAddress) ? "not-allowed" : "pointer", fontFamily: FF,
             }}
           >
-            {saving ? "Verifying…" : "Save"}
+            {saving ? "Saving…" : "Save"}
           </button>
           <button
             onClick={cancel}
