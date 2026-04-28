@@ -13,6 +13,20 @@
  *   cancelled → no_show → late_clockin → completed → active → unassigned → scheduled
  */
 
+/**
+ * [AI.7.5.hotfix3] LIVE_OPS gate. The detection logic for time-based
+ * states (late_clockin, no_show) is fully built — see below — but
+ * pre-launch we have no real clock-in data, only seed/import data
+ * with stale scheduled_times. Returning late_clockin / no_show in
+ * that environment paints "NO SHOW" badges on every old job.
+ *
+ * Single source of truth so future surfaces can import this and
+ * gate consistently. Flip to true after operations go live.
+ *
+ * Build the engine, don't turn it on.
+ */
+export const LIVE_OPS = false;
+
 export type JobVisualStatus =
   | "scheduled"
   | "active"
@@ -60,12 +74,14 @@ export function getJobVisualStatus(job: JobStatusInput, now: Date = new Date()):
   if (hasClockIn && !hasClockOut && job.status !== "complete") return "active";
   if (job.status === "in_progress") return "active";
 
-  // Late / no-show only meaningful for today's jobs that haven't started.
-  // Pre-launch (LIVE_OPS=false) the caller should still get the visual
-  // status — the LIVE_OPS gate is for surfacing alerts, not for hiding
-  // visual states. A late job rendered on the board is informational,
-  // not an interrupt.
-  if (isToday(job.scheduled_date, now) && !hasClockIn) {
+  // [AI.7.5.hotfix3] Late / no-show derive from time + clock-entry
+  // absence. Suppressed entirely when LIVE_OPS=false — engine still
+  // computes the math (LATE_GRACE_MIN / NO_SHOW_THRESHOLD_MIN
+  // constants live above; flipping LIVE_OPS=true is the only switch
+  // needed) but the function returns scheduled/unassigned instead so
+  // the board doesn't paint "NO SHOW" badges on import data with
+  // stale scheduled_times that pre-date go-live.
+  if (LIVE_OPS && isToday(job.scheduled_date, now) && !hasClockIn) {
     const nowMins = now.getHours() * 60 + now.getMinutes();
     const startMins = timeToMins(job.scheduled_time);
     if (startMins > 0) {

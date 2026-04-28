@@ -14,20 +14,17 @@ import {
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info,
 } from "lucide-react";
-import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
+import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import LegendPopover from "@/components/legend-popover";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const FF = "'Plus Jakarta Sans', sans-serif";
 
-// [AI.7.3] LIVE_OPS gate. Qleno is in pre-launch — no real techs are
-// clocking in/out, so any time-based "late clock-in" detection compares
-// `now` against scheduled_time of historical seed/import data and floods
-// the Needs Attention strip with bogus alerts (e.g. "Juan Salazar · Jaira
-// Estrada — late 905m"). Flip this to true only after operations go
-// live. Data-quality alerts (unassigned, missing address, missing zone)
-// still fire because those are real regardless of operational status.
-const LIVE_OPS = false;
+// [AI.7.5.hotfix3] LIVE_OPS gate is now sourced from lib/job-status.ts
+// so the same flag controls both the visual status helper (which
+// suppresses late_clockin/no_show paint) and the Needs Attention
+// strip's late-clock-in alerts. Single switch — flip to true after
+// go-live. Build the engine, don't turn it on.
 // [AB] Shrunk SLOT_W 80 → 64 so the default 9-hour business window
 // (9 AM – 6 PM = 18 slots × 64 = 1152 px) fits inside a 1440 px viewport
 // alongside the 180 px sticky tech column (total 1332 px, ~100 px margin
