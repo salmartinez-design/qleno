@@ -225,13 +225,34 @@ export default function EditJobModal({
   );
 
   // [AI] Multi-day picker state. Only used when frequency='custom_days'.
-  // Initialized empty; user must check at least one day to save.
-  // TODO(AJ): preload from recurring_schedules.days_of_week when opening a
-  // custom_days job — requires fetching the schedule row alongside the
-  // client load. For now the user re-picks on edit; canSave guards against
-  // accidental empty-array saves.
+  // Hydrated from the recurring_schedules.days_of_week preload below so the
+  // modal opens with the user's existing pattern checked. Without preload,
+  // canSave blocked the user from saving custom_days jobs (empty array
+  // failed the required-day gate) and any save reset the schedule pattern
+  // to whatever the user re-picked.
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
   const isMultiDayFreq = frequency === "daily" || frequency === "weekdays" || frequency === "custom_days";
+
+  // [AI.7.1] Parking-fee schedule-level config. Mirrors the three columns
+  // on recurring_schedules. parkingFeeDays is an int[] of weekdays (0=Sun..
+  // 6=Sat) — a SUBSET of days_of_week tells the engine "apply parking only
+  // on these days," and 7-day or null means "every scheduled day".
+  // The day picker renders only when isCommercial && parking is checked
+  // && (isMultiDayFreq OR isRecurring), since a single-day schedule has
+  // exactly one weekday and parking either applies or doesn't.
+  const [parkingFeeAmount, setParkingFeeAmount] = useState<number | null>(null);
+  const [parkingFeeDays, setParkingFeeDays] = useState<number[] | null>(null);
+
+  // Snapshot of existing schedule-level parking config so dirty-check can
+  // tell whether the user toggled parking, changed amount, or expanded the
+  // day set. Updated only by the preload effect.
+  const [parkingFeeEnabledInitial, setParkingFeeEnabledInitial] = useState<boolean>(false);
+  const [parkingFeeAmountInitial, setParkingFeeAmountInitial] = useState<number | null>(null);
+  const [parkingFeeDaysInitial, setParkingFeeDaysInitial] = useState<number[] | null>(null);
+
+  // Snapshot of existing job add-ons so dirty-check can detect when the
+  // user added/removed an addon (not just on quantity change). Map<pricing_addon_id, qty>.
+  const [initialSelectedAddons, setInitialSelectedAddons] = useState<Map<number, number>>(new Map());
 
   const [calcResult, setCalcResult] = useState<CalcResponse | null>(null);
   const [calcBusy, setCalcBusy] = useState(false);
@@ -270,6 +291,54 @@ export default function EditJobModal({
     })();
     return () => { cancelled = true; };
   }, [API, token, job.client_id, job.hourly_rate]);
+
+  // [AI.7.1] Preload existing job state. Fetches GET /api/jobs/:id which
+  // returns existing_add_ons (so selectedAddons reflects what's already
+  // saved — without this, hitting Save with parking already enabled
+  // wiped the row because PATCH replaces the full add_ons set with
+  // whatever the modal sent), recurring_schedule snapshot (days_of_week
+  // + parking_fee_*), and account_id.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/jobs/${job.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+
+        // Existing add-ons → selectedAddons (keyed by pricing_addon_id).
+        const existing = Array.isArray(d.existing_add_ons) ? d.existing_add_ons : [];
+        const addonMap = new Map<number, number>();
+        for (const a of existing) {
+          if (a.pricing_addon_id != null) {
+            addonMap.set(Number(a.pricing_addon_id), Number(a.quantity ?? 1));
+          }
+        }
+        setSelectedAddons(addonMap);
+        setInitialSelectedAddons(addonMap);
+
+        // Recurring schedule snapshot.
+        const rs = d.recurring_schedule;
+        if (rs) {
+          if (Array.isArray(rs.days_of_week)) {
+            setDaysOfWeek(rs.days_of_week);
+          }
+          setParkingFeeEnabledInitial(!!rs.parking_fee_enabled);
+          setParkingFeeAmountInitial(rs.parking_fee_amount != null ? Number(rs.parking_fee_amount) : null);
+          setParkingFeeDaysInitial(Array.isArray(rs.parking_fee_days) ? rs.parking_fee_days : null);
+          setParkingFeeAmount(rs.parking_fee_amount != null ? Number(rs.parking_fee_amount) : null);
+          setParkingFeeDays(Array.isArray(rs.parking_fee_days) ? rs.parking_fee_days : null);
+        }
+      } catch {
+        // Best-effort. If the preload fails the modal still opens with
+        // baseline state; user can re-check parking explicitly.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [API, token, job.id]);
 
   // [AI.3] Load tenant-managed commercial service types. Active-only, sorted
   // server-side. Used to populate the Service Type dropdown (commercial branch)
@@ -462,7 +531,17 @@ export default function EditJobModal({
     if (Math.abs(baseFee - initialBaseFee) > 0.01) return true;
     if ((job.notes || "") !== instructions) return true;
     if (manualRate) return true;
-    if (selectedAddons.size > 0) return true;
+    // [AI.7.1] Compare addon set against the snapshot loaded from
+    // job_add_ons. Without this, opening a job with parking already
+    // saved made selectedAddons.size > 0 always true, which marked the
+    // modal dirty on open and let the user save without changing anything.
+    // Worse, if they intended to ONLY change something else (e.g. hours),
+    // the PATCH replaced job_add_ons with the same set — fine — but if
+    // the preload race lost (request canceled), selectedAddons stayed
+    // empty and the save wiped parking.
+    const addonsSame = selectedAddons.size === initialSelectedAddons.size
+      && Array.from(selectedAddons.entries()).every(([k, v]) => initialSelectedAddons.get(k) === v);
+    if (!addonsSame) return true;
     if (job.assigned_user_id != null && (selectedTechIds[0] !== job.assigned_user_id || selectedTechIds.length !== 1)) return true;
     if (job.assigned_user_id == null && selectedTechIds.length > 0) return true;
     // [AH] Commercial-only dirty checks
@@ -475,8 +554,17 @@ export default function EditJobModal({
     // already counts as dirty via the frequency check; days_of_week change
     // (when staying in custom_days) is also dirty.
     if (frequency === "custom_days" && daysOfWeek.length > 0) return true;
+    // [AI.7.1] Parking-fee schedule cascade — toggle, amount change, or
+    // day-set change all require a save to propagate to the schedule.
+    const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
+    const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
+    if (parkingNowChecked !== parkingFeeEnabledInitial) return true;
+    if (parkingFeeAmount !== parkingFeeAmountInitial) return true;
+    const initDays = parkingFeeDaysInitial == null ? null : [...parkingFeeDaysInitial].sort();
+    const curDays = parkingFeeDays == null ? null : [...parkingFeeDays].sort();
+    if (JSON.stringify(initDays) !== JSON.stringify(curDays)) return true;
     return false;
-  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek]);
+  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, initialSelectedAddons, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek, availableAddons, parkingFeeAmount, parkingFeeAmountInitial, parkingFeeDays, parkingFeeDaysInitial, parkingFeeEnabledInitial]);
 
   // [AI.4] Commercial save requires a real tenant-managed service type slug.
   // Legacy MC-import values (e.g., 'standard_clean') get auto-cleared when
@@ -561,6 +649,20 @@ export default function EditJobModal({
         } else if (frequency === "weekdays") {
           payload.days_of_week = [1, 2, 3, 4, 5];
         }
+      }
+
+      // [AI.7.1] Parking-fee cascade. Pass schedule-level config whenever
+      // commercial + recurring; PATCH route writes it onto recurring_schedules
+      // when cascade=this_and_future. parking_fee_days = null means "every
+      // scheduled visit" per the engine's interpretation.
+      if (isCommercial && isRecurring) {
+        const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
+        const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
+        payload.parking_fee_enabled = parkingNowChecked;
+        payload.parking_fee_amount = parkingFeeAmount;
+        payload.parking_fee_days = parkingNowChecked
+          ? (parkingFeeDays != null && parkingFeeDays.length < 7 ? [...parkingFeeDays].sort() : null)
+          : null;
       }
 
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
@@ -928,6 +1030,88 @@ export default function EditJobModal({
                 })}
               </div>
             )}
+
+            {/* [AI.7.1] Parking-fee day picker. Renders when commercial +
+                recurring + parking is checked. Default = schedule's
+                days_of_week (or all 7 days if the schedule is single-day).
+                Toggling days here writes recurring_schedules.parking_fee_days
+                via the cascade=this_and_future PATCH path so future
+                occurrences inherit the choice. "All days" sets the array
+                to [0..6]; the engine treats null/full-7 as "every visit".
+                For Jaira (M/F custom_days) the default is [1,5]; user
+                can expand to [0..6] if parking should also apply to ad-hoc
+                visits scheduled on other weekdays. */}
+            {(() => {
+              const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
+              const isParkingChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
+              if (!isCommercial || !parkingAddon || !isParkingChecked || !isRecurring) return null;
+              const dayLabels: { v: number; l: string }[] = [
+                { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" },
+                { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },
+              ];
+              const scheduledDays = new Set(daysOfWeek);
+              const effectiveDays = parkingFeeDays != null ? new Set(parkingFeeDays) : new Set(daysOfWeek);
+              const isAllDays = parkingFeeDays != null && parkingFeeDays.length === 7;
+              return (
+                <div style={{
+                  marginTop: 10, padding: "10px 12px", borderRadius: 8,
+                  backgroundColor: "rgba(0,201,160,0.04)", border: "1px solid rgba(0,201,160,0.25)",
+                }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: "#1A1917", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                    Apply parking on
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6B6860", marginBottom: 10, lineHeight: 1.4 }}>
+                    Future {job.client_name} occurrences will get a parking-fee row when their date falls on a checked day. Save with "this and all future occurrences" to apply.
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                    {dayLabels.map(d => {
+                      const checked = effectiveDays.has(d.v);
+                      const isScheduled = scheduledDays.has(d.v);
+                      return (
+                        <button key={d.v} type="button"
+                          onClick={() => {
+                            const base = parkingFeeDays != null ? [...parkingFeeDays] : [...daysOfWeek];
+                            const idx = base.indexOf(d.v);
+                            if (idx >= 0) base.splice(idx, 1);
+                            else base.push(d.v);
+                            base.sort();
+                            setParkingFeeDays(base);
+                          }}
+                          style={{
+                            minWidth: 44, minHeight: 32, padding: "0 10px", borderRadius: 6,
+                            border: `1.5px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                            backgroundColor: checked ? "var(--brand, #00C9A0)" : "#FFFFFF",
+                            color: checked ? "#FFFFFF" : (isScheduled ? "#1A1917" : "#9E9B94"),
+                            fontSize: 12, fontWeight: 700, fontFamily: FF, cursor: "pointer",
+                          }}>
+                          {d.l}
+                          {isScheduled && !checked && <span style={{ fontSize: 9, marginLeft: 3, opacity: 0.6 }}>·sch</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button type="button"
+                      onClick={() => setParkingFeeDays([...daysOfWeek].sort())}
+                      style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                      Match schedule ({daysOfWeek.length > 0 ? daysOfWeek.map(d => dayLabels[d].l.slice(0,1)).join("") : "—"})
+                    </button>
+                    <button type="button"
+                      onClick={() => setParkingFeeDays([0,1,2,3,4,5,6])}
+                      style={{
+                        fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+                        border: `1px solid ${isAllDays ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                        background: isAllDays ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                        color: isAllDays ? "var(--brand, #00C9A0)" : "#6B6860",
+                        cursor: "pointer", fontFamily: FF,
+                      }}>
+                      All days
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
             {calcResult?.bundle_breakdown && calcResult.bundle_breakdown.length > 0 && (
               <div style={{ marginTop: 8, padding: "6px 10px", backgroundColor: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0" }}>
                 {calcResult.bundle_breakdown.map(b => (
@@ -1048,6 +1232,34 @@ export default function EditJobModal({
             <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16, lineHeight: 1.5 }}>
               This job is part of a recurring schedule. Apply changes to:
             </div>
+            {/* [AI.7.1] When parking-fee dirty, surface "this and future" as
+                the meaningful cascade — choosing "this job only" persists
+                parking on this occurrence but leaves the schedule template
+                untouched, so future M/F jobs (or whatever pattern) still
+                miss parking. The hint below clarifies. */}
+            {(() => {
+              const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
+              const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
+              const parkingDirty = parkingNowChecked !== parkingFeeEnabledInitial
+                || parkingFeeAmount !== parkingFeeAmountInitial
+                || JSON.stringify(parkingFeeDays == null ? null : [...parkingFeeDays].sort())
+                   !== JSON.stringify(parkingFeeDaysInitial == null ? null : [...parkingFeeDaysInitial].sort());
+              if (!parkingDirty) return null;
+              const dayLabels = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+              const days = parkingFeeDays != null && parkingFeeDays.length > 0
+                ? parkingFeeDays.map(d => dayLabels[d].slice(0,3)).join("/")
+                : "every scheduled visit";
+              return (
+                <div style={{
+                  marginBottom: 14, padding: "10px 12px", borderRadius: 8,
+                  backgroundColor: "rgba(0,201,160,0.06)", border: "1px solid rgba(0,201,160,0.25)",
+                  fontSize: 12, color: "#1A1917", lineHeight: 1.5,
+                }}>
+                  <strong>Parking fee:</strong> {parkingNowChecked ? `apply on ${days}` : "remove"}.
+                  Choose "this and all future" to update the schedule. "This job only" applies parking just to this occurrence.
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
               {[
                 { v: "this_job" as const, label: "This job only", sub: "Other future jobs in this schedule won't change." },

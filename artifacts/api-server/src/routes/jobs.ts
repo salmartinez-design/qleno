@@ -612,8 +612,46 @@ router.get("/:id", requireAuth, async (req, res) => {
     const beforePhotos = photos.filter(p => p.photo_type === "before");
     const afterPhotos = photos.filter(p => p.photo_type === "after");
 
+    // [AI.7.1] Preload data the edit-job modal needs so it can hydrate
+    // existing add-ons (selectedAddons keyed by pricing_addon_id),
+    // days_of_week (custom-day picker), hourly_rate, recurring_schedule_id,
+    // and the schedule's parking_fee_* config. Without this the modal
+    // initialized selectedAddons=empty and saved an empty add_ons array,
+    // which caused the server to DELETE existing parking-fee rows on save
+    // — i.e. "I hit save and parking disappeared" / "none of the changes
+    // take place" reproduces. See edit-job-modal.tsx initial-load useEffect.
+    const jobMetaRows = await db.execute(sql`
+      SELECT recurring_schedule_id, hourly_rate, days_of_week, account_id
+      FROM jobs WHERE id = ${jobId} LIMIT 1
+    `);
+    const jobMeta = (jobMetaRows.rows[0] as any) ?? {};
+
+    const existingAddOnsRows = await db.execute(sql`
+      SELECT jao.pricing_addon_id, jao.add_on_id, jao.quantity, jao.unit_price, jao.subtotal,
+             COALESCE(pa.name, ao.name) AS name
+      FROM job_add_ons jao
+      LEFT JOIN pricing_addons pa ON pa.id = jao.pricing_addon_id
+      LEFT JOIN add_ons ao ON ao.id = jao.add_on_id
+      WHERE jao.job_id = ${jobId}
+    `);
+
+    let recurringSchedule: any = null;
+    if (jobMeta.recurring_schedule_id != null) {
+      const rs = await db.execute(sql`
+        SELECT id, frequency, day_of_week, days_of_week, custom_frequency_weeks,
+               parking_fee_enabled, parking_fee_amount, parking_fee_days,
+               commercial_hourly_rate
+        FROM recurring_schedules WHERE id = ${jobMeta.recurring_schedule_id} LIMIT 1
+      `);
+      recurringSchedule = (rs.rows[0] as any) ?? null;
+    }
+
     return res.json({
       ...job[0],
+      recurring_schedule_id: jobMeta.recurring_schedule_id ?? null,
+      hourly_rate: jobMeta.hourly_rate ?? null,
+      days_of_week: jobMeta.days_of_week ?? null,
+      account_id: jobMeta.account_id ?? null,
       before_photo_count: beforePhotos.length,
       after_photo_count: afterPhotos.length,
       photos: photos.map(p => ({
@@ -628,6 +666,29 @@ router.get("/:id", requireAuth, async (req, res) => {
           : null,
         distance_from_job_ft: t.distance_from_job_ft ? parseFloat(t.distance_from_job_ft) : null,
       })),
+      existing_add_ons: existingAddOnsRows.rows.map((r: any) => ({
+        pricing_addon_id: r.pricing_addon_id != null ? Number(r.pricing_addon_id) : null,
+        add_on_id: r.add_on_id != null ? Number(r.add_on_id) : null,
+        quantity: r.quantity != null ? Number(r.quantity) : 1,
+        unit_price: r.unit_price != null ? Number(r.unit_price) : 0,
+        subtotal: r.subtotal != null ? Number(r.subtotal) : 0,
+        name: r.name ?? "",
+      })),
+      recurring_schedule: recurringSchedule
+        ? {
+            id: Number(recurringSchedule.id),
+            frequency: recurringSchedule.frequency,
+            day_of_week: recurringSchedule.day_of_week,
+            days_of_week: recurringSchedule.days_of_week,
+            custom_frequency_weeks: recurringSchedule.custom_frequency_weeks,
+            parking_fee_enabled: !!recurringSchedule.parking_fee_enabled,
+            parking_fee_amount: recurringSchedule.parking_fee_amount != null
+              ? Number(recurringSchedule.parking_fee_amount) : null,
+            parking_fee_days: recurringSchedule.parking_fee_days,
+            commercial_hourly_rate: recurringSchedule.commercial_hourly_rate != null
+              ? Number(recurringSchedule.commercial_hourly_rate) : null,
+          }
+        : null,
       invoice: invoiceResult[0] || null,
       checklist_items: [],
     });
@@ -713,6 +774,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
       instructions,
       cascade_scope,
       days_of_week,           // [AI] multi-day pattern (int array 0..6)
+      // [AI.7.1] Parking fee schedule-level cascade. When the user toggles
+      // parking ON in the modal and picks "this and future", these flow
+      // onto recurring_schedules so the engine stamps parking on every
+      // matching future occurrence. parking_fee_days defaults to the
+      // schedule's days_of_week (the modal pre-selects them) but can be
+      // expanded to all 7 days if the operator wants parking on every
+      // future job regardless of which weekdays the schedule visits.
+      parking_fee_enabled,
+      parking_fee_amount,
+      parking_fee_days,
     } = req.body ?? {};
 
     // [AI] Validate day-pattern exclusivity. Only daily/weekdays/custom_days
@@ -1029,6 +1100,21 @@ router.patch("/:id", requireAuth, async (req, res) => {
           // Frequency unchanged but days_of_week explicitly provided
           // (e.g., user added/removed a day on an existing custom_days schedule)
           push("days_of_week", days_of_week);
+        }
+
+        // [AI.7.1] Parking fee cascade. Persist parking_fee_enabled +
+        // parking_fee_amount + parking_fee_days onto the schedule so the
+        // engine applies parking to every future occurrence per the
+        // operator's day selection. Null amount = use tenant default;
+        // null/empty days = apply to all scheduled days.
+        if (parking_fee_enabled !== undefined) {
+          push("parking_fee_enabled", !!parking_fee_enabled);
+        }
+        if (parking_fee_amount !== undefined) {
+          push("parking_fee_amount", parking_fee_amount === null ? null : String(parking_fee_amount));
+        }
+        if (parking_fee_days !== undefined) {
+          push("parking_fee_days", Array.isArray(parking_fee_days) && parking_fee_days.length > 0 ? parking_fee_days : null);
         }
 
         if (rsSet.length > 0) {
