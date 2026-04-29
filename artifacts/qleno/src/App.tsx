@@ -84,6 +84,8 @@ const NotFound            = lazy(() => import("@/pages/not-found"));
 // renders, and the route below is only mounted when import.meta.env.PROD
 // is false.
 const JobsVisualTestPage  = lazy(() => import("@/pages/jobs-visual-test"));
+// [commission-settings 2026-04-29] Settings → Commission page.
+const CommissionSettingsPage = lazy(() => import("@/pages/settings-commission"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -110,6 +112,7 @@ function Router() {
         <Route path="/dashboard" component={Dashboard} />
         <Route path="/dispatch" component={JobsPage} />
         {!import.meta.env.PROD && <Route path="/jobs/visual-test" component={JobsVisualTestPage} />}
+        <Route path="/settings/commission" component={CommissionSettingsPage} />
         {/* [Q2] JobsListPage moved to /reports/jobs. Keep /jobs and /jobs/list
             as redirects for old bookmarks. */}
         <Route path="/jobs"><Redirect to="/reports/jobs" /></Route>

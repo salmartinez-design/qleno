@@ -1494,7 +1494,25 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {assignedEmp?.name || job.assigned_user_name || "Unassigned"} · Est. {(job.est_hours_per_tech ?? job.estimated_hours ?? 0).toFixed(1)} hrs
                   </span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>
-                    ${(job.est_pay_per_tech ?? ((job.billed_amount ?? job.amount ?? 0) * (job.company_res_pct ?? 0.35))).toFixed(2)} est.
+                    {/* [commission-fix 2026-04-29] When est_pay_per_tech
+                        falls back, it must respect commission_basis.
+                        Commercial → hourly_rate × est_hours; residential
+                        → 35% pool. The old code applied 35% to every
+                        job regardless of basis, which paid commercial
+                        techs $112 instead of $120 on Jaira's 6-hour
+                        $320 visit. */}
+                    ${(() => {
+                      if (job.est_pay_per_tech != null) return job.est_pay_per_tech.toFixed(2);
+                      const isCommercialFallback = job.commission_basis === "commercial_hourly"
+                        || (!job.commission_basis && (job.account_id != null || job.client_type === "commercial"));
+                      if (isCommercialFallback) {
+                        const rate = job.commercial_hourly_rate ?? 20;
+                        const hrs = job.est_hours_per_tech ?? job.estimated_hours ?? 0;
+                        return (rate * hrs).toFixed(2);
+                      }
+                      const total = job.billed_amount ?? job.amount ?? 0;
+                      return (total * (job.company_res_pct ?? 0.35)).toFixed(2);
+                    })()} est.
                   </span>
                 </div>
               )}
@@ -1503,7 +1521,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   Routing comes from server's commission_basis flag —
                   fallback to account_id signal for older payloads. */}
               <div style={{ marginTop: 4, fontSize: 11, color: "#9E9B94" }}>
-                {(job.commission_basis === "commercial_hourly" || (!job.commission_basis && job.account_id != null))
+                {(job.commission_basis === "commercial_hourly" || (!job.commission_basis && (job.account_id != null || job.client_type === "commercial")))
                   ? `Hourly rate: $${(job.commercial_hourly_rate ?? 20).toFixed(0)}/hr × ${(job.est_hours_per_tech != null && (job.technicians?.length ?? 1) > 1
                       ? (job.est_hours_per_tech * (job.technicians?.length ?? 1))
                       : (job.est_hours_per_tech ?? 0)).toFixed(1)} hrs`

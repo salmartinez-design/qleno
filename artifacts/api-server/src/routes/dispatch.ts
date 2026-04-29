@@ -416,7 +416,15 @@ router.get("/", requireAuth, async (req, res) => {
       const durationMinutes = j.allowed_hours
         ? Math.max(30, Math.round((parseFloat(j.allowed_hours) / numTechsForDur) * 60))
         : 120;
-      const isCommercial = !!j.account_id;
+      // [commission-fix 2026-04-29] Commercial routing falls back to
+      // residential 35% pool when account_id is null. But Jaira-style
+      // jobs (commercial client booked through the residential flow,
+      // OR imported without account linkage) carry client_type =
+      // 'commercial' on the clients row even though jobs.account_id
+      // stays null. Routing on account_id alone gave $112 instead of
+      // $120 on Jaira's 6-hour commercial visit (320 × 0.35 vs
+      // 20 × 6). Now both signals trigger the commercial path.
+      const isCommercial = !!j.account_id || (j as any).client_type === "commercial";
       // [AI.7.6] Canonical address render: "<street>, <city>, <state> <zip>".
       // formatAddress() inlined here on the server side; the same shape
       // ships to the frontend so there's only one rule. State + zip are

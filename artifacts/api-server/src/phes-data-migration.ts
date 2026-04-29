@@ -793,9 +793,9 @@ async function runJobsDedupeAndConstraint(): Promise<void> {
     RETURNING id
   `);
   const removed = (deleted.rows ?? []).length;
-  if (removed > 0) {
-    console.log(`[jobs-dedupe] Removed ${removed} duplicate job row(s) (kept latest per client/date/time, NULL-time included).`);
-  }
+  // [iter 2 logging] Always log — distinguishes "ran, found nothing"
+  // from "didn't run at all" when staring at Railway logs.
+  console.log(`[jobs-dedupe] Migration ran. Removed ${removed} duplicate job row(s).`);
 
   // Step 2: replace the old index with the COALESCE-keyed version.
   // Drop-then-create is safe because the dedupe in step 1 just ran;
