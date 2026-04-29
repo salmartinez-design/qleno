@@ -116,6 +116,24 @@ function fmtTime(t: string | null): string {
 }
 function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 
+// [hotfix 2026-04-29 / closes #4] Walk up the DOM to find the nearest
+// ancestor that establishes a clipping context. Used by JobHoverCard's
+// flip logic so we measure against the actual scroll-container bounds
+// instead of the viewport — fixes popovers getting cut off when the
+// timeline's `overflow: auto` is shorter than the viewport. Returns the
+// element itself or null when nothing scrolls (we fall back to the
+// viewport).
+function getScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let current: HTMLElement | null = el;
+  while (current) {
+    const style = getComputedStyle(current);
+    const combined = `${style.overflow}${style.overflowX}${style.overflowY}`;
+    if (/(auto|scroll)/.test(combined)) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
 // [X] scopeLabel — card-facing "scope" label. Prefers frequency when the
 // job is recurring (Weekly / Biweekly / Every 4 Weeks), falls back to
 // service_type when one-off. Matches MC's Job Schedule card convention.
@@ -2098,28 +2116,39 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
     const el = popoverRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const vh = window.innerHeight;
-    const vw = window.innerWidth;
+    // [hotfix 2026-04-29 / closes #4] Compare against the nearest
+    // ancestor that establishes a clipping context (overflow auto/scroll/
+    // hidden), not against the viewport. The dispatch timeline is
+    // wrapped in `<div ref={timelineRef} style={{ overflow: 'auto' }}>`
+    // (jobs.tsx ~3543) — when its bottom edge sits above the viewport
+    // (smaller browser windows, footer/drawer present, the page's
+    // height: calc(100vh - 56px) math), chips near the bottom of the
+    // visible timeline could pass the old window-based flip check yet
+    // still get clipped by the timeline's overflow. Walking up the DOM
+    // gives us the actual clipping rectangle.
+    const scrollParent = getScrollParent(el.parentElement);
+    const bounds = scrollParent ? scrollParent.getBoundingClientRect() : null;
+    const topBound    = bounds ? bounds.top    : 0;
+    const bottomBound = bounds ? bounds.bottom : window.innerHeight;
+    const leftBound   = bounds ? bounds.left   : 0;
+    const rightBound  = bounds ? bounds.right  : window.innerWidth;
     const margin = 12;
 
     let nextVertical = anchor.vertical;
     let nextHorizontal = anchor.horizontal;
 
-    // Vertical: if the bottom of the card overflows AND there's room above
-    // the chip for the card's full height, flip up. Default stays "below".
-    if (rect.bottom > vh - margin) {
-      // Approximate space above the chip: rect.top minus the gap (8px) and
-      // the chip's height. Without a chip ref handy we use rect.top as a
-      // reasonable proxy. If even flipping won't fully fit, prefer the
-      // direction with more room.
-      const spaceAbove = rect.top;
-      const spaceBelow = vh - (rect.top - rect.height);
+    // Vertical: flip up when the popover's bottom would clip past the
+    // scroll container's bottom AND there's more room above than below.
+    if (rect.bottom > bottomBound - margin) {
+      const spaceAbove = Math.max(0, rect.top - topBound);
+      const spaceBelow = Math.max(0, bottomBound - (rect.top - rect.height));
       if (spaceAbove > spaceBelow) nextVertical = "above";
     }
 
-    // Horizontal: if right edge overflows AND there's room to anchor right.
-    if (rect.right > vw - margin) {
-      const spaceLeft = rect.right;  // approximation: chip's right roughly equals popover's right when left:0
+    // Horizontal: flip right-anchor when the popover's right edge would
+    // clip past the scroll container's right edge.
+    if (rect.right > rightBound - margin) {
+      const spaceLeft = rect.right - leftBound;
       if (spaceLeft > rect.width + margin) nextHorizontal = "right";
     }
 
