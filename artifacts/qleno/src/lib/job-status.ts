@@ -36,8 +36,16 @@
  * gate consistently. Flip to true after operations go live.
  *
  * Build the engine, don't turn it on.
+ *
+ * [hotfix 2026-04-29] Flipped to true. Operations went live; the
+ * dispatch board's page-level "late clock-ins" counter (which gates
+ * only on `isLiveDay`, not LIVE_OPS) was showing real late jobs while
+ * the chips themselves stayed in the "scheduled" visual because
+ * getJobVisualStatus suppressed late_clockin / no_show. The two
+ * surfaces disagreed on production. Flipping LIVE_OPS=true brings
+ * them into sync.
  */
-export const LIVE_OPS = false;
+export const LIVE_OPS = true;
 
 export type JobVisualStatus =
   | "scheduled"
@@ -193,7 +201,14 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     showNoShowBadge: false,
     strikethrough: false,
     desaturate: false,
-    borderOverride: null,
+    // [hotfix 2026-04-29] Spec calls for a 2px solid orange ring around
+    // the active chip (#EF9F27). Without the borderOverride the chip's
+    // border falls through to the zone color, so an in_progress chip
+    // looked identical to a scheduled one — the only visual signal
+    // was a 4px amber stripe on the left, which was easy to miss.
+    // Progress bar + live timer remain conditional on clock_entry data
+    // since they need elapsed time to render meaningfully.
+    borderOverride: "#EF9F27",
     showCarIcon: false,
   },
   en_route: {
