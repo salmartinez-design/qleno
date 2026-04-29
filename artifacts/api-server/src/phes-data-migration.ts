@@ -36,6 +36,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.upsell_declined",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_declined BOOLEAN DEFAULT false" },
     { label: "jobs.upsell_deferred",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_deferred BOOLEAN DEFAULT false" },
     { label: "jobs.upsell_cadence_selected", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_cadence_selected TEXT" },
+    // [phes-lifecycle 2026-04-29] Manual no-show flag set by the field
+    // app's "No Show" button. See lib/job-status.ts for the state model.
+    { label: "jobs.no_show_marked_by_tech", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS no_show_marked_by_tech TIMESTAMP" },
+    { label: "jobs.no_show_marked_by_user_id", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS no_show_marked_by_user_id INTEGER" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },

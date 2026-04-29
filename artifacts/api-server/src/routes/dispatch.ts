@@ -176,6 +176,12 @@ router.get("/", requireAuth, async (req, res) => {
         locked_at: jobsTable.locked_at,
         actual_end_time: jobsTable.actual_end_time,
         completed_by_user_id: jobsTable.completed_by_user_id,
+        // [phes-lifecycle 2026-04-29] Manual no-show flag — drives the
+        // NO_SHOW visual state. Set by the field app's "No Show" button
+        // after the tech waits NO_SHOW_WAIT_MINUTES on-site for the
+        // customer.
+        no_show_marked_by_tech: jobsTable.no_show_marked_by_tech,
+        no_show_marked_by_user_id: jobsTable.no_show_marked_by_user_id,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -513,6 +519,8 @@ router.get("/", requireAuth, async (req, res) => {
         locked_at: j.locked_at ?? null,
         actual_end_time: j.actual_end_time ?? null,
         completed_by_user_id: j.completed_by_user_id ?? null,
+        no_show_marked_by_tech: (j as any).no_show_marked_by_tech ?? null,
+        no_show_marked_by_user_id: (j as any).no_show_marked_by_user_id ?? null,
         clock_entry: clock ? {
           id: clock.id,
           clock_in_at: clock.clock_in_at,

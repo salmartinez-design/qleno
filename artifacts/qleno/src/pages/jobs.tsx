@@ -64,7 +64,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -2794,13 +2794,16 @@ function JobChipBody({
               <Clock size={9} style={{ color: tokens.icon, flexShrink: 0 }} />
             )}
             {status === "late_clockin" && lateMin > 0 && (
+              // [phes-lifecycle 2026-04-29] "LATE 24m" — caps via literal,
+              // not textTransform, so the trailing minute "m" stays
+              // lowercase per the spec.
               <span style={{
                 flexShrink: 0, fontSize: 8, fontWeight: 800,
                 padding: "1px 5px", borderRadius: 4,
                 backgroundColor: "#DC2626", color: "#FFFFFF",
-                textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
+                letterSpacing: "0.05em", lineHeight: 1.2,
               }}>
-                Late {lateMin}m
+                LATE {lateMin}m
               </span>
             )}
             {status === "completed_unpaid" && (
@@ -3334,18 +3337,21 @@ export default function JobsPage() {
     // counts when expanded.
     const NOW_MS = Date.now();
     const NOW_MINS = (() => { const n = new Date(); return n.getHours() * 60 + n.getMinutes(); })();
-    // [AI.7.3] LIVE_OPS gates time-based clock-in alerts. Pre-launch the
-    // historical seed data has no clock-ins, so every past job today
-    // qualified as "late" — flooding the strip and drowning out real
-    // data-quality issues (unassigned, missing zone). Flip LIVE_OPS=true
-    // once operations are running.
+    // [phes-lifecycle 2026-04-29] Late = 20+ min past start, no clock-in,
+    // no manual no-show flag. Mirrors getJobVisualStatus's late_clockin
+    // derivation so the Needs Attention counter and the chip ring agree.
+    // The William Rosenbloom bug (counter said late before scheduled
+    // start) is closed by the strict `NOW_MINS >= start + 20` check.
+    const LATE_THRESHOLD_MIN_UI = 20;
     const lateClockIns = LIVE_OPS && isToday && data ? data.employees.flatMap(e =>
-      e.jobs.filter(j =>
-        j.status !== "cancelled" && j.status !== "complete" &&
-        !j.clock_entry?.clock_in_at &&
-        NOW_MINS >= timeToMins(j.scheduled_time) - 15 &&
-        timeToMins(j.scheduled_time) > 0
-      ).map(j => ({ job: j, tech_name: e.name }))
+      e.jobs.filter(j => {
+        if (j.status === "cancelled" || j.status === "complete") return false;
+        if (j.clock_entry?.clock_in_at) return false;
+        if (j.no_show_marked_by_tech) return false;
+        const startMins = timeToMins(j.scheduled_time);
+        if (startMins <= 0) return false;
+        return NOW_MINS >= startMins + LATE_THRESHOLD_MIN_UI;
+      }).map(j => ({ job: j, tech_name: e.name }))
     ) : [];
     const unassignedToday = data?.unassigned_jobs ?? [];
     const missingAddress = isToday && data ? data.employees.flatMap(e =>
@@ -3916,17 +3922,28 @@ export default function JobsPage() {
             const now = new Date();
             const nowMins = now.getHours() * 60 + now.getMinutes();
             const isLiveDay = dateKey(selectedDate) === dateKey(now);
+            // [phes-lifecycle 2026-04-29] Same 20-min threshold as the
+            // chip ring + Needs Attention strip. "At risk" is the
+            // warning window — between scheduled start and the LATE
+            // threshold. Both counters skip manual no-shows.
+            const LATE_MIN_HEADER = 20;
             const lateClockIns = isLiveDay ? allJobs.filter(j => {
               if (j.status === "cancelled" || j.status === "complete") return false;
+              if (j.clock_entry?.clock_in_at) return false;
+              if (j.no_show_marked_by_tech) return false;
               const startMins = timeToMins(j.scheduled_time);
-              if (nowMins <= startMins) return false;
-              return !j.clock_entry?.clock_in_at;
+              if (startMins <= 0) return false;
+              return nowMins >= startMins + LATE_MIN_HEADER;
             }).length : 0;
             const atRisk = isLiveDay ? allJobs.filter(j => {
               if (j.status === "cancelled" || j.status === "complete") return false;
+              if (j.clock_entry?.clock_in_at) return false;
+              if (j.no_show_marked_by_tech) return false;
               const startMins = timeToMins(j.scheduled_time);
-              if (nowMins < startMins - 15 || nowMins > startMins + 15) return false;
-              return !j.clock_entry?.clock_in_at;
+              if (startMins <= 0) return false;
+              // Between scheduled start and the LATE threshold — the
+              // warning window before the chip flips to red.
+              return nowMins >= startMins && nowMins < startMins + LATE_MIN_HEADER;
             }).length : 0;
 
             return (
@@ -3949,7 +3966,7 @@ export default function JobsPage() {
                   <div style={{ padding: "6px 20px", borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", fontSize: 12, color: "#6B6860", fontFamily: FF }}>
                     {lateClockIns > 0 && <span>{lateClockIns} late clock-in{lateClockIns > 1 ? "s" : ""}</span>}
                     {lateClockIns > 0 && atRisk > 0 && <span style={{ margin: "0 8px" }}>&middot;</span>}
-                    {atRisk > 0 && <span>{atRisk} job{atRisk > 1 ? "s" : ""} at risk (no clock-in within 15 min of start)</span>}
+                    {atRisk > 0 && <span>{atRisk} job{atRisk > 1 ? "s" : ""} at risk (past start, &lt;20 min)</span>}
                   </div>
                 )}
               </>
