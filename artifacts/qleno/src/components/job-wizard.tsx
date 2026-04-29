@@ -220,27 +220,37 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
     } else {
       setSelectedBranchOverride(activeBranchId);
-      // If opened from a client profile, skip type + client-search steps
+      // If opened from a client profile, skip type + client-search +
+      // (for commercial-tagged clients) the account/property picker.
+      //
+      // [scheduling-engine 2026-04-29] The previous routing tried to
+      // synthesize a fake account when preselectedClient.client_type
+      // === "commercial" and landed the wizard on the property
+      // picker. Clients tagged commercial without an actual
+      // account_id linkage (Jaira-style: the dispatch route bills
+      // her commercially via client_type, but there's no
+      // accounts/account_properties row to pick from) hit a dead
+      // end — the property search returned nothing.
+      //
+      // Fix: from a client profile we already know the client and
+      // their address. Always set selectedClient + skip to step 2.
+      // The wizard's downstream commercial billing math reads off
+      // the client's record (client_type / hourly rate config /
+      // pay matrix), not off the wizard's clientType toggle, so
+      // billing stays correct. The "pick an account, then a
+      // property" flow remains available via the "+ New Job"
+      // entry point that starts without preselection.
       if (preselectedClient) {
-        const isCommercial = preselectedClient.client_type === "commercial";
-        setClientType(isCommercial ? "commercial" : "residential");
-        if (!isCommercial) {
-          setSelectedClient({
-            id: preselectedClient.id,
-            first_name: preselectedClient.first_name || "",
-            last_name: preselectedClient.last_name || "",
-            address: preselectedClient.address || "",
-            phone: preselectedClient.phone || "",
-            email: preselectedClient.email || "",
-          });
-          setStep(2); // jump straight to Details
-        } else {
-          setSelectedAccount({
-            id: preselectedClient.id,
-            account_name: preselectedClient.first_name || "",
-          });
-          setStep(1); // Commercial still needs property selection — land on Step 1B
-        }
+        setClientType("residential"); // wizard UI mode only — billing reads from client record
+        setSelectedClient({
+          id: preselectedClient.id,
+          first_name: preselectedClient.first_name || "",
+          last_name: preselectedClient.last_name || "",
+          address: preselectedClient.address || "",
+          phone: preselectedClient.phone || "",
+          email: preselectedClient.email || "",
+        });
+        setStep(2); // jump straight to Details — client + address known
       }
     }
   }, [open, preselectedClient?.id]);

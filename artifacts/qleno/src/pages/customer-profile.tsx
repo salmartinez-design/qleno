@@ -422,6 +422,14 @@ function SendMessageDrawer({ client, onClose, onToast }: { client: any; onClose:
 function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; onClose: () => void; onSave: (data: any) => Promise<void>; onToast: (m: string, t?: "success" | "error") => void }) {
   const [form, setForm] = useState({
     first_name: client.first_name || "", last_name: client.last_name || "",
+    // [scheduling-engine 2026-04-29] company_name was on the schema
+    // (clients.company_name) but the drawer didn't surface it. For
+    // commercial clients (Jaira-style) the operator needs a place to
+    // put "Riverside Office Tower" or similar — without it the
+    // profile read-only view falls back to first/last name only and
+    // there's no way to enter or correct the business name from the UI.
+    company_name: client.company_name || "",
+    client_type: (client.client_type === "commercial" ? "commercial" : "residential") as "residential" | "commercial",
     phone: client.phone || "", email: client.email || "",
     address: client.address || "", city: client.city || "", state: client.state || "", zip: client.zip || "",
     home_access_notes: client.home_access_notes || "", alarm_code: client.alarm_code || "",
@@ -461,9 +469,40 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}><X size={18} /></button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* [scheduling-engine 2026-04-29] Client type toggle +
+              company name. Surfaces the existing clients.company_name
+              column that the drawer never let operators edit.
+              Commercial-tagged clients get the field shown above
+              First/Last so the business name reads as the primary
+              label; residential clients can still set a company name
+              if desired (rare) but it doesn't dominate the form. */}
+          <div>
+            {lbl("Type")}
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["residential", "commercial"] as const).map(t => (
+                <button key={t} type="button"
+                  onClick={() => setForm(f => ({ ...f, client_type: t }))}
+                  style={{
+                    flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                    border: `1.5px solid ${form.client_type === t ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                    background: form.client_type === t ? "rgba(0,201,160,0.10)" : "#FFFFFF",
+                    color: form.client_type === t ? "var(--brand, #00C9A0)" : "#1A1917",
+                    fontSize: 13, fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  }}>
+                  {t === "residential" ? "Residential" : "Commercial"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            {lbl(form.client_type === "commercial" ? "Company Name" : "Company Name (optional)")}
+            <input value={form.company_name} onChange={upd("company_name")}
+              placeholder={form.client_type === "commercial" ? "e.g. Riverside Office Tower" : ""}
+              style={inp} />
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>{lbl("First Name")}<input value={form.first_name} onChange={upd("first_name")} style={inp} /></div>
-            <div>{lbl("Last Name")}<input value={form.last_name} onChange={upd("last_name")} style={inp} /></div>
+            <div>{lbl(form.client_type === "commercial" ? "Contact First Name" : "First Name")}<input value={form.first_name} onChange={upd("first_name")} style={inp} /></div>
+            <div>{lbl(form.client_type === "commercial" ? "Contact Last Name"  : "Last Name")}<input value={form.last_name}  onChange={upd("last_name")}  style={inp} /></div>
           </div>
           <div>{lbl("Phone")}<input value={form.phone} onChange={upd("phone")} type="tel" style={inp} /></div>
           <div>{lbl("Email")}<input value={form.email} onChange={upd("email")} type="email" style={inp} /></div>
