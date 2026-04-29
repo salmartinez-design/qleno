@@ -495,7 +495,16 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const [mapsReady, setMapsReady] = useState(false);
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    // [places-key-fallback 2026-04-29] Try the runtime config endpoint
+    // first (server reads process.env.GOOGLE_MAPS_API_KEY from
+    // Railway's runtime env), fall back to the build-time
+    // VITE_GOOGLE_MAPS_API_KEY only if the server isn't reachable.
+    // Without this fallback the Places loader silently bails when
+    // the frontend build was made without the env var present —
+    // which is what was happening on production after PR #16
+    // deployed (build-time injection was empty, runtime env had
+    // the key, but only InlineAddressEdit on the dispatch page was
+    // wired to the runtime endpoint).
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -503,13 +512,39 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
       existing.addEventListener("load", () => setMapsReady(true));
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true; s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const r = await fetch(`${API}/api/config/google-maps-key`, {
+          headers: { ...getAuthHeaders() },
+        });
+        if (r.ok) {
+          const body = await r.json().catch(() => ({}));
+          key = String(body?.key ?? "");
+        }
+      } catch { /* fall through to build-time */ }
+      if (!key) {
+        key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      }
+      if (cancelled) return;
+      if (!key) return;
+      // Re-check after the await — another instance may have injected
+      // the script while we were fetching the key.
+      if (document.getElementById(scriptId)) {
+        const existing = document.getElementById(scriptId) as HTMLScriptElement;
+        existing.addEventListener("load", () => setMapsReady(true));
+        if ((window as any).google?.maps?.places) setMapsReady(true);
+        return;
+      }
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true; s.defer = true;
+      s.onload = () => setMapsReady(true);
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
   useEffect(() => {
     if (!mapsReady || !addressInputRef.current) return;
@@ -978,7 +1013,16 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const [mapsReady, setMapsReady] = useState(false);
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    // [places-key-fallback 2026-04-29] Try the runtime config endpoint
+    // first (server reads process.env.GOOGLE_MAPS_API_KEY from
+    // Railway's runtime env), fall back to the build-time
+    // VITE_GOOGLE_MAPS_API_KEY only if the server isn't reachable.
+    // Without this fallback the Places loader silently bails when
+    // the frontend build was made without the env var present —
+    // which is what was happening on production after PR #16
+    // deployed (build-time injection was empty, runtime env had
+    // the key, but only InlineAddressEdit on the dispatch page was
+    // wired to the runtime endpoint).
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -986,13 +1030,39 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
       existing.addEventListener("load", () => setMapsReady(true));
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true; s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const r = await fetch(`${API}/api/config/google-maps-key`, {
+          headers: { ...getAuthHeaders() },
+        });
+        if (r.ok) {
+          const body = await r.json().catch(() => ({}));
+          key = String(body?.key ?? "");
+        }
+      } catch { /* fall through to build-time */ }
+      if (!key) {
+        key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      }
+      if (cancelled) return;
+      if (!key) return;
+      // Re-check after the await — another instance may have injected
+      // the script while we were fetching the key.
+      if (document.getElementById(scriptId)) {
+        const existing = document.getElementById(scriptId) as HTMLScriptElement;
+        existing.addEventListener("load", () => setMapsReady(true));
+        if ((window as any).google?.maps?.places) setMapsReady(true);
+        return;
+      }
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true; s.defer = true;
+      s.onload = () => setMapsReady(true);
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
   useEffect(() => {
     if (!showForm || !mapsReady || !addressInputRef.current) return;
