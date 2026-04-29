@@ -296,11 +296,15 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       last_cleaning_ms >= sixty_days_ago_ms || upcoming_jobs.length > 0 ? "active" : "inactive";
 
     // RECURRING if the client has any active recurring_schedules row.
+    // [hotfix 2026-04-29] Column is `is_active`, not `active`. The bad
+    // name caused Postgres 42703 missing-column on every full-profile
+    // load, which the frontend surfaced as an indefinite "Loading client
+    // profile…" spinner.
     const recurringRows = await db.execute(sql`
       SELECT 1 FROM recurring_schedules
        WHERE customer_id = ${clientId}
          AND company_id = ${companyId}
-         AND COALESCE(active, true) = true
+         AND COALESCE(is_active, true) = true
        LIMIT 1
     `);
     const client_recurrence: "recurring" | "one_time" = recurringRows.rows.length > 0 ? "recurring" : "one_time";

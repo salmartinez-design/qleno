@@ -163,8 +163,12 @@ export async function runSmokeTests(manual = false): Promise<SmokeTestResult> {
     {
       name: "Recurring schedules exist",
       test: async () => {
+        // [hotfix 2026-04-29] Column is `is_active boolean`, not
+        // `status text`. Pre-existing wrong column reference; smoke
+        // test failed silently against an admin-only endpoint until
+        // the audit during the clients full-profile hang surfaced it.
         const r = await pool.query(
-          `SELECT count(*) FROM recurring_schedules WHERE company_id = $1 AND status = 'active'`,
+          `SELECT count(*) FROM recurring_schedules WHERE company_id = $1 AND is_active = true`,
           [PHES_ID]
         );
         const cnt = parseInt(r.rows[0].count);
