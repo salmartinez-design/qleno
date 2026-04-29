@@ -29,27 +29,61 @@ const SERVICE_TYPES: { value: string; label: string; price: number; icon: Lucide
   { value: "common_areas",      label: "Common Areas",      price: 150, icon: LayoutGrid,       duration: 120 },
 ];
 
+// [commercial-workflow PR #3 / 2026-04-29] Slug → fallback price for
+// the residential auto-price preview while the wizard fetches the
+// API-managed service_types list. The new picker uses
+// service_types.name + display_order for rendering, but legacy code
+// downstream (computePrice / svcConfig lookups) still keys off slug.
+// This map keeps that math working without re-introducing a hardcoded
+// option grid. Shrunk to legacy slugs only — no commercial entries
+// here; commercial pricing comes from account rate cards.
+const RESIDENTIAL_AUTO_PRICE: Record<string, number> = {
+  standard_clean: 120,
+  deep_clean: 220,
+  move_out: 300,
+  move_in: 280,
+  post_construction: 450,
+};
+// Icon by slug — same purpose, used inside the new picker tile.
+const SERVICE_TYPE_ICON: Record<string, LucideIcon> = {
+  standard_clean: Sparkles,
+  deep_clean: Zap,
+  move_out: ArrowRightCircle,
+  move_in: Home,
+  post_construction: Wrench,
+  office_cleaning: Building2,
+  common_areas: LayoutGrid,
+};
+
 const TIME_OPTIONS = [
   "07:00","08:00","09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00",
 ];
 
-const DURATION_OPTIONS = [60, 90, 120, 150, 180, 210, 240, 300, 360];
-
-const FREQ_OPTIONS = [
-  { value: "on_demand", label: "One Time" },
-  { value: "weekly",    label: "Weekly" },
-  { value: "biweekly",  label: "Bi-Weekly" },
-  { value: "monthly",   label: "Monthly" },
+// [commercial-workflow PR #3 / 2026-04-29] Frequencies with type
+// scoping. Residential gets the standard cadence set; commercial
+// adds Daily / Weekdays / Custom days. Hybrid clients see the
+// union when their selected parent is commercial; switching to
+// residential shows only residential.
+//
+// Hardcoded constant per Sal's decision #4 — frequencies are
+// engine behavior (recurring-jobs.ts), not tenant config. If a
+// future tenant needs a custom cadence the right move is to
+// extend the engine, not a DB table.
+type FreqApplies = "residential" | "commercial";
+const FREQ_OPTIONS: { value: string; label: string; applies_to: FreqApplies[] }[] = [
+  { value: "on_demand",      label: "One Time",         applies_to: ["residential", "commercial"] },
+  { value: "weekly",         label: "Weekly",           applies_to: ["residential", "commercial"] },
+  { value: "biweekly",       label: "Bi-weekly",        applies_to: ["residential", "commercial"] },
+  { value: "every_3_weeks",  label: "Every 3 weeks",    applies_to: ["residential", "commercial"] },
+  { value: "monthly",        label: "Every 4 weeks",    applies_to: ["residential", "commercial"] },
+  { value: "daily",          label: "Daily",            applies_to: ["commercial"] },
+  { value: "weekdays",       label: "Weekdays (M–F)",   applies_to: ["commercial"] },
+  { value: "custom_days",    label: "Custom days",      applies_to: ["commercial"] },
 ];
 
 const STATUS_LABELS: Record<string, string> = {
   scheduled: "Scheduled", in_progress: "In Progress", complete: "Complete", cancelled: "Cancelled",
 };
-
-const COMMERCIAL_SERVICE_TYPES = [
-  "standard_clean", "deep_clean", "office_cleaning", "common_areas", "carpet_cleaning",
-  "window_cleaning", "move_out", "post_construction",
-];
 
 function formatTime(t: string) {
   const [h, m] = t.split(":").map(Number);
@@ -105,9 +139,20 @@ interface JobWizardProps {
    * that day instead. Editable by the operator afterwards.
    */
   presetDate?: string | null;
+  /**
+   * [commercial-workflow PR #3 / 2026-04-29] Server-derived hybrid
+   * signal from /api/clients/:id/full-profile (stats.is_hybrid_client).
+   * True when the preselected client has BOOKED jobs in BOTH
+   * residential AND commercial service-type parents within the last
+   * 12 months. When true, the Details step lets the operator flip
+   * the parent (Residential ↔ Commercial) on the spot without going
+   * back to step 0. When false (or not provided), the wizard pins
+   * to the client's primary type per Sal's spec.
+   */
+  isHybridClient?: boolean;
 }
 
-export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate }: JobWizardProps) {
+export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate, isHybridClient }: JobWizardProps) {
   const { activeBranchId, branches } = useBranch();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<string | number>("all");
   const [step, setStep] = useState(0);
@@ -142,6 +187,29 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [propertyQuery, setPropertyQuery] = useState("");
   const [properties, setProperties] = useState<any[]>([]);
   const [selectedProperty, setSelectedProperty] = useState<any>(null);
+
+  // [commercial-workflow PR #3 / 2026-04-29] Tenant-managed service
+  // types fetched once when the wizard opens. Replaces the hardcoded
+  // SERVICE_TYPES + COMMERCIAL_SERVICE_TYPES arrays. Each row carries
+  // parent_slug ('residential' | 'commercial'), slug, name,
+  // display_order, default_allowed_hours. Sorted server-side.
+  type ApiServiceType = {
+    id: number;
+    company_id: number;
+    parent_slug: "residential" | "commercial";
+    slug: string;
+    name: string;
+    description: string | null;
+    is_active: boolean;
+    display_order: number;
+    default_allowed_hours: string | null;   // numeric arrives stringified
+  };
+  const [apiServiceTypes, setApiServiceTypes] = useState<ApiServiceType[]>([]);
+  const [serviceTypesLoading, setServiceTypesLoading] = useState(false);
+  // Hybrid clients can flip the parent on the Details step without
+  // backing out to step 0. Default: client's primary type. Effective
+  // type used by all picker/frequency filtering below.
+  const [hybridParentOverride, setHybridParentOverride] = useState<"residential" | "commercial" | null>(null);
 
   // Step 2 — Residential Details
   const [serviceType, setServiceType] = useState("standard_clean");
@@ -199,6 +267,40 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   useEffect(() => {
     if (open && presetDate) setScheduledDate(presetDate);
   }, [open, presetDate]);
+
+  // [commercial-workflow PR #3 / 2026-04-29] Fetch service_types
+  // once when the wizard opens. Both residential and commercial
+  // children come back in one call; consumers filter by parent_slug.
+  // Failure mode is "empty list" — operator sees a "Loading service
+  // types..." or empty state, but the wizard still opens. We don't
+  // block submission on this — the existing legacy state default
+  // ('standard_clean') will work for residential as a fallback.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setServiceTypesLoading(true);
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/service-types?active=true`, {
+          headers: getAuthHeaders(),
+        });
+        if (!r.ok) return;
+        const rows = await r.json();
+        if (cancelled) return;
+        setApiServiceTypes(Array.isArray(rows) ? rows : []);
+      } catch { /* keep empty list; render shows fallback */ }
+      finally {
+        if (!cancelled) setServiceTypesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
+
+  // Reset the hybrid parent override on close so a new open with a
+  // different client doesn't carry stale state.
+  useEffect(() => {
+    if (!open) setHybridParentOverride(null);
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -386,12 +488,39 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       .finally(() => setSuggestionsLoading(false));
   }, [step, suggestDate, suggestTime, suggestDuration, suggestZip]);
 
-  // Auto-price on service type change (residential only)
+  // Auto-price on service type change (residential only).
+  // [commercial-workflow PR #3] Price still comes from the legacy
+  // RESIDENTIAL_AUTO_PRICE map (per-service tenant pricing lives in
+  // pricing_addons / a future PR, not in service_types). Duration
+  // now prefers default_allowed_hours from the API row when present
+  // — Sal's stepper-allowed-hours spec — falling back to legacy
+  // SERVICE_TYPES.duration when the API hasn't loaded yet or the
+  // row has no default. duration state is in MINUTES so we convert.
   useEffect(() => {
     if (clientType !== "residential" || priceOverridden) return;
-    const svc = SERVICE_TYPES.find(s => s.value === serviceType);
-    if (svc) { setPrice(svc.price); setDuration(svc.duration); }
-  }, [serviceType, priceOverridden, clientType]);
+    const apiRow = apiServiceTypes.find(s => s.parent_slug === "residential" && s.slug === serviceType);
+    const legacy = SERVICE_TYPES.find(s => s.value === serviceType);
+    const fallbackPrice = RESIDENTIAL_AUTO_PRICE[serviceType] ?? legacy?.price;
+    if (fallbackPrice != null) setPrice(fallbackPrice);
+    const apiHours = apiRow?.default_allowed_hours ? parseFloat(apiRow.default_allowed_hours) : null;
+    if (apiHours && Number.isFinite(apiHours)) setDuration(Math.round(apiHours * 60));
+    else if (legacy) setDuration(legacy.duration);
+  }, [serviceType, priceOverridden, clientType, apiServiceTypes]);
+
+  // [commercial-workflow PR #3] Pre-fill commercial estimatedHours
+  // from the picked service type's default_allowed_hours. Commercial
+  // service types in the Phes seed have NULL defaults (per spec —
+  // commercial is per-account negotiated), so this is a no-op for
+  // the seeded set; it lets a tenant who later adds defaults via the
+  // Pricing settings page get pre-fill behavior for free.
+  useEffect(() => {
+    if (clientType !== "commercial") return;
+    const apiRow = apiServiceTypes.find(s => s.parent_slug === "commercial" && s.slug === commercialServiceType);
+    const apiHours = apiRow?.default_allowed_hours ? parseFloat(apiRow.default_allowed_hours) : null;
+    if (apiHours && Number.isFinite(apiHours) && !estimatedHours) {
+      setEstimatedHours(String(apiHours));
+    }
+  }, [commercialServiceType, apiServiceTypes, clientType]);
 
   async function submit() {
     setSubmitting(true); setError("");
@@ -491,9 +620,21 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     if (step === 0) return true;
     if (step === 1 && clientType === "residential") return !!selectedClient;
     if (step === 1 && clientType === "commercial") return !!selectedAccount && !!selectedProperty;
+    // [commercial-workflow PR #3] step 2 validation routes on the
+    // effective parent (override → fallback to clientType) so a
+    // hybrid client who flipped to commercial mid-wizard still
+    // gets the rate-lookup gate.
     if (step === 2 && clientType === "commercial") return !!commercialServiceType && (rateLookupDone || !selectedAccount);
     return true;
   }
+
+  // [commercial-workflow PR #3 / 2026-04-29] Effective parent for
+  // step 2 rendering / validation / frequency filtering.
+  // - Hybrid client + operator picked an override → use override.
+  // - Otherwise → fall back to clientType (set from preselected
+  //   client or step 0 toggle).
+  const effectiveParent: "residential" | "commercial" =
+    (isHybridClient && hybridParentOverride) ? hybridParentOverride : clientType;
 
   return (
     <div style={OVERLAY} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -817,6 +958,33 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           {/* ── STEP 2: DETAILS (Residential) ── */}
           {step === 2 && clientType === "residential" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* [commercial-workflow PR #3] Hybrid parent toggle —
+                  shown only when isHybridClient. Lets the operator
+                  flip Residential ↔ Commercial without backing out
+                  to step 0. Hidden for non-hybrid clients (current
+                  flow). */}
+              {isHybridClient && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["residential", "commercial"] as const).map(p => (
+                      <button key={p} type="button" onClick={() => setHybridParentOverride(p)}
+                        style={{
+                          flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                          border: `1.5px solid ${effectiveParent === p ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                          background: effectiveParent === p ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                          color: effectiveParent === p ? "var(--brand, #00C9A0)" : "#1A1917",
+                          fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                        }}>
+                        {p === "residential" ? "Residential" : "Commercial"}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                    Hybrid client — has booked jobs in both types in the last 12 months.
+                  </p>
+                </div>
+              )}
               {/* Context bar: QB status + payment method — shown when launched from client profile */}
               {preselectedClient && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 10 }}>
@@ -879,17 +1047,41 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-                  {SERVICE_TYPES.map(svc => (
-                    <button key={svc.value} onClick={() => setServiceType(svc.value)}
-                      style={{ padding: "12px 8px", border: `2px solid ${serviceType === svc.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 10, background: serviceType === svc.value ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.15s" }}>
-                      <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                        <svc.icon size={18} color={serviceType === svc.value ? "var(--brand, #00C9A0)" : "#6B7280"}/>
-                      </div>
-                      <p style={{ fontSize: 10, fontWeight: 600, color: serviceType === svc.value ? "var(--brand, #00C9A0)" : "#6B7280", margin: 0, lineHeight: 1.3 }}>{svc.label}</p>
-                    </button>
-                  ))}
-                </div>
+                {/* [commercial-workflow PR #3] Residential children
+                    fetched from /api/service-types?parent=residential.
+                    Loading state shows skeleton; empty state (API
+                    unreachable / seed not run) is unlikely on
+                    production but the SERVICE_TYPES legacy const is
+                    no longer rendered as a fallback per Sal's spec —
+                    the API IS the source of truth. */}
+                {(() => {
+                  const children = apiServiceTypes
+                    .filter(s => s.parent_slug === "residential" && s.is_active)
+                    .sort((a, b) => a.display_order - b.display_order);
+                  if (serviceTypesLoading && children.length === 0) {
+                    return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
+                  }
+                  if (children.length === 0) {
+                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active residential service types configured.</p>;
+                  }
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                      {children.map(svc => {
+                        const Icon = SERVICE_TYPE_ICON[svc.slug] ?? Sparkles;
+                        const selected = serviceType === svc.slug;
+                        return (
+                          <button key={svc.id} onClick={() => setServiceType(svc.slug)}
+                            style={{ padding: "12px 8px", border: `2px solid ${selected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 10, background: selected ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.15s" }}>
+                            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                              <Icon size={18} color={selected ? "var(--brand, #00C9A0)" : "#6B7280"}/>
+                            </div>
+                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand, #00C9A0)" : "#6B7280", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -913,15 +1105,31 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Duration</p>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                    {DURATION_OPTIONS.map(d => (
-                      <button key={d} onClick={() => setDuration(d)}
-                        style={{ padding: "5px 10px", border: `1.5px solid ${duration === d ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 6, background: duration === d ? "var(--brand-dim, #EBF4FF)" : "#fff", fontSize: 11, fontWeight: duration === d ? 700 : 400, color: duration === d ? "var(--brand, #00C9A0)" : "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>
-                        {d >= 60 ? `${d / 60}h` : `${d}m`}
-                      </button>
-                    ))}
-                  </div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
+                  {/* [commercial-workflow PR #3] Allowed-hours stepper.
+                      Replaces the 9-option duration pill row. Steps in
+                      0.5h increments, range 0.5–12. duration state is
+                      in MINUTES (legacy contract with the scheduling
+                      engine + downstream API), so we convert on read
+                      and write. Pre-fill comes from the picked service
+                      type's default_allowed_hours when present. */}
+                  {(() => {
+                    const hours = duration / 60;
+                    const setHours = (h: number) => {
+                      const clamped = Math.max(0.5, Math.min(12, Math.round(h * 2) / 2));
+                      setDuration(Math.round(clamped * 60));
+                    };
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <button type="button" onClick={() => setHours(hours - 0.5)} disabled={hours <= 0.5}
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
+                        <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: "inherit" }}>{hours}h</div>
+                        <button type="button" onClick={() => setHours(hours + 0.5)} disabled={hours >= 12}
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
+                      </div>
+                    );
+                  })()}
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0", lineHeight: 1.3 }}>What you'll bill for. Tech actual hours tracked separately.</p>
                 </div>
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -940,7 +1148,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {FREQ_OPTIONS.map(f => (
+                    {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
                       <button key={f.value} onClick={() => setFrequency(f.value)}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${frequency === f.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: frequency === f.value ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {frequency === f.value && <Check size={12} color="var(--brand, #00C9A0)"/>}
@@ -1021,14 +1229,68 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           {/* ── STEP 2: SERVICE + RATE (Commercial) ── */}
           {step === 2 && clientType === "commercial" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+              {/* [commercial-workflow PR #3] Hybrid parent toggle —
+                  mirrors the residential branch. Lets the operator
+                  flip Residential ↔ Commercial without going back to
+                  step 0. Only rendered for hybrid clients. */}
+              {isHybridClient && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["residential", "commercial"] as const).map(p => (
+                      <button key={p} type="button" onClick={() => setHybridParentOverride(p)}
+                        style={{
+                          flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                          border: `1.5px solid ${effectiveParent === p ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                          background: effectiveParent === p ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                          color: effectiveParent === p ? "var(--brand, #00C9A0)" : "#1A1917",
+                          fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                        }}>
+                        {p === "residential" ? "Residential" : "Commercial"}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                    Hybrid client — has booked jobs in both types in the last 12 months.
+                  </p>
+                </div>
+              )}
+
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
-                <select value={commercialServiceType} onChange={e => { setCommercialServiceType(e.target.value); setRateLookup(null); setRateLookupDone(false); setRateOverride(false); }}
-                  style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", background: "#fff", boxSizing: "border-box" }}>
-                  {COMMERCIAL_SERVICE_TYPES.map(s => (
-                    <option key={s} value={s}>{fmtSvcLabel(s)}</option>
-                  ))}
-                </select>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
+                {/* [commercial-workflow PR #3] Commercial children
+                    fetched from /api/service-types?parent=commercial.
+                    Tenant-managed (admins add new types in
+                    /settings/pricing) so no fallback to a hardcoded
+                    list — empty state surfaces a config gap. */}
+                {(() => {
+                  const children = apiServiceTypes
+                    .filter(s => s.parent_slug === "commercial" && s.is_active)
+                    .sort((a, b) => a.display_order - b.display_order);
+                  if (serviceTypesLoading && children.length === 0) {
+                    return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
+                  }
+                  if (children.length === 0) {
+                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active commercial service types configured.</p>;
+                  }
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
+                      {children.map(svc => {
+                        const Icon = SERVICE_TYPE_ICON[svc.slug] ?? Building2;
+                        const selected = commercialServiceType === svc.slug;
+                        return (
+                          <button key={svc.id} onClick={() => { setCommercialServiceType(svc.slug); setRateLookup(null); setRateLookupDone(false); setRateOverride(false); }}
+                            style={{ padding: "12px 8px", border: `2px solid ${selected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 10, background: selected ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.15s" }}>
+                            <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
+                              <Icon size={18} color={selected ? "var(--brand, #00C9A0)" : "#6B7280"}/>
+                            </div>
+                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand, #00C9A0)" : "#6B7280", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
               </div>
 
               {rateLookupLoading && (
@@ -1114,10 +1376,30 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {(effectiveBillingMethod === "hourly") && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Estimated Duration (hrs)</p>
-                  <input type="number" step="0.5" min="0.5" value={estimatedHours} onChange={e => setEstimatedHours(e.target.value)} placeholder="2.5"
-                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
-                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0" }}>Used for scheduling only. Invoice calculated from actual clock time.</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
+                  {/* [commercial-workflow PR #3] Allowed-hours stepper
+                      mirroring the residential branch. estimatedHours
+                      is a string (legacy contract — submit body sends
+                      it as a string), so we parse on read and stringify
+                      on write. */}
+                  {(() => {
+                    const parsed = parseFloat(estimatedHours);
+                    const hours = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+                    const setHours = (h: number) => {
+                      const clamped = Math.max(0.5, Math.min(12, Math.round(h * 2) / 2));
+                      setEstimatedHours(String(clamped));
+                    };
+                    return (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <button type="button" onClick={() => setHours(hours - 0.5)} disabled={hours <= 0.5}
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
+                        <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: "inherit" }}>{hours}h</div>
+                        <button type="button" onClick={() => setHours(hours + 0.5)} disabled={hours >= 12}
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
+                      </div>
+                    );
+                  })()}
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0", lineHeight: 1.3 }}>What you'll bill for. Tech actual hours tracked separately.</p>
                 </div>
               )}
 
@@ -1144,7 +1426,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                    {FREQ_OPTIONS.map(f => (
+                    {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
                       <button key={f.value} onClick={() => setCommercialFrequency(f.value)}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${commercialFrequency === f.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: commercialFrequency === f.value ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {commercialFrequency === f.value && <Check size={12} color="var(--brand, #00C9A0)"/>}

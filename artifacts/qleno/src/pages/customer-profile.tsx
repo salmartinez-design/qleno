@@ -5122,6 +5122,7 @@ export default function CustomerProfilePage() {
           onCreated={() => { setShowJobWizard(false); setWizardPresetDate(null); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
           preselectedClient={profile ? { id: clientId, first_name: profile.first_name, last_name: profile.last_name, address: profile.address, phone: profile.phone, email: profile.email, client_type: profile.client_type, payment_method: profile.payment_method, net_terms: profile.net_terms, qb_status: profile.qb_status } : null}
           presetDate={wizardPresetDate}
+          isHybridClient={!!profile?.stats?.is_hybrid_client}
         />
         <div style={{ display: "flex", flexDirection: "column", fontFamily: FF, background: "#F7F6F3", minHeight: "100dvh" }}>
           {/* Mobile hero (compact) */}
@@ -5278,6 +5279,7 @@ export default function CustomerProfilePage() {
         onCreated={() => { setShowJobWizard(false); setWizardPresetDate(null); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
         preselectedClient={profile ? { id: clientId, first_name: profile.first_name, last_name: profile.last_name, address: profile.address, phone: profile.phone, email: profile.email, client_type: profile.client_type, payment_method: profile.payment_method, net_terms: profile.net_terms, qb_status: profile.qb_status } : null}
         presetDate={wizardPresetDate}
+        isHybridClient={!!profile?.stats?.is_hybrid_client}
       />
 
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF, background: "#F7F6F3" }}>
