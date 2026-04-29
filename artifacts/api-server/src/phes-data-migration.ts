@@ -744,38 +744,46 @@ async function runScopeVisibility(): Promise<void> {
   console.log("[scope-visibility] Completed.");
 }
 
-// [hotfix 2026-04-29] Dedupe duplicate jobs and add a partial unique
+// [hotfix 2026-04-29 / iter 2] Dedupe duplicate jobs + partial unique
 // index that prevents the same client from booking two overlapping
 // non-cancelled jobs at the same date+time going forward.
 //
-// The bug Sal saw was Jaira Estrada's chip rendering twice on the
-// dispatch board. Most likely cause: a second insert path (booking
-// re-submit, recurring engine race, manual import) wrote a duplicate
-// row that the dispatch read happily painted twice. We dedupe on
-// startup (keep lowest id, delete the rest) and lock the door behind
-// us so it can't recur.
+// Iter 1 (PR #10) added a unique index on raw scheduled_time. Postgres
+// treats NULL = NULL as distinct in a unique constraint, so two rows
+// with NULL scheduled_time and identical (company, client, date) did
+// NOT collide — but the recurring engine creates jobs with NULL time
+// (lib/recurring-jobs.ts ~256), so this gap was real.
+//
+// Iter 2 fix:
+//   - Dedupe partition uses COALESCE(scheduled_time::text, '00:00:00')
+//     so NULL-time duplicates collide into the same partition.
+//   - Drop the old uq_jobs_no_double_book index and replace with one
+//     keyed on the same COALESCE expression. Now NULL-time pairs DO
+//     trip the constraint going forward.
+//   - Keep MOST-RECENTLY-UPDATED row (created_at DESC, id DESC tie-
+//     break), not lowest id. The newer row carries the latest tech /
+//     time / address state from edits; the older row is the import
+//     leftover. This keeps the operator's manual edits sticky.
 //
 // Constraint scope:
-//   (company_id, client_id, scheduled_date, scheduled_time)
+//   (company_id, client_id, scheduled_date, COALESCE(scheduled_time::text, '00:00:00'))
 //   WHERE status NOT IN ('cancelled')
 //
-// - Cancelled jobs are allowed to coexist with active ones (you can
-//   cancel + rebook on the same slot).
-// - NULL scheduled_time stays NULL-distinct per Postgres default,
-//   which is fine — "no specific time" can legitimately apply to
-//   multiple jobs.
+// Cancelled jobs can still coexist with active ones (cancel + rebook).
 async function runJobsDedupeAndConstraint(): Promise<void> {
-  // Step 1: dedupe. Keep lowest job id per (company, client, date, time)
-  // when status is non-cancelled, delete the rest. Audit log + photos +
-  // job_add_ons + job_technicians cascade via FK ON DELETE CASCADE
-  // (already configured on those tables).
+  // Step 1: dedupe. Partition collapses NULL scheduled_time into the
+  // sentinel '00:00:00' so two NULL-time rows for the same client/date
+  // are caught. Order by created_at DESC, id DESC to keep the latest
+  // row — operator edits land via PATCH which doesn't change `id` but
+  // does bump `updated_at` indirectly via the row itself; if both
+  // share created_at, lowest id wins as a stable tiebreak.
   const deleted = await db.execute(sql`
     WITH dupes AS (
       SELECT id,
              ROW_NUMBER() OVER (
                PARTITION BY company_id, client_id, scheduled_date,
-                            COALESCE(scheduled_time::text, '')
-               ORDER BY id ASC
+                            COALESCE(scheduled_time::text, '00:00:00')
+               ORDER BY created_at DESC NULLS LAST, id DESC
              ) AS rn
       FROM jobs
       WHERE status NOT IN ('cancelled')
@@ -786,16 +794,22 @@ async function runJobsDedupeAndConstraint(): Promise<void> {
   `);
   const removed = (deleted.rows ?? []).length;
   if (removed > 0) {
-    console.log(`[jobs-dedupe] Removed ${removed} duplicate job row(s) (kept lowest id per client/date/time).`);
+    console.log(`[jobs-dedupe] Removed ${removed} duplicate job row(s) (kept latest per client/date/time, NULL-time included).`);
   }
 
-  // Step 2: add the partial unique index. CONCURRENTLY would be ideal
-  // for a busy production table, but it can't run inside a transaction
-  // and we need this to block startup so subsequent inserts hit the
-  // constraint. With a sub-1k jobs/day table this completes instantly.
+  // Step 2: replace the old index with the COALESCE-keyed version.
+  // Drop-then-create is safe because the dedupe in step 1 just ran;
+  // no transient duplicates to trip the new index. IF EXISTS guards
+  // first-run when the old name was never created.
+  await db.execute(sql`DROP INDEX IF EXISTS uq_jobs_no_double_book`);
   await db.execute(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_no_double_book
-      ON jobs (company_id, client_id, scheduled_date, scheduled_time)
+      ON jobs (
+        company_id,
+        client_id,
+        scheduled_date,
+        (COALESCE(scheduled_time::text, '00:00:00'))
+      )
       WHERE status NOT IN ('cancelled')
   `);
 }

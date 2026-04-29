@@ -743,6 +743,256 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   );
 }
 
+// [time-edit 2026-04-29] Inline time editor on the JobPanel. Mirrors
+// InlineAddressEdit's pencil-affordance pattern. Start + duration are
+// the canonical pair (the schema stores scheduled_time + allowed_hours;
+// "end time" is derived); we surface end-time as a calculated readout
+// while the operator is editing for clarity. For recurring jobs we
+// also expose a day-of-week picker so the operator can move "Mondays"
+// to "Tuesdays" for the whole series in one shot.
+//
+// On save, if the job is recurring we open a focused 4-option cascade
+// modal (this visit / this+future / all / skip this visit). One-offs
+// skip the prompt and submit with cascade_scope='this_job'. The PATCH
+// route's existing per-field unlock + audit-log logic does the rest;
+// time is in the "free with audit trail" tier so no warn dialog fires.
+function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { toast } = useToast();
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  const isRecurring = !!job.frequency && job.frequency !== "on_demand";
+  // jobs.scheduled_time arrives as "HH:MM:SS" or "H:MM AM/PM" — fmtTime /
+  // timeToMins handle both. For the <input type="time"> we need 24-hour
+  // "HH:MM" specifically.
+  const startH24 = (() => {
+    const mins = timeToMins(job.scheduled_time);
+    return `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
+  })();
+  const initialDurationH = job.duration_minutes > 0 ? job.duration_minutes / 60 : 2;
+
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [cascadePrompt, setCascadePrompt] = useState<null | "open">(null);
+  const [error, setError] = useState<string | null>(null);
+  const [start, setStart] = useState(startH24);
+  const [durationH, setDurationH] = useState<number>(initialDurationH);
+  // Recurring day-of-week. Single-day frequencies use day_of_week
+  // (string); multi-day frequencies (daily/weekdays/custom_days) use
+  // days_of_week (int array). For now the editor only exposes a single
+  // weekday change for single-day cadences (weekly/biweekly/etc.) —
+  // multi-day series with multiple weekdays keep their pattern; the
+  // user's spec is "change Mondays to Tuesdays", that's single-day.
+  const dayMap: Record<string, number> = { sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6 };
+  const initialDow = (() => {
+    if (!job.scheduled_date) return 1;
+    return new Date(job.scheduled_date + "T12:00:00").getDay();
+  })();
+  const [dow, setDow] = useState<number>(initialDow);
+  const isSingleDayRecurring = isRecurring && (
+    job.frequency === "weekly" ||
+    job.frequency === "biweekly" ||
+    job.frequency === "every_3_weeks" ||
+    job.frequency === "monthly"
+  );
+
+  const endTimeDisplay = (() => {
+    const [hh, mm] = start.split(":").map(n => parseInt(n, 10));
+    if (Number.isNaN(hh) || Number.isNaN(mm)) return "—";
+    const totalMins = hh * 60 + mm + Math.round(durationH * 60);
+    const eh = Math.floor(totalMins / 60) % 24;
+    const em = totalMins % 60;
+    const displayH = eh === 0 ? 12 : eh > 12 ? eh - 12 : eh;
+    return `${displayH}:${String(em).padStart(2, "0")} ${eh < 12 ? "AM" : "PM"}`;
+  })();
+
+  function reset() {
+    setStart(startH24);
+    setDurationH(initialDurationH);
+    setDow(initialDow);
+    setError(null);
+  }
+
+  // Submit through the same PATCH endpoint EditJobModal uses so the
+  // per-field unlock + audit log + cascade logic is identical.
+  async function submit(scope: "this_job" | "this_and_future" | "all" | "remove_this") {
+    setSaving(true);
+    setError(null);
+    try {
+      // Compute the new scheduled_date when the day-of-week changes on
+      // a single-day recurring job. We move the SAME calendar week's
+      // occurrence to the new weekday — Mondays-to-Tuesdays moves
+      // 4/27 → 4/28, not next Monday → next Tuesday.
+      let newDate = job.scheduled_date;
+      if (isSingleDayRecurring && dow !== initialDow && job.scheduled_date) {
+        const cur = new Date(job.scheduled_date + "T12:00:00");
+        cur.setDate(cur.getDate() + (dow - initialDow));
+        newDate = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+      }
+
+      const payload: Record<string, unknown> = {
+        scheduled_date: newDate,
+        scheduled_time: `${start}:00`,
+        allowed_hours: String(durationH.toFixed(2)),
+        cascade_scope: scope,
+      };
+      // Only pass the schedule's day_of_week field when actually
+      // cascading to the schedule template (this_and_future / all).
+      // 'this_job' / 'remove_this' don't touch the schedule.
+      if (isSingleDayRecurring && (scope === "this_and_future" || scope === "all")) {
+        const dayName = Object.entries(dayMap).find(([, n]) => n === dow)?.[0];
+        if (dayName) payload.day_of_week = dayName;
+      }
+
+      const r = await fetch(`${API}/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setError(d.message || d.error || `HTTP ${r.status}`);
+        return;
+      }
+      toast({ title: "Time updated", description: scope === "this_job" || scope === "remove_this" ? "This visit only." : scope === "all" ? "Whole series." : "This visit and future." });
+      setEditing(false);
+      setCascadePrompt(null);
+      onUpdate();
+    } catch (err: any) {
+      setError(err?.message ?? "Network error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function onSaveClick() {
+    if (isRecurring) {
+      setCascadePrompt("open");
+    } else {
+      submit("this_job");
+    }
+  }
+
+  if (!editing) {
+    const endMins = timeToMins(job.scheduled_time) + (job.duration_minutes || 0);
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Clock size={14} color="#9E9B94" style={{ flexShrink: 0 }} />
+        <span style={{ fontSize: 13, color: "#4B4A47", flex: 1 }}>
+          {fmtTime(job.scheduled_time)} – {fmtTime(minsToStr(endMins))}
+        </span>
+        <button onClick={() => { reset(); setEditing(true); }}
+          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, backgroundColor: "#F8F7F4", border: "1px solid #E5E2DC", cursor: "pointer", color: "#6B6860" }}
+          title="Edit time">
+          <span style={{ fontSize: 12 }}>✎</span>
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 12px", backgroundColor: "#F8F7F4", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Clock size={14} color="#9E9B94" />
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em" }}>Edit time</span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "#6B6860", fontWeight: 600 }}>
+            Start
+            <input type="time" value={start} onChange={e => setStart(e.target.value)}
+              style={{ padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, color: "#1A1917" }} />
+          </label>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "#6B6860", fontWeight: 600 }}>
+            Duration (hours)
+            <input type="number" min={0.5} step={0.25} value={durationH} onChange={e => setDurationH(Math.max(0.25, parseFloat(e.target.value) || 0))}
+              style={{ padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, color: "#1A1917" }} />
+          </label>
+        </div>
+        <div style={{ fontSize: 11, color: "#6B6860" }}>
+          Ends at <strong style={{ color: "#1A1917" }}>{endTimeDisplay}</strong>
+        </div>
+        {isSingleDayRecurring && (
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Day of week</div>
+            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+              {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((label, i) => (
+                <button key={i} type="button" onClick={() => setDow(i)}
+                  style={{
+                    padding: "5px 10px", borderRadius: 6,
+                    border: `1px solid ${dow === i ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                    background: dow === i ? "rgba(0,201,160,0.12)" : "#FFFFFF",
+                    color: dow === i ? "var(--brand, #00C9A0)" : "#1A1917",
+                    fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FF,
+                  }}>{label}</button>
+              ))}
+            </div>
+            {dow !== initialDow && (
+              <div style={{ fontSize: 11, color: "#92400E", marginTop: 4 }}>
+                Day-of-week changes apply to the schedule template — choose "This and future" or "All visits" to cascade.
+              </div>
+            )}
+          </div>
+        )}
+        {error && (
+          <div style={{ fontSize: 12, color: "#991B1B" }}>{error}</div>
+        )}
+        <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+          <button onClick={() => setEditing(false)} disabled={saving}
+            style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            Cancel
+          </button>
+          <button onClick={onSaveClick} disabled={saving}
+            style={{ flex: 2, padding: "7px", borderRadius: 6, border: "none", background: "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+            {saving ? "Saving…" : isRecurring ? "Save…" : "Save"}
+          </button>
+        </div>
+      </div>
+
+      {/* 4-option cascade prompt — recurring jobs only. Mirrors
+          EditJobModal's prompt; isolated here so the inline editor
+          doesn't pull the whole modal in. */}
+      {cascadePrompt === "open" && (
+        <>
+          <div onClick={() => setCascadePrompt(null)}
+            style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,16,18,0.55)", zIndex: 220 }} />
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            zIndex: 221, width: 460, maxWidth: "92vw",
+            backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
+            boxShadow: "0 16px 48px rgba(0,0,0,0.18)", padding: "20px 22px", fontFamily: FF,
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 6 }}>Apply this change to:</div>
+            <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 14 }}>This is a recurring job. Pick how broadly the time change should apply.</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {([
+                { v: "this_job",        label: "Just this visit",                  sub: "Default. Updates this occurrence; other visits unchanged." },
+                { v: "this_and_future", label: "This and all future visits",       sub: "Updates the schedule template + every future scheduled occurrence." },
+                { v: "all",             label: "All visits in the series",         sub: "Backfills past + future. Paid past jobs are skipped." },
+                { v: "remove_this",     label: "Skip this visit only",             sub: "Mark this visit as one-off; schedule template stays intact." },
+              ] as const).map(opt => (
+                <button key={opt.v} type="button" onClick={() => submit(opt.v)} disabled={saving}
+                  style={{
+                    textAlign: "left", padding: "12px 14px", borderRadius: 10,
+                    border: "1.5px solid #E5E2DC", background: "#F7F6F3",
+                    cursor: saving ? "wait" : "pointer", fontFamily: FF,
+                  }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{opt.label}</div>
+                  <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{opt.sub}</div>
+                </button>
+              ))}
+            </div>
+            <button onClick={() => setCascadePrompt(null)} disabled={saving}
+              style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ─── JOB DETAIL PANEL ────────────────────────────────────────────────────────
 function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   job: DispatchJob; employees: Employee[]; onClose: () => void; onUpdate: () => void; mobile: boolean;
@@ -1080,7 +1330,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
-            <IR icon={<Clock size={14} />} label={`${fmtTime(job.scheduled_time)} – ${fmtTime(minsToStr(endMins))}`} />
+            {/* [time-edit 2026-04-29] Inline time editor with pencil
+                affordance. Uses the existing PATCH endpoint + cascade
+                prompt for recurring jobs. */}
+            <InlineTimeEdit job={job} onUpdate={onUpdate} />
             {/* [inline-edit] Address with pencil affordance, geocode preflight, auto-pick mode. */}
             <InlineAddressEdit job={job} onUpdate={onUpdate} />
             {job.client_phone && (

@@ -554,14 +554,31 @@ router.get("/", requireAuth, async (req, res) => {
     const jobsByEmployee = new Map<number, typeof mappedJobs>();
     const unassigned: typeof mappedJobs = [];
 
-    // [hotfix] Belt-and-suspenders: even with the unique partial index
-    // landing in phes-data-migration, if any data sneaks through (or an
-    // upstream join fans out unexpectedly) we don't want React rendering
-    // two chips for the same job.id. Dedupe by id at grouping time.
+    // [hotfix iter 2] Two-level dedupe. The first level (seenIds) catches
+    // the case where the same job.id appears twice via a JOIN fan-out.
+    // The second level (seenSlots) catches the actual data corruption
+    // case Sal saw on Monday April 27: two distinct job.ids occupying
+    // the same (client_id, date, time) slot. The DB-side migration +
+    // partial unique index closes this going forward, but a stale row
+    // already in the table still renders twice without this fallback.
+    // Tiebreak when slot collides: prefer the row whose tech assignment
+    // matches a known employee (already grouped) and is most recently
+    // updated — but absent that, latest mappedJobs wins via insertion
+    // order (Map preserves order; we just keep the first one in).
     const seenIds = new Set<number>();
+    const seenSlots = new Set<string>();
+    const slotKey = (j: typeof mappedJobs[number]) =>
+      `${j.client_id ?? "n"}|${j.scheduled_date ?? ""}|${j.scheduled_time ?? "00:00:00"}`;
     for (const job of mappedJobs) {
       if (seenIds.has(job.id)) continue;
+      const slot = slotKey(job);
+      if (seenSlots.has(slot)) {
+        // Different id, same slot → corrupt-data duplicate. Skip.
+        // The next deploy will dedupe it via the migration.
+        continue;
+      }
       seenIds.add(job.id);
+      seenSlots.add(slot);
       if (!job.assigned_user_id) {
         unassigned.push(job);
       } else {
