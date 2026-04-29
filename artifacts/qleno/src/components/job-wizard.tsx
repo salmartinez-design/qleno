@@ -97,9 +97,17 @@ interface JobWizardProps {
       qb_customer_id?: string | null;
     } | null;
   } | null;
+  /**
+   * [scheduling-engine 2026-04-29] Optional preset date in
+   * "YYYY-MM-DD". Used when the wizard is opened from the client
+   * profile MiniCalendar — the operator picked a specific empty
+   * future day, so the wizard skips the today-default and lands on
+   * that day instead. Editable by the operator afterwards.
+   */
+  presetDate?: string | null;
 }
 
-export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWizardProps) {
+export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate }: JobWizardProps) {
   const { activeBranchId, branches } = useBranch();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<string | number>("all");
   const [step, setStep] = useState(0);
@@ -137,7 +145,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
 
   // Step 2 — Residential Details
   const [serviceType, setServiceType] = useState("standard_clean");
-  const [scheduledDate, setScheduledDate] = useState(todayStr());
+  // [scheduling-engine 2026-04-29] Honor presetDate when supplied —
+  // initial state only (operator can still change it). Cleared on
+  // wizard close via the existing reset block at line ~191.
+  const [scheduledDate, setScheduledDate] = useState(presetDate || todayStr());
   const [scheduledTime, setScheduledTime] = useState("09:00");
   const [duration, setDuration] = useState(120);
   const [price, setPrice] = useState(120);
@@ -179,6 +190,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
   const [suggestionsDismissed, setSuggestionsDismissed] = useState(false);
 
   const maxStep = clientType === "commercial" ? 4 : 3;
+
+  // [scheduling-engine 2026-04-29] When the wizard opens with a
+  // presetDate (from MiniCalendar empty-date click), seed the date
+  // picker with it. Without this, the useState default only fires
+  // on first mount; subsequent opens with different presetDate
+  // values would still show today's date.
+  useEffect(() => {
+    if (open && presetDate) setScheduledDate(presetDate);
+  }, [open, presetDate]);
 
   useEffect(() => {
     if (!open) {

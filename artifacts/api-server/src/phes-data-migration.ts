@@ -867,6 +867,25 @@ async function runPayMatrixBackfill(): Promise<void> {
   console.log(`[pay-matrix] Backfill ran. Updated ${n} user(s) with tenant pay defaults.`);
 }
 
+// [scheduling-engine 2026-04-29] One-shot 60→90 day window backfill.
+// Existing recurring schedules generated 60 days of jobs under the
+// old DAYS_AHEAD; new schedules get 90 going forward. Without this
+// one-shot, dispatchers see a ragged horizon (some clients 60 days,
+// others 90) until each schedule is independently edited. Calls the
+// engine once per company with the new horizon — engine's own
+// recurring_schedule_id + scheduled_date dedupe makes it safe to
+// re-run; we just pick up the 60→90 day delta.
+//
+// Boot-time only. No-ops on subsequent runs because the dedupe
+// inside generateJobsFromSchedule means there's nothing new to
+// insert once everyone's at 90 days. Logs the totals so the deploy
+// effect is visible in Railway logs.
+async function runScheduleHorizonBackfill(): Promise<void> {
+  const { runRecurringJobGeneration } = await import("./lib/recurring-jobs.js");
+  await runRecurringJobGeneration();
+  console.log(`[schedule-horizon-backfill] Ran with 90-day window. (Per-company create counts in [recurring-jobs] log lines above.)`);
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -880,6 +899,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runJobsDedupeAndConstraint();
   } catch (err: any) {
     console.warn("[phes-migration] jobs-dedupe — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runScheduleHorizonBackfill();
+  } catch (err: any) {
+    console.warn("[phes-migration] schedule-horizon-backfill — non-fatal:", err?.message ?? err);
   }
 
   try {

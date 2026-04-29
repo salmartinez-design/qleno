@@ -4,7 +4,7 @@ import { recurringSchedulesTable, clientsTable, usersTable, jobsTable } from "@w
 import { eq, and, isNull, lte, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
-import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule } from "../lib/recurring-jobs.js";
+import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 
 const router = Router();
 
@@ -64,7 +64,39 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       base_fee: base_fee || null,
       notes: notes || null,
     }).returning();
-    return res.status(201).json(row);
+
+    // [scheduling-engine 2026-04-29] Synchronously generate the next
+    // 90 days of occurrences so the dispatch board, the client
+    // calendar, and the routing system all see the schedule
+    // immediately — not after the 2 AM cron. Without this, Sal
+    // creates a recurring schedule and stares at an empty board for
+    // hours wondering if the engine is broken. The engine's own
+    // dedupe (recurring_schedule_id + scheduled_date) makes the
+    // sync run idempotent if the cron also fires for these dates.
+    let generated = { created: 0, skipped: 0 };
+    try {
+      const cl = await db.select({ zip: clientsTable.zip })
+        .from(clientsTable)
+        .where(eq(clientsTable.id, customer_id))
+        .limit(1);
+      const clientZip = (cl[0]?.zip as any) ?? null;
+      const today = new Date();
+      const horizon = new Date(today.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+      generated = await generateJobsFromSchedule(
+        row as any,
+        today,
+        horizon,
+        null,
+        clientZip,
+      );
+    } catch (genErr: any) {
+      // Don't fail the schedule creation if generation hiccups —
+      // the nightly cron will catch it. But surface the error in
+      // the response so the operator knows to check logs.
+      console.warn("[recurring POST] sync generation failed:", genErr?.message ?? genErr);
+    }
+
+    return res.status(201).json({ ...row, jobs_generated: generated.created, jobs_skipped: generated.skipped });
   } catch (err) {
     console.error("[recurring POST]", err);
     return res.status(500).json({ error: "Server error" });
