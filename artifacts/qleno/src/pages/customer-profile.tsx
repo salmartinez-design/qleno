@@ -83,23 +83,34 @@ const TABS = [
 type TabId = typeof TABS[number]["id"];
 
 // ─── Mini Calendar ────────────────────────────────────────────────────────────
-function MiniCalendar({ jobs }: { jobs: any[] }) {
+function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmpty?: (isoDate: string) => void; onPickJob?: (job: any) => void }) {
   const [dt, setDt] = useState(new Date());
   const year = dt.getFullYear(); const month = dt.getMonth();
   const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const monthName = dt.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
-  const jobsByDay: Record<number, string> = {};
+  // Map day → first job for that day in the visible month. Used for
+  // status dot color AND for the click-to-edit handler.
+  const jobsByDay: Record<number, any> = {};
   for (const j of jobs) {
     if (!j.scheduled_date) continue;
-    const d = new Date(j.scheduled_date);
+    const d = new Date(j.scheduled_date + "T12:00:00");
     if (d.getFullYear() === year && d.getMonth() === month) {
-      jobsByDay[d.getDate()] = j.status;
+      if (!jobsByDay[d.getDate()]) jobsByDay[d.getDate()] = j;
     }
   }
 
   const dotColor: Record<string,string> = { complete:"#16A34A", scheduled:"#5B9BD5", assigned:"#5B9BD5", cancelled:"#9E9B94", skipped:"#9E9B94" };
+
+  // [scheduling-engine 2026-04-29] Build today's ISO date once so we
+  // can decide whether to allow scheduling on the clicked day.
+  // Past empty days: clickable as a "schedule retroactive job" path
+  // is plausible but not wired yet — surfaces a no-op for now.
+  const todayIso = (() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  })();
 
   return (
     <div style={{ marginTop: "16px" }}>
@@ -115,13 +126,39 @@ function MiniCalendar({ jobs }: { jobs: any[] }) {
         {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
         {Array.from({ length: daysInMonth }).map((_, i) => {
           const day = i + 1;
-          const status = jobsByDay[day];
+          const job = jobsByDay[day];
+          const status = job?.status;
           const color = status ? dotColor[status] : undefined;
+          const isoDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+          const isFuture = isoDate >= todayIso;
+          const clickable = !!job || (isFuture && !!onPickEmpty);
+          const handleClick = () => {
+            if (job && onPickJob) { onPickJob(job); return; }
+            if (!job && isFuture && onPickEmpty) { onPickEmpty(isoDate); return; }
+          };
           return (
-            <div key={day} style={{ textAlign: "center", padding: "3px 0", position: "relative" }}>
-              <span style={{ fontSize: "11px", color: status ? "#1A1917" : "#6B7280", fontWeight: status ? 700 : 400 }}>{day}</span>
+            <button key={day}
+              type="button"
+              onClick={clickable ? handleClick : undefined}
+              disabled={!clickable}
+              title={
+                job ? `${status ?? "Job"} on ${isoDate}`
+                : isFuture ? `Schedule on ${isoDate}`
+                : `${isoDate} — past, no job`
+              }
+              style={{
+                textAlign: "center", padding: "3px 0", position: "relative",
+                border: "none", background: "transparent",
+                cursor: clickable ? "pointer" : "default",
+                borderRadius: 4,
+                ...(clickable ? { outline: "none" } : {}),
+              }}
+              onMouseOver={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "rgba(91,155,213,0.12)"; }}
+              onMouseOut={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+            >
+              <span style={{ fontSize: "11px", color: status ? "#1A1917" : isFuture ? "#6B7280" : "#C4C0BB", fontWeight: status ? 700 : 400 }}>{day}</span>
               {color && <div style={{ width: "4px", height: "4px", borderRadius: "50%", background: color, margin: "0 auto" }} />}
-            </div>
+            </button>
           );
         })}
       </div>
@@ -385,6 +422,14 @@ function SendMessageDrawer({ client, onClose, onToast }: { client: any; onClose:
 function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; onClose: () => void; onSave: (data: any) => Promise<void>; onToast: (m: string, t?: "success" | "error") => void }) {
   const [form, setForm] = useState({
     first_name: client.first_name || "", last_name: client.last_name || "",
+    // [scheduling-engine 2026-04-29] company_name was on the schema
+    // (clients.company_name) but the drawer didn't surface it. For
+    // commercial clients (Jaira-style) the operator needs a place to
+    // put "Riverside Office Tower" or similar — without it the
+    // profile read-only view falls back to first/last name only and
+    // there's no way to enter or correct the business name from the UI.
+    company_name: client.company_name || "",
+    client_type: (client.client_type === "commercial" ? "commercial" : "residential") as "residential" | "commercial",
     phone: client.phone || "", email: client.email || "",
     address: client.address || "", city: client.city || "", state: client.state || "", zip: client.zip || "",
     home_access_notes: client.home_access_notes || "", alarm_code: client.alarm_code || "",
@@ -392,6 +437,104 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
     client_since: client.client_since ? String(client.client_since).slice(0, 10) : "",
   });
   const [saving, setSaving] = useState(false);
+
+  // [scheduling-engine 2026-04-29] Tenant-managed acquisition sources.
+  // Replaces the hardcoded SOURCE_LABELS dropdown — fetches from the
+  // server, supports an inline "+ Add new source" UI that writes to
+  // the acquisition_sources table. Dropdown stays editable in the
+  // form; existing referral_source values that don't match an active
+  // source still display via SOURCE_LABELS fallback.
+  const [sources, setSources] = useState<Array<{ id: number; slug: string; name: string }>>([]);
+  const [addingSource, setAddingSource] = useState(false);
+  const [newSourceName, setNewSourceName] = useState("");
+  const [savingSource, setSavingSource] = useState(false);
+  const [sourceError, setSourceError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/acquisition-sources");
+        if (cancelled) return;
+        const list = Array.isArray(r) ? r : (r?.data ?? []);
+        setSources(list as any);
+      } catch { /* fall back to SOURCE_LABELS — UI still renders */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  async function addSource() {
+    const trimmed = newSourceName.trim();
+    if (!trimmed) return;
+    setSavingSource(true);
+    setSourceError(null);
+    try {
+      const row = await apiFetch("/api/acquisition-sources", {
+        method: "POST",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      const created = (row as any)?.data ?? row;
+      setSources(s => [...s, created].sort((a: any, b: any) =>
+        (a.display_order ?? 100) - (b.display_order ?? 100) || a.id - b.id));
+      setForm(f => ({ ...f, referral_source: created.slug }));
+      setAddingSource(false);
+      setNewSourceName("");
+    } catch (err: any) {
+      setSourceError(err?.message ?? "Could not add source");
+    } finally {
+      setSavingSource(false);
+    }
+  }
+
+  // [scheduling-engine 2026-04-29] Google Places autocomplete on the
+  // EditProfileDrawer's Street Address. Same pattern as HomesTab —
+  // load the Maps Places script once, attach Autocomplete to the
+  // input ref, parse address_components on select to patch street /
+  // city / state / zip in one go. The four discrete fields stay
+  // editable (e.g. apartment/suite numbers, manual zip override).
+  // Server-side resolveZoneForZip on PUT /api/clients/:id then
+  // assigns the zone — no preview wired here.
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const [mapsReady, setMapsReady] = useState(false);
+  useEffect(() => {
+    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
+    const scriptId = "gmap-places-script";
+    if (document.getElementById(scriptId)) {
+      const existing = document.getElementById(scriptId) as HTMLScriptElement;
+      existing.addEventListener("load", () => setMapsReady(true));
+      return;
+    }
+    if (!key) return;
+    const s = document.createElement("script");
+    s.id = scriptId;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    s.async = true; s.defer = true;
+    s.onload = () => setMapsReady(true);
+    document.head.appendChild(s);
+  }, []);
+  useEffect(() => {
+    if (!mapsReady || !addressInputRef.current) return;
+    const g = (window as any).google;
+    if (!g?.maps?.places?.Autocomplete) return;
+    const ac = new g.maps.places.Autocomplete(addressInputRef.current, {
+      componentRestrictions: { country: "us" },
+      fields: ["address_components", "formatted_address", "geometry"],
+      types: ["address"],
+    });
+    const listener = ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (!place?.address_components) return;
+      const get = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.long_name ?? "";
+      const getShort = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.short_name ?? "";
+      const street = `${get("street_number")} ${get("route")}`.trim();
+      const city = get("locality") || get("sublocality") || get("postal_town");
+      const state = getShort("administrative_area_level_1");
+      const zip = get("postal_code");
+      setForm(f => ({ ...f, address: street, city, state, zip }));
+    });
+    return () => { listener?.remove?.(); };
+  }, [mapsReady]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -424,16 +567,61 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}><X size={18} /></button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* [scheduling-engine 2026-04-29] Client type toggle +
+              company name. Surfaces the existing clients.company_name
+              column that the drawer never let operators edit.
+              Commercial-tagged clients get the field shown above
+              First/Last so the business name reads as the primary
+              label; residential clients can still set a company name
+              if desired (rare) but it doesn't dominate the form. */}
+          <div>
+            {lbl("Type")}
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["residential", "commercial"] as const).map(t => (
+                <button key={t} type="button"
+                  onClick={() => setForm(f => ({ ...f, client_type: t }))}
+                  style={{
+                    flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                    border: `1.5px solid ${form.client_type === t ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                    background: form.client_type === t ? "rgba(0,201,160,0.10)" : "#FFFFFF",
+                    color: form.client_type === t ? "var(--brand, #00C9A0)" : "#1A1917",
+                    fontSize: 13, fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  }}>
+                  {t === "residential" ? "Residential" : "Commercial"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            {lbl(form.client_type === "commercial" ? "Company Name" : "Company Name (optional)")}
+            <input value={form.company_name} onChange={upd("company_name")}
+              placeholder={form.client_type === "commercial" ? "e.g. Riverside Office Tower" : ""}
+              style={inp} />
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>{lbl("First Name")}<input value={form.first_name} onChange={upd("first_name")} style={inp} /></div>
-            <div>{lbl("Last Name")}<input value={form.last_name} onChange={upd("last_name")} style={inp} /></div>
+            <div>{lbl(form.client_type === "commercial" ? "Contact First Name" : "First Name")}<input value={form.first_name} onChange={upd("first_name")} style={inp} /></div>
+            <div>{lbl(form.client_type === "commercial" ? "Contact Last Name"  : "Last Name")}<input value={form.last_name}  onChange={upd("last_name")}  style={inp} /></div>
           </div>
           <div>{lbl("Phone")}<input value={form.phone} onChange={upd("phone")} type="tel" style={inp} /></div>
           <div>{lbl("Email")}<input value={form.email} onChange={upd("email")} type="email" style={inp} /></div>
           <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 12 }}>Service Address</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div>{lbl("Street Address")}<input value={form.address} onChange={upd("address")} style={inp} /></div>
+              <div>
+                {lbl("Street Address")}
+                {/* [scheduling-engine 2026-04-29] Address input wired
+                    to the addressInputRef ref so Google Places can
+                    attach its Autocomplete. The four city/state/zip
+                    fields below stay editable for unit/apt overrides. */}
+                <input
+                  ref={addressInputRef}
+                  value={form.address}
+                  onChange={upd("address")}
+                  placeholder={mapsReady ? "Start typing — Google suggests addresses" : "Street address"}
+                  autoComplete="off"
+                  style={inp}
+                />
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 70px 100px", gap: 10 }}>
                 <div>{lbl("City")}<input value={form.city} onChange={upd("city")} style={inp} /></div>
                 <div>{lbl("State")}<input value={form.state} onChange={upd("state")} style={inp} /></div>
@@ -454,10 +642,50 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div>
                 {lbl("Acquisition Source")}
+                {/* [scheduling-engine 2026-04-29] Sources fetched from
+                    /api/acquisition-sources. If the existing
+                    referral_source value isn't in the active list
+                    (e.g. legacy slug from SOURCE_LABELS), show it as
+                    a one-off option so the form doesn't lose it on
+                    first save. "+ Add new source" inline writes a
+                    new row to the table and selects it. */}
                 <select value={form.referral_source} onChange={upd("referral_source")} style={{ ...inp, background: "#FFFFFF" }}>
                   <option value="">Not set</option>
-                  {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  {sources.map(s => <option key={s.id} value={s.slug}>{s.name}</option>)}
+                  {form.referral_source && !sources.some(s => s.slug === form.referral_source) && (
+                    <option value={form.referral_source}>
+                      {SOURCE_LABELS[form.referral_source] || form.referral_source.replace(/_/g, " ")} (legacy)
+                    </option>
+                  )}
                 </select>
+                {!addingSource ? (
+                  <button type="button" onClick={() => { setAddingSource(true); setSourceError(null); }}
+                    style={{ marginTop: 6, fontSize: 12, fontWeight: 600, color: "var(--brand)", background: "transparent", border: "none", padding: 0, cursor: "pointer", fontFamily: FF }}>
+                    + Add new source
+                  </button>
+                ) : (
+                  <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        autoFocus
+                        value={newSourceName}
+                        onChange={e => setNewSourceName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") addSource(); if (e.key === "Escape") { setAddingSource(false); setNewSourceName(""); } }}
+                        placeholder="e.g. BNI Networking"
+                        style={{ ...inp, flex: 1 }}
+                      />
+                      <button type="button" onClick={addSource} disabled={savingSource || !newSourceName.trim()}
+                        style={{ padding: "0 14px", borderRadius: 7, border: "none", background: "var(--brand)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: savingSource ? "wait" : "pointer", fontFamily: FF, opacity: !newSourceName.trim() ? 0.5 : 1 }}>
+                        {savingSource ? "…" : "Add"}
+                      </button>
+                      <button type="button" onClick={() => { setAddingSource(false); setNewSourceName(""); setSourceError(null); }}
+                        style={{ padding: "0 12px", borderRadius: 7, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        Cancel
+                      </button>
+                    </div>
+                    {sourceError && <div style={{ fontSize: 11, color: "#991B1B" }}>{sourceError}</div>}
+                  </div>
+                )}
               </div>
               <div>{lbl("Client Since")}<input value={form.client_since} onChange={upd("client_since")} type="date" style={inp} /></div>
               <div>{lbl("Internal Notes")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
@@ -740,6 +968,56 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
   const [showAlarm, setShowAlarm] = useState<number | null>(null);
   const blank = { name: "", address: "", city: "", state: "", zip: "", bedrooms: "", bathrooms: "", sq_footage: "", access_notes: "", alarm_code: "", has_pets: false, pet_notes: "", parking_notes: "", is_primary: false, base_fee: "", allowed_hours: "", frequency: "", service_type: "" };
   const [form, setForm] = useState(blank);
+  // [scheduling-engine 2026-04-29] Google Places autocomplete state.
+  // Loads the Maps Places script once for the page; the actual
+  // Autocomplete is wired inside an effect when the form opens and
+  // the ref is in the DOM. On select, parses address_components into
+  // street / city / state / zip and patches the form. Server-side
+  // POST then runs resolveZoneForZip via routes/clients.ts to
+  // assign the zone — no zone preview wired here.
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const [mapsReady, setMapsReady] = useState(false);
+  useEffect(() => {
+    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
+    const scriptId = "gmap-places-script";
+    if (document.getElementById(scriptId)) {
+      const existing = document.getElementById(scriptId) as HTMLScriptElement;
+      existing.addEventListener("load", () => setMapsReady(true));
+      return;
+    }
+    if (!key) return;
+    const s = document.createElement("script");
+    s.id = scriptId;
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+    s.async = true; s.defer = true;
+    s.onload = () => setMapsReady(true);
+    document.head.appendChild(s);
+  }, []);
+  useEffect(() => {
+    if (!showForm || !mapsReady || !addressInputRef.current) return;
+    const g = (window as any).google;
+    if (!g?.maps?.places?.Autocomplete) return;
+    const ac = new g.maps.places.Autocomplete(addressInputRef.current, {
+      componentRestrictions: { country: "us" },
+      fields: ["address_components", "formatted_address", "geometry"],
+      types: ["address"],
+    });
+    const listener = ac.addListener("place_changed", () => {
+      const place = ac.getPlace();
+      if (!place?.address_components) return;
+      const get = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.long_name ?? "";
+      const getShort = (type: string) =>
+        place.address_components.find((c: any) => c.types.includes(type))?.short_name ?? "";
+      const street = `${get("street_number")} ${get("route")}`.trim();
+      const city = get("locality") || get("sublocality") || get("postal_town");
+      const state = getShort("administrative_area_level_1");
+      const zip = get("postal_code");
+      setForm(f => ({ ...f, address: street, city, state, zip }));
+    });
+    return () => { listener?.remove?.(); };
+  }, [showForm, mapsReady]);
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiFetch(`/api/clients/${clientId}/homes`, { method: "POST", body: JSON.stringify(data) }),
@@ -751,10 +1029,11 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
     onSuccess: () => refetch(),
   });
 
-  const F = (field: string, label: string, type = "text", placeholder = "") => (
+  const F = (field: string, label: string, type = "text", placeholder = "", extraProps?: Record<string, any>) => (
     <div>
       <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#6B7280", marginBottom: "4px" }}>{label}</label>
       <input value={(form as any)[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} type={type} placeholder={placeholder}
+        {...(extraProps || {})}
         style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", boxSizing: "border-box" }} />
     </div>
   );
@@ -823,10 +1102,23 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
           <h3 style={{ margin: "0 0 16px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Add Service Address</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             {F("name", "Home Name (optional)", "text", "e.g. Main Home, Vacation Home")}
-            {F("address", "Address *")}
+            {/* [scheduling-engine 2026-04-29] Address input wired to
+                Google Places autocomplete via the addressInputRef ref.
+                On select, useEffect above patches form.address / city /
+                state / zip from the parsed address_components. The
+                operator can still type freeform; Places only fires
+                when they pick a suggestion. */}
+            {F("address", "Address *", "text",
+              mapsReady ? "Start typing — Google suggests addresses" : "Address",
+              { ref: addressInputRef, autoComplete: "off" })}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 100px", gap: "10px" }}>
               {F("city", "City")} {F("state", "State")} {F("zip", "Zip")}
             </div>
+            {(form.city || form.state || form.zip) && (
+              <div style={{ fontSize: 11, color: "#6B6860", marginTop: -8 }}>
+                Auto-filled from Google. Zone will be assigned on save based on zip.
+              </div>
+            )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
               {F("sq_footage", "Sq Ft", "number")} {F("bedrooms", "Beds", "number")} {F("bathrooms", "Baths", "number")}
             </div>
@@ -3770,7 +4062,7 @@ function addMonths(d: Date, n: number) {
 function startOfMonth(d: Date) { return new Date(d.getFullYear(), d.getMonth(), 1); }
 function endOfMonth(d: Date)   { return new Date(d.getFullYear(), d.getMonth() + 1, 0); }
 
-function JobCalendar({ clientId, clientName }: { clientId: number; clientName: string }) {
+function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: number; clientName: string; onScheduleOnDate?: (isoDate: string) => void }) {
   const qc = useQueryClient();
   const calIsMobile = useIsMobile();
   // anchor = first day of the first visible month
@@ -3890,18 +4182,33 @@ function JobCalendar({ clientId, clientName }: { clientId: number; clientName: s
       const isHover = dragOver === ds;
       const isPast  = ds < todayStr;
 
+      // [scheduling-engine 2026-04-29] Empty future day → open the
+      // scheduling modal pre-filled with that date. Day cells with
+      // existing jobs route through the chip's openReschedule
+      // handler (unchanged). Past empty days stay no-op so an
+      // accidental click on a historical day doesn't open a wizard
+      // for a date that can't be booked.
+      const isEmptyFuture = jobs.length === 0 && !isPast;
+      const handleEmptyClick = () => {
+        if (isEmptyFuture && onScheduleOnDate) onScheduleOnDate(ds);
+      };
       cells.push(
         <div
           key={ds}
           onDragOver={e => onDragOver(e, ds)}
           onDragLeave={() => setDragOver(null)}
           onDrop={e => onDrop(e, ds)}
+          onClick={isEmptyFuture ? handleEmptyClick : undefined}
+          title={isEmptyFuture ? `Schedule a job on ${ds}` : undefined}
           style={{
             minHeight: 56, padding: "2px 3px", borderRadius: 5,
             border: isHover ? "2px dashed #3B82F6" : isToday ? "1.5px solid #3B82F6" : "1.5px solid transparent",
             background: isHover ? "#EFF6FF" : "transparent",
             transition: "border 0.1s, background 0.1s",
+            cursor: isEmptyFuture ? "pointer" : "default",
           }}
+          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F8FAFC"; }}
+          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
         >
           <div style={{
             fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#1D4ED8" : isPast ? "#9E9B94" : "#1A1917",
@@ -4141,6 +4448,11 @@ export default function CustomerProfilePage() {
   const clientId = parseInt(params?.id || "0");
   const qc = useQueryClient();
   const [showJobWizard, setShowJobWizard] = useState(false);
+  // [scheduling-engine 2026-04-29] Preset date when the wizard is
+  // opened from a calendar empty-cell click. Cleared when the wizard
+  // closes so a subsequent click of the "Schedule Job" button doesn't
+  // reuse a stale date.
+  const [wizardPresetDate, setWizardPresetDate] = useState<string | null>(null);
 
   const { data: profile, isLoading, refetch: refetchProfile } = useQuery<any>({
     queryKey: ["client-profile", clientId],
@@ -4305,10 +4617,24 @@ export default function CustomerProfilePage() {
         <div style={{ background: "#0A0E1A", borderRadius: 10, padding: "7px 14px", textAlign: "center" as const, flexShrink: 0 }}>
           <div style={{ fontSize: 19, fontWeight: 900, color: "#00C9A0", lineHeight: 1 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
           <div style={{ fontSize: 9, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 2 }}>Lifetime Value</div>
+          {/* [scheduling-engine 2026-04-29] Subtitle pins "since
+              when" — first-job date if available, else client
+              created_at. Removes the ambiguity of an unlabeled
+              dollar number that could be misread as YTD or this
+              month. */}
+          {(() => {
+            const since = jhStats?.first_cleaning ?? profile.created_at ?? null;
+            if (!since) return null;
+            return (
+              <div style={{ fontSize: 8, fontWeight: 600, color: "#6B7280", marginTop: 1 }}>
+                Since {fmtDate(since)}
+              </div>
+            );
+          })()}
           {jhStats?.ytd_revenue != null && (
             <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
               <div style={{ fontSize: 13, fontWeight: 800, color: "#86EFAC", lineHeight: 1 }}>${(jhStats.ytd_revenue as number).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 1 }}>{new Date().getFullYear()} REVENUE</div>
+              <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 1 }}>{new Date().getFullYear()} YTD</div>
             </div>
           )}
         </div>
@@ -4601,7 +4927,11 @@ export default function CustomerProfilePage() {
         <div>
           {/* Job Calendar */}
           <div style={CS}>
-            <JobCalendar clientId={clientId} clientName={`${profile.first_name} ${profile.last_name}`} />
+            <JobCalendar
+                clientId={clientId}
+                clientName={`${profile.first_name} ${profile.last_name}`}
+                onScheduleOnDate={(iso) => { setWizardPresetDate(iso); setShowJobWizard(true); }}
+              />
           </div>
 
           {/* Job History */}
@@ -4718,9 +5048,10 @@ export default function CustomerProfilePage() {
         {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
         <JobWizard
           open={showJobWizard}
-          onClose={() => setShowJobWizard(false)}
-          onCreated={() => { setShowJobWizard(false); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
+          onClose={() => { setShowJobWizard(false); setWizardPresetDate(null); }}
+          onCreated={() => { setShowJobWizard(false); setWizardPresetDate(null); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
           preselectedClient={profile ? { id: clientId, first_name: profile.first_name, last_name: profile.last_name, address: profile.address, phone: profile.phone, email: profile.email, client_type: profile.client_type, payment_method: profile.payment_method, net_terms: profile.net_terms, qb_status: profile.qb_status } : null}
+          presetDate={wizardPresetDate}
         />
         <div style={{ display: "flex", flexDirection: "column", fontFamily: FF, background: "#F7F6F3", minHeight: "100dvh" }}>
           {/* Mobile hero (compact) */}
@@ -4838,7 +5169,11 @@ export default function CustomerProfilePage() {
             </>)}
             {activeTab === "jobs" && (<>
               <div style={CS}>
-                <JobCalendar clientId={clientId} clientName={`${profile.first_name} ${profile.last_name}`} />
+                <JobCalendar
+                clientId={clientId}
+                clientName={`${profile.first_name} ${profile.last_name}`}
+                onScheduleOnDate={(iso) => { setWizardPresetDate(iso); setShowJobWizard(true); }}
+              />
               </div>
               <div style={CS}>
                 <JobHistoryPanel clientId={clientId} jhData={jhData} isLoading={jhLoading} profile={profile} />
@@ -4869,9 +5204,10 @@ export default function CustomerProfilePage() {
       {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
       <JobWizard
         open={showJobWizard}
-        onClose={() => setShowJobWizard(false)}
-        onCreated={() => { setShowJobWizard(false); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
+        onClose={() => { setShowJobWizard(false); setWizardPresetDate(null); }}
+        onCreated={() => { setShowJobWizard(false); setWizardPresetDate(null); refetchProfile(); qc.invalidateQueries({ queryKey: ["client-job-history", clientId] }); showToast("Job scheduled"); }}
         preselectedClient={profile ? { id: clientId, first_name: profile.first_name, last_name: profile.last_name, address: profile.address, phone: profile.phone, email: profile.email, client_type: profile.client_type, payment_method: profile.payment_method, net_terms: profile.net_terms, qb_status: profile.qb_status } : null}
+        presetDate={wizardPresetDate}
       />
 
       <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", fontFamily: FF, background: "#F7F6F3" }}>

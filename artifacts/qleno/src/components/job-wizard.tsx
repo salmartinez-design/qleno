@@ -97,9 +97,17 @@ interface JobWizardProps {
       qb_customer_id?: string | null;
     } | null;
   } | null;
+  /**
+   * [scheduling-engine 2026-04-29] Optional preset date in
+   * "YYYY-MM-DD". Used when the wizard is opened from the client
+   * profile MiniCalendar — the operator picked a specific empty
+   * future day, so the wizard skips the today-default and lands on
+   * that day instead. Editable by the operator afterwards.
+   */
+  presetDate?: string | null;
 }
 
-export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWizardProps) {
+export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate }: JobWizardProps) {
   const { activeBranchId, branches } = useBranch();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<string | number>("all");
   const [step, setStep] = useState(0);
@@ -137,7 +145,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
 
   // Step 2 — Residential Details
   const [serviceType, setServiceType] = useState("standard_clean");
-  const [scheduledDate, setScheduledDate] = useState(todayStr());
+  // [scheduling-engine 2026-04-29] Honor presetDate when supplied —
+  // initial state only (operator can still change it). Cleared on
+  // wizard close via the existing reset block at line ~191.
+  const [scheduledDate, setScheduledDate] = useState(presetDate || todayStr());
   const [scheduledTime, setScheduledTime] = useState("09:00");
   const [duration, setDuration] = useState(120);
   const [price, setPrice] = useState(120);
@@ -180,6 +191,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
 
   const maxStep = clientType === "commercial" ? 4 : 3;
 
+  // [scheduling-engine 2026-04-29] When the wizard opens with a
+  // presetDate (from MiniCalendar empty-date click), seed the date
+  // picker with it. Without this, the useState default only fires
+  // on first mount; subsequent opens with different presetDate
+  // values would still show today's date.
+  useEffect(() => {
+    if (open && presetDate) setScheduledDate(presetDate);
+  }, [open, presetDate]);
+
   useEffect(() => {
     if (!open) {
       setStep(0);
@@ -200,27 +220,37 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient }: JobWi
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
     } else {
       setSelectedBranchOverride(activeBranchId);
-      // If opened from a client profile, skip type + client-search steps
+      // If opened from a client profile, skip type + client-search +
+      // (for commercial-tagged clients) the account/property picker.
+      //
+      // [scheduling-engine 2026-04-29] The previous routing tried to
+      // synthesize a fake account when preselectedClient.client_type
+      // === "commercial" and landed the wizard on the property
+      // picker. Clients tagged commercial without an actual
+      // account_id linkage (Jaira-style: the dispatch route bills
+      // her commercially via client_type, but there's no
+      // accounts/account_properties row to pick from) hit a dead
+      // end — the property search returned nothing.
+      //
+      // Fix: from a client profile we already know the client and
+      // their address. Always set selectedClient + skip to step 2.
+      // The wizard's downstream commercial billing math reads off
+      // the client's record (client_type / hourly rate config /
+      // pay matrix), not off the wizard's clientType toggle, so
+      // billing stays correct. The "pick an account, then a
+      // property" flow remains available via the "+ New Job"
+      // entry point that starts without preselection.
       if (preselectedClient) {
-        const isCommercial = preselectedClient.client_type === "commercial";
-        setClientType(isCommercial ? "commercial" : "residential");
-        if (!isCommercial) {
-          setSelectedClient({
-            id: preselectedClient.id,
-            first_name: preselectedClient.first_name || "",
-            last_name: preselectedClient.last_name || "",
-            address: preselectedClient.address || "",
-            phone: preselectedClient.phone || "",
-            email: preselectedClient.email || "",
-          });
-          setStep(2); // jump straight to Details
-        } else {
-          setSelectedAccount({
-            id: preselectedClient.id,
-            account_name: preselectedClient.first_name || "",
-          });
-          setStep(1); // Commercial still needs property selection — land on Step 1B
-        }
+        setClientType("residential"); // wizard UI mode only — billing reads from client record
+        setSelectedClient({
+          id: preselectedClient.id,
+          first_name: preselectedClient.first_name || "",
+          last_name: preselectedClient.last_name || "",
+          address: preselectedClient.address || "",
+          phone: preselectedClient.phone || "",
+          email: preselectedClient.email || "",
+        });
+        setStep(2); // jump straight to Details — client + address known
       }
     }
   }, [open, preselectedClient?.id]);

@@ -2,7 +2,12 @@ import { db } from "@workspace/db";
 import { recurringSchedulesTable, jobsTable, clientsTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql, inArray, gte, lte } from "drizzle-orm";
 
-const DAYS_AHEAD = 60;
+// [scheduling-engine 2026-04-29] Rolling generation window — extended
+// from 60 to 90 days so dispatchers can see roughly a quarter ahead.
+// Nightly 2 AM cron re-runs with this horizon; idempotent dedupe in
+// generateJobsFromSchedule prevents duplicate inserts when the window
+// overlaps existing rows.
+export const DAYS_AHEAD = 90;
 
 const DAY_NAME_TO_NUM: Record<string, number> = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3,

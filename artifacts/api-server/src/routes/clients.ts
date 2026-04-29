@@ -279,7 +279,61 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
     const last_cleaning = completed_jobs[0]?.scheduled_date || null;
     const upcoming_jobs = jobs.filter(j => ["scheduled","in_progress"].includes(j.status || "") && j.scheduled_date && j.scheduled_date >= now.toISOString().split("T")[0]);
     const next_cleaning = upcoming_jobs[0]?.scheduled_date || null;
+    const avg_bill_completed = completed_jobs.length ? revenue_all_time / completed_jobs.length : 0;
     const avg_bill = invoices.length ? revenue_all_time / invoices.length : 0;
+
+    // [scheduling-engine 2026-04-29] Derived client_status + recurrence
+    // + loyalty tier + tech consistency. Replaces the hardcoded
+    // "ACTIVE / ONE-TIME" badge that read off `frequency` (which is
+    // sometimes NULL or stale) and the rough loyalty math that didn't
+    // match the spec's recency guard.
+    const sixty_days_ago_ms = now.getTime() - 60 * 24 * 60 * 60 * 1000;
+    const six_months_ago_ms = now.getTime() - 182 * 24 * 60 * 60 * 1000;
+    const last_cleaning_ms = last_cleaning ? new Date(last_cleaning + "T00:00:00").getTime() : 0;
+
+    // ACTIVE if any job in the last 60 days; otherwise INACTIVE.
+    const client_status: "active" | "inactive" =
+      last_cleaning_ms >= sixty_days_ago_ms || upcoming_jobs.length > 0 ? "active" : "inactive";
+
+    // RECURRING if the client has any active recurring_schedules row.
+    const recurringRows = await db.execute(sql`
+      SELECT 1 FROM recurring_schedules
+       WHERE customer_id = ${clientId}
+         AND company_id = ${companyId}
+         AND COALESCE(active, true) = true
+       LIMIT 1
+    `);
+    const client_recurrence: "recurring" | "one_time" = recurringRows.rows.length > 0 ? "recurring" : "one_time";
+
+    // Loyalty tier — spec:
+    //   no_tier  < $1000 lifetime OR no visit in the last 6 months
+    //   bronze   $1000–$5000
+    //   silver   $5000–$15000
+    //   gold     $15000–$50000
+    //   platinum $50000+
+    const stale = last_cleaning_ms === 0 || last_cleaning_ms < six_months_ago_ms;
+    const loyalty_tier: "no_tier" | "bronze" | "silver" | "gold" | "platinum" =
+      stale || revenue_all_time < 1000 ? "no_tier"
+      : revenue_all_time < 5000        ? "bronze"
+      : revenue_all_time < 15000       ? "silver"
+      : revenue_all_time < 50000       ? "gold"
+      :                                  "platinum";
+
+    // Tech consistency — unique techs across completed jobs ÷ total
+    // completed visits. Low ratio (< 30%) means the client sees a lot
+    // of different techs; the frontend can flag that as a churn risk.
+    const techCount = completed_jobs.length === 0 ? null : await db.execute(sql`
+      SELECT COUNT(DISTINCT jt.user_id)::int AS unique_techs
+        FROM job_technicians jt
+        JOIN jobs j ON j.id = jt.job_id
+       WHERE j.client_id = ${clientId}
+         AND j.company_id = ${companyId}
+         AND j.status = 'complete'
+    `);
+    const unique_techs = techCount ? Number((techCount.rows[0] as any)?.unique_techs ?? 0) : 0;
+    const tech_consistency = completed_jobs.length > 0
+      ? Math.round((unique_techs / completed_jobs.length) * 100) / 100
+      : null;
 
     // Look up zone data if client has a zone_id
     let zoneData: { zone_name: string; zone_color: string } | null = null;
@@ -321,7 +375,16 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
         total_jobs: jobs.length,
         completed_jobs: completed_jobs.length,
         avg_bill,
+        avg_bill_completed,
         scorecard_avg: scorecards.length ? scorecards.reduce((s, sc) => s + sc.score, 0) / scorecards.length : null,
+        // [scheduling-engine 2026-04-29] Derived fields the profile
+        // page needs to render the badge + tier + consistency flag
+        // without re-deriving on the client.
+        client_status,         // 'active' | 'inactive'
+        client_recurrence,     // 'recurring' | 'one_time'
+        loyalty_tier,          // 'no_tier' | 'bronze' | 'silver' | 'gold' | 'platinum'
+        unique_techs,
+        tech_consistency,      // unique_techs / completed_jobs (null when no completed)
       },
     });
   } catch (err) {

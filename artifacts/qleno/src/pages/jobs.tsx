@@ -64,7 +64,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
-interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -1310,7 +1310,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         {mobile && <div style={{ width: 40, height: 4, backgroundColor: "#E5E2DC", borderRadius: 2, margin: "12px auto 0" }} />}
         <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>{job.client_name}</h2>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>{job.display_name ?? job.client_name}</h2>
             <span style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
@@ -1712,7 +1712,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: "#6B7280" }}>Client</span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{job.client_name}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{job.display_name ?? job.client_name}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ fontSize: 12, color: "#6B7280" }}>Card</span>
@@ -1826,7 +1826,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <div style={{ margin: "16px 20px 0", backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", padding: "14px 16px" }}>
                       <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 8 }}>Job Summary</span>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 0", fontSize: 13, color: "#1A1917", fontWeight: 500, lineHeight: 1.6 }}>
-                        <span style={{ fontWeight: 700 }}>{job.client_name}</span>
+                        <span style={{ fontWeight: 700 }}>{job.display_name ?? job.client_name}</span>
                         <span style={{ color: "#9E9B94", margin: "0 6px" }}>—</span>
                         <span>{fmtSvc(job.service_type)}</span>
                         <span style={{ color: "#9E9B94", margin: "0 6px" }}>—</span>
@@ -1999,7 +1999,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 )}
                 <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#F9F8F7", borderRadius: 8, border: "1px solid #E5E2DC" }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>To</span>
-                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{job.client_name} <span style={{ fontWeight: 400, color: "#6B7280" }}>({job.client_phone})</span></p>
+                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{job.display_name ?? job.client_name} <span style={{ fontWeight: 400, color: "#6B7280" }}>({job.client_phone})</span></p>
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Quick Messages</span>
@@ -2039,7 +2039,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
             <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Cancel Job</h3>
             <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280" }}>
-              Job for <strong>{job.client_name}</strong> on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              Job for <strong>{job.display_name ?? job.client_name}</strong> on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
             </p>
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Reason</label>
@@ -2165,7 +2165,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", textDecoration: visual.strikethrough ? "line-through" : "none" }}>{job.client_name}</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", textDecoration: visual.strikethrough ? "line-through" : "none" }}>{job.display_name ?? job.client_name}</div>
             {isCommercial && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
                 <Building2 size={9}/> Comm.
@@ -2483,7 +2483,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
       <div style={{ padding: "20px 20px 16px", borderBottom: sectionBorder }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
           <div style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", flex: 1, minWidth: 0, lineHeight: 1.2, wordBreak: "break-word" }}>
-            {job.client_name}
+            {job.display_name ?? job.client_name}
           </div>
           <span style={{
             flexShrink: 0, fontSize: 13, fontWeight: 700, padding: "4px 10px",
@@ -3057,7 +3057,7 @@ function JobChipBody({
         <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
           {visual.showCarIcon && <CarIconInline tint={tokens.primary} />}
           <span style={{ fontSize: 11, fontWeight: 700, color: tokens.primary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-            {job.client_name}
+            {job.display_name ?? job.client_name}
           </span>
           <span style={{ fontSize: 11, fontWeight: 800, color: tokens.primary, whiteSpace: "nowrap", flexShrink: 0 }}>
             {priceDisplay}
@@ -3108,7 +3108,7 @@ function JobChipBody({
               <Camera size={9} style={{ color: tokens.icon, flexShrink: 0 }} />
             )}
             <span style={{ fontSize: 11, fontWeight: 700, color: tokens.primary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-              {job.client_name}
+              {job.display_name ?? job.client_name}
             </span>
             <span style={{
               flexShrink: 0,
@@ -3800,7 +3800,7 @@ export default function JobsPage() {
                         <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: job.zone_color!, flexShrink: 0 }} title={job.zone_name!} />
                       )}
                       <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600, flex: 1 }}>
-                        {tech_name} · {job.client_name} — late {Math.max(0, NOW_MINS - timeToMins(job.scheduled_time))}m
+                        {tech_name} · {job.display_name ?? job.client_name} — late {Math.max(0, NOW_MINS - timeToMins(job.scheduled_time))}m
                       </span>
                       <ChevronRight size={12} color="#6B6860" />
                     </button>

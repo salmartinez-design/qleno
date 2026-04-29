@@ -78,3 +78,5 @@ export * from "./recurring_schedule_technicians";
 export * from "./client_audit_log";
 // [AI.3] Tenant-managed commercial service types
 export * from "./commercial_service_types";
+// [scheduling-engine 2026-04-29] Tenant-managed acquisition sources
+export * from "./acquisition_sources";

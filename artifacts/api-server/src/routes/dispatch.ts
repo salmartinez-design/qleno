@@ -40,6 +40,14 @@ router.get("/", requireAuth, async (req, res) => {
         id: jobsTable.id,
         client_id: jobsTable.client_id,
         client_name: sql<string>`CASE WHEN ${jobsTable.account_id} IS NOT NULL THEN ${accountsTable.account_name} ELSE concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) END`,
+        // [scheduling-engine 2026-04-29] Surface company_name +
+        // first/last name separately so the chip can display
+        // "Company - Contact" for commercial clients without an
+        // account_id linkage (Jaira-style: client_type='commercial'
+        // + clients.company_name set + no accounts row).
+        client_company_name: clientsTable.company_name,
+        client_first_name: clientsTable.first_name,
+        client_last_name: clientsTable.last_name,
         client_phone: clientsTable.phone,
         // [AD] Prefer per-job address overrides (jobs.address_*) over the
         // client default (clients.*). MC-imported rows populate
@@ -515,10 +523,31 @@ router.get("/", requireAuth, async (req, res) => {
         ? Math.round((technicians.reduce((s, t) => s + t.calc_pay, 0) / technicians.length) * 100) / 100
         : 0;
 
+      // [scheduling-engine 2026-04-29] Display name composition.
+      // Commercial clients with a company_name render as
+      // "Company Name - Contact First Last". Falls back to the
+      // existing client_name (account_name for jobs with account_id,
+      // else first+last) so behavior is unchanged when company_name
+      // is null. The chip + JobPanel + hover popover all read this
+      // single field — no per-surface composition needed.
+      const company = (j as any).client_company_name ?? null;
+      const isCommercialClient = (j as any).client_type === "commercial";
+      const contactFirst = (j as any).client_first_name ?? "";
+      const contactLast = (j as any).client_last_name ?? "";
+      const contactName = `${contactFirst} ${contactLast}`.trim();
+      const display_name = isCommercialClient && company && company.trim()
+        ? (contactName ? `${company} - ${contactName}` : company)
+        : (j.client_name as string);
+
       return {
         id: j.id,
         client_id: j.client_id,
         client_name: j.client_name,
+        // Composed for chip rendering — preserves the legacy
+        // client_name for any caller still doing per-surface
+        // composition (none in-tree, but external integrations).
+        display_name,
+        client_company_name: company,
         client_phone: j.client_phone ?? null,
         client_zip: j.client_zip ?? null,
         client_notes: j.client_notes ?? null,
