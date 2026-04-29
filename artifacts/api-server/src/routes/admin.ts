@@ -398,6 +398,131 @@ router.post("/smoke-tests/run", ...isSuperAdmin, async (_req, res) => {
   }
 });
 
+/* ── JOBS DEDUPE — DIAGNOSTIC + FORCE-RUN ──────────────────────────
+ * GET  /api/admin/jobs-duplicates       → returns current duplicates
+ *                                          without modifying anything
+ *                                          (pre-flight check Sal can
+ *                                          hit before deciding to
+ *                                          dedupe)
+ * POST /api/admin/jobs-dedupe-run       → executes the same dedupe +
+ *                                          unique-index logic that
+ *                                          phes-data-migration runs
+ *                                          on cold-start, but
+ *                                          on-demand. Returns a JSON
+ *                                          report (rows removed, ids,
+ *                                          index status) so Sal can
+ *                                          verify the migration
+ *                                          actually did its job.
+ *
+ * Both endpoints only return rows that look like real duplicates:
+ * same (company_id, client_id, scheduled_date, scheduled_time)
+ * tuple — including NULL-time matches via COALESCE — and not
+ * cancelled. The dedupe matches the migration's deletion logic
+ * exactly so the report previews what's about to happen.
+ */
+router.get("/jobs-duplicates", ...isSuperAdmin, async (_req, res) => {
+  try {
+    const dupes = await db.execute(sql`
+      WITH partitioned AS (
+        SELECT id, company_id, client_id, scheduled_date,
+               scheduled_time, status, billed_amount,
+               assigned_user_id, created_at,
+               ROW_NUMBER() OVER (
+                 PARTITION BY company_id, client_id, scheduled_date,
+                              COALESCE(scheduled_time::text, '00:00:00')
+                 ORDER BY created_at DESC NULLS LAST, id DESC
+               ) AS rn,
+               COUNT(*) OVER (
+                 PARTITION BY company_id, client_id, scheduled_date,
+                              COALESCE(scheduled_time::text, '00:00:00')
+               ) AS slot_size
+        FROM jobs
+        WHERE status NOT IN ('cancelled')
+      )
+      SELECT id, company_id, client_id, scheduled_date,
+             scheduled_time, status, billed_amount,
+             assigned_user_id, created_at,
+             rn, slot_size
+      FROM partitioned
+      WHERE slot_size > 1
+      ORDER BY scheduled_date DESC, client_id, rn ASC
+      LIMIT 500
+    `);
+    const rows = dupes.rows as any[];
+    return res.json({
+      total_rows_in_collisions: rows.length,
+      distinct_slots: new Set(rows.map(r => `${r.company_id}|${r.client_id}|${r.scheduled_date}|${r.scheduled_time ?? "null"}`)).size,
+      rows,
+    });
+  } catch (err: any) {
+    console.error("[admin] jobs-duplicates error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err.message });
+  }
+});
+
+router.post("/jobs-dedupe-run", ...isSuperAdmin, async (_req, res) => {
+  try {
+    // Snapshot which rows would be deleted, then delete them and
+    // (re)create the partial unique index. Returns the deleted ids
+    // so Sal can verify after the call.
+    const preview = await db.execute(sql`
+      WITH dupes AS (
+        SELECT id, scheduled_date, scheduled_time, client_id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY company_id, client_id, scheduled_date,
+                              COALESCE(scheduled_time::text, '00:00:00')
+                 ORDER BY created_at DESC NULLS LAST, id DESC
+               ) AS rn
+        FROM jobs
+        WHERE status NOT IN ('cancelled')
+      )
+      SELECT id, scheduled_date, scheduled_time, client_id
+      FROM dupes
+      WHERE rn > 1
+      ORDER BY scheduled_date DESC, client_id, id
+    `);
+    const previewRows = preview.rows as any[];
+
+    const deleted = await db.execute(sql`
+      WITH dupes AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY company_id, client_id, scheduled_date,
+                              COALESCE(scheduled_time::text, '00:00:00')
+                 ORDER BY created_at DESC NULLS LAST, id DESC
+               ) AS rn
+        FROM jobs
+        WHERE status NOT IN ('cancelled')
+      )
+      DELETE FROM jobs
+      WHERE id IN (SELECT id FROM dupes WHERE rn > 1)
+      RETURNING id
+    `);
+
+    await db.execute(sql`DROP INDEX IF EXISTS uq_jobs_no_double_book`);
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_no_double_book
+        ON jobs (
+          company_id,
+          client_id,
+          scheduled_date,
+          (COALESCE(scheduled_time::text, '00:00:00'))
+        )
+        WHERE status NOT IN ('cancelled')
+    `);
+
+    return res.json({
+      deleted_count: (deleted.rows ?? []).length,
+      deleted_ids: (deleted.rows as any[]).map(r => r.id),
+      preview_rows: previewRows,
+      index: "uq_jobs_no_double_book recreated",
+    });
+  } catch (err: any) {
+    console.error("[admin] jobs-dedupe-run error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err.message });
+  }
+});
+
 /* ── AUDIT LOG HEALTH CHECK ──────────────────────────────────────── */
 router.post("/audit-test", ...isSuperAdmin, async (req, res) => {
   try {
