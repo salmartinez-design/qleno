@@ -40,6 +40,18 @@ async function runBookingSchemaGuard(): Promise<void> {
     // app's "No Show" button. See lib/job-status.ts for the state model.
     { label: "jobs.no_show_marked_by_tech", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS no_show_marked_by_tech TIMESTAMP" },
     { label: "jobs.no_show_marked_by_user_id", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS no_show_marked_by_user_id INTEGER" },
+    // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Schema
+    // additions are idempotent (IF NOT EXISTS); backfill happens in
+    // runPayMatrixBackfill() so the boot-order is: ensure columns
+    // exist, then ensure every row has a sensible default.
+    { label: "users.residential_pay_type", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS residential_pay_type TEXT DEFAULT 'commission'" },
+    { label: "users.residential_pay_rate", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
+    { label: "users.commercial_pay_type",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_type  TEXT DEFAULT 'hourly'" },
+    { label: "users.commercial_pay_rate",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
+    { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
+    { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
+    { label: "companies.default_commercial_pay_rate",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
@@ -814,8 +826,55 @@ async function runJobsDedupeAndConstraint(): Promise<void> {
   `);
 }
 
+// [pay-matrix 2026-04-29] Backfill the per-employee pay matrix and
+// the tenant defaults. Postgres applies the column-level DEFAULT to
+// rows inserted AFTER the column is added, but rows that pre-date the
+// ALTER get NULL by default. We coalesce to the documented Phes
+// values so dispatch never reads a NULL pay rate.
+async function runPayMatrixBackfill(): Promise<void> {
+  // Tenant defaults — set on every company that doesn't already have
+  // them. Phes operational defaults: residential commission 0.35,
+  // commercial hourly $20.
+  await db.execute(sql`
+    UPDATE companies SET
+      default_residential_pay_type  = COALESCE(default_residential_pay_type,  'commission'),
+      default_residential_pay_rate  = COALESCE(default_residential_pay_rate,  0.35),
+      default_commercial_pay_type   = COALESCE(default_commercial_pay_type,   'hourly'),
+      default_commercial_pay_rate   = COALESCE(default_commercial_pay_rate,   20.0000)
+    WHERE default_residential_pay_type IS NULL
+       OR default_residential_pay_rate IS NULL
+       OR default_commercial_pay_type  IS NULL
+       OR default_commercial_pay_rate  IS NULL
+  `);
+  // Per-user matrix — backfill from the tenant default. New employees
+  // added after this runs will inherit via the application-level
+  // create-user flow (see routes/employees.ts when it touches this).
+  const updated = await db.execute(sql`
+    UPDATE users u SET
+      residential_pay_type = COALESCE(u.residential_pay_type, c.default_residential_pay_type, 'commission'),
+      residential_pay_rate = COALESCE(u.residential_pay_rate, c.default_residential_pay_rate, 0.35),
+      commercial_pay_type  = COALESCE(u.commercial_pay_type,  c.default_commercial_pay_type,  'hourly'),
+      commercial_pay_rate  = COALESCE(u.commercial_pay_rate,  c.default_commercial_pay_rate,  20.0000)
+    FROM companies c
+    WHERE u.company_id = c.id
+      AND (u.residential_pay_type IS NULL
+        OR u.residential_pay_rate IS NULL
+        OR u.commercial_pay_type  IS NULL
+        OR u.commercial_pay_rate  IS NULL)
+    RETURNING u.id
+  `);
+  const n = (updated.rows ?? []).length;
+  console.log(`[pay-matrix] Backfill ran. Updated ${n} user(s) with tenant pay defaults.`);
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
+
+  try {
+    await runPayMatrixBackfill();
+  } catch (err: any) {
+    console.warn("[phes-migration] pay-matrix-backfill — non-fatal:", err?.message ?? err);
+  }
 
   try {
     await runJobsDedupeAndConstraint();

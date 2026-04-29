@@ -249,7 +249,28 @@ router.get("/:id", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
-    const { first_name, last_name, role, pay_rate, pay_type, is_active, hire_date, phone, skills } = req.body;
+    const {
+      first_name, last_name, role, pay_rate, pay_type, is_active,
+      hire_date, phone, skills,
+      // [pay-matrix 2026-04-29] 4-cell pay matrix.
+      residential_pay_type, residential_pay_rate,
+      commercial_pay_type,  commercial_pay_rate,
+    } = req.body;
+
+    // Validate matrix inputs if provided.
+    const validateMatrixPair = (type: any, rate: any, label: string) => {
+      if (type !== undefined && type !== "commission" && type !== "hourly") {
+        return `${label}_pay_type must be 'commission' or 'hourly'`;
+      }
+      if (rate !== undefined) {
+        const n = Number(rate);
+        if (!Number.isFinite(n) || n < 0) return `${label}_pay_rate must be a non-negative number`;
+      }
+      return null;
+    };
+    const e1 = validateMatrixPair(residential_pay_type, residential_pay_rate, "residential");
+    const e2 = validateMatrixPair(commercial_pay_type,  commercial_pay_rate,  "commercial");
+    if (e1 || e2) return res.status(400).json({ error: e1 || e2 });
 
     const updated = await db
       .update(usersTable)
@@ -263,6 +284,10 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(hire_date !== undefined && { hire_date }),
         ...(phone !== undefined && { phone }),
         ...(skills !== undefined && { skills }),
+        ...(residential_pay_type !== undefined && { residential_pay_type }),
+        ...(residential_pay_rate !== undefined && { residential_pay_rate: String(residential_pay_rate) }),
+        ...(commercial_pay_type  !== undefined && { commercial_pay_type }),
+        ...(commercial_pay_rate  !== undefined && { commercial_pay_rate:  String(commercial_pay_rate) }),
       })
       .where(and(
         eq(usersTable.id, userId),

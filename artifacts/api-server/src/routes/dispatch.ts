@@ -297,10 +297,15 @@ router.get("/", requireAuth, async (req, res) => {
       if (!clockMap.has(e.job_id) || !e.clock_out_at) clockMap.set(e.job_id, e);
     }
 
-    // Fetch job_technicians for commission display
+    // Fetch job_technicians + per-employee pay matrix for commission
+    // display. The four pay-matrix columns drive the per-tech
+    // commission calculation below; each tech can be on a different
+    // (residential|commercial) × (commission|hourly) combo.
     const techRows = await db.execute(sql`
       SELECT jt.job_id, jt.user_id, jt.is_primary, jt.pay_override, jt.final_pay,
-             u.first_name, u.last_name
+             u.first_name, u.last_name,
+             u.residential_pay_type, u.residential_pay_rate,
+             u.commercial_pay_type,  u.commercial_pay_rate
       FROM job_technicians jt
       JOIN users u ON u.id = jt.user_id
       WHERE jt.job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
@@ -333,7 +338,18 @@ router.get("/", requireAuth, async (req, res) => {
       } catch { /* keep defaults */ }
     }
 
-    const techByJob = new Map<number, Array<{ user_id: number; name: string; is_primary: boolean; pay_override: number | null; final_pay: number | null }>>();
+    type TechRow = {
+      user_id: number;
+      name: string;
+      is_primary: boolean;
+      pay_override: number | null;
+      final_pay: number | null;
+      residential_pay_type: "commission" | "hourly";
+      residential_pay_rate: number;
+      commercial_pay_type: "commission" | "hourly";
+      commercial_pay_rate: number;
+    };
+    const techByJob = new Map<number, TechRow[]>();
     for (const r of techRows.rows as any[]) {
       if (!techByJob.has(r.job_id)) techByJob.set(r.job_id, []);
       techByJob.get(r.job_id)!.push({
@@ -342,6 +358,10 @@ router.get("/", requireAuth, async (req, res) => {
         is_primary: !!r.is_primary,
         pay_override: r.pay_override != null ? parseFloat(String(r.pay_override)) : null,
         final_pay: r.final_pay != null ? parseFloat(String(r.final_pay)) : null,
+        residential_pay_type: (r.residential_pay_type === "hourly" ? "hourly" : "commission") as "commission" | "hourly",
+        residential_pay_rate: r.residential_pay_rate != null ? parseFloat(String(r.residential_pay_rate)) : 0.35,
+        commercial_pay_type:  (r.commercial_pay_type  === "commission" ? "commission" : "hourly")  as "commission" | "hourly",
+        commercial_pay_rate:  r.commercial_pay_rate  != null ? parseFloat(String(r.commercial_pay_rate))  : 20,
       });
     }
 
@@ -434,33 +454,66 @@ router.get("/", requireAuth, async (req, res) => {
         ? fmtAddr(j.property_address, j.property_city, j.property_state, j.property_zip)
         : fmtAddr(j.address, j.city, j.state, j.zip);
       const jobTotal = j.billed_amount ? parseFloat(j.billed_amount) : (j.base_fee ? parseFloat(j.base_fee) : 0);
-      // [AI.7.4] Commission engine routes on isCommercial. Residential
-      // = jobTotal × resPct (pool, default 35%). Commercial = hourly
-      // rate × hours (default $20/hr × allowed_hours). The "estimated"
-      // hours displayed alongside the calc must come from allowed_hours
-      // — the source of truth the edit modal writes — NOT the original
-      // estimated_hours stamp, which goes stale on every edit
-      // (repro: edit allowed 6 → 7 → save → reopen, est still showed 7
-      // because dispatch read estimated_hours, which never changed).
+      // [pay-matrix 2026-04-29] Per-tech commission. The 4-cell matrix
+      // (residential|commercial × commission|hourly) on each user row
+      // means every tech can be paid differently on the same job. The
+      // calc routes on the JOB's commercial flag, then picks the
+      // tech's corresponding type + rate.
+      //
+      //   commission rate is fraction (0.00–1.00) → pay = revenue_share × rate
+      //   hourly     rate is dollars/hour         → pay = est_hours_per_tech × rate
+      //
+      // Revenue share for commission: jobTotal ÷ numTechs. Each tech's
+      // share of the job's billable revenue, then their personal % of
+      // their share. So a 40%-rate tech and a 30%-rate tech on a
+      // 2-tech $320 job earn $64 and $48 respectively (each gets
+      // their_pct × $160), not the 35% pool split.
       const allowedHours = j.allowed_hours ? parseFloat(j.allowed_hours) : 0;
       const estHoursSource = allowedHours > 0
         ? allowedHours
         : (j.estimated_hours ? parseFloat(j.estimated_hours) : 0);
       const numTechs = jobTechs.length || 1;
-      const totalCommission = isCommercial
-        ? Math.round(commercialHourlyRate * estHoursSource * 100) / 100
-        : Math.round(jobTotal * resPct * 100) / 100;
       const estHoursPerTech = numTechs > 0 ? Math.round((estHoursSource / numTechs) * 10) / 10 : estHoursSource;
-      const calcPerTech = Math.round((totalCommission / numTechs) * 100) / 100;
-      const technicians = jobTechs.map(t => ({
-        user_id: t.user_id,
-        name: t.name,
-        is_primary: t.is_primary,
-        est_hours: estHoursPerTech,
-        calc_pay: calcPerTech,
-        final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPerTech),
-        pay_override: t.pay_override,
-      }));
+      const revenueSharePerTech = numTechs > 0 ? jobTotal / numTechs : jobTotal;
+
+      const technicians = jobTechs.map(t => {
+        const payType = isCommercial ? t.commercial_pay_type : t.residential_pay_type;
+        const payRate = isCommercial ? t.commercial_pay_rate : t.residential_pay_rate;
+        const calcPay = payType === "hourly"
+          ? Math.round(estHoursPerTech * payRate * 100) / 100
+          : Math.round(revenueSharePerTech * payRate * 100) / 100;
+        return {
+          user_id: t.user_id,
+          name: t.name,
+          is_primary: t.is_primary,
+          est_hours: estHoursPerTech,
+          calc_pay: calcPay,
+          final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPay),
+          pay_override: t.pay_override,
+          // Surface the matrix cell that drove this tech's calc so
+          // the JobPanel can render "Hourly $20/hr × 6h" vs
+          // "Commission 35% of $160 share" without re-deriving.
+          pay_type: payType,
+          pay_rate: payRate,
+        };
+      });
+      // Backwards-compat: company_res_pct / commercial_hourly_rate /
+      // commission_basis are kept for surfaces that still consume
+      // them. They reflect the FIRST tech on the job (primary) so the
+      // legacy single-tech display remains correct in single-tech
+      // jobs. Multi-tech surfaces should read job.technicians[].pay_*
+      // instead.
+      const primaryTech = jobTechs[0];
+      const legacyBasis = primaryTech
+        ? (isCommercial
+            ? (primaryTech.commercial_pay_type === "hourly" ? "commercial_hourly" : "commercial_commission")
+            : (primaryTech.residential_pay_type === "commission" ? "residential_pool" : "residential_hourly"))
+        : (isCommercial ? "commercial_hourly" : "residential_pool");
+      // calcPerTech for legacy callers — sum of per-tech calcs
+      // averaged. Modern callers should sum technicians[].calc_pay.
+      const calcPerTech = technicians.length
+        ? Math.round((technicians.reduce((s, t) => s + t.calc_pay, 0) / technicians.length) * 100) / 100
+        : 0;
 
       return {
         id: j.id,
@@ -532,11 +585,11 @@ router.get("/", requireAuth, async (req, res) => {
         est_hours_per_tech: estHoursPerTech,
         est_pay_per_tech: calcPerTech,
         company_res_pct: resPct,
-        // [AI.7.4] Commercial-flag + rate so the Commission panel can
-        // render "Hourly rate: $20/hr × X hrs" instead of the residential
-        // "Pool rate: 35% of job total" — those labels are not
-        // interchangeable.
-        commission_basis: isCommercial ? "commercial_hourly" : "residential_pool",
+        // [pay-matrix 2026-04-29] commission_basis now reflects the
+        // primary tech's matrix cell, not a hardcoded company-wide
+        // value. Surfaces that need richer per-tech data should read
+        // technicians[].pay_type / pay_rate.
+        commission_basis: legacyBasis,
         commercial_hourly_rate: isCommercial ? commercialHourlyRate : null,
         // [job-card-redesign] Add-ons drive the "+N" chip pill and the
         // hover popover's full add-on list. Empty array (not null) when

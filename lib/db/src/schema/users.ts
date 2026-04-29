@@ -57,6 +57,17 @@ export const usersTable = pgTable("users", {
   notes: text("notes"),
   hr_status: hrStatusEnum("hr_status").default("active"),
   commission_rate_override: numeric("commission_rate_override", { precision: 6, scale: 2 }),
+  // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Replaces
+  // the company-wide single-rate model. Type can be 'commission' (rate
+  // is a fraction 0.00–1.00) or 'hourly' (rate is dollars/hour). The
+  // dispatch route routes residential vs commercial off
+  // clients.client_type and picks the corresponding pair from this
+  // matrix. New employees inherit the tenant defaults from
+  // companies.default_{residential,commercial}_pay_{type,rate}.
+  residential_pay_type: text("residential_pay_type").default("commission"),
+  residential_pay_rate: numeric("residential_pay_rate", { precision: 8, scale: 4 }).default("0.35"),
+  commercial_pay_type:  text("commercial_pay_type").default("hourly"),
+  commercial_pay_rate:  numeric("commercial_pay_rate",  { precision: 8, scale: 4 }).default("20.0000"),
   benefit_year_start: date("benefit_year_start"),
   leave_balance_hours: numeric("leave_balance_hours", { precision: 8, scale: 2 }).default("0"),
   leave_balance_activated: boolean("leave_balance_activated").default(false),

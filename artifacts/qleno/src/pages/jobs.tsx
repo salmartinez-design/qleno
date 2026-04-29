@@ -62,7 +62,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
-interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; }
+interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
 interface DispatchJob { id: number; client_id: number; client_name: string; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
@@ -1458,7 +1458,16 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       ) : null}
                     </div>
                   </div>
-                  <div style={{ fontSize: 11, color: "#9E9B94" }}>Est. {t.est_hours.toFixed(1)} hrs · Calc: ${t.calc_pay.toFixed(2)}</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94" }}>
+                    Est. {t.est_hours.toFixed(1)} hrs · Calc: ${t.calc_pay.toFixed(2)}
+                    {t.pay_type && t.pay_rate != null && (
+                      <span style={{ marginLeft: 6, color: "#C4C0BB" }}>
+                        ({t.pay_type === "hourly"
+                          ? `$${t.pay_rate.toFixed(2)}/hr`
+                          : `${(t.pay_rate * 100).toFixed(0)}%`})
+                      </span>
+                    )}
+                  </div>
                   {overrideOpen[t.user_id] && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
                       <span style={{ fontSize: 11, color: "#6B7280" }}>$</span>
@@ -1494,20 +1503,35 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {assignedEmp?.name || job.assigned_user_name || "Unassigned"} · Est. {(job.est_hours_per_tech ?? job.estimated_hours ?? 0).toFixed(1)} hrs
                   </span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>
-                    ${(job.est_pay_per_tech ?? ((job.billed_amount ?? job.amount ?? 0) * (job.company_res_pct ?? 0.35))).toFixed(2)} est.
+                    {/* [pay-matrix 2026-04-29] Display est_pay_per_tech
+                        as-is. The server now computes it per-tech via
+                        the 4-cell matrix; the no-techs-yet branch
+                        renders nothing meaningful since a missing
+                        primary tech means we don't yet know the rate
+                        cell to apply. */}
+                    {job.est_pay_per_tech != null ? `$${job.est_pay_per_tech.toFixed(2)} est.` : "—"}
                   </span>
                 </div>
               )}
-              {/* [AI.7.4] Commission basis label. Commercial jobs show
-                  hourly-rate math; residential keeps the pool-rate label.
-                  Routing comes from server's commission_basis flag —
-                  fallback to account_id signal for older payloads. */}
+              {/* [pay-matrix 2026-04-29] Per-tech matrix: each tech's
+                  pay_type / pay_rate already shows on their own row
+                  above (`Calc: $X (… rate)`), so this summary line
+                  describes the JOB routing — residential vs commercial
+                  based on client_type — and lets each tech's row
+                  carry the rate. When techs are mixed-type on the
+                  same job, the summary just says "mixed". */}
               <div style={{ marginTop: 4, fontSize: 11, color: "#9E9B94" }}>
-                {(job.commission_basis === "commercial_hourly" || (!job.commission_basis && job.account_id != null))
-                  ? `Hourly rate: $${(job.commercial_hourly_rate ?? 20).toFixed(0)}/hr × ${(job.est_hours_per_tech != null && (job.technicians?.length ?? 1) > 1
-                      ? (job.est_hours_per_tech * (job.technicians?.length ?? 1))
-                      : (job.est_hours_per_tech ?? 0)).toFixed(1)} hrs`
-                  : `Pool rate: ${((job.company_res_pct ?? 0.35) * 100).toFixed(0)}% of job total`}
+                {(() => {
+                  const techs = job.technicians ?? [];
+                  if (techs.length === 0) return null;
+                  const types = new Set(techs.map(t => t.pay_type).filter(Boolean));
+                  const isCommercial = job.client_type === "commercial" || job.account_id != null;
+                  const label = isCommercial ? "Commercial" : "Residential";
+                  if (types.size === 0) return `${label} job`;
+                  if (types.size > 1) return `${label} job · mixed pay types per tech`;
+                  const t = [...types][0];
+                  return `${label} job · ${t === "hourly" ? "hourly pay per tech" : "commission % per tech"}`;
+                })()}
               </div>
               <button onClick={() => !isLocked && setAddTechOpen(true)}
                 disabled={isLocked}

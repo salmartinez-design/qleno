@@ -60,7 +60,7 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
   'Information','Tags & Skills','Attendance','Availability',
-  'User Account','Contacts','Scorecards','Additional Pay',
+  'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
@@ -1240,6 +1240,9 @@ export default function EmployeeProfilePage() {
             </div>
           )}
 
+          {/* ── PAY CONFIGURATION TAB (4-cell matrix) ── */}
+          {activeTab === 'Pay Configuration' && <PayMatrixPanel userId={userId} />}
+
           {/* ── ADDITIONAL PAY TAB ── */}
           {activeTab === 'Additional Pay' && (() => {
             const pays: any[] = additionalPayData?.data || [];
@@ -2029,5 +2032,170 @@ export default function EmployeeProfilePage() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+// [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix panel.
+// Reads u.{residential,commercial}_pay_{type,rate} via GET /users/:id;
+// saves via PATCH /users/:id. Type toggle changes the input label
+// and validation: hourly is $/hr ($10–$100 reasonable), commission
+// is % (0–100 in UI, persisted as 0–1 fraction). Tenant defaults
+// inherit on new employee creation server-side.
+function PayMatrixPanel({ userId }: { userId: string }) {
+  const [resType, setResType] = useState<"commission" | "hourly">("commission");
+  const [resRate, setResRate] = useState<string>("35");
+  const [comType, setComType] = useState<"commission" | "hourly">("hourly");
+  const [comRate, setComRate] = useState<string>("20");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  // Display-format helpers: residential commission is stored as a
+  // fraction 0–1 but shown in the UI as 0–100. Hourly is stored and
+  // shown in dollars. Same dual-meaning for commercial.
+  const fmtRate = (type: "commission" | "hourly", rate: number) =>
+    type === "commission" ? String(Math.round(rate * 100)) : rate.toFixed(2);
+  const parseRate = (type: "commission" | "hourly", input: string): number =>
+    type === "commission" ? parseFloat(input) / 100 : parseFloat(input);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiFetch(`/users/${userId}`);
+        if (cancelled) return;
+        const d = r?.data ?? r;
+        const rt = (d?.residential_pay_type === "hourly" ? "hourly" : "commission") as "commission" | "hourly";
+        const ct = (d?.commercial_pay_type === "commission" ? "commission" : "hourly") as "commission" | "hourly";
+        setResType(rt);
+        setComType(ct);
+        if (d?.residential_pay_rate != null) setResRate(fmtRate(rt, parseFloat(d.residential_pay_rate)));
+        if (d?.commercial_pay_rate != null)  setComRate(fmtRate(ct, parseFloat(d.commercial_pay_rate)));
+      } catch (err: any) {
+        setError(err?.message ?? "Could not load pay configuration.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  function validate(type: "commission" | "hourly", input: string): string | null {
+    const n = parseFloat(input);
+    if (Number.isNaN(n) || n < 0) return "Must be a positive number.";
+    if (type === "hourly" && (n < 10 || n > 100)) return "Hourly rates should be $10–$100/hr.";
+    if (type === "commission" && (n < 0 || n > 100)) return "Commission must be 0–100%.";
+    return null;
+  }
+
+  async function save() {
+    const resErr = validate(resType, resRate);
+    const comErr = validate(comType, comRate);
+    if (resErr || comErr) {
+      setError(resErr || comErr);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await apiFetch(`/users/${userId}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          residential_pay_type: resType,
+          residential_pay_rate: parseRate(resType, resRate),
+          commercial_pay_type: comType,
+          commercial_pay_rate: parseRate(comType, comRate),
+        }),
+      });
+      setToast("Pay configuration saved");
+      setTimeout(() => setToast(null), 2400);
+    } catch (err: any) {
+      setError(err?.message ?? "Could not save.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div style={{ padding: 24, color: "#9E9B94", fontSize: 13 }}>Loading…</div>;
+
+  const sectionStyle: React.CSSProperties = {
+    background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
+    padding: "20px 22px", marginBottom: 16,
+  };
+  const labelStyle: React.CSSProperties = {
+    fontSize: 12, fontWeight: 700, color: "#6B6860",
+    textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6, display: "block",
+  };
+  const renderSection = (
+    title: string,
+    type: "commission" | "hourly",
+    setType: (t: "commission" | "hourly") => void,
+    rate: string,
+    setRate: (s: string) => void,
+  ) => (
+    <div style={sectionStyle}>
+      <h2 style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", marginBottom: 12 }}>{title}</h2>
+      <label style={labelStyle}>Type</label>
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        {(["hourly", "commission"] as const).map(opt => (
+          <button key={opt} type="button" onClick={() => {
+            // When switching type, normalize the rate field to the
+            // new format's typical default so the input doesn't stay
+            // at e.g. "0.35" when switching to hourly mode.
+            if (opt !== type) {
+              setRate(opt === "hourly" ? "20" : "35");
+            }
+            setType(opt);
+          }}
+          style={{
+            flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+            border: `1.5px solid ${type === opt ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+            background: type === opt ? "rgba(0,201,160,0.10)" : "#FFFFFF",
+            color: type === opt ? "var(--brand, #00C9A0)" : "#1A1917",
+            fontSize: 13, fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif",
+          }}>
+            {opt === "hourly" ? "Hourly" : "Commission %"}
+          </button>
+        ))}
+      </div>
+      <label style={labelStyle}>{type === "hourly" ? "Rate ($/hour)" : "Rate (% of revenue share)"}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {type === "hourly" && <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917" }}>$</span>}
+        <input type="number" step={type === "hourly" ? 0.25 : 1} min={0} max={type === "commission" ? 100 : undefined}
+          value={rate} onChange={e => setRate(e.target.value)}
+          style={{ padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#1A1917", width: 120 }} />
+        <span style={{ fontSize: 13, color: "#6B7280" }}>{type === "hourly" ? "/hr" : "%"}</span>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11, color: "#9E9B94" }}>
+        {type === "hourly"
+          ? "Tech earns this rate × estimated hours per visit."
+          : "Tech earns this percentage of their share of the job's billable revenue (jobTotal ÷ techs on job)."}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: "20px 22px 60px", maxWidth: 720 }}>
+      <h1 style={{ fontSize: 18, fontWeight: 800, color: "#1A1917", marginBottom: 4 }}>Pay configuration</h1>
+      <p style={{ fontSize: 12, color: "#6B6860", marginBottom: 20, lineHeight: 1.5 }}>
+        How this employee gets paid on residential vs commercial jobs. Each cell is independent — a tech can be on commission for residential and hourly for commercial. Rates apply per-tech to the job's commercial flag (driven by the client's <code>client_type</code>).
+      </p>
+      {renderSection("Residential pay", resType, setResType, resRate, setResRate)}
+      {renderSection("Commercial pay", comType, setComType, comRate, setComRate)}
+      {error && (
+        <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#991B1B", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
+          {error}
+        </div>
+      )}
+      <button onClick={save} disabled={saving}
+        style={{ padding: "10px 22px", background: "var(--brand, #00C9A0)", color: "#FFFFFF", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: saving ? "wait" : "pointer" }}>
+        {saving ? "Saving…" : "Save pay configuration"}
+      </button>
+      {toast && (
+        <div style={{ position: "fixed", bottom: 24, right: 24, background: "#1A1917", color: "#FFFFFF", padding: "12px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 2000, boxShadow: "0 8px 24px rgba(0,0,0,0.2)" }}>
+          {toast}
+        </div>
+      )}
+    </div>
   );
 }

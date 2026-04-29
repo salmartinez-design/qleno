@@ -40,6 +40,15 @@ export const companiesTable = pgTable("companies", {
   twilio_from_number: text("twilio_from_number"),
   default_payment_terms_residential: text("default_payment_terms_residential").default("due_on_receipt"),
   default_payment_terms_commercial: text("default_payment_terms_commercial").default("net_30"),
+  // [pay-matrix 2026-04-29] Tenant defaults inherited by every new
+  // employee's per-employee pay matrix. type is 'commission' or
+  // 'hourly'; rate is fraction (0.35) when commission, dollars/hour
+  // (20.00) when hourly. Phes defaults: residential commission 0.35,
+  // commercial hourly $20.
+  default_residential_pay_type: text("default_residential_pay_type").default("commission"),
+  default_residential_pay_rate: numeric("default_residential_pay_rate", { precision: 8, scale: 4 }).default("0.35"),
+  default_commercial_pay_type:  text("default_commercial_pay_type").default("hourly"),
+  default_commercial_pay_rate:  numeric("default_commercial_pay_rate",  { precision: 8, scale: 4 }).default("20.0000"),
   default_invoice_notes_residential: text("default_invoice_notes_residential"),
   default_invoice_notes_commercial: text("default_invoice_notes_commercial"),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),

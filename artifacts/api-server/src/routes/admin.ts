@@ -523,6 +523,63 @@ router.post("/jobs-dedupe-run", ...isSuperAdmin, async (_req, res) => {
   }
 });
 
+/* ── PAY-MATRIX BACKPAY AUDIT ──────────────────────────────────
+ * GET /api/admin/commission-backpay-audit?since=YYYY-MM-DD
+ *
+ * Returns the financial impact of the pre-pay-matrix bug where
+ * commercial jobs (clients.client_type='commercial') with
+ * jobs.account_id = NULL were paid at the residential 35% rate
+ * instead of commercial $20/hr. Default since-date 2026-01-01.
+ *
+ * Output:
+ *   {
+ *     window: { since, scope: 'commercial-completed' },
+ *     jobs_affected: int,
+ *     paid_out_at_old_rate:    numeric,  // billed_amount × 0.35
+ *     should_have_been_paid:   numeric,  // est_hours × 20.00
+ *     backpay_owed:            numeric,  // delta (positive = owed to techs)
+ *   }
+ *
+ * Counts jobs with actual_end_time set (i.e., truly completed).
+ * Does NOT modify any data — read-only audit. Sal can hand the
+ * number to payroll for a one-off correction or run additional_pay
+ * entries by hand.
+ */
+router.get("/commission-backpay-audit", ...isSuperAdmin, async (req, res) => {
+  try {
+    const since = String(req.query.since ?? "2026-01-01");
+    const out = await db.execute(sql`
+      SELECT
+        COUNT(*)::int                                       AS jobs_affected,
+        COALESCE(SUM(j.billed_amount * 0.35), 0)::numeric    AS paid_out_at_old_rate,
+        COALESCE(SUM(COALESCE(j.estimated_hours, j.allowed_hours, 0) * 20.00), 0)::numeric
+                                                            AS should_have_been_paid,
+        COALESCE(SUM(
+          (COALESCE(j.estimated_hours, j.allowed_hours, 0) * 20.00)
+          - (j.billed_amount * 0.35)
+        ), 0)::numeric                                       AS backpay_owed
+      FROM jobs j
+      JOIN clients c ON c.id = j.client_id
+      WHERE c.client_type = 'commercial'
+        AND j.account_id IS NULL  -- the routing bug only fired when account_id was missing
+        AND j.actual_end_time IS NOT NULL
+        AND j.scheduled_date >= ${since}
+    `);
+    const row = (out.rows[0] as any) ?? {};
+    return res.json({
+      window: { since, scope: "commercial-completed-no-account" },
+      jobs_affected: Number(row.jobs_affected ?? 0),
+      paid_out_at_old_rate: Number(row.paid_out_at_old_rate ?? 0),
+      should_have_been_paid: Number(row.should_have_been_paid ?? 0),
+      backpay_owed: Number(row.backpay_owed ?? 0),
+      note: "Backpay = should_have_been_paid - paid_out_at_old_rate. Positive means techs were under-paid; negative means over-paid.",
+    });
+  } catch (err: any) {
+    console.error("[admin] commission-backpay-audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err.message });
+  }
+});
+
 /* ── AUDIT LOG HEALTH CHECK ──────────────────────────────────────── */
 router.post("/audit-test", ...isSuperAdmin, async (req, res) => {
   try {
