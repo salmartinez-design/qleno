@@ -10,8 +10,8 @@
  * compact rows, my-jobs (tech view), and the Legend popover.
  *
  * Routing precedence (top wins on conflict):
- *   cancelled → completed_unpaid → completed → active → no_show → en_route
- *   → late_clockin → unassigned → scheduled
+ *   cancelled → completed_unpaid → completed → active → no_show
+ *   → en_route → late_clockin → unassigned → scheduled
  *
  * en_route is scaffolded but inert: it requires `en_route_at` (set when
  * the field tech taps "On My Way"). The schema column doesn't exist yet
@@ -23,6 +23,22 @@
  * completed_unpaid fires only for online-payment jobs (stripe/square).
  * Cash/check completion stays "completed" — there's no charge signal
  * to derive from, and reconciliation lives in a separate workflow.
+ *
+ * [phes-lifecycle 2026-04-29] Phes-specific simplification:
+ *   - Single 20-minute threshold for late_clockin (was 5/30 split).
+ *   - no_show is now a MANUAL flag (no_show_marked_by_tech IS NOT NULL),
+ *     not time-derived. The field app's "No Show" button writes the
+ *     timestamp after the tech has waited the configured period
+ *     on-site. Until that button ships, no_show never fires in
+ *     production.
+ *   - Hard gate: nothing negative (late_clockin / en_route /
+ *     unassigned-as-late) fires before scheduled_start_time. A future
+ *     job is always SCHEDULED. Closes the William Rosenbloom bug
+ *     where the chip painted late before the start time elapsed.
+ *
+ * The thresholds below are hardcoded for Phes. When multi-tenant
+ * settings ship they become per-tenant: tenant_settings.late_threshold_
+ * minutes / tenant_settings.no_show_wait_minutes.
  */
 
 /**
@@ -73,10 +89,23 @@ export interface JobStatusInput {
    *  Cash/check completion stays "completed" regardless. */
   client_payment_method?: string | null;
   charge_succeeded_at?: string | null;
+  /** [phes-lifecycle 2026-04-29] Manual no-show flag. Set when the
+   *  tech taps "No Show" in the field app after waiting the configured
+   *  period on-site. Distinct from late_clockin: late = "where's the
+   *  tech?" (tech accountability), no_show = "where's the customer?"
+   *  (customer accountability). The button doesn't exist yet — until
+   *  it ships this field stays null and no_show never fires. */
+  no_show_marked_by_tech?: string | null;
 }
 
-const LATE_GRACE_MIN = 5;
-const NO_SHOW_THRESHOLD_MIN = 30;
+// [phes-lifecycle 2026-04-29] Phes-specific thresholds. Multi-tenant
+// later → tenant_settings.late_threshold_minutes / .no_show_wait_minutes.
+const LATE_THRESHOLD_MINUTES = 20;
+// Kept for documentation parity with the no-show button's wait period;
+// the derived `no_show` state itself doesn't read this constant
+// because it's now a manual flag. The field app reads this when it
+// decides whether to enable the No Show button on the tech's screen.
+export const NO_SHOW_WAIT_MINUTES = 20;
 
 function timeToMins(t: string | null | undefined): number {
   if (!t) return 0;
@@ -113,33 +142,34 @@ export function getJobVisualStatus(job: JobStatusInput, now: Date = new Date()):
   if (hasClockIn && !hasClockOut && job.status !== "complete") return "active";
   if (job.status === "in_progress") return "active";
 
-  // [AI.7.5.hotfix3] Late / no-show derive from time + clock-entry
-  // absence. Suppressed entirely when LIVE_OPS=false — engine still
-  // computes the math (LATE_GRACE_MIN / NO_SHOW_THRESHOLD_MIN
-  // constants live above; flipping LIVE_OPS=true is the only switch
-  // needed) but the function returns scheduled/unassigned instead so
-  // the board doesn't paint "NO SHOW" badges on import data with
-  // stale scheduled_times that pre-date go-live.
-  //
-  // En route slots between no_show and late_clockin: a tech who said
-  // "on my way" 10 min after start should read EN ROUTE, not LATE
-  // (the office knows they're coming). But once we're past the
-  // no_show threshold (30 min), en_route loses — there's an
-  // operational problem regardless of what the tech radioed.
-  if (LIVE_OPS && isToday(job.scheduled_date, now) && !hasClockIn) {
-    const nowMins = now.getHours() * 60 + now.getMinutes();
-    const startMins = timeToMins(job.scheduled_time);
-    if (startMins > 0) {
-      const minsLate = nowMins - startMins;
-      if (minsLate >= NO_SHOW_THRESHOLD_MIN) return "no_show";
-      if (job.en_route_at) return "en_route";
-      if (minsLate >= LATE_GRACE_MIN) return "late_clockin";
-    }
-  }
+  // [phes-lifecycle 2026-04-29] no_show is a manual flag now — fires
+  // ONLY when the field app's "No Show" button has been tapped. Wins
+  // over en_route / late_clockin because once the tech has marked
+  // no-show, the situation isn't "where's the tech" or "tech is
+  // arriving" anymore.
+  if (job.no_show_marked_by_tech) return "no_show";
 
-  // En route can also fire BEFORE scheduled start (tech is heading
-  // there early). No clock-in yet, en_route_at set.
+  // [phes-lifecycle 2026-04-29] Hard gate: nothing negative fires
+  // before scheduled_start_time. A future job is always SCHEDULED
+  // (or unassigned, if no tech). Pre-start jobs can never read as
+  // late or unassigned-as-risk. This is the William Rosenbloom fix.
+  const isJobToday = isToday(job.scheduled_date, now);
+  const nowMins = now.getHours() * 60 + now.getMinutes();
+  const startMins = timeToMins(job.scheduled_time);
+  const hasStarted = isJobToday && startMins > 0 && nowMins >= startMins;
+
+  // En route: tech tapped "On My Way" but hasn't clocked in yet. Can
+  // fire before or after scheduled_start_time — a tech heading there
+  // early is still en_route.
   if (job.en_route_at && !hasClockIn) return "en_route";
+
+  // Late: 20+ min past scheduled start, no clock-in, no manual no-show
+  // flag. LIVE_OPS gate is symbolic now (operations went live in #9)
+  // but kept for an emergency off-switch.
+  if (LIVE_OPS && hasStarted && !hasClockIn) {
+    const minsLate = nowMins - startMins;
+    if (minsLate >= LATE_THRESHOLD_MINUTES) return "late_clockin";
+  }
 
   if (job.assigned_user_id == null) return "unassigned";
   return "scheduled";
@@ -252,7 +282,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   },
   late_clockin: {
     label: "Late",
-    description: "Tech is more than 5 minutes late and hasn't clocked in.",
+    description: "Tech is more than 20 minutes past start time and hasn't clocked in.",
     swatch: "#A78BFA",
     stripe: null,
     bodyOpacity: 1,
@@ -265,7 +295,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   },
   no_show: {
     label: "No show",
-    description: "Tech is 30+ minutes late with no clock-in. Call them now.",
+    description: "Tech tapped \"No Show\" — customer wasn't there after 20+ min wait.",
     swatch: "#EF4444",
     stripe: null,
     bodyOpacity: 0.85,

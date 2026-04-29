@@ -149,34 +149,63 @@
   delegate to one of these three sources of truth — never inline
   `× 0.35` or `× 20` again.
 - **Job visual status — single source of truth**: every card surface
-  (dispatch Gantt chip, mobile MobileJobCard, mobile UPCOMING compact
-  rows, desktop list cards, my-jobs tech view) routes through
-  `getJobVisualStatus(job, now)` in `lib/job-status.ts`. Returns one
-  of seven canonical states; consumers compose the matching
+  (dispatch Gantt chip, list view, drag overlay, mobile MobileJobCard,
+  mobile UPCOMING compact rows, my-jobs tech view) routes through
+  `getJobVisualStatus(job, now)` in `lib/job-status.ts`. Returns one of
+  nine canonical states; consumers compose the matching
   `STATUS_VISUALS[state]` (stripe color, body opacity, badge,
-  strikethrough, desaturate, border override) onto their card. New
-  surfaces MUST NOT re-derive status from `job.status` directly.
-  | State          | Trigger                                                                        | Treatment                                                          |
-  |----------------|--------------------------------------------------------------------------------|--------------------------------------------------------------------|
-  | scheduled      | status='scheduled', no clock-in yet                                            | Default tech color, full opacity                                   |
-  | active         | clocked-in (clock_in_at && !clock_out_at) or status='in_progress'              | Tech color + 4px amber (#F59E0B) left stripe + slow opacity pulse  |
-  | completed      | status='complete'                                                              | Tech color at 60% opacity + green checkmark badge                  |
-  | late_clockin   | today + scheduled_time + 5 min, no clock-in                                    | Existing red 2px border                                            |
-  | no_show        | today + scheduled_time + 30 min, no clock-in                                   | Solid red border + "NO SHOW" badge, 85% opacity                    |
-  | cancelled      | status='cancelled'                                                             | Tech color desaturated to grayscale + strikethrough on title       |
-  | unassigned     | assigned_user_id is null                                                       | Amber border, full opacity                                         |
+  strikethrough, desaturate, border override, car-icon flag) onto their
+  card. New surfaces MUST NOT re-derive status from `job.status`
+  directly.
+  | State            | Trigger                                                                                  | Treatment                                                                  |
+  |------------------|------------------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+  | scheduled        | default — no later state matches and now < scheduled_start_time OR no live signal        | Default tech color, full opacity                                           |
+  | en_route         | en_route_at IS NOT NULL, no clock-in (inert until field-app column lands)                | Default tech color + animated side-profile car icon left of name           |
+  | active           | clock_in_at && !clock_out_at, OR status='in_progress'                                    | Tech color + 4px amber (#F59E0B) left stripe + 2px orange ring (#EF9F27)   |
+  | late_clockin     | today + now ≥ scheduled_start_time + 20 min, no clock-in, no manual no-show              | Existing red 2px border + LATE pill with dynamic minute count              |
+  | no_show          | no_show_marked_by_tech IS NOT NULL (manual flag set by field-app "No Show" button)       | Solid dark-red border + "NO SHOW" badge, 85% opacity                       |
+  | completed        | status='complete', not online-payment-unpaid                                             | Tech color at 60% opacity + green checkmark badge                          |
+  | completed_unpaid | status='complete', payment is stripe/square, charge_succeeded_at IS NULL                 | 60% opacity + amber ring (#BA7517) + UNPAID pill + green checkmark         |
+  | cancelled        | status='cancelled'                                                                       | Tech color desaturated to grayscale + strikethrough on title               |
+  | unassigned       | assigned_user_id is null                                                                 | Amber border, full opacity                                                 |
   Active stripe animation uses CSS keyframes (`qleno-active-stripe-pulse`,
-  2 s ease-in-out, 1.0 → 0.6 → 1.0). `prefers-reduced-motion` drops
-  the animation to a steady solid stripe. Inject once per session via
-  `ensureJobStatusStyles()` from any component that mounts a card.
-  The Legend popover (`components/legend-popover.tsx`) shows all seven
-  states with example tiles + descriptions; mounted from the dispatch
-  top bar's Legend button (desktop popover, mobile bottom sheet). Late
-  / no_show are derived from time, NOT stored — DO NOT add new enum
-  values to `job_status`. The DB enum stays
-  `scheduled | in_progress | complete | cancelled` because operational
-  state lives in the clock entry + scheduled time, not the status
-  column.
+  2 s ease-in-out, 1.0 → 0.6 → 1.0). En-route car uses
+  `qleno-en-route-drive` (translateX 0 → 1.5px, 0.8 s ease-in-out).
+  `prefers-reduced-motion` drops both to steady. Inject once per
+  session via `ensureJobStatusStyles()` from any component that mounts
+  a card. The Legend popover (`components/legend-popover.tsx`) shows
+  all nine states with example tiles + descriptions; mounted from the
+  dispatch top bar's Legend button (desktop popover, mobile bottom
+  sheet).
+  Late + en_route are derived from time + columns, NOT stored. no_show
+  IS stored (manual flag) — the field app's "No Show" button writes
+  `no_show_marked_by_tech` (and `_by_user_id`) when the tech has waited
+  long enough on-site for the customer. The DB job_status enum stays
+  `scheduled | in_progress | complete | cancelled` — DO NOT add new
+  enum values; operational state lives in the clock entry + scheduled
+  time + the manual flag, not the status column.
+
+  *(phes-lifecycle 2026-04-29)* Phes-specific simplifications:
+  - Single 20-minute threshold for `late_clockin` (was 5/30 split).
+    `LATE_THRESHOLD_MINUTES = 20` and `NO_SHOW_WAIT_MINUTES = 20`
+    hardcoded in `lib/job-status.ts`. Multi-tenant later →
+    `tenant_settings.late_threshold_minutes` /
+    `.no_show_wait_minutes`.
+  - `no_show` is a MANUAL flag (`no_show_marked_by_tech`), not
+    time-derived. Set by the field-app "No Show" button only. Until
+    the button ships the column stays null and no_show never fires
+    in production.
+  - **Hard scheduled-start gate**: nothing negative (late_clockin /
+    en_route-as-late) fires before `scheduled_start_time`. A future
+    job is always SCHEDULED. The William Rosenbloom regression
+    (chip painted late before start time elapsed) is closed by the
+    explicit `nowMins >= startMins + LATE_THRESHOLD_MINUTES` check
+    in `getJobVisualStatus` and the matching guard on the page-level
+    `lateClockIns` / `atRisk` counters.
+  - Semantic: LATE = tech accountability ("where's the tech?"). 
+    NO_SHOW = customer accountability ("where's the customer?").
+    Both share the 20-minute wait threshold but represent different
+    things — they're not interchangeable.
 - **Address display — single canonical format**: every surface that
   renders an address MUST route through
   `formatAddress(street, city, state, zip)` in `lib/format-address.ts`.

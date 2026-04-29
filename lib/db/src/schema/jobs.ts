@@ -60,6 +60,14 @@ export const jobsTable = pgTable("jobs", {
   actual_end_time: timestamp("actual_end_time"),
   locked_at: timestamp("locked_at"),
   completed_by_user_id: integer("completed_by_user_id"),
+  // [phes-lifecycle 2026-04-29] Manual no-show flag. Set by the field
+  // app's "No Show" button after the tech has waited NO_SHOW_WAIT_MINUTES
+  // on-site for the customer. Distinct from late_clockin (tech
+  // accountability) — this represents customer accountability. Until
+  // the field app ships, both fields stay null and no_show never
+  // fires in production.
+  no_show_marked_by_tech: timestamp("no_show_marked_by_tech"),
+  no_show_marked_by_user_id: integer("no_show_marked_by_user_id"),
   job_lat: numeric("job_lat", { precision: 10, scale: 7 }),
   job_lng: numeric("job_lng", { precision: 10, scale: 7 }),
   geocode_failed: boolean("geocode_failed").notNull().default(false),
