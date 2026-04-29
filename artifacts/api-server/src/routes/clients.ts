@@ -309,6 +309,37 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
     `);
     const client_recurrence: "recurring" | "one_time" = recurringRows.rows.length > 0 ? "recurring" : "one_time";
 
+    // [commercial-workflow PR #2 / 2026-04-29] is_hybrid_client.
+    //
+    // True when the client has BOOKED jobs (status >= 'scheduled') in
+    // BOTH residential AND commercial service-type parents within the
+    // last 12 months. Quotes don't count — only an actual booked job
+    // flips the flag. After 12 months of single-type behavior the flag
+    // returns to false automatically (rolling window).
+    //
+    // Joins jobs.service_type::text against service_types.slug to get
+    // the parent_slug. Jobs whose service_type isn't in service_types
+    // (legacy slugs not yet seeded — only `recurring` per Sal's count
+    // query, which is being cleaned up in PR #6) drop out of the JOIN
+    // and don't contribute. That's the correct behavior — we don't
+    // want conflated legacy data flipping clients to hybrid.
+    const hybridRows = await db.execute(sql`
+      WITH typed_jobs AS (
+        SELECT DISTINCT s.parent_slug AS job_type
+          FROM jobs j
+          JOIN service_types s
+            ON s.slug = j.service_type::text
+           AND s.company_id = j.company_id
+         WHERE j.client_id = ${clientId}
+           AND j.company_id = ${companyId}
+           AND j.status IN ('scheduled', 'in_progress', 'complete')
+           AND j.scheduled_date >= (NOW() - INTERVAL '12 months')::date
+      )
+      SELECT COUNT(DISTINCT job_type)::int AS distinct_types FROM typed_jobs
+    `);
+    const distinct_types = Number((hybridRows.rows[0] as any)?.distinct_types ?? 0);
+    const is_hybrid_client = distinct_types >= 2;
+
     // Loyalty tier — spec:
     //   no_tier  < $1000 lifetime OR no visit in the last 6 months
     //   bronze   $1000–$5000
@@ -386,6 +417,11 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
         // without re-deriving on the client.
         client_status,         // 'active' | 'inactive'
         client_recurrence,     // 'recurring' | 'one_time'
+        // [commercial-workflow PR #2] true when the client has BOOKED
+        // jobs in BOTH residential AND commercial service_types
+        // parents within the last 12 months. Drives the JobWizard's
+        // "show both option sets" hybrid flow.
+        is_hybrid_client,
         loyalty_tier,          // 'no_tier' | 'bronze' | 'silver' | 'gold' | 'platinum'
         unique_techs,
         tech_consistency,      // unique_techs / completed_jobs (null when no completed)
