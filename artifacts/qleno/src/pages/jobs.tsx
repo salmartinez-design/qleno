@@ -2398,13 +2398,38 @@ export type { DispatchJob as _DispatchJobForTesting };
 // elaborations (live timer pill, progress bar, NEW pill) are derived
 // from job fields directly — they don't fit the "every-surface" contract
 // and would noise up the canonical visual.
-function JobChip({ job, onClick, assignedName, isUnassigned, forceStatus }: { job: DispatchJob; onClick: (j: DispatchJob) => void; assignedName?: string; isUnassigned?: boolean; /** Test-only override for visual status. Used by /jobs/visual-test to render every lifecycle state side-by-side, bypassing LIVE_OPS / clock-derivation gates. Production callers should never set this. */ forceStatus?: import("@/lib/job-status").JobVisualStatus }) {
-  const left = ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W;
-  const width = Math.max(SLOT_W, (job.duration_minutes / 30) * SLOT_W);
+// [job-card-redesign / followup] JobChip is now layout-aware. The
+// inner two-row body is in <JobChipBody>; this component owns the
+// outer wrapper (positioning, draggable, stripe, progress bar, corner
+// badges, hover popover) and varies it by `layout`.
+//
+// Three layouts share one body — that's the whole point of the
+// extraction. List view, drag overlay, and the timeline chip can no
+// longer drift on which pills/badges they show.
+type ChipLayout = "timeline" | "list" | "drag";
+
+function JobChip({
+  job, onClick, assignedName, isUnassigned, forceStatus, layout = "timeline",
+}: {
+  job: DispatchJob;
+  onClick: (j: DispatchJob) => void;
+  assignedName?: string;
+  isUnassigned?: boolean;
+  /** Test-only override for visual status. Used by /jobs/visual-test
+   *  to render every lifecycle state side-by-side, bypassing
+   *  LIVE_OPS / clock-derivation gates. Production callers should
+   *  never set this. */
+  forceStatus?: import("@/lib/job-status").JobVisualStatus;
+  /** Render variant — "timeline" (Gantt block, draggable, hover
+   *  popover, progress bar, live timer), "list" (full-width white
+   *  card, no drag, no popover, no live animations — just the
+   *  body + state ring), or "drag" (chip-shaped, no DnD, no live
+   *  animations — used by DragOverlay so the dragged element
+   *  matches the chip the user is grabbing). */
+  layout?: ChipLayout;
+}) {
   const isComplete = job.status === "complete";
-  const isRecurring = !!job.frequency && job.frequency !== "on_demand";
   const isCommercial = !!job.account_id || job.client_type === "commercial";
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `chip-${job.id}`, data: { job, originalLeft: left, type: isUnassigned ? "unassigned" : undefined }, disabled: isComplete });
 
   const status = forceStatus ?? getJobVisualStatus(job);
   const visual = STATUS_VISUALS[status];
@@ -2414,19 +2439,44 @@ function JobChip({ job, onClick, assignedName, isUnassigned, forceStatus }: { jo
   const isLightZone = zoneLuminance(job.zone_color) > 0.65;
   const borderColor = visual.borderOverride ?? bgColor;
 
-  const primaryText   = isLightZone ? "#1A1917" : "#FFFFFF";
-  const secondaryText = isLightZone ? "#4B5563" : "rgba(255,255,255,0.90)";
-  const iconTint      = isLightZone ? "#6B7280" : "rgba(255,255,255,0.90)";
-  const pillTint      = isLightZone ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.20)";
+  // Color tokens depend on background. Timeline + drag sit on the
+  // saturated zone color (white-on-color unless the zone is light).
+  // List sits on white, so always dark-on-white.
+  const onZoneText = {
+    primary:   isLightZone ? "#1A1917" : "#FFFFFF",
+    secondary: isLightZone ? "#4B5563" : "rgba(255,255,255,0.90)",
+    icon:      isLightZone ? "#6B7280" : "rgba(255,255,255,0.90)",
+    pillBg:    isLightZone ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.20)",
+  };
+  const onWhiteText = {
+    primary:   "#1A1917",
+    secondary: "#6B6860",
+    icon:      "#9E9B94",
+    pillBg:    "rgba(0,0,0,0.06)",
+  };
+  const tokens = layout === "list" ? onWhiteText : onZoneText;
 
-  // Width tiers
-  const isNarrow = width < 120;
-  const isWide   = width >= 192;
-  const showDuration = width >= 320;
+  // Timeline-only computed values
+  const timelineLeft = ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W;
+  const timelineWidth = Math.max(SLOT_W, (job.duration_minutes / 30) * SLOT_W);
 
-  // Price + delta routed through a pure helper so the three render
-  // cases (billed null / billed === base_fee / billed differs) are
-  // testable without mounting React. See lib/price-delta.ts.
+  // Width tier drives narrow / wide layout choices in the body.
+  // Timeline: derived from duration. List: always full-width-card,
+  // treat as wide. Drag: same as timeline.
+  const effectiveWidth = layout === "list" ? 320 : timelineWidth;
+  const isNarrow = effectiveWidth < 120;
+  const isWide   = effectiveWidth >= 192;
+  const showDuration = effectiveWidth >= 320;
+
+  // DnD only on the timeline. In list mode the row click handler
+  // opens the JobPanel; in drag mode the parent <DragOverlay> owns
+  // the drag, this is just the visual.
+  const dnd = useDraggable({
+    id: `chip-${job.id}-${layout}`,
+    data: { job, originalLeft: timelineLeft, type: isUnassigned ? "unassigned" : undefined },
+    disabled: layout !== "timeline" || isComplete,
+  });
+
   const { display: priceDisplay, deltaAmount } = computePriceDelta({
     amount: job.amount,
     billedAmount: job.billed_amount,
@@ -2434,23 +2484,20 @@ function JobChip({ job, onClick, assignedName, isUnassigned, forceStatus }: { jo
     billingMethod: job.billing_method,
   });
 
-  // Live timer for active jobs. Computed at render time; chip re-renders
-  // on parent state changes (drag, hover, dispatch poll) so the value is
-  // approximate but acceptable for v1.
+  // Live timer + progress bar — timeline only. List and drag are
+  // either too dense or too transient for a live-updating element.
   const clockInAt = job.clock_entry?.clock_in_at;
-  const elapsedMin = status === "active" && clockInAt
+  const elapsedMin = layout === "timeline" && status === "active" && clockInAt
     ? Math.max(0, Math.round((Date.now() - new Date(clockInAt).getTime()) / 60000))
     : 0;
   const allowedMin = job.duration_minutes > 0 ? job.duration_minutes : 60;
-  const progressFraction = status === "active" && clockInAt
+  const progressFraction = layout === "timeline" && status === "active" && clockInAt
     ? Math.min(1, elapsedMin / allowedMin)
     : 0;
   const timerLabel = elapsedMin >= 60
     ? `${Math.floor(elapsedMin / 60)}h ${elapsedMin % 60}m`
     : `${elapsedMin}m`;
 
-  // Late minutes for the LATE pill — only when status is late_clockin.
-  // Mirrors the math in getJobVisualStatus(): now − scheduled_time.
   const lateMin = (() => {
     if (status !== "late_clockin") return 0;
     const startMins = timeToMins(job.scheduled_time);
@@ -2462,48 +2509,174 @@ function JobChip({ job, onClick, assignedName, isUnassigned, forceStatus }: { jo
   const addOnCount = job.add_ons?.length ?? 0;
   const isNew = job.is_new_client === true;
 
+  // Hover popover — timeline only. List rows have a different
+  // affordance (clicking the row opens the JobPanel directly), and
+  // drag overlay is transient.
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function onEnter() { hoverTimer.current = setTimeout(() => setHovered(true), 400); }
+  function onEnter() {
+    if (layout !== "timeline") return;
+    hoverTimer.current = setTimeout(() => setHovered(true), 400);
+  }
   function onLeave() { if (hoverTimer.current) clearTimeout(hoverTimer.current); setHovered(false); }
 
-  // Inset white outline for new clients — single 1.5px box-shadow inset.
-  // Composed with the existing card shadow.
-  const baseShadow = "0 1px 4px rgba(0,0,0,0.12)";
-  const newShadow = isNew ? "inset 0 0 0 1.5px rgba(255,255,255,0.55)" : null;
+  const baseShadow = layout === "list"
+    ? "0 1px 2px rgba(0,0,0,0.04)"
+    : "0 1px 4px rgba(0,0,0,0.12)";
+  // New-client outline — white on chip, faint dark on white card.
+  const newShadow = isNew
+    ? layout === "list"
+      ? "inset 0 0 0 1.5px rgba(0,0,0,0.10)"
+      : "inset 0 0 0 1.5px rgba(255,255,255,0.55)"
+    : null;
   const composedShadow = newShadow ? `${newShadow}, ${baseShadow}` : baseShadow;
 
-  return (
-    <div ref={setNodeRef}
-      onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
-      onMouseEnter={onEnter} onMouseLeave={onLeave}
-      {...(isComplete ? {} : { ...listeners, ...attributes })}
-      style={{
-        position: "absolute", top: 10, left, width, height: ROW_H - 20,
+  const body = (
+    <JobChipBody
+      job={job}
+      status={status}
+      visual={visual}
+      tokens={tokens}
+      bgColor={bgColor}
+      isCommercial={isCommercial}
+      isNew={isNew}
+      isNarrow={isNarrow}
+      isWide={isWide}
+      showDuration={showDuration}
+      addOnCount={addOnCount}
+      priceDisplay={priceDisplay}
+      deltaAmount={deltaAmount}
+      lateMin={lateMin}
+      elapsedMin={elapsedMin}
+      timerLabel={timerLabel}
+      allowedMin={allowedMin}
+      showLiveTimer={layout === "timeline"}
+      showPhotoGlance={layout === "timeline"}
+    />
+  );
+
+  // ───── Layout: list ─────
+  // Full-width white card, no DnD, no popover, no progress bar.
+  // Status ring/border still applies; metadata footer (time + tech +
+  // freq) is appended below the chip body so list-view rows still
+  // surface the at-a-glance fields they always showed.
+  if (layout === "list") {
+    return (
+      <div onClick={() => onClick(job)}
+        style={{
+          backgroundColor: "#FFFFFF",
+          border: `1.5px solid ${visual.borderOverride ?? "#E5E2DC"}`,
+          borderLeft: visual.stripe
+            ? "1.5px solid #E5E2DC"
+            : `4px solid ${visual.borderOverride ?? bgColor}`,
+          borderRadius: 10, padding: "12px 14px", cursor: "pointer",
+          position: "relative", overflow: "hidden",
+          opacity: visual.bodyOpacity,
+          filter: visual.desaturate ? "grayscale(1)" : "none",
+          boxShadow: composedShadow,
+          display: "flex", flexDirection: "column", gap: 6,
+        }}>
+        {visual.stripe && (
+          <div className="qleno-active-stripe" style={{
+            position: "absolute", top: 0, bottom: 0, left: 0, width: 4,
+            backgroundColor: visual.stripe,
+          }} />
+        )}
+        {visual.showCheckmark && (
+          <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
+            <Check size={11} color="#FFFFFF" strokeWidth={3} />
+          </div>
+        )}
+        {visual.showNoShowBadge && (
+          <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 3 }}>
+            NO SHOW
+          </div>
+        )}
+        <div style={{ paddingLeft: visual.stripe ? 8 : 0 }}>
+          {body}
+        </div>
+        {/* Metadata footer — list-only context */}
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", paddingLeft: visual.stripe ? 8 : 0, fontSize: 12, color: "#6B7280" }}>
+          {job.scheduled_time && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <Clock size={11} style={{ color: "#9E9B94" }} />
+              {fmtTime(job.scheduled_time)}
+            </span>
+          )}
+          {assignedName && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <User size={11} style={{ color: "#9E9B94" }} />
+              {assignedName}
+            </span>
+          )}
+          {job.zone_name && (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: job.zone_color || "#9CA3AF" }} />
+              {job.zone_name}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ───── Layout: drag ─────
+  // Chip-shaped, no DnD wiring, no live elements. Used inside
+  // <DragOverlay /> while a chip is being dragged so the dragged
+  // element matches what the user picked up.
+  if (layout === "drag") {
+    return (
+      <div style={{
+        width: timelineWidth, height: ROW_H - 20,
         borderRadius: 8, backgroundColor: bgColor,
         border: `2px solid ${borderColor}`,
         boxSizing: "border-box", overflow: "visible",
-        cursor: isComplete ? "default" : isDragging ? "grabbing" : "grab",
-        opacity: isDragging ? 0.3 : visual.bodyOpacity,
+        opacity: 0.92,
         filter: visual.desaturate ? "grayscale(1)" : "none",
-        transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined,
-        zIndex: hovered ? 50 : isDragging ? 0 : 2,
+        display: "flex", flexDirection: "row",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+      }}>
+        {visual.stripe && (
+          <div style={{
+            width: 4, alignSelf: "stretch", backgroundColor: visual.stripe,
+            borderTopLeftRadius: 6, borderBottomLeftRadius: 6, flexShrink: 0,
+          }} />
+        )}
+        {body}
+        {visual.showCheckmark && (
+          <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
+            <Check size={10} color="#FFFFFF" strokeWidth={3} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ───── Layout: timeline (default) ─────
+  return (
+    <div ref={dnd.setNodeRef}
+      onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
+      onMouseEnter={onEnter} onMouseLeave={onLeave}
+      {...(isComplete ? {} : { ...dnd.listeners, ...dnd.attributes })}
+      style={{
+        position: "absolute", top: 10, left: timelineLeft, width: timelineWidth, height: ROW_H - 20,
+        borderRadius: 8, backgroundColor: bgColor,
+        border: `2px solid ${borderColor}`,
+        boxSizing: "border-box", overflow: "visible",
+        cursor: isComplete ? "default" : dnd.isDragging ? "grabbing" : "grab",
+        opacity: dnd.isDragging ? 0.3 : visual.bodyOpacity,
+        filter: visual.desaturate ? "grayscale(1)" : "none",
+        transform: dnd.transform ? `translate(${dnd.transform.x}px, ${dnd.transform.y}px)` : undefined,
+        zIndex: hovered ? 50 : dnd.isDragging ? 0 : 2,
         userSelect: "none", display: "flex", flexDirection: "row",
         boxShadow: composedShadow,
       }}>
-      {/* [AI.7.5] Active stripe — 4px amber bar with slow opacity pulse. */}
       {visual.stripe && (
         <div className="qleno-active-stripe" style={{
           width: 4, alignSelf: "stretch", backgroundColor: visual.stripe,
           borderTopLeftRadius: 6, borderBottomLeftRadius: 6, flexShrink: 0,
         }} />
       )}
-
-      {/* [job-card-redesign] In-progress progress bar — 3px white bar
-          riding the top edge, fills based on elapsed/allowed. Inside the
-          card so it inherits border-radius clipping. Hidden when the job
-          isn't active (or has no clock-in yet). */}
       {status === "active" && progressFraction > 0 && (
         <div style={{
           position: "absolute", top: 0, left: 0, right: 0, height: 3,
@@ -2516,151 +2689,173 @@ function JobChip({ job, onClick, assignedName, isUnassigned, forceStatus }: { jo
           }} />
         </div>
       )}
-
-      <div style={{ flex: 1, minWidth: 0, padding: "6px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
-        {isNarrow ? (
-          // ── Narrow: single line, name + price ──
-          <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-            {visual.showCarIcon && <CarIconInline tint={primaryText} />}
-            <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-              {job.client_name}
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 800, color: primaryText, whiteSpace: "nowrap", flexShrink: 0 }}>
-              {priceDisplay}
-            </span>
-          </div>
-        ) : (
-          <>
-            {/* ── Top row ── */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              {/* Status icons (left of name) */}
-              {visual.showCarIcon && <CarIconInline tint={primaryText} />}
-              {!visual.showCarIcon && job.clock_entry?.clock_in_at && status !== "active" && (
-                <Clock size={9} style={{ color: iconTint, flexShrink: 0 }} />
-              )}
-              {/* LATE pill — replaces other status icons when late_clockin */}
-              {status === "late_clockin" && lateMin > 0 && (
-                <span style={{
-                  flexShrink: 0, fontSize: 8, fontWeight: 800,
-                  padding: "1px 5px", borderRadius: 4,
-                  backgroundColor: "#DC2626", color: "#FFFFFF",
-                  textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
-                }}>
-                  Late {lateMin}m
-                </span>
-              )}
-              {/* UNPAID pill — completed but online charge has not succeeded */}
-              {status === "completed_unpaid" && (
-                <span style={{
-                  flexShrink: 0, fontSize: 8, fontWeight: 800,
-                  padding: "1px 5px", borderRadius: 4,
-                  backgroundColor: "#BA7517", color: "#FFFFFF",
-                  textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
-                }}>
-                  Unpaid
-                </span>
-              )}
-              {/* NEW pill — first-ever job for residential client */}
-              {isNew && isWide && (
-                <span style={{
-                  flexShrink: 0, fontSize: 9, fontWeight: 700,
-                  padding: "1px 5px", borderRadius: 4,
-                  backgroundColor: "#FFFFFF", color: bgColor,
-                  textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
-                }}>
-                  New
-                </span>
-              )}
-              {/* Photo glance icon stays — useful at-a-glance signal */}
-              {job.after_photo_count > 0 && status !== "active" && (
-                <Camera size={9} style={{ color: iconTint, flexShrink: 0 }} />
-              )}
-              <span style={{ fontSize: 11, fontWeight: 700, color: primaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-                {job.client_name}
-              </span>
-              {/* RES/COM badge — three-letter mono */}
-              <span style={{
-                flexShrink: 0,
-                fontSize: 8, fontWeight: 800,
-                padding: "1px 5px", borderRadius: 4,
-                backgroundColor: pillTint,
-                color: primaryText,
-                textTransform: "uppercase", letterSpacing: "0.05em",
-                lineHeight: 1.2,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}>
-                {isCommercial ? "COM" : "RES"}
-              </span>
-              {/* Live timer pill — only on active jobs, only on wider chips */}
-              {status === "active" && isWide && elapsedMin > 0 && (
-                <span style={{
-                  flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3,
-                  fontSize: 9, fontWeight: 700,
-                  padding: "1px 5px", borderRadius: 4,
-                  backgroundColor: "rgba(255,255,255,0.25)", color: primaryText,
-                  lineHeight: 1.2,
-                }}>
-                  <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: primaryText, display: "inline-block" }} />
-                  {timerLabel}
-                </span>
-              )}
-              {/* Price (right-aligned) */}
-              <span style={{ fontSize: 11, fontWeight: 800, color: primaryText, whiteSpace: "nowrap", flexShrink: 0 }}>
-                {priceDisplay}
-              </span>
-              {/* Price delta pill */}
-              {deltaAmount != null && (
-                <span style={{
-                  flexShrink: 0, fontSize: 8, fontWeight: 700,
-                  padding: "1px 4px", borderRadius: 3,
-                  backgroundColor: deltaAmount > 0 ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)",
-                  color: "#FFFFFF", lineHeight: 1.2, whiteSpace: "nowrap",
-                }}>
-                  {deltaAmount > 0 ? "↑" : "↓"} ${Math.abs(Math.round(deltaAmount))}
-                </span>
-              )}
-            </div>
-
-            {/* ── Bottom row ── */}
-            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-              {isRecurring && <Check size={9} style={{ color: iconTint, flexShrink: 0 }} strokeWidth={3} />}
-              <span style={{ fontSize: 10, fontWeight: 500, color: secondaryText, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
-                {scopeLabel(job)}
-              </span>
-              {showDuration && allowedMin > 0 && (
-                <span style={{ fontSize: 10, fontWeight: 600, color: secondaryText, whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {Math.round((allowedMin / 60) * 10) / 10}h
-                </span>
-              )}
-              {/* Add-ons +N pill */}
-              {addOnCount > 0 && isWide && (
-                <span style={{
-                  flexShrink: 0, fontSize: 9, fontWeight: 700,
-                  padding: "1px 5px", borderRadius: 4,
-                  backgroundColor: pillTint, color: primaryText,
-                  lineHeight: 1.2, whiteSpace: "nowrap",
-                }}>
-                  +{addOnCount}
-                </span>
-              )}
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* [AI.7.5] Completed checkmark badge — top-right corner. */}
+      {body}
       {visual.showCheckmark && (
         <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
           <Check size={10} color="#FFFFFF" strokeWidth={3} />
         </div>
       )}
-      {/* [AI.7.5] No-show badge — top-right text label. */}
       {visual.showNoShowBadge && (
         <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
           NO SHOW
         </div>
       )}
-      {hovered && !isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
+      {hovered && !dnd.isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
+    </div>
+  );
+}
+
+// [job-card-redesign / followup] Two-row body shared by every
+// JobChip layout. Pure presentational — receives all computed
+// values from the parent. No DnD, no positioning, no animation
+// state. Adding a new pill / badge here lights up every surface
+// at once.
+function JobChipBody({
+  job, status, visual, tokens, bgColor,
+  isCommercial, isNew, isNarrow, isWide, showDuration,
+  addOnCount, priceDisplay, deltaAmount,
+  lateMin, elapsedMin, timerLabel, allowedMin,
+  showLiveTimer, showPhotoGlance,
+}: {
+  job: DispatchJob;
+  status: import("@/lib/job-status").JobVisualStatus;
+  visual: import("@/lib/job-status").StatusVisual;
+  tokens: { primary: string; secondary: string; icon: string; pillBg: string };
+  bgColor: string;
+  isCommercial: boolean;
+  isNew: boolean;
+  isNarrow: boolean;
+  isWide: boolean;
+  showDuration: boolean;
+  addOnCount: number;
+  priceDisplay: string;
+  deltaAmount: number | null;
+  lateMin: number;
+  elapsedMin: number;
+  timerLabel: string;
+  allowedMin: number;
+  showLiveTimer: boolean;
+  showPhotoGlance: boolean;
+}) {
+  const isRecurring = !!job.frequency && job.frequency !== "on_demand";
+  return (
+    <div style={{ flex: 1, minWidth: 0, padding: "6px 10px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 2 }}>
+      {isNarrow ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+          {visual.showCarIcon && <CarIconInline tint={tokens.primary} />}
+          <span style={{ fontSize: 11, fontWeight: 700, color: tokens.primary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+            {job.client_name}
+          </span>
+          <span style={{ fontSize: 11, fontWeight: 800, color: tokens.primary, whiteSpace: "nowrap", flexShrink: 0 }}>
+            {priceDisplay}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+            {visual.showCarIcon && <CarIconInline tint={tokens.primary} />}
+            {!visual.showCarIcon && job.clock_entry?.clock_in_at && status !== "active" && (
+              <Clock size={9} style={{ color: tokens.icon, flexShrink: 0 }} />
+            )}
+            {status === "late_clockin" && lateMin > 0 && (
+              <span style={{
+                flexShrink: 0, fontSize: 8, fontWeight: 800,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: "#DC2626", color: "#FFFFFF",
+                textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
+              }}>
+                Late {lateMin}m
+              </span>
+            )}
+            {status === "completed_unpaid" && (
+              <span style={{
+                flexShrink: 0, fontSize: 8, fontWeight: 800,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: "#BA7517", color: "#FFFFFF",
+                textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
+              }}>
+                Unpaid
+              </span>
+            )}
+            {isNew && isWide && (
+              <span style={{
+                flexShrink: 0, fontSize: 9, fontWeight: 700,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: tokens.primary === "#1A1917" ? bgColor : "#FFFFFF",
+                color: tokens.primary === "#1A1917" ? "#FFFFFF" : bgColor,
+                textTransform: "uppercase", letterSpacing: "0.05em", lineHeight: 1.2,
+              }}>
+                New
+              </span>
+            )}
+            {showPhotoGlance && job.after_photo_count > 0 && status !== "active" && (
+              <Camera size={9} style={{ color: tokens.icon, flexShrink: 0 }} />
+            )}
+            <span style={{ fontSize: 11, fontWeight: 700, color: tokens.primary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+              {job.client_name}
+            </span>
+            <span style={{
+              flexShrink: 0,
+              fontSize: 8, fontWeight: 800,
+              padding: "1px 5px", borderRadius: 4,
+              backgroundColor: tokens.pillBg,
+              color: tokens.primary,
+              textTransform: "uppercase", letterSpacing: "0.05em",
+              lineHeight: 1.2,
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            }}>
+              {isCommercial ? "COM" : "RES"}
+            </span>
+            {showLiveTimer && status === "active" && isWide && elapsedMin > 0 && (
+              <span style={{
+                flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3,
+                fontSize: 9, fontWeight: 700,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: tokens.pillBg, color: tokens.primary,
+                lineHeight: 1.2,
+              }}>
+                <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: tokens.primary, display: "inline-block" }} />
+                {timerLabel}
+              </span>
+            )}
+            <span style={{ fontSize: 11, fontWeight: 800, color: tokens.primary, whiteSpace: "nowrap", flexShrink: 0 }}>
+              {priceDisplay}
+            </span>
+            {deltaAmount != null && (
+              <span style={{
+                flexShrink: 0, fontSize: 8, fontWeight: 700,
+                padding: "1px 4px", borderRadius: 3,
+                backgroundColor: deltaAmount > 0 ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)",
+                color: "#FFFFFF", lineHeight: 1.2, whiteSpace: "nowrap",
+              }}>
+                {deltaAmount > 0 ? "↑" : "↓"} ${Math.abs(Math.round(deltaAmount))}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+            {isRecurring && <Check size={9} style={{ color: tokens.icon, flexShrink: 0 }} strokeWidth={3} />}
+            <span style={{ fontSize: 10, fontWeight: 500, color: tokens.secondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
+              {scopeLabel(job)}
+            </span>
+            {showDuration && allowedMin > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 600, color: tokens.secondary, whiteSpace: "nowrap", flexShrink: 0 }}>
+                {Math.round((allowedMin / 60) * 10) / 10}h
+              </span>
+            )}
+            {addOnCount > 0 && isWide && (
+              <span style={{
+                flexShrink: 0, fontSize: 9, fontWeight: 700,
+                padding: "1px 5px", borderRadius: 4,
+                backgroundColor: tokens.pillBg, color: tokens.primary,
+                lineHeight: 1.2, whiteSpace: "nowrap",
+              }}>
+                +{addOnCount}
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2792,20 +2987,11 @@ function LocationPill({ loc }: { loc?: string | null }) {
   );
 }
 
-function UnassignedChip({ job, onClick }: { job: DispatchJob; onClick: () => void }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: `unassigned-${job.id}`, data: { job, type: "unassigned", originalLeft: 0 } });
-  return (
-    <div ref={setNodeRef} {...listeners} {...attributes} onClick={onClick}
-      style={{ backgroundColor: "#FEF9EE", borderLeft: "3px solid #F59E0B", borderRadius: 8, padding: "10px 12px", marginBottom: 6, cursor: "grab", opacity: isDragging ? 0.4 : 1, transform: transform ? `translate(${transform.x}px, ${transform.y}px)` : undefined, boxShadow: "0 1px 3px rgba(0,0,0,0.05)", userSelect: "none" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{job.client_name}</div>
-        <LocationPill loc={job.booking_location} />
-      </div>
-      <div style={{ fontSize: 10, color: "var(--brand)", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.04em" }}>{fmtSvc(job.service_type)}</div>
-      <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>{Math.floor(job.duration_minutes / 60)}h{job.duration_minutes % 60 > 0 ? ` ${job.duration_minutes % 60}m` : ""}</div>
-    </div>
-  );
-}
+// [job-card-redesign / followup] UnassignedChip removed — was dead
+// code (defined but never referenced). The unassigned strip on the
+// Gantt timeline renders <JobChip ... isUnassigned /> via
+// UnassignedGanttRow above. Removing the legacy stub so future
+// contributors don't accidentally edit the wrong component.
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function JobsPage() {
@@ -3774,87 +3960,38 @@ export default function JobsPage() {
                   <div style={{ textAlign: "center", padding: 60, color: "#9E9B94", fontSize: 13 }}>No jobs scheduled.</div>
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+                    {/* [job-card-redesign / followup] List view delegates
+                        to <JobChip layout="list"> so the timeline chip
+                        and the list-view card can never drift on which
+                        pills/badges they show. JobChipBody is the one
+                        place to add a new pill. The optional commission
+                        line below is list-only context — it doesn't
+                        belong on the chip body. */}
                     {allJobs.map(j => {
-                      // [AI.7.2] Zone chip on desktop list cards. Missing
-                      // zone is a hard error — render red, not gray —
-                      // because routing a tech without a zone is a real
-                      // dispatch failure, not a stylistic choice.
-                      const hasZoneD = !!j.zone_name && !!j.zone_color;
-                      // [AI.7.5] Visual status — drives left-edge color,
-                      // checkmark, no-show badge, and cancelled treatment.
-                      // Active state replaces the zone-color border with
-                      // an animated amber stripe for at-a-glance "live".
-                      const visualD = STATUS_VISUALS[getJobVisualStatus(j)];
-                      const leftEdgeColor: string = visualD.stripe
-                        ?? visualD.borderOverride
-                        ?? (hasZoneD && j.zone_color ? j.zone_color : "#DC2626");
+                      const estH = j.est_hours_per_tech ?? j.estimated_hours;
+                      const showCommissionLine = estH != null && estH > 0;
                       return (
-                      <div key={j.id} onClick={() => setSelectedJob(j)}
-                        style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 16px", cursor: "pointer", position: "relative", overflow: "hidden", opacity: visualD.bodyOpacity, filter: visualD.desaturate ? "grayscale(1)" : "none" }}>
-                        {visualD.stripe ? (
-                          <div className="qleno-active-stripe" style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 4, backgroundColor: visualD.stripe }} />
-                        ) : (
-                          <div style={{ position: "absolute", top: 0, bottom: 0, left: 0, width: 4, backgroundColor: leftEdgeColor }} />
-                        )}
-                        {visualD.showCheckmark && (
-                          <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <Check size={11} color="#FFFFFF" strokeWidth={3} />
-                          </div>
-                        )}
-                        {visualD.showNoShowBadge && (
-                          <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em" }}>
-                            NO SHOW
-                          </div>
-                        )}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, paddingLeft: 4 }}>
-                          <div>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", textDecoration: visualD.strikethrough ? "line-through" : "none" }}>{j.client_name}</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2, flexWrap: "wrap" }}>
-                              <div style={{ fontSize: 11, color: "var(--brand)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{fmtSvc(j.service_type)}</div>
-                              {hasZoneD ? (
-                                <span style={{
-                                  display: "inline-flex", alignItems: "center", gap: 5,
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
-                                  backgroundColor: `${j.zone_color}1A`, color: "#1A1917",
-                                  border: `1px solid ${j.zone_color}40`,
-                                }}>
-                                  <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: j.zone_color || "#9CA3AF", flexShrink: 0 }} />
-                                  {j.zone_name}
-                                </span>
-                              ) : (
-                                <span style={{
-                                  display: "inline-flex", alignItems: "center", gap: 4,
-                                  fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 10,
-                                  backgroundColor: "#FEE2E2", color: "#991B1B", border: "1px solid #FCA5A5",
-                                }}>
-                                  <AlertTriangle size={9} />
-                                  {j.client_zip ? `Unmapped zip ${j.client_zip}` : "Zone missing"}
+                        <div key={j.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <JobChip
+                            job={j}
+                            onClick={() => setSelectedJob(j)}
+                            assignedName={j.assigned_user_name}
+                            layout="list"
+                          />
+                          {showCommissionLine && (
+                            <div style={{ display: "flex", gap: 10, alignItems: "center", paddingLeft: 14, fontSize: 11, color: "#9E9B94" }}>
+                              <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                <Clock size={10} style={{ color: "#C4C0BB" }} />
+                                Est. {(estH ?? 0).toFixed(1)} hrs
+                              </span>
+                              {j.est_pay_per_tech != null && j.est_pay_per_tech > 0 && (
+                                <span style={{ fontWeight: 700, color: "#16A34A" }}>
+                                  · ${j.est_pay_per_tech.toFixed(2)} commission
                                 </span>
                               )}
                             </div>
-                          </div>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: (STATUS[j.status] || STATUS.scheduled).text, backgroundColor: (STATUS[j.status] || STATUS.scheduled).bg, padding: "3px 8px", borderRadius: 20, textTransform: "capitalize" }}>{j.status.replace("_", " ")}</span>
+                          )}
                         </div>
-                        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-                          {j.scheduled_time && <div style={{ fontSize: 12, color: "#6B7280", display: "flex", alignItems: "center", gap: 4 }}><Clock size={11} style={{ color: "#9E9B94" }} />{fmtTime(j.scheduled_time)}</div>}
-                          {j.assigned_user_name && <div style={{ fontSize: 12, color: "#6B7280", display: "flex", alignItems: "center", gap: 4 }}><User size={11} style={{ color: "#9E9B94" }} />{j.assigned_user_name}</div>}
-                          {j.frequency && j.frequency !== "on_demand" && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 6px", borderRadius: 4 }}><Repeat size={9} />{j.frequency.replace(/_/g, " ")}</span>}
-                          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginLeft: "auto" }}>${(j.amount || 0).toFixed(0)}</div>
-                        </div>
-                        {(j.est_hours_per_tech ?? j.estimated_hours) != null && (j.est_hours_per_tech ?? j.estimated_hours ?? 0) > 0 && (
-                          <div style={{ display: "flex", gap: 10, marginTop: 6, alignItems: "center" }}>
-                            <span style={{ fontSize: 11, color: "#9E9B94", display: "flex", alignItems: "center", gap: 3 }}>
-                              <Clock size={10} style={{ color: "#C4C0BB" }} />
-                              Est. {(j.est_hours_per_tech ?? j.estimated_hours ?? 0).toFixed(1)} hrs
-                            </span>
-                            {j.est_pay_per_tech != null && j.est_pay_per_tech > 0 && (
-                              <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>
-                                · ${j.est_pay_per_tech.toFixed(2)} commission
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
                       );
                     })}
                   </div>
@@ -3865,11 +4002,14 @@ export default function JobsPage() {
         </div>
 
         <DragOverlay>
+          {/* [job-card-redesign / followup] Drag overlay reuses JobChip
+              in "drag" layout so the dragged element looks identical to
+              the chip the user just picked up — same colors, same
+              two-row body, same pills. The previous inline JSX used the
+              legacy STATUS palette and rendered a 2-line plain card
+              instead, which made the visual jump mid-drag. */}
           {draggingJob && (
-            <div style={{ width: Math.max(SLOT_W, (draggingJob.duration_minutes / 30) * SLOT_W), height: ROW_H - 20, borderRadius: 8, backgroundColor: (STATUS[draggingJob.status] || STATUS.scheduled).bg, borderLeft: `3px solid ${(STATUS[draggingJob.status] || STATUS.scheduled).dot}`, padding: "6px 8px", opacity: 0.9, boxShadow: "0 8px 24px rgba(0,0,0,0.15)", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917" }}>{draggingJob.client_name}</span>
-              <span style={{ fontSize: 10, color: "#6B7280" }}>{fmtSvc(draggingJob.service_type)}</span>
-            </div>
+            <JobChip job={draggingJob} onClick={() => {}} layout="drag" />
           )}
         </DragOverlay>
       </DndContext>
