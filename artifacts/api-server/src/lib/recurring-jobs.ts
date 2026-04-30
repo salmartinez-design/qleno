@@ -43,6 +43,147 @@ function mapFrequency(freq: string): string {
   return "biweekly";
 }
 
+// [recurring-on-save 2026-04-30 / PR #27] Resolved parking config for a
+// schedule. Cached by the caller so we look up `pricing_addons` /
+// `add_ons` once per generation run, not once per occurrence. Null
+// when the tenant has no active "Parking Fee" pricing_addon.
+export type ResolvedParkingAddon = {
+  pricing_addon_id: number;
+  add_on_id: number;
+  unit_price: string;
+  override_amount: string | null;
+};
+
+// [recurring-on-save 2026-04-30 / PR #27] Look up the tenant's Parking
+// Fee pricing_addons row + the matching add_ons.id (resolving the FK
+// to the older catalog table). Returns null when no active row found
+// (engine then logs once and skips parking stamping for the run).
+export async function resolveParkingAddon(
+  schedule: Pick<ScheduleInput, "company_id" | "parking_fee_amount">,
+  txOrDb: any = db,
+): Promise<ResolvedParkingAddon | null> {
+  const addonLookup = await txOrDb.execute(sql`
+    SELECT id, name, COALESCE(price_value, price, '0')::numeric AS price
+    FROM pricing_addons
+    WHERE company_id = ${schedule.company_id}
+      AND LOWER(name) = 'parking fee'
+      AND is_active = true
+    LIMIT 1
+  `);
+  const addonRow = addonLookup.rows[0] as { id: number; name: string; price: string } | undefined;
+  if (!addonRow) return null;
+
+  const addonName = String(addonRow.name ?? "Parking Fee");
+  const fallbackAmount = String(addonRow.price ?? "20");
+  const overrideAmount = schedule.parking_fee_amount;
+  const unitPrice = overrideAmount != null && overrideAmount !== ""
+    ? String(overrideAmount)
+    : fallbackAmount;
+
+  // Resolve the real `add_ons.id` for the FK on `job_add_ons.add_on_id`.
+  // pricing_addons.id and add_ons.id live in different tables; the
+  // older PATCH code naively reused the pricing id as the FK and threw
+  // FK violations whenever the IDs didn't coincide.
+  const existing = await txOrDb.execute(sql`
+    SELECT id FROM add_ons
+    WHERE company_id = ${schedule.company_id} AND LOWER(name) = LOWER(${addonName})
+    LIMIT 1
+  `);
+  let realAddOnId: number;
+  if (existing.rows.length) {
+    realAddOnId = Number((existing.rows[0] as any).id);
+  } else {
+    const created = await txOrDb.execute(sql`
+      INSERT INTO add_ons (company_id, name, price, category, is_active)
+      VALUES (${schedule.company_id}, ${addonName}, ${unitPrice}, 'other', true)
+      RETURNING id
+    `);
+    realAddOnId = Number((created.rows[0] as any).id);
+  }
+
+  return {
+    pricing_addon_id: Number(addonRow.id),
+    add_on_id: realAddOnId,
+    unit_price: unitPrice,
+    override_amount: overrideAmount != null && overrideAmount !== "" ? String(overrideAmount) : null,
+  };
+}
+
+// [recurring-on-save 2026-04-30 / PR #27] Returns true if the schedule's
+// parking config applies to the given weekday. NULL `parking_fee_days`
+// = "every visit"; non-null = "only the listed weekdays" (0=Sun..6=Sat).
+export function parkingApplies(
+  schedule: Pick<ScheduleInput, "parking_fee_enabled" | "parking_fee_days">,
+  date: Date,
+): boolean {
+  if (!schedule.parking_fee_enabled) return false;
+  const days = schedule.parking_fee_days ?? null;
+  if (days == null) return true;
+  return days.includes(date.getDay());
+}
+
+// [recurring-on-save 2026-04-30 / PR #27] Stamp a parking-fee row onto
+// `job_add_ons` for `jobId`. Idempotent via ON CONFLICT (job_id,
+// add_on_id) DO NOTHING — safe to call after either an INSERT or an
+// UPDATE of the parent job. Caller is responsible for checking
+// `parkingApplies` first.
+export async function stampParkingFeeOnJob(
+  jobId: number,
+  resolved: ResolvedParkingAddon,
+  txOrDb: any = db,
+): Promise<void> {
+  await txOrDb.execute(sql`
+    INSERT INTO job_add_ons
+      (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+    VALUES
+      (${jobId}, ${resolved.add_on_id}, 1, ${resolved.unit_price},
+       ${resolved.unit_price}, ${resolved.pricing_addon_id})
+    ON CONFLICT (job_id, add_on_id) DO NOTHING
+  `);
+}
+
+// [recurring-on-save 2026-04-30 / PR #27] Insert ONE job row from a
+// schedule template at the given date, returning the new id. Pure
+// INSERT — no dedupe, no parking stamping. Caller decides whether to
+// dedupe (PATCH cascade does its own existing-job lookup) and whether
+// to call `stampParkingFeeOnJob` after.
+//
+// Reused by the nightly engine path (looped from
+// `generateJobsFromSchedule`) and by the EditJobModal cascade path
+// (`PATCH /api/jobs/:id` cascade_scope='create_recurring' empty-day
+// inserts). Drizzle ORM `.insert().values()` only — no raw `sql` for
+// table writes (PR #25 array-binding bug, fixed in PR #26).
+export async function insertJobFromSchedule(
+  schedule: ScheduleInput,
+  date: Date,
+  txOrDb: any = db,
+  bookingLocation: string | null = null,
+  clientZip: string | null = null,
+): Promise<number> {
+  const [row] = await txOrDb
+    .insert(jobsTable)
+    .values({
+      company_id: schedule.company_id,
+      client_id: schedule.customer_id,
+      assigned_user_id: schedule.assigned_employee_id ?? null,
+      service_type: mapServiceType(schedule.service_type) as any,
+      status: "scheduled" as const,
+      scheduled_date: toDateStr(date),
+      scheduled_time: null as any,
+      frequency: mapFrequency(schedule.frequency) as any,
+      base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
+      allowed_hours: schedule.duration_minutes
+        ? String((schedule.duration_minutes / 60).toFixed(2))
+        : null as any,
+      notes: schedule.notes ?? null,
+      recurring_schedule_id: schedule.id,
+      booking_location: (bookingLocation ?? null) as any,
+      address_zip: (clientZip ?? null) as any,
+    })
+    .returning({ id: jobsTable.id });
+  return Number(row.id);
+}
+
 function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
@@ -287,76 +428,21 @@ export async function generateJobsFromSchedule(
   );
   if (!rows.length) return { created: 0, skipped };
 
-  // [AI.6] Strip the sidecar parking flag before INSERT (it's not a jobs
-  // column). Track per-row decision separately so we can stamp job_add_ons
-  // after the insert returns IDs.
-  const parkingDecisions = rows.map(r => Boolean((r as any)._parking_fee_applies));
-  const insertRows = rows.map(({ _parking_fee_applies: _strip, ...rest }: any) => rest);
-
-  // .returning() so we get IDs aligned with the input row order.
-  const inserted = await db
-    .insert(jobsTable)
-    .values(insertRows as any[])
-    .returning({ id: jobsTable.id, scheduled_date: jobsTable.scheduled_date });
-
-  // [AI.6] Stamp job_add_ons (parking) for jobs whose weekday matched.
-  // Lookup the tenant's Parking Fee pricing_addons row by name once per run.
-  // If absent (tenant has no Parking Fee addon), skip silently — engine
-  // doesn't fail the job creation just because parking config can't resolve.
-  let parkingStamped = 0;
-  const anyParking = parkingDecisions.some(Boolean);
+  // [recurring-on-save 2026-04-30 / PR #27] Refactor: per-date inserts
+  // via the shared `insertJobFromSchedule` helper instead of one bulk
+  // INSERT. Cost: N round trips instead of 1 (acceptable on the
+  // nightly cron — runs once per day, dedupe in compute means N is
+  // small per-schedule). Benefit: single source of truth for the
+  // INSERT shape so the EditJobModal cascade path can use the same
+  // helper without forking divergent column lists.
+  //
+  // Parking lookup is hoisted OUT of the loop (one query per run, not
+  // one per occurrence) via `resolveParkingAddon`.
+  const anyParking = rows.some(r => Boolean((r as any)._parking_fee_applies));
+  let resolved: ResolvedParkingAddon | null = null;
   if (anyParking) {
-    const addonLookup = await db.execute(sql`
-      SELECT id, name, COALESCE(price_value, price, '0')::numeric AS price
-      FROM pricing_addons
-      WHERE company_id = ${schedule.company_id}
-        AND LOWER(name) = 'parking fee'
-        AND is_active = true
-      LIMIT 1
-    `);
-    const addonRow = addonLookup.rows[0] as { id: number; name: string; price: string } | undefined;
-    if (addonRow) {
-      const pricingAddonId = Number(addonRow.id);
-      const addonName = String(addonRow.name ?? "Parking Fee");
-      const fallbackAmount = String(addonRow.price ?? "20");
-      const overrideAmount = schedule.parking_fee_amount;
-      const unitPrice = overrideAmount != null && overrideAmount !== "" ? String(overrideAmount) : fallbackAmount;
-
-      // [AI.6.3] Resolve a real add_ons.id for the FK on job_add_ons.add_on_id.
-      // pricing_addons.id and add_ons.id live in different tables; the older
-      // PATCH code naively reused the pricing id as the FK and threw FK
-      // violations whenever the IDs didn't coincide. Look up by name; create
-      // if absent.
-      const existing = await db.execute(sql`
-        SELECT id FROM add_ons
-        WHERE company_id = ${schedule.company_id} AND LOWER(name) = LOWER(${addonName})
-        LIMIT 1
-      `);
-      let realAddOnId: number;
-      if (existing.rows.length) {
-        realAddOnId = Number((existing.rows[0] as any).id);
-      } else {
-        const created = await db.execute(sql`
-          INSERT INTO add_ons (company_id, name, price, category, is_active)
-          VALUES (${schedule.company_id}, ${addonName}, ${unitPrice}, 'other', true)
-          RETURNING id
-        `);
-        realAddOnId = Number((created.rows[0] as any).id);
-      }
-
-      for (let i = 0; i < inserted.length; i++) {
-        if (!parkingDecisions[i]) continue;
-        const jobId = Number(inserted[i].id);
-        await db.execute(sql`
-          INSERT INTO job_add_ons
-            (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
-          VALUES
-            (${jobId}, ${realAddOnId}, 1, ${unitPrice}, ${unitPrice}, ${pricingAddonId})
-          ON CONFLICT (job_id, add_on_id) DO NOTHING
-        `);
-        parkingStamped++;
-      }
-    } else {
+    resolved = await resolveParkingAddon(schedule);
+    if (!resolved) {
       console.warn(
         `[recurring-engine] schedule ${schedule.id} has parking_fee_enabled but ` +
         `company ${schedule.company_id} has no active Parking Fee pricing_addon — skipping stamp`,
@@ -364,7 +450,29 @@ export async function generateJobsFromSchedule(
     }
   }
 
-  return { created: rows.length, skipped, parking_stamped: parkingStamped };
+  let parkingStamped = 0;
+  let created = 0;
+  for (const row of rows) {
+    // Reconstruct the Date from the YYYY-MM-DD string stamped by
+    // computeOccurrencesForSchedule. Use a midnight-local construction
+    // so DOW math matches the engine's existing behavior (avoids the
+    // UTC-vs-local landing case from KNOWN_BUGS.md #4).
+    const date = new Date(`${String(row.scheduled_date)}T00:00:00`);
+    const newId = await insertJobFromSchedule(
+      schedule,
+      date,
+      db,
+      bookingLocation ?? null,
+      clientZip ?? null,
+    );
+    created++;
+    if (resolved && (row as any)._parking_fee_applies) {
+      await stampParkingFeeOnJob(newId, resolved);
+      parkingStamped++;
+    }
+  }
+
+  return { created, skipped, parking_stamped: parkingStamped };
 }
 
 type SkippedSchedule = {

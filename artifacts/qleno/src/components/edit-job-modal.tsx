@@ -29,6 +29,12 @@ export interface EditableJob {
   client_id: number;
   client_name: string;
   recurring_schedule_id?: number | null;
+  // [PR #27] Surfaced from the dispatch + GET /:id LEFT JOIN on
+  // recurring_schedules. Drives the parking-fee day-picker render
+  // gate when the modal opens on a job whose attached schedule is
+  // multi-day (daily/weekdays/custom_days), even if the modal's
+  // local form-level frequency state hasn't synced yet.
+  recurring_schedule_days_of_week?: number[] | null;
   service_type: string;
   frequency: string;
   scheduled_date: string;
@@ -232,6 +238,17 @@ export default function EditJobModal({
   // to whatever the user re-picked.
   const [daysOfWeek, setDaysOfWeek] = useState<number[]>([]);
   const isMultiDayFreq = frequency === "daily" || frequency === "weekdays" || frequency === "custom_days";
+
+  // [PR #27] When the modal opens on a job that's already attached to
+  // a recurring schedule, the parking day picker should respect the
+  // schedule's days_of_week (surfaced from the dispatch / GET /:id
+  // LEFT JOIN on recurring_schedules) — not just the modal's local
+  // form-level frequency state, which lags until the user touches the
+  // dropdown. Without this, freshly cascade-created jobs would render
+  // with the picker collapsed even though they're on a 5-day schedule.
+  const attachedScheduleDays = (job as any).recurring_schedule_days_of_week as number[] | null | undefined;
+  const isMultiDayBySchedule = Array.isArray(attachedScheduleDays) && attachedScheduleDays.length > 1;
+  const isMultiDayEffective = isMultiDayFreq || isMultiDayBySchedule;
 
   // [AI.7.1] Parking-fee schedule-level config. Mirrors the three columns
   // on recurring_schedules. parkingFeeDays is an int[] of weekdays (0=Sun..
@@ -700,7 +717,12 @@ export default function EditJobModal({
         const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
         payload.parking_fee_enabled = parkingNowChecked;
         payload.parking_fee_amount = parkingFeeAmount;
-        payload.parking_fee_days = parkingNowChecked && isMultiDayFreq
+        // [PR #27] Use the effective multi-day signal (form-level OR
+        // attached-schedule-derived) so freshly cascade-created jobs
+        // can save a parking_fee_days array immediately, before the
+        // operator's next round-trip refreshes the form's local
+        // `frequency` state.
+        payload.parking_fee_days = parkingNowChecked && isMultiDayEffective
           ? (parkingFeeDays != null && parkingFeeDays.length < 7 ? [...parkingFeeDays].sort() : null)
           : null;
       }
@@ -1105,7 +1127,17 @@ export default function EditJobModal({
               // (lines 3281–3287). Sibling logic in the recurring-schedule
               // editor (customer-profile.tsx:3466) already gates on
               // frequency the same way; this closes the parity gap.
-              if (!isCommercial || !parkingAddon || !isParkingChecked || !isRecurring || !isMultiDayFreq) return null;
+              // [PR #27] Two changes from PR #24: (1) `isRecurring`
+              // now passes when the job is attached to a schedule
+              // (job.recurring_schedule_id != null) — same condition
+              // it always was, but documented here for clarity since
+              // PR #27's cascade can attach a schedule mid-edit. (2)
+              // `isMultiDayEffective` widens the gate to also pass
+              // when the attached schedule is multi-day even if the
+              // modal's local `frequency` state still reads the
+              // pre-edit value (e.g. open the modal on a job that
+              // was just promoted to weekdays via cascade).
+              if (!isCommercial || !parkingAddon || !isParkingChecked || !isRecurring || !isMultiDayEffective) return null;
               const dayLabels: { v: number; l: string }[] = [
                 { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" },
                 { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },

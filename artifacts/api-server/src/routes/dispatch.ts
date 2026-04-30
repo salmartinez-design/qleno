@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable } from "@workspace/db/schema";
+import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
@@ -169,6 +169,12 @@ router.get("/", requireAuth, async (req, res) => {
         // as cascade_scope='this_job' — operators never see the
         // "this and all future" option.
         recurring_schedule_id: jobsTable.recurring_schedule_id,
+        // [PR #27] Surfaced for the parking-fee day picker render gate
+        // in edit-job-modal.tsx. When a job is attached to a multi-day
+        // recurring schedule (daily/weekdays/custom_days), the modal
+        // renders the picker even if the job's local form-level
+        // frequency state lags. Null when no schedule attached.
+        recurring_schedule_days_of_week: recurringSchedulesTable.days_of_week,
         charge_failed_at: jobsTable.charge_failed_at,
         charge_succeeded_at: jobsTable.charge_succeeded_at,
         account_property_id: jobsTable.account_property_id,
@@ -197,6 +203,10 @@ router.get("/", requireAuth, async (req, res) => {
       .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
       .leftJoin(serviceZonesTable, eq(jobsTable.zone_id, serviceZonesTable.id))
       .leftJoin(branchesTable, eq(jobsTable.branch_id, branchesTable.id))
+      // [PR #27] Surfaces recurring_schedule_days_of_week for the
+      // edit-modal parking picker gate. LEFT JOIN — null when the
+      // job has no schedule attached.
+      .leftJoin(recurringSchedulesTable, eq(jobsTable.recurring_schedule_id, recurringSchedulesTable.id))
       .where(and(
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.scheduled_date, date),
@@ -585,6 +595,11 @@ router.get("/", requireAuth, async (req, res) => {
         // [AI.6.2] Surface schedule linkage so the edit modal's cascade
         // prompt fires for recurring jobs.
         recurring_schedule_id: (j as any).recurring_schedule_id ?? null,
+        // [PR #27] Drives the parking-fee day picker render gate in
+        // edit-job-modal.tsx — the picker shows when the attached
+        // schedule is multi-day, regardless of the modal's local
+        // form-level frequency state. Null when no schedule attached.
+        recurring_schedule_days_of_week: (j as any).recurring_schedule_days_of_week ?? null,
         billing_method: j.billing_method ?? null,
         hourly_rate: j.hourly_rate ? parseFloat(j.hourly_rate) : null,
         estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,

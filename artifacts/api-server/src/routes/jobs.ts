@@ -565,10 +565,17 @@ router.get("/:id", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         notes: jobsTable.notes,
         created_at: jobsTable.created_at,
+        // [PR #27] Schedule linkage + days_of_week so consumers
+        // (job detail page, my-jobs view) match the dispatch
+        // payload's shape and the edit-modal parking picker gate
+        // works regardless of which surface opens the modal.
+        recurring_schedule_id: jobsTable.recurring_schedule_id,
+        recurring_schedule_days_of_week: recurringSchedulesTable.days_of_week,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
       .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
+      .leftJoin(recurringSchedulesTable, eq(jobsTable.recurring_schedule_id, recurringSchedulesTable.id))
       .where(and(
         eq(jobsTable.id, jobId),
         eq(jobsTable.company_id, req.auth!.companyId)
@@ -1393,8 +1400,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
             ON CONFLICT (recurring_schedule_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
           `);
         }
+        // [PR #27] Capture the addon list separately from the per-job
+        // job_add_ons writes above so the per-date cascade loop below
+        // can reuse it for in-place UPDATE'd jobs and freshly INSERTed
+        // empty-day jobs alike.
+        const cascadeAddonList: Array<{ pricing_addon_id: number; qty: number; unit_price: string; subtotal: string }> = [];
         if (addOnsProvided && Array.isArray(add_ons)) {
-          for (const a of add_ons as Array<{ pricing_addon_id?: number; qty?: number }>) {
+          for (const a of add_ons as Array<{ pricing_addon_id?: number; qty?: number; unit_price?: number; subtotal?: number }>) {
             const pricingId = Number(a.pricing_addon_id ?? 0);
             const qty = Number(a.qty ?? 1) || 1;
             if (!pricingId) continue;
@@ -1402,8 +1414,251 @@ router.patch("/:id", requireAuth, async (req, res) => {
               INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
               VALUES (${newSchedId}, ${pricingId}, ${qty})
             `);
+            cascadeAddonList.push({
+              pricing_addon_id: pricingId,
+              qty,
+              unit_price: a.unit_price != null ? String(a.unit_price) : "0",
+              subtotal: a.subtotal != null ? String(a.subtotal) : "0",
+            });
           }
         }
+
+        // [PR #27] Per-date cascade — overwrite existing future jobs in
+        // place + insert on empty days. This is the difference between
+        // PR #25/#26 (which only inserted on empty days, leaving
+        // imported MaidCentral Tue–Fri jobs untouched with stale
+        // service_type/duration/tech/etc.) and the production
+        // expectation: edit Monday → expect Tue–Fri to inherit the
+        // schedule's settings.
+        //
+        // Money may have been collected or invoiced; never overwrite
+        // billed work. A job is "locked" against overwrite when ANY of
+        //   status = 'complete'                       (job marked done)
+        //   status = 'cancelled'                      (job killed)
+        //   charge_succeeded_at IS NOT NULL           (Stripe/Square paid)
+        //   exists(invoices.job_id = jobs.id)         (invoice issued)
+        // is true. Locked jobs emit a console log and stay untouched.
+        //
+        // Tech assignment on update overwrites with the schedule's
+        // default crew — mid-week per-day tech swap with "apply to all
+        // future" prompt is PR #28, out of scope here.
+        const { computeOccurrencesForSchedule, insertJobFromSchedule, resolveParkingAddon, stampParkingFeeOnJob, parkingApplies, DAYS_AHEAD: HORIZON } = await import("../lib/recurring-jobs.js");
+        const cascadeSched = await tx.execute(sql`
+          SELECT id, company_id, customer_id, frequency, day_of_week, days_of_week,
+                 custom_frequency_weeks, start_date, end_date, scheduled_time,
+                 assigned_employee_id, service_type, duration_minutes, base_fee,
+                 commercial_hourly_rate, notes, instructions,
+                 parking_fee_enabled, parking_fee_amount, parking_fee_days
+          FROM recurring_schedules WHERE id = ${newSchedId} LIMIT 1
+        `);
+        const sched = cascadeSched.rows[0] as any;
+        const cascadeClient = await tx.execute(sql`
+          SELECT zip FROM clients WHERE id = ${Number(before.client_id)} LIMIT 1
+        `);
+        const cascadeClientZip = ((cascadeClient.rows[0] as any)?.zip ?? null) as string | null;
+        const cascadeToday = new Date();
+        const cascadeHorizon = new Date(cascadeToday.getTime() + HORIZON * 24 * 60 * 60 * 1000);
+
+        // computeOccurrencesForSchedule returns the matching dates in
+        // the window. Its dedupe filters jobs whose
+        // recurring_schedule_id = sched.id — but the freshly-INSERTed
+        // schedule has zero linked rows in the *committed* state
+        // visible to db.select() (this transaction hasn't committed),
+        // so the result includes every matching weekday including the
+        // current Monday. We skip the current jobId explicitly in the
+        // loop below to avoid double-processing.
+        const { rows: candidateRows } = await computeOccurrencesForSchedule(
+          sched, cascadeToday, cascadeHorizon, null, cascadeClientZip,
+        );
+
+        const cascadeParking = sched.parking_fee_enabled === true
+          ? await resolveParkingAddon(sched, tx)
+          : null;
+        if (sched.parking_fee_enabled === true && !cascadeParking) {
+          console.warn(
+            `[cascade-create-recurring] schedule ${newSchedId} has parking_fee_enabled but ` +
+            `company ${companyId} has no active Parking Fee pricing_addon — skipping stamp`,
+          );
+        }
+
+        // Helper: resolve a real `add_ons.id` for the FK on
+        // `job_add_ons.add_on_id` from a pricing_addons.id. Mirrors
+        // the resolution logic in the per-job add-ons write above
+        // (lines ~1316-1346) — same pricing_addons → add_ons name
+        // lookup with create-if-absent fallback.
+        const resolveRealAddOnId = async (pricingId: number): Promise<number | null> => {
+          const paRows = await tx.execute(sql`
+            SELECT name FROM pricing_addons WHERE id = ${pricingId} LIMIT 1
+          `);
+          const paName = String((paRows.rows[0] as any)?.name ?? "").trim();
+          if (!paName) return null;
+          const ex = await tx.execute(sql`
+            SELECT id FROM add_ons
+            WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${paName})
+            LIMIT 1
+          `);
+          if (ex.rows.length) return Number((ex.rows[0] as any).id);
+          const cre = await tx.execute(sql`
+            INSERT INTO add_ons (company_id, name, price, category, is_active)
+            VALUES (${companyId}, ${paName}, '0', 'other', true)
+            RETURNING id
+          `);
+          return Number((cre.rows[0] as any).id);
+        };
+
+        // Pre-resolve add_ons FK ids for the schedule's addon list
+        // so we don't repeat the lookup per-date.
+        const cascadeAddonsResolved: Array<{ pricing_addon_id: number; add_on_id: number; qty: number; unit_price: string; subtotal: string }> = [];
+        for (const a of cascadeAddonList) {
+          const aid = await resolveRealAddOnId(a.pricing_addon_id);
+          if (aid != null) {
+            cascadeAddonsResolved.push({ ...a, add_on_id: aid });
+          }
+        }
+
+        let cascadeOverwritten = 0;
+        let cascadeInserted = 0;
+        let cascadeSkippedLocked = 0;
+
+        for (const row of candidateRows) {
+          const dateStr = String(row.scheduled_date);
+          const date = new Date(`${dateStr}T00:00:00`);
+
+          // Find existing jobs at this date for this client EXCEPT the
+          // current job (already updated via setParts above). FOR
+          // UPDATE locks the rows so concurrent edits don't race.
+          const existingJobs = await tx.execute(sql`
+            SELECT j.id, j.status, j.charge_succeeded_at,
+                   EXISTS(SELECT 1 FROM invoices i WHERE i.job_id = j.id) AS has_invoice
+            FROM jobs j
+            WHERE j.company_id = ${companyId}
+              AND j.client_id = ${Number(before.client_id)}
+              AND j.scheduled_date = ${dateStr}::date
+              AND j.id != ${jobId}
+            FOR UPDATE
+          `);
+          const existingRows = existingJobs.rows as Array<{
+            id: number; status: string;
+            charge_succeeded_at: string | null;
+            has_invoice: boolean;
+          }>;
+
+          if (existingRows.length === 0) {
+            // Empty day — INSERT a fresh job from the schedule template.
+            const newJobId = await insertJobFromSchedule(
+              sched, date, tx, null, cascadeClientZip,
+            );
+            cascadeInserted++;
+            for (let i = 0; i < techList.length; i++) {
+              const uid = techList[i];
+              const isPrimary = i === 0;
+              await tx.execute(sql`
+                INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+                VALUES (${newJobId}, ${uid}, ${companyId}, ${isPrimary})
+                ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+              `);
+            }
+            if (techList.length > 0) {
+              await tx.execute(sql`
+                UPDATE jobs SET assigned_user_id = ${techList[0]}
+                WHERE id = ${newJobId} AND company_id = ${companyId}
+              `);
+            }
+            for (const a of cascadeAddonsResolved) {
+              await tx.execute(sql`
+                INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+                VALUES (${newJobId}, ${a.add_on_id}, ${a.qty}, ${a.unit_price}, ${a.subtotal}, ${a.pricing_addon_id})
+                ON CONFLICT (job_id, add_on_id) DO UPDATE
+                  SET quantity = EXCLUDED.quantity,
+                      unit_price = EXCLUDED.unit_price,
+                      subtotal = EXCLUDED.subtotal,
+                      pricing_addon_id = EXCLUDED.pricing_addon_id
+              `);
+            }
+            if (cascadeParking && parkingApplies(sched, date)) {
+              await stampParkingFeeOnJob(newJobId, cascadeParking, tx);
+            }
+            continue;
+          }
+
+          // 1+ existing jobs at this date. Decide overwrite or skip
+          // per row — locked jobs are never overwritten.
+          for (const ex of existingRows) {
+            const isLocked = ex.status === "complete"
+              || ex.status === "cancelled"
+              || ex.charge_succeeded_at != null
+              || ex.has_invoice === true;
+            if (isLocked) {
+              console.log(`[cascade-create-recurring] skipped job_id=${ex.id} reason=status_locked`);
+              cascadeSkippedLocked++;
+              continue;
+            }
+            // UPDATE in place — preserve job id (audit log + history
+            // references depend on stable ids per the spec). Drizzle
+            // ORM .update().set() handles the column codecs.
+            await tx
+              .update(jobsTable)
+              .set({
+                scheduled_time: sched.scheduled_time as any,
+                allowed_hours: sched.duration_minutes
+                  ? String((Number(sched.duration_minutes) / 60).toFixed(2))
+                  : null as any,
+                service_type: sched.service_type as any,
+                base_fee: sched.base_fee != null ? String(sched.base_fee) : null as any,
+                hourly_rate: sched.commercial_hourly_rate != null
+                  ? String(sched.commercial_hourly_rate)
+                  : null as any,
+                frequency: sched.frequency as any,
+                recurring_schedule_id: newSchedId,
+                notes: (sched.notes ?? sched.instructions ?? null) as any,
+              })
+              .where(and(
+                eq(jobsTable.id, Number(ex.id)),
+                eq(jobsTable.company_id, companyId),
+              ));
+            // Sync techs: replace job_technicians with the schedule's crew.
+            await tx.execute(sql`DELETE FROM job_technicians WHERE job_id = ${Number(ex.id)}`);
+            for (let i = 0; i < techList.length; i++) {
+              const uid = techList[i];
+              const isPrimary = i === 0;
+              await tx.execute(sql`
+                INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+                VALUES (${Number(ex.id)}, ${uid}, ${companyId}, ${isPrimary})
+                ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+              `);
+            }
+            if (techList.length > 0) {
+              await tx.execute(sql`
+                UPDATE jobs SET assigned_user_id = ${techList[0]}
+                WHERE id = ${Number(ex.id)} AND company_id = ${companyId}
+              `);
+            }
+            // Sync add-ons: replace job_add_ons with the schedule's set.
+            await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${Number(ex.id)}`);
+            for (const a of cascadeAddonsResolved) {
+              await tx.execute(sql`
+                INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+                VALUES (${Number(ex.id)}, ${a.add_on_id}, ${a.qty}, ${a.unit_price}, ${a.subtotal}, ${a.pricing_addon_id})
+                ON CONFLICT (job_id, add_on_id) DO UPDATE
+                  SET quantity = EXCLUDED.quantity,
+                      unit_price = EXCLUDED.unit_price,
+                      subtotal = EXCLUDED.subtotal,
+                      pricing_addon_id = EXCLUDED.pricing_addon_id
+              `);
+            }
+            // Stamp parking on top if the schedule says so for this DOW.
+            // Idempotent via stampParkingFeeOnJob's ON CONFLICT.
+            if (cascadeParking && parkingApplies(sched, date)) {
+              await stampParkingFeeOnJob(Number(ex.id), cascadeParking, tx);
+            }
+            cascadeOverwritten++;
+          }
+        }
+
+        // Stash counts for the response.
+        (req as any)._cascadeOverwritten = cascadeOverwritten;
+        (req as any)._cascadeInserted = cascadeInserted;
+        (req as any)._cascadeSkippedLocked = cascadeSkippedLocked;
       }
 
       // ── Cascade: this_and_future or all ──────────────────────────────────
@@ -1767,54 +2022,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
       (req as any)._agFutureSkipped = futureClockedSkipped;
     });
 
-    // [recurring-on-save 2026-04-30] After-commit fan-out for the
-    // create_recurring path. Mirrors POST /api/recurring's pattern:
-    // synchronously generate the next 60 days so the dispatch board
-    // populates immediately. Best-effort — engine hiccups don't roll
-    // back the parent edit (the schedule + linked job already exist;
-    // the nightly 2 AM cron will catch any missed dates). Failures
-    // get surfaced in the response so the operator sees them.
-    let createRecurringFanout: { jobs_generated: number; jobs_skipped: number; error?: string } | null = null;
-    if (createdScheduleId != null) {
-      try {
-        const { generateJobsFromSchedule, DAYS_AHEAD: HORIZON } = await import("../lib/recurring-jobs.js");
-        const schedRow = await db.execute(sql`
-          SELECT id, company_id, customer_id, frequency, day_of_week, days_of_week,
-                 custom_frequency_weeks, start_date, end_date, scheduled_time,
-                 assigned_employee_id, service_type, duration_minutes, base_fee,
-                 commercial_hourly_rate, notes, instructions,
-                 parking_fee_enabled, parking_fee_amount, parking_fee_days
-          FROM recurring_schedules WHERE id = ${Number(createdScheduleId)} LIMIT 1
-        `);
-        const sched = schedRow.rows[0];
-        // Pull the client's zip for the booking_location/address_zip
-        // stamping the engine does on each generated job.
-        const cl = await db.execute(sql`
-          SELECT zip FROM clients WHERE id = ${Number(before.client_id)} LIMIT 1
-        `);
-        const clientZip = (cl.rows[0] as any)?.zip ?? null;
-        const today = new Date();
-        const horizon = new Date(today.getTime() + HORIZON * 24 * 60 * 60 * 1000);
-        const result = await generateJobsFromSchedule(
-          sched as any,
-          today,
-          horizon,
-          null,
-          clientZip,
-        );
-        createRecurringFanout = {
-          jobs_generated: result.created,
-          jobs_skipped: result.skipped,
-        };
-      } catch (genErr: any) {
-        console.warn("[PATCH /jobs/:id create_recurring] sync fan-out failed:", genErr?.message ?? genErr);
-        createRecurringFanout = {
-          jobs_generated: 0,
-          jobs_skipped: 0,
-          error: String(genErr?.message ?? genErr),
-        };
-      }
-    }
+    // [PR #27] The post-commit fan-out from PR #25/#26 is removed —
+    // the cascade now runs INSIDE the transaction (see the
+    // wantsCreateRecurring block above). Atomicity: any failure
+    // during the per-date overwrite loop rolls the entire create
+    // back, so we never leave a half-written schedule + linked
+    // Monday with un-cascaded Tue–Fri rows.
+    const createRecurringFanout = createdScheduleId != null
+      ? {
+          jobs_overwritten: (req as any)._cascadeOverwritten ?? 0,
+          jobs_inserted: (req as any)._cascadeInserted ?? 0,
+          jobs_skipped_locked: (req as any)._cascadeSkippedLocked ?? 0,
+        }
+      : null;
 
     // ── Build response ────────────────────────────────────────────────────
     const updatedRows = await db.execute(sql`
@@ -1834,10 +2054,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
         scope: cascade_scope,
         future_jobs_updated: (req as any)._agFutureCount ?? 0,
         future_jobs_skipped_in_progress: (req as any)._agFutureSkipped ?? 0,
-        // [recurring-on-save 2026-04-30] create_recurring metadata.
-        // Null when this PATCH didn't create a schedule. Otherwise
-        // includes the new schedule_id + the synchronous fan-out
-        // result (created / skipped / optional error).
+        // [PR #27] create_recurring metadata. Null when this PATCH
+        // didn't create a schedule. When present, includes the new
+        // schedule_id + the in-tx cascade result: jobs_overwritten
+        // (existing future rows updated in place, ids preserved) +
+        // jobs_inserted (empty-day inserts) + jobs_skipped_locked
+        // (rows untouched because complete/cancelled/paid/invoiced).
         created_schedule_id: createdScheduleId,
         create_recurring: createRecurringFanout,
       },
