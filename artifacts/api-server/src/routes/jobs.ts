@@ -807,14 +807,23 @@ router.patch("/:id", requireAuth, async (req, res) => {
       });
     }
 
-    // [cascade-scope 2026-04-29] Four valid scopes now:
+    // [cascade-scope 2026-04-29] Five valid scopes now:
     //   this_job          — write to this job + job_add_ons (default)
     //   this_and_future   — schedule template + future occurrences
     //   all               — full series including past (warn if paid)
     //   remove_this       — same write path as this_job; signals operator
     //                       intent to remove a schedule-default add-on
     //                       from this occurrence only (no schedule edit).
-    const VALID_CASCADE = ["this_job", "this_and_future", "all", "remove_this"] as const;
+    //   create_recurring  — [recurring-on-save 2026-04-30] convert a one-off
+    //                       job to the first occurrence of a new recurring
+    //                       schedule. Route creates a recurring_schedules
+    //                       row anchored to this job's scheduled_date,
+    //                       links jobs.recurring_schedule_id, copies
+    //                       job_add_ons / job_technicians onto the schedule,
+    //                       then fans out 60 days forward via
+    //                       generateJobsFromSchedule. Rejects with 409 if
+    //                       the customer already has an active schedule.
+    const VALID_CASCADE = ["this_job", "this_and_future", "all", "remove_this", "create_recurring"] as const;
     if (!VALID_CASCADE.includes(cascade_scope)) {
       return res.status(400).json({
         error: `cascade_scope must be one of: ${VALID_CASCADE.join(", ")}`,
@@ -930,6 +939,83 @@ router.patch("/:id", requireAuth, async (req, res) => {
       });
     }
 
+    // [recurring-on-save 2026-04-30] create_recurring scope: convert a
+    // one-off job into the first occurrence of a brand-new recurring
+    // schedule. Validation: target frequency must be a recurring value
+    // (not on_demand / blank), the current job must NOT already have a
+    // schedule (use this_and_future for those), and the customer must
+    // NOT already have an active schedule on file (409). The actual
+    // schedule INSERT + job link + add-on/tech copy + 60d fan-out
+    // happen in the transaction block below.
+    const RECURRING_FREQS = new Set([
+      "weekly", "biweekly", "every_3_weeks", "monthly", "daily", "weekdays", "custom_days",
+    ]);
+    const wantsCreateRecurring = cascade_scope === "create_recurring";
+    const effectiveFrequency = frequency !== undefined ? frequency : (before.frequency as string | null);
+    if (wantsCreateRecurring) {
+      if (before.recurring_schedule_id != null) {
+        return res.status(400).json({
+          error: "Cannot create",
+          message:
+            "This job is already part of a recurring schedule. Use cascade_scope='this_and_future' to update the schedule template instead.",
+        });
+      }
+      if (!effectiveFrequency || !RECURRING_FREQS.has(String(effectiveFrequency))) {
+        return res.status(400).json({
+          error: "Invalid frequency for create_recurring",
+          message:
+            "create_recurring requires frequency to be one of: weekly, biweekly, every_3_weeks, monthly, daily, weekdays, custom_days.",
+        });
+      }
+      // Active-schedule conflict — 409 with the conflicting row's id +
+      // frequency in the message so the operator knows what's blocking.
+      const clientIdNum = Number(before.client_id);
+      const existing = await db.execute(sql`
+        SELECT id, frequency, day_of_week, days_of_week
+          FROM recurring_schedules
+         WHERE customer_id = ${clientIdNum}
+           AND company_id = ${companyId}
+           AND is_active = true
+         ORDER BY id
+         LIMIT 1
+      `);
+      if (existing.rows.length) {
+        const r = existing.rows[0] as { id: number; frequency: string; day_of_week: string | null; days_of_week: number[] | null };
+        const freqLabel = String(r.frequency);
+        const dayLabel = r.day_of_week
+          ? ` on ${String(r.day_of_week)}s`
+          : (Array.isArray(r.days_of_week) && r.days_of_week.length > 0
+              ? ` on weekdays [${r.days_of_week.join(",")}]`
+              : "");
+        return res.status(409).json({
+          error: "Conflicting schedule",
+          existing_schedule_id: Number(r.id),
+          message:
+            `This client already has an active recurring schedule (id ${r.id}, ${freqLabel}${dayLabel}). ` +
+            `Update or end that schedule before creating a new one.`,
+        });
+      }
+    }
+    // [recurring-on-save 2026-04-30] Legacy bad-case guard. If the
+    // operator (or a programmatic caller) sends cascade_scope='this_job'
+    // with a recurring frequency on a one-off, we'd previously write
+    // jobs.frequency='weekdays' to the single row and silently drop
+    // days_of_week (no schedule to write to, no fan-out). That's how
+    // Jaira ended up with a Monday job tagged 'weekdays' and no Tue–Fri.
+    // Reject explicitly and direct callers to the right path.
+    if (
+      cascade_scope === "this_job"
+      && frequency !== undefined
+      && RECURRING_FREQS.has(String(frequency))
+      && before.recurring_schedule_id == null
+    ) {
+      return res.status(400).json({
+        error: "Frequency requires a recurring schedule",
+        message:
+          "frequency was set to a recurring value on a one-off job. Use cascade_scope='create_recurring' to create a schedule and fan out, or revert frequency to 'on_demand'.",
+      });
+    }
+
     // [cascade-scope 2026-04-29] cascade='all' warns when any past
     // occurrence in the series has been paid. Operator must confirm
     // via force_unlock=true to proceed (same flag used by the
@@ -1041,6 +1127,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
       nextManualOverride = false;
     }
 
+    // [recurring-on-save 2026-04-30] Out-of-transaction handle for the
+    // create_recurring path. The schedule INSERT happens inside the
+    // transaction; the 60-day fan-out runs after commit (calls into
+    // generateJobsFromSchedule which has its own dedupe + best-effort
+    // semantics — must not roll back the parent edit if it hiccups).
+    let createdScheduleId: number | null = null;
+
     // ── Apply changes in a transaction ─────────────────────────────────────
     await db.transaction(async (tx) => {
       // Update the jobs row itself.
@@ -1054,6 +1147,131 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
+
+      // [recurring-on-save 2026-04-30] create_recurring branch — INSERT
+      // the new recurring_schedules row, anchored to the current job's
+      // (possibly-just-edited) scheduled_date. Carryover fields come
+      // from request payload + the pre-edit job row. The freshly-minted
+      // scheduleId gets stamped onto setParts so the existing UPDATE
+      // below links the current job in the same transaction. Add-on +
+      // technician writes happen further down after their job-side
+      // counterparts.
+      if (wantsCreateRecurring) {
+        const effectiveDate = scheduled_date !== undefined
+          ? String(scheduled_date)
+          : String(before.scheduled_date);
+        const effectiveTime = scheduled_time !== undefined
+          ? String(scheduled_time)
+          : (before.scheduled_time as string | null);
+        const freqStr = String(effectiveFrequency);
+        // jobs.frequency → recurring_schedules.frequency. Same map used
+        // by the this_and_future cascade further down (kept here to
+        // avoid coupling — diverging is a real risk if both edit the
+        // map without the other). Audit periodically.
+        const freqMap: Record<string, { f: string; weeks: number | null }> = {
+          weekly:        { f: "weekly",        weeks: 1 },
+          biweekly:      { f: "biweekly",      weeks: 2 },
+          every_3_weeks: { f: "every_3_weeks", weeks: null },
+          monthly:       { f: "monthly",       weeks: 4 },
+          daily:         { f: "daily",         weeks: null },
+          weekdays:      { f: "weekdays",      weeks: null },
+          custom_days:   { f: "custom_days",   weeks: null },
+        };
+        const fmap = freqMap[freqStr] ?? { f: "custom", weeks: null };
+        // Multi-day frequencies use days_of_week (int[] 0..6); single-
+        // day uses day_of_week (enum string). Mutually exclusive per
+        // the schema invariant. For weekly/biweekly/etc. we derive the
+        // day-of-week from effectiveDate so the schedule's anchor day
+        // matches the current job. For daily we materialize [0..6];
+        // weekdays = [1..5]; custom_days uses what the modal sent.
+        const isMulti = freqStr === "daily" || freqStr === "weekdays" || freqStr === "custom_days";
+        let scheduleDow: string | null = null;
+        let scheduleDays: number[] | null = null;
+        if (isMulti) {
+          scheduleDays =
+            freqStr === "daily" ? [0,1,2,3,4,5,6]
+            : freqStr === "weekdays" ? [1,2,3,4,5]
+            : (Array.isArray(days_of_week) ? days_of_week : []);
+        } else {
+          const DOW_ENUM = ["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
+          // parseDate('YYYY-MM-DD') with no timezone arg lands UTC; we
+          // want the local-day interpretation (matches how scheduled_date
+          // is stored as a DATE, not TIMESTAMPTZ). Append T00:00 then
+          // read getDay() — Date math stays in local TZ, getDay() uses
+          // local. KNOWN_BUGS.md #4 (recurring anchor on Monday bug)
+          // is the inverse case (UTC parse landing Monday for what
+          // should be Sunday); same mitigation applies.
+          const d = new Date(`${effectiveDate}T00:00:00`);
+          scheduleDow = DOW_ENUM[d.getDay()];
+        }
+        // assigned_employee_id mirrors the primary tech: if the modal
+        // sent a fresh team list, take the first (primary) user; else
+        // keep whoever's currently on the job (jobs.assigned_user_id).
+        const primaryUid = teamProvided && Array.isArray(team_user_ids) && team_user_ids.length > 0
+          ? Number(team_user_ids[0])
+          : (before.assigned_user_id != null ? Number(before.assigned_user_id) : null);
+        // duration_minutes: convert allowed_hours (the modal's primary
+        // duration field) when present, else inherit from before.
+        const effectiveAllowedHours = allowed_hours !== undefined
+          ? parseFloat(String(allowed_hours))
+          : (before.allowed_hours != null ? parseFloat(String(before.allowed_hours)) : null);
+        const durationMin = effectiveAllowedHours != null && Number.isFinite(effectiveAllowedHours)
+          ? Math.round(effectiveAllowedHours * 60)
+          : null;
+        // service_type / base_fee / commercial_hourly_rate / parking_*
+        // come from payload (preferred) with fallback to before.
+        const effectiveServiceType = service_type !== undefined
+          ? service_type
+          : (before.service_type as string | null);
+        const effectiveBaseFee = base_fee !== undefined
+          ? String(base_fee)
+          : (before.base_fee != null ? String(before.base_fee) : null);
+        const effectiveHourlyRate = hourly_rate !== undefined
+          ? (hourly_rate === null ? null : String(hourly_rate))
+          : (before.hourly_rate != null ? String(before.hourly_rate) : null);
+        const effectiveNotes = instructions !== undefined
+          ? instructions
+          : (before.notes as string | null);
+        const effParkingEnabled = parking_fee_enabled !== undefined ? !!parking_fee_enabled : false;
+        const effParkingAmount = parking_fee_amount !== undefined && parking_fee_amount !== null
+          ? String(parking_fee_amount)
+          : null;
+        const effParkingDays = Array.isArray(parking_fee_days) && parking_fee_days.length > 0
+          ? parking_fee_days
+          : null;
+
+        const inserted = await tx.execute(sql`
+          INSERT INTO recurring_schedules
+            (company_id, customer_id, frequency, day_of_week, days_of_week,
+             custom_frequency_weeks, start_date, end_date, scheduled_time,
+             assigned_employee_id, service_type, duration_minutes, base_fee,
+             commercial_hourly_rate, notes, instructions, is_active,
+             parking_fee_enabled, parking_fee_amount, parking_fee_days)
+          VALUES
+            (${companyId}, ${Number(before.client_id)},
+             ${fmap.f}::recurring_frequency,
+             ${scheduleDow}::recurring_day,
+             ${scheduleDays}::int[],
+             ${fmap.weeks},
+             ${effectiveDate}::date,
+             NULL,
+             ${effectiveTime},
+             ${primaryUid},
+             ${effectiveServiceType},
+             ${durationMin},
+             ${effectiveBaseFee},
+             ${effectiveHourlyRate},
+             ${effectiveNotes},
+             ${effectiveNotes},
+             true,
+             ${effParkingEnabled},
+             ${effParkingAmount},
+             ${effParkingDays}::int[])
+          RETURNING id
+        `);
+        createdScheduleId = Number((inserted.rows[0] as any).id);
+        setParts.recurring_schedule_id = createdScheduleId;
+      }
 
       if (Object.keys(setParts).length > 0) {
         await tx.update(jobsTable).set(setParts).where(and(
@@ -1143,6 +1361,41 @@ router.patch("/:id", requireAuth, async (req, res) => {
                   subtotal = EXCLUDED.subtotal,
                   pricing_addon_id = EXCLUDED.pricing_addon_id
           `);
+        }
+      }
+
+      // [recurring-on-save 2026-04-30] Seed the new schedule's
+      // technician + add-on tables from the just-saved per-job state
+      // so future engine-spawned jobs inherit the same crew + add-ons.
+      // Mirrors the existing this_and_future cascade block below
+      // (lines further down) which does the same for already-existing
+      // schedules. team_user_ids fallback: if the modal didn't send
+      // a fresh team list (teamProvided=false), seed from the current
+      // job's assigned_user_id so the schedule still has an owner.
+      if (wantsCreateRecurring && createdScheduleId != null) {
+        const newSchedId = Number(createdScheduleId);
+        const techList: number[] = teamProvided && Array.isArray(team_user_ids) && team_user_ids.length > 0
+          ? team_user_ids.map((u: unknown) => Number(u))
+          : (before.assigned_user_id != null ? [Number(before.assigned_user_id)] : []);
+        for (let i = 0; i < techList.length; i++) {
+          const uid = techList[i];
+          const isPrimary = i === 0;
+          await tx.execute(sql`
+            INSERT INTO recurring_schedule_technicians (recurring_schedule_id, user_id, is_primary)
+            VALUES (${newSchedId}, ${uid}, ${isPrimary})
+            ON CONFLICT (recurring_schedule_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+          `);
+        }
+        if (addOnsProvided && Array.isArray(add_ons)) {
+          for (const a of add_ons as Array<{ pricing_addon_id?: number; qty?: number }>) {
+            const pricingId = Number(a.pricing_addon_id ?? 0);
+            const qty = Number(a.qty ?? 1) || 1;
+            if (!pricingId) continue;
+            await tx.execute(sql`
+              INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
+              VALUES (${newSchedId}, ${pricingId}, ${qty})
+            `);
+          }
         }
       }
 
@@ -1507,6 +1760,55 @@ router.patch("/:id", requireAuth, async (req, res) => {
       (req as any)._agFutureSkipped = futureClockedSkipped;
     });
 
+    // [recurring-on-save 2026-04-30] After-commit fan-out for the
+    // create_recurring path. Mirrors POST /api/recurring's pattern:
+    // synchronously generate the next 60 days so the dispatch board
+    // populates immediately. Best-effort — engine hiccups don't roll
+    // back the parent edit (the schedule + linked job already exist;
+    // the nightly 2 AM cron will catch any missed dates). Failures
+    // get surfaced in the response so the operator sees them.
+    let createRecurringFanout: { jobs_generated: number; jobs_skipped: number; error?: string } | null = null;
+    if (createdScheduleId != null) {
+      try {
+        const { generateJobsFromSchedule, DAYS_AHEAD: HORIZON } = await import("../lib/recurring-jobs.js");
+        const schedRow = await db.execute(sql`
+          SELECT id, company_id, customer_id, frequency, day_of_week, days_of_week,
+                 custom_frequency_weeks, start_date, end_date, scheduled_time,
+                 assigned_employee_id, service_type, duration_minutes, base_fee,
+                 commercial_hourly_rate, notes, instructions,
+                 parking_fee_enabled, parking_fee_amount, parking_fee_days
+          FROM recurring_schedules WHERE id = ${Number(createdScheduleId)} LIMIT 1
+        `);
+        const sched = schedRow.rows[0];
+        // Pull the client's zip for the booking_location/address_zip
+        // stamping the engine does on each generated job.
+        const cl = await db.execute(sql`
+          SELECT zip FROM clients WHERE id = ${Number(before.client_id)} LIMIT 1
+        `);
+        const clientZip = (cl.rows[0] as any)?.zip ?? null;
+        const today = new Date();
+        const horizon = new Date(today.getTime() + HORIZON * 24 * 60 * 60 * 1000);
+        const result = await generateJobsFromSchedule(
+          sched as any,
+          today,
+          horizon,
+          null,
+          clientZip,
+        );
+        createRecurringFanout = {
+          jobs_generated: result.created,
+          jobs_skipped: result.skipped,
+        };
+      } catch (genErr: any) {
+        console.warn("[PATCH /jobs/:id create_recurring] sync fan-out failed:", genErr?.message ?? genErr);
+        createRecurringFanout = {
+          jobs_generated: 0,
+          jobs_skipped: 0,
+          error: String(genErr?.message ?? genErr),
+        };
+      }
+    }
+
     // ── Build response ────────────────────────────────────────────────────
     const updatedRows = await db.execute(sql`
       SELECT id, status, service_type, frequency, scheduled_date, scheduled_time,
@@ -1525,6 +1827,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
         scope: cascade_scope,
         future_jobs_updated: (req as any)._agFutureCount ?? 0,
         future_jobs_skipped_in_progress: (req as any)._agFutureSkipped ?? 0,
+        // [recurring-on-save 2026-04-30] create_recurring metadata.
+        // Null when this PATCH didn't create a schedule. Otherwise
+        // includes the new schedule_id + the synchronous fan-out
+        // result (created / skipped / optional error).
+        created_schedule_id: createdScheduleId,
+        create_recurring: createRecurringFanout,
       },
     });
   } catch (err: any) {

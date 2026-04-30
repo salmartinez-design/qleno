@@ -263,7 +263,13 @@ export default function EditJobModal({
   // intent ("skip the schedule's default add-on for this visit only").
   // 'all' updates the template + every non-paid occurrence including
   // past — the route warns when there are paid past jobs.
-  type CascadeChoice = "this_job" | "this_and_future" | "all" | "remove_this";
+  // [recurring-on-save 2026-04-30] 'create_recurring' is sent silently
+  // (no prompt UI) when the operator hits Save on a one-off job whose
+  // form-level frequency is now recurring. The route creates the
+  // schedule + links the current job + fans out 60d in one transaction.
+  // The form is the source of truth: whatever the dropdown says when
+  // they hit Save is what should happen. No second confirm.
+  type CascadeChoice = "this_job" | "this_and_future" | "all" | "remove_this" | "create_recurring";
   const [cascadePromptOpen, setCascadePromptOpen] = useState(false);
   const [cascadeChoice, setCascadeChoice] = useState<CascadeChoice>("this_job");
   // [edit-decouple 2026-04-29] When the route returns warn=true, we
@@ -597,6 +603,18 @@ export default function EditJobModal({
     && commercialServiceTypeValid;
 
   // ── Cascade prompt or direct submit ─────────────────────────────────────
+  // [recurring-on-save 2026-04-30] Three branches now:
+  //   (1) Job is already recurring → existing 4-option cascade prompt.
+  //   (2) Job is one-off but the form-level frequency is recurring
+  //       (anything except on_demand) → silently submit with
+  //       cascade_scope='create_recurring'. Route creates the schedule,
+  //       links this job, fans out 60d. Save means save — operators
+  //       don't want a second confirm step on top of the dropdown they
+  //       just changed.
+  //   (3) One-off staying one-off → default cascade='this_job'.
+  // The PATCH route also rejects mismatched scope+frequency combos
+  // (e.g. cascade='this_job' with a recurring frequency on a one-off)
+  // to close the silent-days_of_week-drop bug for any caller.
   function onSaveClick() {
     if (!canSave) return;
     if (isRecurring) {
@@ -604,7 +622,8 @@ export default function EditJobModal({
       setCascadePromptOpen(true);
       return;
     }
-    submit("this_job");
+    const isFreqRecurring = !!frequency && frequency !== "on_demand";
+    submit(isFreqRecurring ? "create_recurring" : "this_job");
   }
 
   async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean }) {
