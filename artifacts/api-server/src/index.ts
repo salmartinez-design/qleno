@@ -103,6 +103,14 @@ function startFollowUpCron() {
 // Start listening immediately so health checks pass, then seed in the background
 app.listen(port, "0.0.0.0", () => {
   console.log("Server running on port", process.env.PORT || 3000);
+  // [DR runbook 2026-04-30] Static reminder visible on every cold
+  // start. Surfaces backup-state in Railway logs without requiring
+  // a RAILWAY_API_TOKEN credential we'd then have to manage. The
+  // intent is to keep "verify backups quarterly" in the operator's
+  // eyeline, not to give live timestamp data — Railway Hobby's
+  // backup state changes maybe twice a year.
+  // Procedure + RPO/RTO targets: docs/disaster-recovery.md
+  console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
   const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
   // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
   // Railway restart cascades caused 5x concurrent engine runs on the
