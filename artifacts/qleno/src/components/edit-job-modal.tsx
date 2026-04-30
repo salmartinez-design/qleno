@@ -331,6 +331,15 @@ export default function EditJobModal({
 
   const [saving, setSaving] = useState(false);
 
+  // [PR / 2026-04-30] Persistent in-modal banner for the last save
+  // error. Toast machinery is fleeting + easy to miss when the
+  // operator's eye is on the cascade prompt. Banner sits above the
+  // footer until the next save attempt clears it. Banner copy =
+  // verbatim API error message (so the operator distinguishes
+  // field-lock vs network vs validation), not a generic "save
+  // failed" — no information loss.
+  const [lastSaveError, setLastSaveError] = useState<{ title: string; message: string } | null>(null);
+
   // [PR / 2026-04-30] Cascade dry-run preview. cascadePreviewEnabled
   // gates the "Preview changes" button — fetched from
   // /api/config/feature-flags on modal mount, default false. Sal
@@ -800,6 +809,9 @@ export default function EditJobModal({
 
   async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean; dry_run?: boolean }) {
     if (opts?.dry_run) setPreviewing(true); else setSaving(true);
+    // [PR / 2026-04-30] Clear stale error banner at the start of
+    // every save attempt so retries don't show outdated messages.
+    setLastSaveError(null);
     try {
       // Build add-ons payload. We persist into job_add_ons via add_on_id (legacy
       // FK), but also pass pricing_addon_id for traceability per AG.
@@ -900,10 +912,16 @@ export default function EditJobModal({
         if (r.status === 409 && d.warn === true) {
           setWarnPrompt({ message: d.message || "This change requires confirmation.", field: d.field });
           setCascadePromptOpen(false);
-        } else if (r.status === 409) {
-          toast({ title: "Cannot edit", description: d.message || "Job is locked or a tech is clocked in.", variant: "destructive" });
         } else {
-          toast({ title: "Save failed", description: d.message || d.error || `HTTP ${r.status}`, variant: "destructive" });
+          // [PR / 2026-04-30] Persistent in-modal banner. Mirrors
+          // the toast (transient confirmation) but stays put until
+          // the operator's next save attempt clears it. Verbatim
+          // API message — no information loss between "field locked"
+          // and "tech clocked in" and "validation failed".
+          const apiMessage = d.message || d.error || `HTTP ${r.status}`;
+          const title = r.status === 409 ? "Cannot edit" : "Save failed";
+          setLastSaveError({ title, message: apiMessage });
+          toast({ title, description: apiMessage, variant: "destructive" });
         }
         return;
       }
@@ -916,15 +934,42 @@ export default function EditJobModal({
         setPreviewResult(d.cascade ?? {});
         return;
       }
+      // [PR / 2026-04-30] Compose an honest success summary from the
+      // route's response. Examples:
+      //   "Schedule updated. 4 future jobs reflect new times."
+      //   "Schedule updated. 4 future jobs reflect new times.
+      //    Monday's completed job is unchanged (frequency, base_fee
+      //    stayed frozen)."
+      // The anchor_protected piece only renders when the route
+      // stripped lock-protected fields from the anchor's setParts
+      // (completed-anchor + cascadesToTemplate). Everything else
+      // gets the simpler version.
+      const summaryParts: string[] = [];
+      if (d.cascade?.schedule_updated) summaryParts.push("Schedule updated.");
+      const futureN = Number(d.cascade?.future_jobs_updated ?? 0);
+      if (futureN > 0) summaryParts.push(`${futureN} future job${futureN === 1 ? "" : "s"} reflect new times.`);
+      if (d.cascade?.anchor_protected) {
+        const fields: string[] = Array.isArray(d.cascade?.anchor_skipped_fields) ? d.cascade.anchor_skipped_fields : [];
+        const fieldList = fields.length > 0 ? ` (${fields.join(", ")} stayed frozen)` : "";
+        summaryParts.push(`This visit is unchanged${fieldList}.`);
+      }
+      if (summaryParts.length > 0) {
+        toast({ title: "Saved", description: summaryParts.join(" ") });
+      }
       onSaved({
-        future_jobs_updated: d.cascade?.future_jobs_updated ?? 0,
+        future_jobs_updated: futureN,
         future_jobs_skipped_in_progress: d.cascade?.future_jobs_skipped_in_progress ?? 0,
       });
     } catch (err) {
       // [AI.6.2] Surface the real exception so a network/CORS/parse failure
       // doesn't silently disappear under the modal.
       console.error("[edit-job-modal] PATCH exception", err);
-      toast({ title: "Network error", description: opts?.dry_run ? "Preview failed — see DevTools console" : "Could not save changes — see DevTools console", variant: "destructive" });
+      const networkMsg = opts?.dry_run ? "Preview failed — see DevTools console" : "Could not save changes — see DevTools console";
+      // [PR / 2026-04-30] Pin a network-error banner the same way as
+      // an HTTP error — same persistence semantics so an operator
+      // who wandered off doesn't miss the failure.
+      if (!opts?.dry_run) setLastSaveError({ title: "Network error", message: networkMsg });
+      toast({ title: "Network error", description: networkMsg, variant: "destructive" });
     } finally {
       if (opts?.dry_run) setPreviewing(false); else setSaving(false);
       if (!opts?.dry_run) {
@@ -1476,6 +1521,26 @@ export default function EditJobModal({
               <li>Future jobs in series — update: {String(previewResult.future_jobs_would_be_updated ?? 0)}, delete: {String(previewResult.future_jobs_would_be_deleted ?? 0)}, insert: {String(previewResult.future_jobs_would_be_inserted_in_tx ?? 0)}, skipped (clocked-in): {String(previewResult.future_jobs_would_be_skipped_in_progress ?? 0)}</li>
               <li style={{ color: "#6B7280", fontSize: 12 }}>Forward 60-day fan-out NOT simulated in v1 — re-run without preview to see actual count.</li>
             </ul>
+          </div>
+        )}
+
+        {/* [PR / 2026-04-30] Persistent error banner. Sits above the
+            footer until the operator's next save attempt clears it
+            (submit() → setLastSaveError(null) at start). Pulls the
+            verbatim API message — distinguishes field-lock vs
+            network vs validation without flattening to "save
+            failed". Toast still fires on the same event for
+            transient confirmation; the banner is the persistent
+            audit trail of the failure. */}
+        {lastSaveError && (
+          <div style={{ padding: "12px 20px", borderTop: "1px solid #FECACA", backgroundColor: "#FEF2F2", fontFamily: FF, fontSize: 13, color: "#991B1B" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>{lastSaveError.title}</div>
+                <div style={{ lineHeight: 1.4 }}>{lastSaveError.message}</div>
+              </div>
+              <button onClick={() => setLastSaveError(null)} style={{ fontSize: 12, color: "#991B1B", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}>Dismiss</button>
+            </div>
           </div>
         )}
 

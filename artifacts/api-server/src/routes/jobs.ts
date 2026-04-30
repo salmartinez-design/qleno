@@ -899,27 +899,57 @@ router.patch("/:id", requireAuth, async (req, res) => {
       });
     }
 
-    if (isCompleted) {
-      // Hard locks on completed jobs.
+    // [PR / 2026-04-30] Cascade-scope-aware completed-job lock.
+    //
+    // The legacy hard-lock returned 409 when an operator tried to
+    // change frequency / service_type / price on a completed job —
+    // regardless of cascade_scope. That conflated two intents:
+    //   (1) "edit this completed job's fields"   (cascade_scope=this_job)
+    //   (2) "edit the schedule TEMPLATE via this completed job as
+    //        the anchor; future jobs should inherit, this one stays
+    //        as-is in the audit trail" (cascade_scope=this_and_future)
+    //
+    // (2) is a real workflow — most common trigger: client completes
+    // Monday, calls Tuesday morning to change the schedule going
+    // forward. Operator opens Monday (the only edit surface they have
+    // for this client's schedule), changes frequency, picks
+    // 'this and all future'. Pre-fix this 409'd. Post-fix the route
+    // strips the locked fields from the anchor's `setParts` UPDATE
+    // (audit record stays clean) but proceeds with the schedule-
+    // template UPDATE + future-jobs cascade.
+    const cascadesToTemplate = cascade_scope === "this_and_future" || cascade_scope === "all";
+    const skipAnchorLockedFields = isCompleted && cascadesToTemplate;
+
+    if (isCompleted && !cascadesToTemplate) {
+      // Editing only this completed job — hard-lock service_type /
+      // frequency. Changing them rewrites commission routing and
+      // recurrence semantics on already-billed work. Operator must
+      // void-and-rebook for those.
       if (service_type !== undefined && service_type !== before.service_type) {
         return res.status(409).json({
           error: "Field locked",
           field: "service_type",
-          message: "Service type can't change on a completed job. Cancel and re-book if the wrong type was billed.",
+          message: "Service type can't change on a completed job. Cancel and re-book if the wrong type was billed, or use 'This and all future' to update the schedule template.",
         });
       }
       if (frequency !== undefined && frequency !== before.frequency) {
         return res.status(409).json({
           error: "Field locked",
           field: "frequency",
-          message: "Frequency can't change on a completed job. Cancel and re-book if the recurrence was wrong.",
+          message: "Frequency can't change on a completed job. Cancel and re-book if the recurrence was wrong, or use 'This and all future' to update the schedule template.",
         });
       }
+    }
+    if (isCompleted) {
       // Warn-locked: pricing on completed jobs. Hard-locked when paid.
+      // For cascadesToTemplate: skip the warn/hard-lock entirely. The
+      // price change applies to the schedule template + future jobs;
+      // the anchor's `jobs.base_fee` / `jobs.hourly_rate` stay frozen
+      // (stripped from setParts below).
       const priceChanged =
         (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) ||
         (hourly_rate !== undefined && String(hourly_rate ?? "") !== String(before.hourly_rate ?? ""));
-      if (priceChanged) {
+      if (priceChanged && !cascadesToTemplate) {
         if (isPaid) {
           return res.status(409).json({
             error: "Field locked",
@@ -1178,6 +1208,24 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
+
+      // [PR / 2026-04-30] When the anchor is a completed job AND the
+      // operator picked a cascade scope that propagates to the
+      // schedule template + future jobs, strip the lock-protected
+      // fields from setParts. The schedule UPDATE + future-jobs
+      // cascade further down apply the changes to the right rows;
+      // the anchor's `jobs` row keeps its original frequency /
+      // service_type / base_fee / hourly_rate as part of the
+      // completed-work audit trail.
+      const anchorSkippedFields: string[] = [];
+      if (skipAnchorLockedFields) {
+        if ("frequency" in setParts) { delete setParts.frequency; anchorSkippedFields.push("frequency"); }
+        if ("service_type" in setParts) { delete setParts.service_type; anchorSkippedFields.push("service_type"); }
+        if ("base_fee" in setParts) { delete setParts.base_fee; anchorSkippedFields.push("base_fee"); }
+        if ("hourly_rate" in setParts) { delete setParts.hourly_rate; anchorSkippedFields.push("hourly_rate"); }
+      }
+      // Stash for the response (read after commit via closure).
+      (req as any)._anchorSkippedFields = anchorSkippedFields;
 
       // [recurring-on-save 2026-04-30] create_recurring branch — INSERT
       // the new recurring_schedules row, anchored to the current job's
@@ -1537,6 +1585,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
           const setClauses = rsSet.map((c, i) => sql`${sql.identifier(c)} = ${rsVals[i]}`);
           const setSql = sql.join(setClauses, sql`, `);
           await tx.execute(sql`UPDATE recurring_schedules SET ${setSql} WHERE id = ${scheduleId} AND company_id = ${companyId}`);
+          // [PR / 2026-04-30] Surface "schedule was touched" so the
+          // response can render an honest summary ("Schedule updated.
+          // 4 future jobs reflect new times.") rather than the
+          // generic save-confirmation toast.
+          (req as any)._scheduleUpdated = true;
         }
 
         // ── Future-jobs cascade: branch by whether day pattern changed ────
@@ -1922,6 +1975,18 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // result (created / skipped / optional error).
         created_schedule_id: createdScheduleId,
         create_recurring: createRecurringFanout,
+        // [PR / 2026-04-30] Anchor-protection signals for the modal's
+        // success banner. anchor_protected=true means the operator
+        // edited a completed job with cascade_scope=this_and_future|all
+        // and the route stripped lock-protected fields from the
+        // anchor's `setParts` UPDATE. anchor_skipped_fields lists
+        // exactly which fields were stripped — modal shows them in
+        // the success summary so the operator sees what stayed
+        // frozen. schedule_updated=true means the recurring_schedules
+        // template row was UPDATEd in the cascade block.
+        anchor_protected: ((req as any)._anchorSkippedFields ?? []).length > 0,
+        anchor_skipped_fields: (req as any)._anchorSkippedFields ?? [],
+        schedule_updated: !!(req as any)._scheduleUpdated,
       },
     });
   } catch (err: any) {
