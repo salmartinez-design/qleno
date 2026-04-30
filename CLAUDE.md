@@ -305,6 +305,137 @@
 5. UI cleanup: inline address verification, collapsible call notes
 6. Recurring job timezone bug fix (parseDate local vs UTC)
 
+## Session Notes — 2026-04-30
+
+### Architecture-pass + ops hardening
+
+Big day. Architecture-pass PRs landed earlier (#22 JobWizard two-level
+picker, #24 parking-day-picker single-day-frequency hide, #25 cascade
+create_recurring, #26 array-binding fix on the cascade INSERT). Then
+the ops-hardening batch and a frequency-on-completed-anchor fix:
+
+- PR #30 — `chore: verify backups on + document disaster recovery` —
+  added `docs/disaster-recovery.md` runbook + a static `[backup-check]`
+  reminder console.log on cold start. NO RAILWAY_API_TOKEN — doc-only
+  per Q1.1 = (a). RPO/RTO baseline documented as Railway Hobby defaults
+  (≤24h / ~30min); Phes can tolerate.
+- PR #31 — `chore: pre-deploy schema drift verification` — added
+  `src/scripts/verify-schema.ts` (one-way Drizzle-ahead-of-DB check
+  per Q2.1 = a) wired into the boot sequence via top-level `await` +
+  dynamic import. **REVERTED via PR #36** (see outage below).
+- PR #32 — `feat: cascade dry-run mode for destructive operation
+  preview` — added `dry_run: true` flag to PATCH `/api/jobs/:id`
+  (counters-only per Q3.1 = a, write-then-rollback via
+  DryRunRollback sentinel + `.catch()` chain). Frontend Preview button
+  gated by `CASCADE_PREVIEW_ENABLED` via new
+  `GET /api/config/feature-flags` endpoint (default off). **Live on
+  main.**
+- PR #33 — `feat: skip cascade picker when edit only touches schedule-
+  template fields` — `FIELD_SCOPE_CLASSIFICATION` constant in
+  `edit-job-modal.tsx` separates schedule-template fields (frequency,
+  days_of_week, scheduled_time, allowed_hours, service_type,
+  hourly_rate, base_fee, add_ons, parking_fee_*) from single-occurrence
+  fields (team_user_ids, instructions, scheduled_date). Template-only
+  edits auto-cascade `this_and_future`. Mixed edits show picker with
+  amber footnote per Q1 = (c). **Live on main.**
+- PR #34 — `fix: cascade_scope=this_and_future on completed anchor
+  returns 200` — addressed Sal's "client completes Mon + calls Tue
+  morning to change schedule going forward" workflow. Hard-lock at
+  `routes/jobs.ts:902-917` was rejecting frequency changes on
+  completed jobs regardless of cascade scope; fix made it scope-aware,
+  stripped lock-protected fields from anchor `setParts` when
+  cascading template/future, surfaced `anchor_protected` /
+  `anchor_skipped_fields` / `schedule_updated` in response, added
+  persistent in-modal error banner with verbatim API copy.
+  **REVERTED via PR #35.**
+
+### Production-down outage + recovery
+
+Around end of session, `app.qleno.com` returned Railway 502
+"Application failed to respond" — api-server failed to boot.
+
+Sequence:
+1. PR #34 deployed → 502 reported.
+2. PR #35 (revert PR #34) merged at Sal's instruction (newest-first
+   revert order). 502 persisted.
+3. PR #36 (revert PR #31) merged. **Production restored.**
+
+Root cause: PR #31's schema-drift verification at boot. Most likely
+specifics (need Railway log forensics tomorrow to confirm):
+- top-level `await` + dynamic `await import("./scripts/verify-schema.js")`
+  in `src/index.ts` BEFORE `app.listen()` introduced an async boot
+  edge case
+- OR esbuild's bundler in Railway's Docker build resolved the dynamic
+  import differently than locally, causing module-load failure
+- OR the schema-introspection queries against `information_schema`
+  hit a permission/timeout issue on prod that didn't repro locally
+
+Lesson: a verifier that gates boot is asking for a 3am outage even in
+`warn` mode if the verifier itself can throw before the try/catch
+engages. Future iteration of this idea (if pursued) should run AFTER
+`app.listen` so the healthcheck passes regardless, or run as a
+separate post-deploy CI step rather than a runtime check.
+
+### Net state of `main` after the dust settled
+
+Live on main:
+- PR #30 (DR docs + boot reminder) — kept
+- PR #32 (cascade dry-run) — kept; backend always live, frontend
+  gated by `CASCADE_PREVIEW_ENABLED`
+- PR #33 (picker-skip / FIELD_SCOPE_CLASSIFICATION) — kept
+
+Reverted:
+- PR #31 (schema drift) — caused outage; reverted via #36
+- PR #34 (cascade-409 fix on completed anchor) — reverted via #35
+  during triage. Original problem (409 on Sal's "client called Tue
+  to change schedule" workflow) is BACK. Re-implementing carefully
+  is on tomorrow's plate.
+
+Held with conflicts:
+- **PR #27** (cascade-overwrite-existing-future-jobs + dispatch
+  LEFT JOIN + days_of_week field) — opened earlier in the session
+  but never merged. Conflicts against current main in
+  `artifacts/api-server/src/routes/jobs.ts` (with #32's dry-run
+  sentinel + .catch() chain) and `artifacts/qleno/src/components/
+  edit-job-modal.tsx` (with #33's FIELD_SCOPE_CLASSIFICATION + save
+  routing). Resolution requires reading both sides carefully and
+  reconciling the cascade block + the modal save handler. **Held
+  for tomorrow.**
+
+### Open issues filed (not for tonight)
+
+- #23 — JobWizard defaults to residential picker for non-hybrid
+  commercial clients opened from customer profile
+  (`job-wizard.tsx:346`)
+- #29 — `GET /api/jobs/4147` returns 500 (likely NULL field
+  assertion in response builder; surfaced during PR #29 picker-bug
+  diagnosis)
+
+### Tomorrow's first task
+
+**Resolve PR #27 conflicts and merge.** Both conflict zones are
+manageable with careful reading; the cascade-overwrite-in-place
+behavior is the actual fix Sal needs to confirm Jaira's Tue-Fri
+imported jobs get UPDATEd in place when she edits Monday. After PR
+#27 lands and verifies, re-implement PR #34's frequency-on-completed-
+anchor fix on top.
+
+### Cadence rules locked-in this session
+
+- `code-only verification on Claude's end (build clean, tsc net-zero,
+  line-by-line diff). Sal runs the modal flow / curl repros / SQL
+  queries post-deploy.` — standing rule, applies to every PR going
+  forward without re-confirmation.
+- `Auto-merge enabled by Claude when gates pass.` Repo-level
+  Settings → General → Allow auto-merge currently OFF, so Claude
+  invokes `mcp__github__merge_pull_request` directly after opening
+  Ready. Sal's gating list still applies (>400-line diff, files
+  outside spec, new env/dep, API contract change, design uncertainty,
+  destructive schema → pause + ping).
+- `Code-only verification was the working cadence. Bake it in for
+  every PR going forward without me having to re-confirm each time.`
+  — Sal, 2026-04-30.
+
 ## Dev Workflow
 - Edit locally in Claude Code
 - Verify changes work at localhost:3000 before pushing
