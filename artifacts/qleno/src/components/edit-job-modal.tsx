@@ -669,12 +669,19 @@ export default function EditJobModal({
       // commercial + recurring; PATCH route writes it onto recurring_schedules
       // when cascade=this_and_future. parking_fee_days = null means "every
       // scheduled visit" per the engine's interpretation.
+      // [commercial-workflow PR #4 / 2026-04-29] Single-day frequencies
+      // force parking_fee_days=NULL — the picker is hidden in that case
+      // (see render gate above) so any stale array in state from a prior
+      // multi-day session would silently scope parking to weekdays the
+      // engine never generates, with parking effectively never stamped.
+      // This mirrors customer-profile.tsx:3281–3287 which already guards
+      // the recurring-schedule editor save path the same way.
       if (isCommercial && isRecurring) {
         const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
         const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
         payload.parking_fee_enabled = parkingNowChecked;
         payload.parking_fee_amount = parkingFeeAmount;
-        payload.parking_fee_days = parkingNowChecked
+        payload.parking_fee_days = parkingNowChecked && isMultiDayFreq
           ? (parkingFeeDays != null && parkingFeeDays.length < 7 ? [...parkingFeeDays].sort() : null)
           : null;
       }
@@ -1065,7 +1072,21 @@ export default function EditJobModal({
             {(() => {
               const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
               const isParkingChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
-              if (!isCommercial || !parkingAddon || !isParkingChecked || !isRecurring) return null;
+              // [commercial-workflow PR #4 / 2026-04-29] Day-picker hidden
+              // on single-day frequencies. Weekly / biweekly / every_3_weeks
+              // / monthly / custom fire on exactly one weekday per
+              // occurrence — there's no choice for the operator to make,
+              // so the picker is meaningless and just adds confusion. The
+              // picker stays for daily / weekdays / custom_days where
+              // multiple weekdays fire and per-day scoping is real. The
+              // matching save guard below forces parking_fee_days=NULL on
+              // single-day frequencies regardless of state, mirroring the
+              // engine's "NULL = apply to every visit" semantic and the
+              // already-correct save logic in customer-profile.tsx
+              // (lines 3281–3287). Sibling logic in the recurring-schedule
+              // editor (customer-profile.tsx:3466) already gates on
+              // frequency the same way; this closes the parity gap.
+              if (!isCommercial || !parkingAddon || !isParkingChecked || !isRecurring || !isMultiDayFreq) return null;
               const dayLabels: { v: number; l: string }[] = [
                 { v: 0, l: "Sun" }, { v: 1, l: "Mon" }, { v: 2, l: "Tue" },
                 { v: 3, l: "Wed" }, { v: 4, l: "Thu" }, { v: 5, l: "Fri" }, { v: 6, l: "Sat" },
