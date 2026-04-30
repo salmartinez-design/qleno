@@ -786,6 +786,27 @@ router.patch("/:id", requireAuth, async (req, res) => {
       parking_fee_days,
     } = req.body ?? {};
 
+    // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
+    // (Sal Q3.1 = a). When dry_run=true, the route runs the entire
+    // cascade transaction as normal — accumulating in-tx counters
+    // (future_jobs_updated/deleted/inserted/skipped, schedule_created
+    // bool) — then ROLLS BACK at the end of the tx via a sentinel
+    // throw. The outer handler catches the sentinel and returns the
+    // counters. Production state stays untouched.
+    //
+    // The post-commit fan-out (generateJobsFromSchedule for the
+    // create_recurring path) is SKIPPED entirely under dry_run — it
+    // runs outside the tx and would persist real INSERTs that
+    // rollback can't reverse. For v1 we omit fan-out simulation; the
+    // operator can re-run without dry_run to see the real fan-out
+    // count. v2 if v1 proves insufficient.
+    //
+    // Backend dry-run is always live (any JWT can hit
+    // PATCH ?dry_run=true). Frontend "Preview changes" button is
+    // gated behind CASCADE_PREVIEW_ENABLED via /api/config/feature-
+    // flags (Sal Q3.4).
+    const dry_run = req.body?.dry_run === true;
+
     // [AI] Validate day-pattern exclusivity. Only daily/weekdays/custom_days
     // populate days_of_week; weekly/biweekly/every_3_weeks/monthly use
     // day_of_week (the schedule column) and days_of_week stays null. The
@@ -1133,6 +1154,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
     // generateJobsFromSchedule which has its own dedupe + best-effort
     // semantics — must not roll back the parent edit if it hiccups).
     let createdScheduleId: number | null = null;
+
+    // [PR / 2026-04-30] Sentinel for the dry-run rollback path. Defined
+    // here so it's in scope for both the throw inside the tx callback
+    // and the catch around `await db.transaction(...)` below.
+    class DryRunRollback extends Error {
+      constructor(public summary: Record<string, unknown>) {
+        super("dry_run rollback");
+      }
+    }
+    let dryRunSummary: Record<string, unknown> | null = null;
 
     // ── Apply changes in a transaction ─────────────────────────────────────
     await db.transaction(async (tx) => {
@@ -1765,6 +1796,33 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // Stash counters for the response (read after commit via closure).
       (req as any)._agFutureCount = futureCount;
       (req as any)._agFutureSkipped = futureClockedSkipped;
+
+      // [PR / 2026-04-30] Dry-run rollback. Throwing here forces
+      // Drizzle's tx wrapper to roll back every write that landed
+      // inside this callback (including the audit-log inserts above
+      // — intentional; we don't want a "real" audit row for a
+      // hypothetical edit). The outer try/catch matches on the
+      // sentinel class and returns counters to the caller.
+      if (dry_run) {
+        throw new DryRunRollback({
+          scope: cascade_scope,
+          current_job_would_update: true,
+          schedule_would_be_created: createdScheduleId != null,
+          future_jobs_would_be_updated: futureCount,
+          future_jobs_would_be_deleted: futureDeleted,
+          future_jobs_would_be_inserted_in_tx: futureInserted,
+          future_jobs_would_be_skipped_in_progress: futureClockedSkipped,
+        });
+      }
+    }).catch((err: unknown) => {
+      // [PR / 2026-04-30] Catch the dry-run sentinel here (the only
+      // expected throw). Re-throw anything else — the outer route
+      // catch handles real failures via its 500 response.
+      if (err instanceof DryRunRollback) {
+        dryRunSummary = err.summary;
+        return;
+      }
+      throw err;
     });
 
     // [recurring-on-save 2026-04-30] After-commit fan-out for the
@@ -1774,8 +1832,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
     // back the parent edit (the schedule + linked job already exist;
     // the nightly 2 AM cron will catch any missed dates). Failures
     // get surfaced in the response so the operator sees them.
+    // [PR / 2026-04-30] Skip the post-commit fan-out under dry_run.
+    // generateJobsFromSchedule writes real INSERTs outside the
+    // transaction; rollback can't reverse them. v1 reports
+    // counters-only and omits the fan-out estimate (Sal Q3.1 = a).
     let createRecurringFanout: { jobs_generated: number; jobs_skipped: number; error?: string } | null = null;
-    if (createdScheduleId != null) {
+    if (createdScheduleId != null && !dry_run) {
       try {
         const { generateJobsFromSchedule, DAYS_AHEAD: HORIZON } = await import("../lib/recurring-jobs.js");
         const schedRow = await db.execute(sql`
@@ -1814,6 +1876,26 @@ router.patch("/:id", requireAuth, async (req, res) => {
           error: String(genErr?.message ?? genErr),
         };
       }
+    }
+
+    // [PR / 2026-04-30] Dry-run branch. The transaction rolled back
+    // before any writes committed, so we don't query the post-state
+    // (that's what the operator would normally see) — we return the
+    // captured summary instead. Production state is unchanged; the
+    // operator can re-run without dry_run when ready.
+    if (dry_run && dryRunSummary) {
+      const summary: Record<string, unknown> = dryRunSummary;
+      return res.json({
+        ok: true,
+        dry_run: true,
+        cascade: {
+          ...summary,
+          // Counters-only for v1 (Sal Q3.1 = a). Sample-row capture
+          // is a follow-up if v1 proves insufficient.
+          fan_out_simulated: false,
+          note: "Transaction rolled back. No production changes. Post-commit fan-out (forward 60-day inserts via generateJobsFromSchedule) NOT simulated in v1 — re-run without dry_run to see actual fan-out.",
+        },
+      });
     }
 
     // ── Build response ────────────────────────────────────────────────────

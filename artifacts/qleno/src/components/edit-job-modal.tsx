@@ -279,6 +279,39 @@ export default function EditJobModal({
 
   const [saving, setSaving] = useState(false);
 
+  // [PR / 2026-04-30] Cascade dry-run preview. cascadePreviewEnabled
+  // gates the "Preview changes" button — fetched from
+  // /api/config/feature-flags on modal mount, default false. Sal
+  // flips CASCADE_PREVIEW_ENABLED=true in Railway env to expose the
+  // button. previewResult holds the dry-run counters (or null when
+  // no preview is active).
+  const [cascadePreviewEnabled, setCascadePreviewEnabled] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewResult, setPreviewResult] = useState<Record<string, unknown> | null>(null);
+
+  // [PR / 2026-04-30] Fetch runtime feature flags once on mount.
+  // Cheap (single GET, single bool) and lets us flip
+  // CASCADE_PREVIEW_ENABLED in Railway without rebuilding the
+  // bundle. Failure-mode is silent: flag stays false, button stays
+  // hidden — same outcome as default-off.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/config/feature-flags`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        setCascadePreviewEnabled(!!d?.cascade_preview);
+      } catch {
+        // Silent — flag stays default false.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [API, token]);
+
   // [AH] Load client (resolve commercial vs residential) BEFORE scopes/addons.
   useEffect(() => {
     let cancelled = false;
@@ -626,8 +659,8 @@ export default function EditJobModal({
     submit(isFreqRecurring ? "create_recurring" : "this_job");
   }
 
-  async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean }) {
-    setSaving(true);
+  async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean; dry_run?: boolean }) {
+    if (opts?.dry_run) setPreviewing(true); else setSaving(true);
     try {
       // Build add-ons payload. We persist into job_add_ons via add_on_id (legacy
       // FK), but also pass pricing_addon_id for traceability per AG.
@@ -659,6 +692,12 @@ export default function EditJobModal({
         team_user_ids: selectedTechIds,
         instructions,
         cascade_scope: cascade,
+        // [PR / 2026-04-30] Dry-run flag forwarded when the operator
+        // clicked "Preview changes". Backend runs the cascade tx as
+        // normal, captures counters, then ROLLBACKs at the end of the
+        // tx. Production state stays untouched. Response shape carries
+        // `dry_run: true` and `cascade.future_jobs_would_be_*`.
+        dry_run: opts?.dry_run === true,
         // [edit-decouple 2026-04-29] When the route returned warn=true on
         // a previous attempt and the operator confirmed in the dialog,
         // we replay the request with this flag set so per-field warn
@@ -729,6 +768,15 @@ export default function EditJobModal({
         }
         return;
       }
+      // [PR / 2026-04-30] Dry-run branch: capture counters into the
+      // preview panel and return WITHOUT closing the modal — the
+      // operator reviews the projected effect, then either clicks
+      // Save changes (real commit) or Cancel preview (clear panel,
+      // continue editing). Modal stays open; nothing was persisted.
+      if (opts?.dry_run) {
+        setPreviewResult(d.cascade ?? {});
+        return;
+      }
       onSaved({
         future_jobs_updated: d.cascade?.future_jobs_updated ?? 0,
         future_jobs_skipped_in_progress: d.cascade?.future_jobs_skipped_in_progress ?? 0,
@@ -737,10 +785,10 @@ export default function EditJobModal({
       // [AI.6.2] Surface the real exception so a network/CORS/parse failure
       // doesn't silently disappear under the modal.
       console.error("[edit-job-modal] PATCH exception", err);
-      toast({ title: "Network error", description: "Could not save changes — see DevTools console", variant: "destructive" });
+      toast({ title: "Network error", description: opts?.dry_run ? "Preview failed — see DevTools console" : "Could not save changes — see DevTools console", variant: "destructive" });
     } finally {
-      setSaving(false);
-      setCascadePromptOpen(false);
+      if (opts?.dry_run) setPreviewing(false); else setSaving(false);
+      if (!opts?.dry_run) setCascadePromptOpen(false);
     }
   }
 
@@ -1267,14 +1315,57 @@ export default function EditJobModal({
           <div style={{ height: 16 }} />
         </div>
 
+        {/* [PR / 2026-04-30] Preview-result panel. Renders above the
+            footer when the operator has run a dry-run preview.
+            Counters-only for v1 — what the cascade WOULD do, broken
+            out by branch. Production state already untouched (the
+            dry_run rollback inside the PATCH route reversed any
+            writes); the panel just displays what was rolled back. */}
+        {previewResult && (
+          <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FAFAF8", fontFamily: FF, fontSize: 13, color: "#1A1917" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <strong style={{ fontSize: 13 }}>Preview — would change:</strong>
+              <button onClick={() => setPreviewResult(null)} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Clear</button>
+            </div>
+            <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>
+              <li>Scope: <code>{String(previewResult.scope ?? "—")}</code></li>
+              <li>Current job: {previewResult.current_job_would_update ? "update" : "no change"}</li>
+              <li>Recurring schedule: {previewResult.schedule_would_be_created ? "create new" : "no change"}</li>
+              <li>Future jobs in series — update: {String(previewResult.future_jobs_would_be_updated ?? 0)}, delete: {String(previewResult.future_jobs_would_be_deleted ?? 0)}, insert: {String(previewResult.future_jobs_would_be_inserted_in_tx ?? 0)}, skipped (clocked-in): {String(previewResult.future_jobs_would_be_skipped_in_progress ?? 0)}</li>
+              <li style={{ color: "#6B7280", fontSize: 12 }}>Forward 60-day fan-out NOT simulated in v1 — re-run without preview to see actual count.</li>
+            </ul>
+          </div>
+        )}
+
         {/* Footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", flexShrink: 0, display: "flex", gap: 8 }}>
-          <button onClick={onClose} disabled={saving}
-            style={{ flex: 1, padding: "12px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FFFFFF", color: "#6B7280", fontSize: 14, fontWeight: 600, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+          <button onClick={onClose} disabled={saving || previewing}
+            style={{ flex: 1, padding: "12px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FFFFFF", color: "#6B7280", fontSize: 14, fontWeight: 600, cursor: (saving || previewing) ? "wait" : "pointer", fontFamily: FF }}>
             Cancel
           </button>
-          <button onClick={onSaveClick} disabled={!canSave}
-            style={{ flex: 2, padding: "12px", border: "none", borderRadius: 10, background: canSave ? "var(--brand, #00C9A0)" : "#E5E2DC", color: canSave ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: canSave ? "pointer" : "not-allowed", fontFamily: FF }}>
+          {/* [PR / 2026-04-30] Preview Changes button. Gated behind
+              CASCADE_PREVIEW_ENABLED env var via /api/config/feature-
+              flags. When clicked, fires PATCH with dry_run: true; the
+              backend runs the cascade tx and rolls back, returning
+              counters. Result lands in the preview panel above. */}
+          {cascadePreviewEnabled && (
+            <button
+              onClick={() => {
+                setPreviewResult(null);
+                if (!canSave) return;
+                const isFreqRecurring = !!frequency && frequency !== "on_demand";
+                const previewScope: CascadeChoice = isRecurring
+                  ? "this_and_future"
+                  : (isFreqRecurring ? "create_recurring" : "this_job");
+                submit(previewScope, { dry_run: true });
+              }}
+              disabled={!canSave || previewing || saving}
+              style={{ flex: 1, padding: "12px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FFFFFF", color: canSave ? "#1A1917" : "#9E9B94", fontSize: 14, fontWeight: 600, cursor: (canSave && !previewing && !saving) ? "pointer" : "not-allowed", fontFamily: FF }}>
+              {previewing ? "Previewing…" : "Preview changes"}
+            </button>
+          )}
+          <button onClick={onSaveClick} disabled={!canSave || previewing}
+            style={{ flex: 2, padding: "12px", border: "none", borderRadius: 10, background: (canSave && !previewing) ? "var(--brand, #00C9A0)" : "#E5E2DC", color: (canSave && !previewing) ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: (canSave && !previewing) ? "pointer" : "not-allowed", fontFamily: FF }}>
             {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
