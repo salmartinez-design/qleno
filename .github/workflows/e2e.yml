@@ -106,11 +106,21 @@ jobs:
           BASE_PATH: "/"
         run: pnpm run build
 
+      # Bootstrap schema. seedIfNeeded() bails out gracefully when
+      # the `companies` table doesn't exist yet (artifacts/api-server/
+      # src/seed.ts:154-157), so on an empty CI Postgres we have to
+      # `drizzle-kit push` first. --force skips the destructive-
+      # change prompt; safe on a known-empty DB.
+      - name: Push Drizzle schema to ephemeral Postgres
+        run: pnpm --filter @workspace/db run push-force
+
       # The api-server's seedIfNeeded + runPhesDataMigration on
-      # boot-up creates the schema, the demo company, the owner
-      # user, the Phes data fixture (including Jaira at id=21).
-      # We start it in the background and wait for the health
-      # endpoint before launching the frontend serve + tests.
+      # boot-up populates the demo company, the owner user, and
+      # the Phes data fixture (including Jaira at id=21). The
+      # schema push above is a prerequisite — without it, seed
+      # silently no-ops.
+      # We start the server in the background and wait for the
+      # health endpoint before running the tests.
       - name: Start api-server (also serves built frontend)
         env:
           PORT: "5000"
