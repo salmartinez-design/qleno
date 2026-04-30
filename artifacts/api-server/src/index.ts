@@ -99,47 +99,6 @@ function startFollowUpCron() {
   console.log("[Qleno] Follow-up sequence cron started (every 30 min)");
 }
 
-// ── Schema drift verification ───────────────────────────────────────────────
-// [PR / 2026-04-30] One-way drift check — flags when Drizzle declares a
-// table / column / enum-value the DB does NOT have. Runs BEFORE app.listen
-// so a known-broken schema fails fast (in strict mode) instead of limping
-// with broken queries on every request.
-//
-// SCHEMA_VERIFY_MODE values:
-//   strict  — exit non-zero on any error-severity drift (boot blocked)
-//   warn    — log only, never exit (DEFAULT for first-deploy safety)
-//   off     — skip verification entirely
-//
-// Default is 'warn' for the first deploy of this script — strict-by-
-// default on a never-seen-in-prod verifier is asking for a 3am outage.
-// After production baseline is clean (see docs/schema-drift-baseline.md
-// for the procedure), Sal flips to 'strict' in a follow-up PR.
-//
-// Verification ITSELF crashing (e.g. introspection query syntax error,
-// missing module) does NOT block boot — we log and continue. Only
-// detected drift in strict mode triggers exit.
-const verifyMode = (process.env.SCHEMA_VERIFY_MODE ?? "warn").toLowerCase();
-if (verifyMode !== "off" && process.env.DATABASE_URL) {
-  try {
-    const { verifySchema, formatDrifts } = await import("./scripts/verify-schema.js");
-    const drifts = await verifySchema();
-    if (drifts.length === 0) {
-      console.log(`[schema-verify] mode=${verifyMode} — no drift detected`);
-    } else {
-      const errorCount = drifts.filter(d => d.severity === "error").length;
-      const warnCount = drifts.filter(d => d.severity === "warn").length;
-      console.error(`[schema-verify] mode=${verifyMode} — ${drifts.length} drift(s) (${errorCount} error, ${warnCount} warn):`);
-      for (const line of formatDrifts(drifts)) console.error("  " + line);
-      if (verifyMode === "strict" && errorCount > 0) {
-        console.error("[schema-verify] strict mode + error severity present → exiting non-zero");
-        process.exit(1);
-      }
-    }
-  } catch (err: any) {
-    console.error("[schema-verify] verification crashed (continuing boot):", err?.message ?? err);
-  }
-}
-
 // ── Startup ──────────────────────────────────────────────────────────────────
 // Start listening immediately so health checks pass, then seed in the background
 app.listen(port, "0.0.0.0", () => {
