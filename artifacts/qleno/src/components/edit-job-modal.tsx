@@ -61,6 +61,53 @@ interface CommercialServiceType {
   sort_order: number;
 }
 
+// [PR / 2026-04-30] Field-scope classification for the cascade picker.
+//
+// This is product judgment, not technical truth — the lists may shift
+// as we learn how operators use the modal. Today's read:
+//
+//   "Schedule-template" fields ARE the schedule. Editing them means
+//   "I want this schedule template to look different from now on."
+//   There's no plausible "just for today" interpretation, so prompting
+//   the operator to choose a scope just adds noise to the obvious
+//   answer (this_and_future). We auto-cascade.
+//
+//   "Single-occurrence" fields could plausibly be one-off (today's
+//   tech called off, today's notes have a special note for the
+//   customer, today's date is a reschedule). We show the picker so
+//   the operator can pick scope.
+//
+// Mixed edits (both buckets touched in one save): we show the picker
+// with an honest footnote per Sal's Q1 = (c) — "Choosing 'Just this
+// visit' will NOT update the schedule template — your <field> change
+// will apply to today only." Single cascade_scope on the wire keeps
+// the backend simple; the operator chooses with full context.
+//
+// Adding a field: pick the bucket that matches the operator's mental
+// model. When in doubt, lean "occurrence" (showing the picker is
+// safer than auto-cascading the wrong scope).
+type FieldScope = "template" | "occurrence";
+export const FIELD_SCOPE_CLASSIFICATION: Record<string, FieldScope> = {
+  // Schedule-template — editing these IS editing the recurring
+  // schedule's identity. Auto-cascade.
+  frequency:           "template",
+  days_of_week:        "template",
+  scheduled_time:      "template",
+  allowed_hours:       "template",
+  service_type:        "template",
+  hourly_rate:         "template",
+  base_fee:            "template",
+  add_ons:             "template",
+  parking_fee_enabled: "template",
+  parking_fee_amount:  "template",
+  parking_fee_days:    "template",
+  // Single-occurrence — editing these could plausibly be a one-off.
+  // Show the picker so the operator decides scope.
+  team_user_ids:       "occurrence",
+  instructions:        "occurrence",
+  scheduled_date:      "occurrence",
+};
+
 export interface TeamCandidate {
   id: number;
   name: string;
@@ -272,6 +319,11 @@ export default function EditJobModal({
   type CascadeChoice = "this_job" | "this_and_future" | "all" | "remove_this" | "create_recurring";
   const [cascadePromptOpen, setCascadePromptOpen] = useState(false);
   const [cascadeChoice, setCascadeChoice] = useState<CascadeChoice>("this_job");
+  // [PR / 2026-04-30] Set true when onSaveClick detected a mixed edit
+  // (BOTH template + occurrence fields changed). Renders a footnote in
+  // the cascade prompt explaining what "Just this visit" will and
+  // won't do. See FIELD_SCOPE_CLASSIFICATION at the top of this file.
+  const [mixedEditWarning, setMixedEditWarning] = useState<{ template: string[]; occurrence: string[] } | null>(null);
   // [edit-decouple 2026-04-29] When the route returns warn=true, we
   // open this confirmation dialog. User confirms → we re-submit with
   // force_unlock: true so per-field warn locks pass through.
@@ -648,15 +700,102 @@ export default function EditJobModal({
   // The PATCH route also rejects mismatched scope+frequency combos
   // (e.g. cascade='this_job' with a recurring frequency on a one-off)
   // to close the silent-days_of_week-drop bug for any caller.
+  // [PR / 2026-04-30] Compute which fields actually changed and bucket
+  // them by FIELD_SCOPE_CLASSIFICATION. Mirrors the per-field checks
+  // already present in `dirty` above — kept separate (rather than
+  // refactored into a single shared diff) because `dirty` only needs
+  // a boolean, while this needs the field-name set + bucket label.
+  // Each field uses the same canonical names FIELD_SCOPE_CLASSIFICATION
+  // keys on; downstream consumers can grep one source.
+  function getChangedFieldsByScope(): { template: string[]; occurrence: string[] } {
+    const template: string[] = [];
+    const occurrence: string[] = [];
+    const push = (field: string) => {
+      const bucket = FIELD_SCOPE_CLASSIFICATION[field];
+      if (bucket === "template") template.push(field);
+      else if (bucket === "occurrence") occurrence.push(field);
+    };
+
+    if (frequency !== job.frequency) push("frequency");
+    if (scheduledDate !== job.scheduled_date) push("scheduled_date");
+    if (normalizeTimeStr(job.scheduled_time) !== scheduledTime) push("scheduled_time");
+    if (Math.abs(allowedHours - initialAllowedHours) > 0.001) push("allowed_hours");
+    if (Math.abs(baseFee - initialBaseFee) > 0.01) push("base_fee");
+    if ((job.notes || "") !== instructions) push("instructions");
+
+    const addonsSame = selectedAddons.size === initialSelectedAddons.size
+      && Array.from(selectedAddons.entries()).every(([k, v]) => initialSelectedAddons.get(k) === v);
+    if (!addonsSame) push("add_ons");
+
+    const techSame = (job.assigned_user_id != null
+      && selectedTechIds[0] === job.assigned_user_id
+      && selectedTechIds.length === 1)
+      || (job.assigned_user_id == null && selectedTechIds.length === 0);
+    if (!techSame) push("team_user_ids");
+
+    if (isCommercial) {
+      if (commercialServiceType !== job.service_type) push("service_type");
+      const prevRate = job.hourly_rate != null ? Number(job.hourly_rate) : 0;
+      if (Math.abs(hourlyRate - prevRate) > 0.001) push("hourly_rate");
+    }
+
+    if (frequency === "custom_days") {
+      // days_of_week change is meaningful inside a custom_days schedule;
+      // for other frequencies the modal doesn't expose the field.
+      const initDays = (job as any).days_of_week as number[] | null | undefined;
+      const sameDays = Array.isArray(initDays)
+        && initDays.length === daysOfWeek.length
+        && initDays.every((d, i) => d === daysOfWeek[i]);
+      if (!sameDays) push("days_of_week");
+    }
+
+    const parkingAddon = availableAddons.find(a => /^parking fee$/i.test(a.name));
+    const parkingNowChecked = !!parkingAddon && selectedAddons.has(parkingAddon.id);
+    if (parkingNowChecked !== parkingFeeEnabledInitial) push("parking_fee_enabled");
+    if (parkingFeeAmount !== parkingFeeAmountInitial) push("parking_fee_amount");
+    const initParkingDays = parkingFeeDaysInitial == null ? null : [...parkingFeeDaysInitial].sort();
+    const curParkingDays = parkingFeeDays == null ? null : [...parkingFeeDays].sort();
+    if (JSON.stringify(initParkingDays) !== JSON.stringify(curParkingDays)) push("parking_fee_days");
+
+    return { template, occurrence };
+  }
+
   function onSaveClick() {
     if (!canSave) return;
-    if (isRecurring) {
+
+    // One-off jobs (no schedule attached): existing PR #25 flow —
+    // create_recurring on freq-change-to-recurring, else this_job.
+    // The picker isn't relevant here.
+    if (!isRecurring) {
+      const isFreqRecurring = !!frequency && frequency !== "on_demand";
+      submit(isFreqRecurring ? "create_recurring" : "this_job");
+      return;
+    }
+
+    // [PR / 2026-04-30] Recurring job — classify the diff and branch:
+    //   template-only → auto-cascade (this_and_future), no picker.
+    //                   Editing schedule-template fields IS editing
+    //                   the schedule; the second screen would just ask
+    //                   the same question wearing different clothes.
+    //   occurrence-only → existing 4-option picker.
+    //   mixed → picker WITH footnote per Sal's Q1 = (c). Single
+    //           cascade_scope on the wire; operator picks with full
+    //           context about the trade-off.
+    const { template, occurrence } = getChangedFieldsByScope();
+    if (template.length > 0 && occurrence.length === 0) {
+      submit("this_and_future");
+      return;
+    }
+    if (occurrence.length > 0 && template.length === 0) {
+      setMixedEditWarning(null);
       setCascadeChoice("this_job");
       setCascadePromptOpen(true);
       return;
     }
-    const isFreqRecurring = !!frequency && frequency !== "on_demand";
-    submit(isFreqRecurring ? "create_recurring" : "this_job");
+    // Mixed.
+    setMixedEditWarning({ template, occurrence });
+    setCascadeChoice("this_job");
+    setCascadePromptOpen(true);
   }
 
   async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean; dry_run?: boolean }) {
@@ -788,7 +927,10 @@ export default function EditJobModal({
       toast({ title: "Network error", description: opts?.dry_run ? "Preview failed — see DevTools console" : "Could not save changes — see DevTools console", variant: "destructive" });
     } finally {
       if (opts?.dry_run) setPreviewing(false); else setSaving(false);
-      if (!opts?.dry_run) setCascadePromptOpen(false);
+      if (!opts?.dry_run) {
+        setCascadePromptOpen(false);
+        setMixedEditWarning(null);
+      }
     }
   }
 
@@ -1384,6 +1526,30 @@ export default function EditJobModal({
             <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16, lineHeight: 1.5 }}>
               This job is part of a recurring schedule. Apply changes to:
             </div>
+            {/* [PR / 2026-04-30] Mixed-edit footnote — appears when the
+                current save touched BOTH schedule-template fields AND
+                single-occurrence fields. Picker selection governs all
+                fields uniformly (single cascade_scope on the wire per
+                Sal's Q1 = c). The footnote tells the operator what
+                "Just this visit" actually does for the template-bucket
+                fields they changed. */}
+            {mixedEditWarning && (
+              <div style={{
+                fontSize: 12, color: "#92400E", backgroundColor: "#FEF3C7",
+                border: "1px solid #FBBF24", borderRadius: 8, padding: "10px 12px",
+                marginBottom: 14, lineHeight: 1.45,
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>Mixed edit</div>
+                <div>
+                  You changed schedule-template fields ({mixedEditWarning.template.join(", ")})
+                  AND single-occurrence fields ({mixedEditWarning.occurrence.join(", ")}).
+                  Choosing <strong>Just this visit</strong> will NOT update the schedule
+                  template — your template-field changes will apply to today only.
+                  Choose <strong>This and all future visits</strong> to update the
+                  schedule template + every future scheduled occurrence.
+                </div>
+              </div>
+            )}
             {/* [AI.7.1] When parking-fee dirty, surface "this and future" as
                 the meaningful cascade — choosing "this job only" persists
                 parking on this occurrence but leaves the schedule template
@@ -1435,7 +1601,7 @@ export default function EditJobModal({
               })}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setCascadePromptOpen(false)} disabled={saving}
+              <button onClick={() => { setCascadePromptOpen(false); setMixedEditWarning(null); }} disabled={saving}
                 style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
