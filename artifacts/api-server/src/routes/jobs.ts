@@ -1768,19 +1768,30 @@ router.patch("/:id", requireAuth, async (req, res) => {
           (frequency !== undefined && frequency !== before.frequency) ||
           (Array.isArray(days_of_week));
 
-        // Update the parent recurring_schedules row with the cascadable fields.
-        const rsSet: string[] = [];
-        const rsVals: any[] = [];
-        const push = (col: string, val: any) => { rsSet.push(col); rsVals.push(val); };
-        if (service_type !== undefined) push("service_type", service_type);
-        if (scheduled_time !== undefined) push("scheduled_time", scheduled_time);
-        if (allowed_hours !== undefined) push("duration_minutes", Math.round(parseFloat(String(allowed_hours)) * 60));
-        if (base_fee !== undefined) push("base_fee", String(base_fee));
-        if (instructions !== undefined) push("instructions", instructions);
-        if (nextManualOverride !== undefined) push("manual_rate_override", nextManualOverride);
+        // [PR / 2026-05-01 — array-binding fix] Update the parent
+        // recurring_schedules row using Drizzle ORM .update().set()
+        // instead of a hand-rolled `sql` template. The previous
+        // implementation interpolated array values (e.g. days_of_week
+        // = [1,2,3,4,5]) via `sql\`${rsVals[i]}\``, which Drizzle's
+        // template tag spreads into multiple parameter placeholders —
+        // same bug class as PR #25's INSERT (fixed in PR #26 by
+        // switching to ORM). The bug stayed latent because the
+        // completed-anchor 409 lock blocked this code path until
+        // PR #39 made the lock cascade-scope-aware. Drizzle's
+        // `.set({})` uses the schema's column codecs (the
+        // `integer().array()` codec for days_of_week /
+        // parking_fee_days, the pgEnum codec for frequency /
+        // day_of_week) and binds each value as exactly ONE parameter.
+        const rsSetParts: Record<string, unknown> = {};
+        if (service_type !== undefined) rsSetParts.service_type = service_type;
+        if (scheduled_time !== undefined) rsSetParts.scheduled_time = scheduled_time;
+        if (allowed_hours !== undefined) rsSetParts.duration_minutes = Math.round(parseFloat(String(allowed_hours)) * 60);
+        if (base_fee !== undefined) rsSetParts.base_fee = String(base_fee);
+        if (instructions !== undefined) rsSetParts.instructions = instructions;
+        if (nextManualOverride !== undefined) rsSetParts.manual_rate_override = nextManualOverride;
         // [AH] Cascade commercial hourly rate to the schedule template so
         // engine-spawned future jobs inherit the rate.
-        if (hourly_rate !== undefined) push("commercial_hourly_rate", hourly_rate === null ? null : String(hourly_rate));
+        if (hourly_rate !== undefined) rsSetParts.commercial_hourly_rate = hourly_rate === null ? null : String(hourly_rate);
         // [AI] Map jobs.frequency to recurring_schedules.frequency.
         // After the AI enum extensions, every_3_weeks/daily/weekdays/custom_days
         // now exist on recurring_frequency too — pass through directly.
@@ -1797,8 +1808,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
             on_demand:     { f: "custom", weeks: null },
           };
           const m = map[String(frequency)] ?? { f: "custom", weeks: null };
-          push("frequency", m.f);
-          push("custom_frequency_weeks", m.weeks);
+          rsSetParts.frequency = m.f;
+          rsSetParts.custom_frequency_weeks = m.weeks;
         }
         // [AI] Cascade days_of_week + clear day_of_week when switching to
         // multi-day. Inverse: clear days_of_week when switching back to
@@ -1812,16 +1823,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
               frequency === "daily" ? [0,1,2,3,4,5,6]
               : frequency === "weekdays" ? [1,2,3,4,5]
               : (Array.isArray(days_of_week) ? days_of_week : []);
-            push("days_of_week", arr);
-            push("day_of_week", null);
+            rsSetParts.days_of_week = arr;
+            rsSetParts.day_of_week = null;
           } else {
             // Switching back to single-day — clear the multi-day array.
-            push("days_of_week", null);
+            rsSetParts.days_of_week = null;
           }
         } else if (Array.isArray(days_of_week)) {
           // Frequency unchanged but days_of_week explicitly provided
           // (e.g., user added/removed a day on an existing custom_days schedule)
-          push("days_of_week", days_of_week);
+          rsSetParts.days_of_week = days_of_week;
         }
 
         // [AI.7.1] Parking fee cascade. Persist parking_fee_enabled +
@@ -1830,20 +1841,23 @@ router.patch("/:id", requireAuth, async (req, res) => {
         // operator's day selection. Null amount = use tenant default;
         // null/empty days = apply to all scheduled days.
         if (parking_fee_enabled !== undefined) {
-          push("parking_fee_enabled", !!parking_fee_enabled);
+          rsSetParts.parking_fee_enabled = !!parking_fee_enabled;
         }
         if (parking_fee_amount !== undefined) {
-          push("parking_fee_amount", parking_fee_amount === null ? null : String(parking_fee_amount));
+          rsSetParts.parking_fee_amount = parking_fee_amount === null ? null : String(parking_fee_amount);
         }
         if (parking_fee_days !== undefined) {
-          push("parking_fee_days", Array.isArray(parking_fee_days) && parking_fee_days.length > 0 ? parking_fee_days : null);
+          rsSetParts.parking_fee_days = Array.isArray(parking_fee_days) && parking_fee_days.length > 0 ? parking_fee_days : null;
         }
 
-        if (rsSet.length > 0) {
-          // Build a parameterised UPDATE … SET col = $n
-          const setClauses = rsSet.map((c, i) => sql`${sql.identifier(c)} = ${rsVals[i]}`);
-          const setSql = sql.join(setClauses, sql`, `);
-          await tx.execute(sql`UPDATE recurring_schedules SET ${setSql} WHERE id = ${scheduleId} AND company_id = ${companyId}`);
+        if (Object.keys(rsSetParts).length > 0) {
+          await tx
+            .update(recurringSchedulesTable)
+            .set(rsSetParts as any)
+            .where(and(
+              eq(recurringSchedulesTable.id, scheduleId),
+              eq(recurringSchedulesTable.company_id, companyId),
+            ));
           // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
           // Stash for the response so the modal can compose an honest
           // success summary ("Schedule updated. 4 future jobs reflect
