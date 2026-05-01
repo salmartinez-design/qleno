@@ -1878,6 +1878,47 @@ router.patch("/:id", requireAuth, async (req, res) => {
         if (instructions !== undefined) pushFj("notes", instructions);
         if (nextManualOverride !== undefined) pushFj("manual_rate_override", nextManualOverride);
 
+        // [PR / 2026-05-01 — Tue–Fri stale-import sweep] Re-fetch the
+        // schedule after the UPDATE above so we have the post-UPDATE
+        // days_of_week / day_of_week to drive the unlinked-job sweep
+        // below. ALWAYS link the cascade target rows back to the
+        // schedule (this is what was missing — MC-imported Tue–Fri
+        // jobs have recurring_schedule_id IS NULL, so the legacy
+        // schedule_id-only candidates query at line 1894 missed them
+        // entirely; result: Sal saved Mon edits and Tue–Fri stayed
+        // stale per his 2026-05-01 screenshot).
+        const updatedSchedRow = await tx
+          .select({
+            days_of_week: recurringSchedulesTable.days_of_week,
+            day_of_week: recurringSchedulesTable.day_of_week,
+          })
+          .from(recurringSchedulesTable)
+          .where(and(
+            eq(recurringSchedulesTable.id, scheduleId),
+            eq(recurringSchedulesTable.company_id, companyId),
+          ))
+          .limit(1);
+        const schedDaysOfWeek = (updatedSchedRow[0]?.days_of_week as number[] | null) ?? null;
+        const schedDayOfWeekEnum = (updatedSchedRow[0]?.day_of_week as string | null) ?? null;
+        // Build the int[] of weekdays the schedule fires on for the
+        // unlinked-sweep filter. Multi-day uses days_of_week directly;
+        // single-day converts the enum string to a single-element int[].
+        let schedFireDays: number[] = [];
+        if (Array.isArray(schedDaysOfWeek) && schedDaysOfWeek.length > 0) {
+          schedFireDays = schedDaysOfWeek.map(Number);
+        } else if (schedDayOfWeekEnum) {
+          const dayMap: Record<string, number> = {
+            sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+            thursday: 4, friday: 5, saturday: 6,
+          };
+          const dayInt = dayMap[String(schedDayOfWeekEnum).toLowerCase()];
+          if (dayInt !== undefined) schedFireDays = [dayInt];
+        }
+        // Always link cascade targets back to the schedule so the
+        // next save sees them via the schedule_id path even if MC
+        // import never linked them.
+        pushFj("recurring_schedule_id", scheduleId);
+
         if (futureJobsSet.length > 0 || dayPatternChanged) {
           // Find candidate jobs in the series. For 'this_and_future' we
           // only touch future scheduled jobs. For 'all' we widen the
@@ -1888,13 +1929,28 @@ router.patch("/:id", requireAuth, async (req, res) => {
           // Cancelled jobs are excluded both ways. The current job
           // updates via the main UPDATE statement so we exclude it
           // here to avoid double-write.
+          //
+          // [PR / 2026-05-01] WHERE clause now matches:
+          //   (a) jobs already linked to this schedule, OR
+          //   (b) unlinked jobs for the same client whose weekday
+          //       matches the schedule's days_of_week.
+          // (b) is the MC-imported-stale fix.
           const candidates = await tx.execute(sql`
             SELECT j.id, j.scheduled_date::text AS scheduled_date
             FROM jobs j
-            WHERE j.recurring_schedule_id = ${scheduleId}
-              AND j.company_id = ${companyId}
+            WHERE j.company_id = ${companyId}
               AND j.id != ${jobId}
               AND j.status NOT IN ('cancelled')
+              AND (
+                j.recurring_schedule_id = ${scheduleId}
+                OR (
+                  j.recurring_schedule_id IS NULL
+                  AND j.client_id = ${Number(before.client_id)}
+                  ${schedFireDays.length > 0
+                    ? sql`AND EXTRACT(DOW FROM j.scheduled_date)::int IN (${sql.raw(schedFireDays.join(","))})`
+                    : sql`AND FALSE`}
+                )
+              )
               AND ${cascadeAllScope
                   ? sql`j.charge_succeeded_at IS NULL AND j.status != 'complete'`
                   : sql`j.scheduled_date > CURRENT_DATE AND j.status = 'scheduled'`}
@@ -2022,6 +2078,121 @@ router.patch("/:id", requireAuth, async (req, res) => {
             futureCount = (updRes as any).rowCount ?? toUpdate.length;
           } else {
             futureCount = toUpdate.length;
+          }
+
+          // [PR / 2026-05-01] Per-job tech + addon + parking sync for
+          // cascaded jobs. The legacy this_and_future UPDATE only wrote
+          // scalar fields (frequency / scheduled_time / base_fee /
+          // etc.) — never re-assigned techs or addons. Result on Sal's
+          // 2026-05-01 repro: Mon's edit set Tue's tech to Alma in
+          // jobs.assigned_user_id (wrong path), but Tue's
+          // job_technicians still had Juan, so the dispatch grid
+          // (which reads job_technicians for the tech chip) still
+          // showed Juan. Same gap for parking — the schedule template's
+          // parking_fee_days got the new value but cascaded jobs
+          // never had their job_add_ons.parking-fee row stamped /
+          // re-stamped.
+          //
+          // Mirrors the create_recurring branch's per-job sync block
+          // (see line ~1700 onward). Same skip-locked-jobs rule already
+          // applied at the SELECT level above (status NOT IN cancelled
+          // + status='scheduled' for this_and_future / charge_succeeded_at
+          // IS NULL + status != complete for all). Tech list comes from
+          // recurring_schedule_technicians (mirror written further down
+          // when teamProvided) — for the cascade target jobs, sync from
+          // the team_user_ids payload directly.
+          if (toUpdate.length > 0 && (teamProvided || addOnsProvided)) {
+            const techListForCascade: number[] = teamProvided && Array.isArray(team_user_ids) && team_user_ids.length > 0
+              ? team_user_ids.map((u: unknown) => Number(u))
+              : [];
+            const { resolveParkingAddon, parkingApplies, stampParkingFeeOnJob } = await import("../lib/recurring-jobs.js");
+            const cascadeParkingResolved = await resolveParkingAddon(
+              {
+                company_id: companyId,
+                parking_fee_amount: parking_fee_amount === null || parking_fee_amount === undefined
+                  ? null
+                  : String(parking_fee_amount),
+              },
+              tx,
+            );
+            for (const jId of toUpdate) {
+              if (techListForCascade.length > 0) {
+                await tx.execute(sql`DELETE FROM job_technicians WHERE job_id = ${jId}`);
+                for (let i = 0; i < techListForCascade.length; i++) {
+                  const uid = techListForCascade[i];
+                  const isPrimary = i === 0;
+                  await tx.execute(sql`
+                    INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+                    VALUES (${jId}, ${uid}, ${companyId}, ${isPrimary})
+                    ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+                  `);
+                }
+                await tx.execute(sql`
+                  UPDATE jobs SET assigned_user_id = ${techListForCascade[0]}
+                  WHERE id = ${jId} AND company_id = ${companyId}
+                `);
+              }
+              if (addOnsProvided && Array.isArray(add_ons)) {
+                await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jId}`);
+                for (const a of add_ons as Array<{ pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number }>) {
+                  const pricingId = Number(a.pricing_addon_id ?? 0) || null;
+                  const qty = Number(a.qty ?? 1) || 1;
+                  const unitPrice = a.unit_price != null ? String(a.unit_price) : "0";
+                  const subtotal = a.subtotal != null ? String(a.subtotal) : "0";
+                  let realAddOnId: number | null = null;
+                  if (pricingId) {
+                    const paRows = await tx.execute(sql`
+                      SELECT name FROM pricing_addons WHERE id = ${pricingId} LIMIT 1
+                    `);
+                    const paName = String((paRows.rows[0] as any)?.name ?? "").trim();
+                    if (paName) {
+                      const ex = await tx.execute(sql`
+                        SELECT id FROM add_ons WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${paName}) LIMIT 1
+                      `);
+                      if (ex.rows.length) {
+                        realAddOnId = Number((ex.rows[0] as any).id);
+                      } else {
+                        const cre = await tx.execute(sql`
+                          INSERT INTO add_ons (company_id, name, price, category, is_active)
+                          VALUES (${companyId}, ${paName}, ${unitPrice}, 'other', true)
+                          RETURNING id
+                        `);
+                        realAddOnId = Number((cre.rows[0] as any).id);
+                      }
+                    }
+                  }
+                  if (!realAddOnId && a.add_on_id) realAddOnId = Number(a.add_on_id);
+                  if (!realAddOnId) continue;
+                  await tx.execute(sql`
+                    INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+                    VALUES (${jId}, ${realAddOnId}, ${qty}, ${unitPrice}, ${subtotal}, ${pricingId})
+                    ON CONFLICT (job_id, add_on_id) DO UPDATE
+                      SET quantity = EXCLUDED.quantity,
+                          unit_price = EXCLUDED.unit_price,
+                          subtotal = EXCLUDED.subtotal,
+                          pricing_addon_id = EXCLUDED.pricing_addon_id
+                  `);
+                }
+              }
+              // Stamp parking on weekday-matching cascaded dates.
+              if (cascadeParkingResolved && parking_fee_enabled === true) {
+                // Look up the cascaded job's date to apply parkingApplies.
+                const dateRow = await tx.execute(sql`
+                  SELECT scheduled_date::text AS d FROM jobs WHERE id = ${jId} LIMIT 1
+                `);
+                const dateStr = String((dateRow.rows[0] as any)?.d ?? "");
+                if (dateStr) {
+                  const date = new Date(`${dateStr}T00:00:00`);
+                  const synthSched = {
+                    parking_fee_enabled: true,
+                    parking_fee_days: Array.isArray(parking_fee_days) && parking_fee_days.length > 0 ? parking_fee_days : null,
+                  } as any;
+                  if (parkingApplies(synthSched, date)) {
+                    await stampParkingFeeOnJob(jId, cascadeParkingResolved, tx);
+                  }
+                }
+              }
+            }
           }
 
           // DELETE non-matching jobs (only when day pattern changed).
