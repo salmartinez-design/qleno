@@ -139,6 +139,12 @@ jobs:
           # even though the local SMTP/Twilio stubs would no-op.
           # Belt + suspenders.
           COMMS_ENABLED: "false"
+          # Quiet the "FATAL: JWT_SECRET missing" startup warning.
+          # auth.ts has a fallback constant so the server runs
+          # without it, but the warning gets misread as a real fatal
+          # in the workflow log. The default here is e2e-only; do
+          # NOT mirror in any prod-facing config.
+          JWT_SECRET: "e2e-test-jwt-secret-not-for-prod"
         run: |
           # tee so api-server output streams to BOTH the workflow log
           # AND /tmp/api-server.log. The previous `>` redirect hid all
@@ -147,7 +153,17 @@ jobs:
           # access required GitHub auth (WebFetch can't see step
           # logs). Streaming inline guarantees the boot trace +
           # any throw shows up in the public workflow output.
-          ( npx tsx artifacts/api-server/src/index.ts 2>&1 | tee /tmp/api-server.log ) &
+          #
+          # IMPORTANT: use `pnpm --filter ... exec tsx` rather than
+          # `npx tsx` from repo root. tsx is a workspace dev-dep
+          # under artifacts/api-server/node_modules/.bin/, NOT
+          # hoisted to the repo-root node_modules/.bin. `npx tsx`
+          # from repo root either has to fetch tsx from the registry
+          # (slow, can fail offline) or — depending on pnpm's hoist
+          # config — find nothing at all and exit immediately.
+          # `pnpm --filter ... exec` resolves the workspace's local
+          # binary directly.
+          ( pnpm --filter @workspace/api-server exec tsx src/index.ts 2>&1 | tee /tmp/api-server.log ) &
           echo $! > /tmp/api-server.pid
 
           # Probe /api/healthz — the simple "server bound to port"
