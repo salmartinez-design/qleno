@@ -1018,6 +1018,40 @@ async function runServiceTypesSeed(): Promise<void> {
   console.log(`[service-types-seed] Ensured ${services.length} Phes default service types (5 residential + 7 commercial).`);
 }
 
+// [PR / 2026-05-01] Backfill recurring_schedules.days_of_week from
+// frequency for multi-day rows where the column is null/empty.
+// MC-imported rows + schedules created before the days_of_week column
+// existed have NULL there; the modal's parking-picker "Match schedule"
+// button renders "Match schedule (—)" with an em-dash because the
+// state has nothing to read. Idempotent — only fires when there's
+// actually drift to fix. Single-day frequencies (weekly / biweekly /
+// every_3_weeks / monthly) keep days_of_week NULL by design (they
+// use the day_of_week enum); the modal handles the single-day case
+// via the dayMap fallback at edit-job-modal.tsx:454.
+async function runDaysOfWeekBackfill(): Promise<void> {
+  // 'weekdays' frequency → Mon-Fri
+  const weekdays = await db.execute(sql`
+    UPDATE recurring_schedules
+       SET days_of_week = '{1,2,3,4,5}'
+     WHERE frequency = 'weekdays'
+       AND (days_of_week IS NULL OR cardinality(days_of_week) = 0)
+  `);
+  // 'daily' frequency → Sun-Sat
+  const daily = await db.execute(sql`
+    UPDATE recurring_schedules
+       SET days_of_week = '{0,1,2,3,4,5,6}'
+     WHERE frequency = 'daily'
+       AND (days_of_week IS NULL OR cardinality(days_of_week) = 0)
+  `);
+  const nWeekdays = (weekdays as any).rowCount ?? 0;
+  const nDaily = (daily as any).rowCount ?? 0;
+  if (nWeekdays > 0 || nDaily > 0) {
+    console.log(
+      `[phes-migration] days_of_week backfill: weekdays=${nWeekdays}, daily=${nDaily} row(s) updated`,
+    );
+  }
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -1025,6 +1059,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPayMatrixBackfill();
   } catch (err: any) {
     console.warn("[phes-migration] pay-matrix-backfill — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runDaysOfWeekBackfill();
+  } catch (err: any) {
+    console.warn("[phes-migration] days-of-week-backfill — non-fatal:", err?.message ?? err);
   }
 
   try {

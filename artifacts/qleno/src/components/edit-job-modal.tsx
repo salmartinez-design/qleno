@@ -450,8 +450,26 @@ export default function EditJobModal({
         // Recurring schedule snapshot.
         const rs = d.recurring_schedule;
         if (rs) {
-          if (Array.isArray(rs.days_of_week)) {
+          // [PR / 2026-05-01 — Match schedule button fix] Populate the
+          // modal's daysOfWeek state from BOTH the multi-day array and
+          // the single-day enum. Schema invariant: weekly / biweekly /
+          // every_3_weeks / monthly populate `day_of_week` (string
+          // enum) with `days_of_week` NULL; daily / weekdays /
+          // custom_days populate `days_of_week` (int[]) with
+          // `day_of_week` NULL. Without this fallback, the parking
+          // picker's "Match schedule (—)" label renders an em-dash
+          // for every single-day schedule (and for any multi-day
+          // schedule where MC import never populated days_of_week —
+          // backfilled in phes-data-migration.ts in this same PR).
+          if (Array.isArray(rs.days_of_week) && rs.days_of_week.length > 0) {
             setDaysOfWeek(rs.days_of_week);
+          } else if (rs.day_of_week) {
+            const dayMap: Record<string, number> = {
+              sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+              thursday: 4, friday: 5, saturday: 6,
+            };
+            const dayInt = dayMap[String(rs.day_of_week).toLowerCase()];
+            if (dayInt !== undefined) setDaysOfWeek([dayInt]);
           }
           setParkingFeeEnabledInitial(!!rs.parking_fee_enabled);
           setParkingFeeAmountInitial(rs.parking_fee_amount != null ? Number(rs.parking_fee_amount) : null);
