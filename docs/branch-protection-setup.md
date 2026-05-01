@@ -43,9 +43,11 @@ Tick each of the following. Leave anything not listed at its default.
   - `tsc-check`
   - `build-api-server`
   - `build-frontend`
-  - `e2e` *(this one only after the Playwright workflow lands; if the
-    check name doesn't show up yet, leave it off and add it once the
-    Playwright PR is merged)*
+  - `e2e` *(advisory-only at first — the workflow lands with
+    `continue-on-error: true` so flakes don't block merges. After
+    ~5 stable green PRs in a row, flip to required by adding `e2e`
+    to this list. Don't add it before the streak — flake-induced
+    blocks defeat the point.)*
 
   **Note:** GitHub's autocomplete only surfaces checks that have run
   at least once on the repo. If a check is missing from the dropdown,

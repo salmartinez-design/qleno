@@ -10,7 +10,13 @@ const VERSION =
   process.env.GITHUB_SHA ||
   "unknown";
 const DEPLOYED_AT = process.env.DEPLOYED_AT || new Date().toISOString();
-const DB_PING_TIMEOUT_MS = 200;
+// Cold-start tolerant. The original 200 ms was too tight for CI's
+// freshly-spun Postgres service container — the first SELECT 1
+// takes longer than 200 ms while pg connects + warms up, leading
+// to /api/health returning 503 until ~5 s in. 2 s is well below
+// Railway's 100 s healthcheck default and still fast enough that
+// a real prod outage surfaces as 503 in under 3 s.
+const DB_PING_TIMEOUT_MS = 2_000;
 
 router.get("/healthz", (_req, res) => {
   res.json({ status: "ok" });

@@ -88,9 +88,20 @@ the merge and halt the session.
    E2E_BASE_URL=https://app.qleno.com pnpm run test:e2e -- \
      --grep "@canary"
    ```
-   The canary tag covers: cascade save with frequency change,
-   parking M-F day-of-week stamping, Match schedule button on the
-   parking picker. All three must pass.
+   The `@canary` tag covers four spec files:
+   - `proof-of-life.spec.ts` — `/api/healthz` + `/api/health` +
+     SPA shell smoke (always runs, no creds needed)
+   - `match-schedule.spec.ts` — Match schedule button reads
+     `days_of_week` from dispatch payload (skipped if creds unset)
+   - `cascade-this-and-future.spec.ts` — frequency change cascades
+     to future Tue–Fri (skipped if creds unset)
+   - `parking-day-of-week.spec.ts` — parking stamps Mon-Fri,
+     skips weekends (skipped if creds unset)
+
+   All running tests must pass. Skipped-because-no-creds tests
+   are not pass / not fail — Sal must add the GitHub Secrets
+   (`E2E_TEST_OWNER_EMAIL` / `E2E_TEST_OWNER_PASSWORD`) for the
+   auth-requiring tests to flip on.
 4. **If all three steps pass:** advance to the next backlog item.
 5. **If any step fails:**
    - Revert the merge:

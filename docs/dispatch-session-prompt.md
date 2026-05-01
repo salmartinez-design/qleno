@@ -42,8 +42,19 @@ After every merge to main:
 2. curl https://app.qleno.com/api/health → must be HTTP 200,
    ok=true, db=ok, version matches the merged short SHA.
 3. Run the @canary Playwright tag against the deployed URL.
+   Tests are: proof-of-life (always), match-schedule, cascade
+   this_and_future, parking-day-of-week. The last three skip
+   if E2E_TEST_OWNER_EMAIL/PASSWORD aren't set.
 4. Pass → next backlog item. Fail → revert + halt + write the
    revert into the morning report.
+
+# Pre-merge gate
+
+Don't merge a PR until its `e2e` workflow run is green (or
+green-with-skips on tests gated on credentials). Even though
+`e2e` is advisory in branch-protection during the bedding-in
+period, treat it as required for the overnight session — a red
+e2e on your own PR is a hard stop, not a flake to ignore.
 
 # Morning deliverable
 
