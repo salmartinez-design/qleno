@@ -356,6 +356,15 @@ export default function EditJobModal({
   const [mixedEditWarning, setMixedEditWarning] = useState<{ template: string[]; occurrence: string[] } | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // [PR / 2026-05-03] Series-occurrence counts for the cascade picker's
+  // impact-preview labels ("Affects this + 63 future + 4 past visits").
+  // Fetched once when the modal opens on a recurring job; lazy-load
+  // would push a spinner into the picker which is friction we don't
+  // want — by the time the operator reaches Save the counts are warm.
+  // null = not loaded yet (or not recurring); the picker falls back
+  // to count-less labels in that case so it still ships information.
+  const [occurrenceCounts, setOccurrenceCounts] = useState<{ future: number; past: number } | null>(null);
+
   // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
   // Persistent in-modal banner for the last save error. Toast
   // machinery is fleeting + easy to miss when the operator's eye is
@@ -398,6 +407,34 @@ export default function EditJobModal({
     })();
     return () => { cancelled = true; };
   }, [API, token]);
+
+  // [PR / 2026-05-03] Pre-fetch occurrence counts for the cascade-picker
+  // impact preview. Only fires when the job is attached to a recurring
+  // schedule — one-offs and create_recurring flows have no series to
+  // count against. Failure-mode is silent: counts stay null, picker
+  // renders count-less labels (still correct, just less informative).
+  useEffect(() => {
+    if (job.recurring_schedule_id == null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(
+          `${API}/api/recurring/${job.recurring_schedule_id}/occurrence-counts?exclude_job_id=${job.id}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!r.ok) return;
+        const d = await r.json();
+        if (cancelled) return;
+        setOccurrenceCounts({
+          future: Number(d?.future_count ?? 0),
+          past: Number(d?.past_count ?? 0),
+        });
+      } catch {
+        // Silent — picker falls back to count-less labels.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [API, token, job.id, job.recurring_schedule_id]);
 
   // [AH] Load client (resolve commercial vs residential) BEFORE scopes/addons.
   useEffect(() => {
@@ -1832,28 +1869,109 @@ export default function EditJobModal({
                 </div>
               );
             })()}
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
-              {([
-                { v: "this_job",        label: "Just this visit",                  sub: "Default. Writes to this job + its add-ons. Other occurrences won't change." },
-                { v: "this_and_future", label: "This and all future visits",       sub: "Updates the schedule template + every future scheduled occurrence. Past visits stay untouched." },
-                { v: "all",             label: "All visits in the series",         sub: "Backfills past + future. Paid past jobs are skipped to protect the audit trail." },
-                { v: "remove_this",     label: "Remove from this visit only",      sub: "Use when an add-on (parking, etc.) is normally on the schedule but isn't happening this time. Schedule template stays intact." },
-              ] as Array<{ v: CascadeChoice; label: string; sub: string }>).map(opt => {
-                const sel = cascadeChoice === opt.v;
-                return (
-                  <button key={opt.v} type="button" onClick={() => setCascadeChoice(opt.v)}
-                    style={{
-                      textAlign: "left", padding: "12px 14px", borderRadius: 10,
-                      border: `1.5px solid ${sel ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                      backgroundColor: sel ? "rgba(0,201,160,0.07)" : "#F7F6F3",
-                      cursor: "pointer", fontFamily: FF,
-                    }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{opt.label}</div>
-                    <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{opt.sub}</div>
-                  </button>
-                );
-              })}
-            </div>
+            {/* [PR / 2026-05-03] Impact-preview labels per option. Counts
+                come from /api/recurring/:id/occurrence-counts (loaded on
+                modal mount). Revenue delta = (newBaseFee - initialBaseFee)
+                × affectedCount, surfaced only on "all" since that's where
+                a single tweak compounds across past + future. baseFee is
+                the canonical per-visit price for residential and a
+                reasonable proxy for commercial — close enough for a
+                heads-up; the engine remains the source of truth on
+                what actually applies. */}
+            {(() => {
+              const futureN = occurrenceCounts?.future ?? 0;
+              const pastN = occurrenceCounts?.past ?? 0;
+              const haveCounts = occurrenceCounts != null;
+              const perVisitDelta = baseFee - initialBaseFee;
+              const formatRevenue = (count: number) => {
+                if (Math.abs(perVisitDelta) < 0.01) return null;
+                const total = perVisitDelta * count;
+                const sign = total >= 0 ? "+" : "−";
+                return `${sign}$${Math.abs(total).toFixed(0)} revenue impact`;
+              };
+              const subFor = (v: CascadeChoice): string => {
+                if (v === "this_job") {
+                  return haveCounts
+                    ? "Default. Writes to this job + its add-ons. Other occurrences won't change. Affects 1 visit."
+                    : "Default. Writes to this job + its add-ons. Other occurrences won't change.";
+                }
+                if (v === "this_and_future") {
+                  const base = "Updates the schedule template + every future scheduled occurrence. Past visits stay untouched.";
+                  return haveCounts ? `${base} Affects this + ${futureN} future visit${futureN === 1 ? "" : "s"}.` : base;
+                }
+                if (v === "all") {
+                  const base = "Backfills past + future. Paid past jobs are skipped to protect the audit trail.";
+                  if (!haveCounts) return base;
+                  const totalAffected = 1 + futureN + pastN;
+                  const rev = formatRevenue(totalAffected);
+                  const counts = `Affects this + ${futureN} future + ${pastN} past visit${pastN === 1 ? "" : "s"}`;
+                  return rev ? `${base} ${counts} = ${rev}.` : `${base} ${counts}.`;
+                }
+                // remove_this
+                return haveCounts
+                  ? "Use when an add-on (parking, etc.) is normally on the schedule but isn't happening this time. Schedule template stays intact. Affects 1 visit only."
+                  : "Use when an add-on (parking, etc.) is normally on the schedule but isn't happening this time. Schedule template stays intact.";
+              };
+              const opts: Array<{ v: CascadeChoice; label: string }> = [
+                { v: "this_job",        label: "Just this visit" },
+                { v: "this_and_future", label: "This and all future visits" },
+                { v: "all",             label: "All visits in the series" },
+                { v: "remove_this",     label: "Remove from this visit only" },
+              ];
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 18 }}>
+                  {opts.map(opt => {
+                    const sel = cascadeChoice === opt.v;
+                    return (
+                      <div key={opt.v}>
+                        <button type="button" onClick={() => setCascadeChoice(opt.v)}
+                          style={{
+                            width: "100%",
+                            textAlign: "left", padding: "12px 14px", borderRadius: 10,
+                            border: `1.5px solid ${sel ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                            backgroundColor: sel ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                            cursor: "pointer", fontFamily: FF,
+                          }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{opt.label}</div>
+                          <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{subFor(opt.v)}</div>
+                        </button>
+                        {/* [PR / 2026-05-03] Retroactive-billing warning.
+                            Renders only when "all" is selected — the
+                            other options don't touch past records, so
+                            the warning would be noise. Amber callout
+                            with left-border accent + warning glyph,
+                            two lines of copy, transitions in/out via
+                            max-height/opacity so the picker doesn't
+                            feel jumpy. */}
+                        {opt.v === "all" && (
+                          <div style={{
+                            overflow: "hidden",
+                            maxHeight: sel ? 120 : 0,
+                            opacity: sel ? 1 : 0,
+                            transition: "max-height 180ms ease, opacity 180ms ease, margin-top 180ms ease",
+                            marginTop: sel ? 6 : 0,
+                          }}>
+                            <div style={{
+                              display: "flex", gap: 8, alignItems: "flex-start",
+                              padding: "10px 12px", borderRadius: 8,
+                              backgroundColor: "#FEF3C7",
+                              borderLeft: "4px solid #F59E0B",
+                              fontSize: 12, color: "#92400E", lineHeight: 1.45,
+                            }}>
+                              <AlertTriangle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
+                              <span>
+                                <strong>Rewrites past billing records.</strong>{" "}
+                                April revenue, customer invoices, and reports will retroactively change.
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setCascadePromptOpen(false); setMixedEditWarning(null); }} disabled={saving}
                 style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>

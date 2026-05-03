@@ -119,6 +119,44 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// GET /api/recurring/:id/occurrence-counts?exclude_job_id=N — counts of past
+// vs future jobs in the series, used by the edit-job-modal cascade picker
+// to show "Affects this + 63 future + 4 past" previews on each option.
+// Future = scheduled_date >= CURRENT_DATE. Past = scheduled_date < CURRENT_DATE.
+// Cancelled jobs excluded both ways (they're not "affected" by any cascade).
+// exclude_job_id is the anchor (the job the user has open) so it doesn't
+// double-count toward future or past — the picker labels treat the anchor
+// as "this" separately.
+router.get("/:id/occurrence-counts", requireAuth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid id" });
+    const excludeRaw = req.query.exclude_job_id;
+    const excludeJobId = excludeRaw != null ? parseInt(String(excludeRaw)) : null;
+
+    const r = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE j.scheduled_date >= CURRENT_DATE)::int AS future_count,
+        COUNT(*) FILTER (WHERE j.scheduled_date <  CURRENT_DATE)::int AS past_count
+      FROM jobs j
+      WHERE j.recurring_schedule_id = ${id}
+        AND j.company_id = ${req.auth!.companyId}
+        AND j.status != 'cancelled'
+        ${excludeJobId != null && Number.isFinite(excludeJobId)
+            ? sql`AND j.id != ${excludeJobId}`
+            : sql``}
+    `);
+    const row = (r.rows[0] ?? {}) as { future_count?: number; past_count?: number };
+    return res.json({
+      future_count: Number(row.future_count ?? 0),
+      past_count: Number(row.past_count ?? 0),
+    });
+  } catch (err) {
+    console.error("[recurring GET occurrence-counts]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);
