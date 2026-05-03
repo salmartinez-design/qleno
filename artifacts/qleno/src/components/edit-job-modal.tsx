@@ -192,6 +192,19 @@ const DAY_PICKER: Array<{ value: number; short: string }> = [
   { value: 6, short: "Sat" },
 ];
 
+// [feature/edit-modal-frequency-presets] Single-tap presets for the two
+// common cleaning cadences PHES actually runs. Each preset writes
+// frequency + days_of_week atomically. Other custom-day patterns (T–F,
+// M–W, Th–F, M & F) are reachable via the custom_days checkbox grid below
+// — its smart auto-fill expands a tapped business day through Friday on
+// first tap, so users get one-tap shortcuts to those patterns without
+// cluttering this row. Active state highlights when the current
+// (frequency, daysOfWeek) tuple matches a preset.
+const SCHEDULE_PRESETS: Array<{ label: string; frequency: string; days: number[] }> = [
+  { label: "M–F",       frequency: "weekdays", days: [1, 2, 3, 4, 5] },
+  { label: "Every day", frequency: "daily",    days: [0, 1, 2, 3, 4, 5, 6] },
+];
+
 const SECTION: React.CSSProperties = {
   margin: "14px 20px 0",
   backgroundColor: "#FFFFFF",
@@ -341,11 +354,6 @@ export default function EditJobModal({
   // the cascade prompt explaining what "Just this visit" will and
   // won't do. See FIELD_SCOPE_CLASSIFICATION at the top of this file.
   const [mixedEditWarning, setMixedEditWarning] = useState<{ template: string[]; occurrence: string[] } | null>(null);
-  // [edit-decouple 2026-04-29] When the route returns warn=true, we
-  // open this confirmation dialog. User confirms → we re-submit with
-  // force_unlock: true so per-field warn locks pass through.
-  const [warnPrompt, setWarnPrompt] = useState<{ message: string; field?: string } | null>(null);
-
   const [saving, setSaving] = useState(false);
 
   // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
@@ -843,7 +851,7 @@ export default function EditJobModal({
     setCascadePromptOpen(true);
   }
 
-  async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean; dry_run?: boolean }) {
+  async function submit(cascade: CascadeChoice, opts?: { dry_run?: boolean }) {
     if (opts?.dry_run) setPreviewing(true); else setSaving(true);
     // [PR / 2026-05-01] Clear stale error banner at the start of every
     // save attempt so retries don't show outdated messages.
@@ -885,11 +893,6 @@ export default function EditJobModal({
         // tx. Production state stays untouched. Response shape carries
         // `dry_run: true` and `cascade.future_jobs_would_be_*`.
         dry_run: opts?.dry_run === true,
-        // [edit-decouple 2026-04-29] When the route returned warn=true on
-        // a previous attempt and the operator confirmed in the dialog,
-        // we replay the request with this flag set so per-field warn
-        // locks (price-on-completed, all-with-paid-past) pass through.
-        force_unlock: opts?.force_unlock === true,
       };
       // [AH] Commercial-only fields. service_type is a real enum value the
       // user picked from the commercial dropdown; hourly_rate persists to
@@ -946,14 +949,7 @@ export default function EditJobModal({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
         console.error("[edit-job-modal] PATCH failed", { status: r.status, body: d, payload });
-        // [edit-decouple 2026-04-29] 409 + warn=true is a "are you sure"
-        // signal — surface a confirm dialog and let the operator re-submit
-        // with force_unlock: true. Other 409s stay as terminal errors
-        // (cancelled job, hard-locked field, tech clocked in).
-        if (r.status === 409 && d.warn === true) {
-          setWarnPrompt({ message: d.message || "This change requires confirmation.", field: d.field });
-          setCascadePromptOpen(false);
-        } else {
+        {
           // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
           // Persistent in-modal banner mirrors the toast (transient
           // confirmation) but stays put until the operator's next save
@@ -1121,6 +1117,73 @@ export default function EditJobModal({
                     </select>
                   </div>
                 </div>
+                {/* [feature/edit-modal-frequency-presets] Convenience preset
+                    buttons + visual day confirmation. Tap a preset → set
+                    frequency + days_of_week atomically. The chip strip below
+                    renders the resolved firing days when frequency is
+                    'weekdays' or 'daily' so the user gets visible feedback
+                    that was missing when only the dropdown changed. The
+                    custom-days picker below still owns interactive editing
+                    for that frequency. */}
+                {frequency !== "on_demand" && (
+                  <div style={{ marginTop: 10 }}>
+                    <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 6 }}>
+                      Quick presets
+                    </span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {SCHEDULE_PRESETS.map(p => {
+                        const sortedCurrent = [...daysOfWeek].sort();
+                        const sortedPreset = [...p.days].sort();
+                        const active = frequency === p.frequency
+                          && sortedCurrent.length === sortedPreset.length
+                          && sortedCurrent.every((v, i) => v === sortedPreset[i]);
+                        return (
+                          <button key={p.label} type="button"
+                            onClick={() => {
+                              if (active) {
+                                setFrequency("custom_days");
+                                setDaysOfWeek([]);
+                              } else {
+                                setFrequency(p.frequency);
+                                setDaysOfWeek([...p.days]);
+                              }
+                            }}
+                            style={{
+                              fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+                              border: `1px solid ${active ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                              background: active ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                              color: active ? "var(--brand, #00C9A0)" : "#6B6860",
+                              cursor: "pointer", fontFamily: FF,
+                            }}>
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {(frequency === "weekdays" || frequency === "daily") && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                        {DAY_PICKER.map(d => {
+                          const firingDays = frequency === "weekdays" ? [1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6];
+                          const firing = firingDays.includes(d.value);
+                          return (
+                            <span key={d.value}
+                              style={{
+                                display: "inline-flex", alignItems: "center",
+                                padding: "6px 10px", borderRadius: 6,
+                                border: `1.5px solid ${firing ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                                backgroundColor: firing ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                                fontSize: 12, fontFamily: FF,
+                                color: firing ? "var(--brand, #00C9A0)" : "#9E9B94",
+                                fontWeight: firing ? 700 : 500,
+                              }}>
+                              {d.short}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
                 {/* [AI] Custom-days picker — 7 checkboxes, only when frequency='custom_days' */}
                 {frequency === "custom_days" && (
                   <div style={{ marginTop: 10 }}>
@@ -1145,9 +1208,26 @@ export default function EditJobModal({
                             }}>
                             <input type="checkbox" checked={checked}
                               onChange={() => {
-                                setDaysOfWeek(prev =>
-                                  prev.includes(d.value) ? prev.filter(x => x !== d.value) : [...prev, d.value]
-                                );
+                                setDaysOfWeek(prev => {
+                                  // Toggling off — works for any day, no auto-fill.
+                                  if (prev.includes(d.value)) return prev.filter(x => x !== d.value);
+                                  // [feature/edit-modal-frequency-presets] Smart auto-fill:
+                                  // tapping a business day (Mon–Fri = 1..5) when no business
+                                  // day is already selected fills [tappedDay..5]. This makes
+                                  // tapping Tue → [2,3,4,5], tapping Wed → [3,4,5], etc.
+                                  // Tapping Sat/Sun, or tapping a business day when at least
+                                  // one business day is already checked, behaves as a normal
+                                  // toggle so users can fine-tune without the auto-fill
+                                  // fighting them. Existing weekend selections are preserved.
+                                  const isBusinessDay = d.value >= 1 && d.value <= 5;
+                                  const hasBusinessDay = prev.some(v => v >= 1 && v <= 5);
+                                  if (isBusinessDay && !hasBusinessDay) {
+                                    const range: number[] = [];
+                                    for (let i = d.value; i <= 5; i++) range.push(i);
+                                    return [...prev.filter(v => v < 1 || v > 5), ...range].sort();
+                                  }
+                                  return [...prev, d.value].sort();
+                                });
                               }} />
                             {d.short}
                           </label>
@@ -1317,7 +1397,16 @@ export default function EditJobModal({
                 <Loader2 size={12} className="animate-spin" /> Loading add-ons…
               </div>
             ) : availableAddons.length === 0 ? (
-              <span style={{ fontSize: 12, color: "#9E9B94" }}>No add-ons configured for this scope.</span>
+              // [feature/edit-modal-frequency-presets] Diagnostic empty-state
+              // for commercial recurring jobs — when the parking add-on is
+              // missing for this company, the parking-fee day picker further
+              // down can never render. Surface that explicitly so operators
+              // can self-diagnose instead of guessing why parking UI is gone.
+              <span style={{ fontSize: 12, color: "#9E9B94" }}>
+                {isCommercial && isRecurring
+                  ? "No add-ons available — check that a 'Parking Fee' row exists in pricing_addons for this company."
+                  : "No add-ons configured for this scope."}
+              </span>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {availableAddons.map(a => {
@@ -1439,11 +1528,33 @@ export default function EditJobModal({
                     })}
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button type="button"
-                      onClick={() => setParkingFeeDays([...daysOfWeek].sort())}
-                      style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
-                      Match schedule ({daysOfWeek.length > 0 ? daysOfWeek.map(d => dayLabels[d].l.slice(0,1)).join("") : "—"})
-                    </button>
+                    {/* [feature/edit-modal-frequency-presets] Match-schedule
+                        is disabled when there are no schedule days to copy
+                        — instead of rendering a clickable em-dash that
+                        does nothing, we grey it out and surface a tooltip
+                        explaining what to do first. "All days" stays
+                        always-enabled because it doesn't depend on
+                        daysOfWeek. */}
+                    {(() => {
+                      const matchDisabled = daysOfWeek.length === 0;
+                      return (
+                        <button type="button"
+                          disabled={matchDisabled}
+                          title={matchDisabled ? "Pick schedule days first" : undefined}
+                          onClick={() => setParkingFeeDays([...daysOfWeek].sort())}
+                          style={{
+                            fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
+                            border: "1px solid #E5E2DC",
+                            background: matchDisabled ? "#F7F6F3" : "#FFFFFF",
+                            color: matchDisabled ? "#9E9B94" : "#6B6860",
+                            cursor: matchDisabled ? "not-allowed" : "pointer",
+                            opacity: matchDisabled ? 0.6 : 1,
+                            fontFamily: FF,
+                          }}>
+                          Match schedule ({daysOfWeek.length > 0 ? daysOfWeek.map(d => dayLabels[d].l.slice(0,1)).join("") : "—"})
+                        </button>
+                      );
+                    })()}
                     <button type="button"
                       onClick={() => setParkingFeeDays([0,1,2,3,4,5,6])}
                       style={{
@@ -1733,40 +1844,6 @@ export default function EditJobModal({
         </>
       )}
 
-      {/* [edit-decouple 2026-04-29] Confirmation dialog for warn-locked
-          edits. Opens when the route returns 409 + warn=true. The
-          operator's "Confirm and save" re-submits the same payload with
-          force_unlock: true so the per-field warn lock passes through. */}
-      {warnPrompt && (
-        <>
-          <div onClick={() => setWarnPrompt(null)}
-            style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,16,18,0.55)", zIndex: 220 }} />
-          <div style={{
-            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-            zIndex: 221, width: 440, maxWidth: "92vw",
-            backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
-            boxShadow: "0 16px 48px rgba(0,0,0,0.18)", padding: "20px 22px",
-            fontFamily: FF,
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 8 }}>
-              Confirm change
-            </div>
-            <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5, marginBottom: 18 }}>
-              {warnPrompt.message}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setWarnPrompt(null)} disabled={saving}
-                style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                Cancel
-              </button>
-              <button onClick={() => { setWarnPrompt(null); submit(cascadeChoice, { force_unlock: true }); }} disabled={saving}
-                style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#D97706", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
-                {saving ? "Saving…" : "Confirm and save"}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </>
   );
 }
