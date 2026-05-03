@@ -870,111 +870,31 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
     const before = jobRows.rows[0] as Record<string, unknown>;
 
-    // [edit-decouple 2026-04-29] Per-field lock matrix replaces the prior
-    // blanket "completed/cancelled/locked = no edits". Operators need to
-    // fix tech assignments and clock-in timestamps after the fact for
-    // payroll, and surfacing edits via the audit log is more useful than
-    // hiding the door entirely.
+    // [PR / 2026-05-03] Completed-job edits are fully unlocked per Sal's
+    // directive — notes, tech, time, price, parking, frequency,
+    // service_type, anything. Money movement (refunds, surcharges) is
+    // handled manually outside the app. Reports query the live row so
+    // figures retroactively reflect any edit. Audit log writes capture
+    // every change for traceability. Cancelled stays hard-locked
+    // (uncancel flow handles restoration).
     //
-    //   Free fields:        notes, address, scheduled_date/time,
-    //                       allowed_hours, instructions, manual_rate_override,
-    //                       team_user_ids, add_ons, parking_*, days_of_week
-    //   Hard-locked fields on completed: service_type, frequency
-    //                       (changing these changes commission routing /
-    //                        recurrence semantics — use void-and-rebook)
-    //   Warn-then-unlock:   base_fee on completed (warn if invoiced),
-    //                       hourly_rate on completed
-    //   Hard-locked when paid: base_fee, hourly_rate
-    //                       (charge_succeeded_at IS NOT NULL means money
-    //                        moved — refund flow, not edit)
-    //   Always free:        team_user_ids, instructions, address fields,
-    //                       notes, add_ons (audit-trailed in all cases)
-    //
-    // Caller signals "I see the warning, proceed" via `force_unlock: true`
-    // in the body. Without it, warn-locked field edits return 409.
-    const force_unlock = req.body?.force_unlock === true;
+    // `skipAnchorLockedFields` below still freezes the anchor row's
+    // frequency / service_type / price columns when cascade='this_and_future'
+    // or 'all', so the historical anchor keeps the values that actually
+    // fired. To overwrite the anchor itself, the operator picks
+    // cascade='this_job'.
     const isCompleted = before.status === "complete";
     const isCancelled = before.status === "cancelled";
-    const isPaid = before.charge_succeeded_at != null;
 
     if (isCancelled) {
-      // Cancelled jobs stay locked. Restore-from-cancelled is a different
-      // flow (uncancel route, not editor).
       return res.status(409).json({
         error: "Cancelled job",
         message: "Cancelled jobs cannot be edited. Restore the job first.",
       });
     }
 
-    // [PR / 2026-05-01 — re-implementation of yesterday's PR #34
-    // (reverted in #35 during the unrelated #31 boot-time outage)]
-    //
-    // Cascade-scope-aware lock: the legacy hard-lock returned 409 when
-    // an operator tried to change frequency / service_type / price on
-    // a completed job — regardless of cascade_scope. That conflated:
-    //   (1) "edit this completed job's fields"   (this_job)
-    //   (2) "edit the schedule TEMPLATE via this completed job as
-    //        anchor; future jobs inherit, this one stays as-is in the
-    //        audit trail" (this_and_future / all)
-    //
-    // (2) is the operator's right workflow when the client completes
-    // Monday + calls Tuesday morning to change the schedule going
-    // forward. Pre-fix this 409'd. Post-fix the route strips the
-    // locked fields from the anchor's `setParts` UPDATE (audit record
-    // stays clean) but proceeds with the schedule-template UPDATE +
-    // future-jobs cascade (which already filters `j.id != ${jobId}`
-    // and respects the per-row status / paid / invoice skip rules
-    // shipped in PR #38).
     const cascadesToTemplate = cascade_scope === "this_and_future" || cascade_scope === "all";
     const skipAnchorLockedFields = isCompleted && cascadesToTemplate;
-
-    if (isCompleted && !cascadesToTemplate) {
-      // Editing only this completed job — hard-lock service_type /
-      // frequency. Changing them rewrites commission routing and
-      // recurrence semantics on already-billed work. Operator must
-      // void-and-rebook for those.
-      if (service_type !== undefined && service_type !== before.service_type) {
-        return res.status(409).json({
-          error: "Field locked",
-          field: "service_type",
-          message: "Service type can't change on a completed job. Cancel and re-book if the wrong type was billed, or use 'This and all future' to update the schedule template.",
-        });
-      }
-      if (frequency !== undefined && frequency !== before.frequency) {
-        return res.status(409).json({
-          error: "Field locked",
-          field: "frequency",
-          message: "Frequency can't change on a completed job. Cancel and re-book if the recurrence was wrong, or use 'This and all future' to update the schedule template.",
-        });
-      }
-    }
-    if (isCompleted) {
-      // Warn-locked: pricing on completed jobs. Hard-locked when paid.
-      // For cascadesToTemplate: skip the warn/hard-lock entirely. The
-      // price change applies to the schedule template + future jobs;
-      // the anchor's `jobs.base_fee` / `jobs.hourly_rate` stay frozen
-      // (stripped from setParts below).
-      const priceChanged =
-        (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) ||
-        (hourly_rate !== undefined && String(hourly_rate ?? "") !== String(before.hourly_rate ?? ""));
-      if (priceChanged && !cascadesToTemplate) {
-        if (isPaid) {
-          return res.status(409).json({
-            error: "Field locked",
-            field: "base_fee",
-            message: "Job is already paid. Issue a refund or surcharge instead of editing the price.",
-          });
-        }
-        if (!force_unlock) {
-          return res.status(409).json({
-            error: "Confirmation required",
-            field: "base_fee",
-            warn: true,
-            message: "This job is completed. Changing the price may require manual invoice adjustment. Re-submit with force_unlock=true to confirm.",
-          });
-        }
-      }
-    }
 
     if (cascade_scope === "this_and_future" && before.recurring_schedule_id == null) {
       return res.status(400).json({
@@ -1075,28 +995,10 @@ router.patch("/:id", requireAuth, async (req, res) => {
       });
     }
 
-    // [cascade-scope 2026-04-29] cascade='all' warns when any past
-    // occurrence in the series has been paid. Operator must confirm
-    // via force_unlock=true to proceed (same flag used by the
-    // per-field warn-then-unlock above).
-    if (cascade_scope === "all" && before.recurring_schedule_id != null) {
-      const paidPast = await db.execute(sql`
-        SELECT COUNT(*)::int AS n FROM jobs
-         WHERE recurring_schedule_id = ${Number(before.recurring_schedule_id)}
-           AND company_id = ${companyId}
-           AND charge_succeeded_at IS NOT NULL
-           AND scheduled_date < ${String(before.scheduled_date)}
-      `);
-      const n = Number((paidPast.rows[0] as any)?.n ?? 0);
-      if (n > 0 && !force_unlock) {
-        return res.status(409).json({
-          error: "Confirmation required",
-          warn: true,
-          paid_past_count: n,
-          message: `This recurring series has ${n} past paid occurrence${n === 1 ? "" : "s"}. Backfilling 'all' will leave those paid jobs untouched but template + past unpaid will update. Re-submit with force_unlock=true to confirm.`,
-        });
-      }
-    }
+    // [PR / 2026-05-03] cascade='all' previously warned when past
+    // occurrences were paid. Removed alongside the completion gates —
+    // the cascade engine itself silently skips paid past jobs further
+    // down (audit-trail preserved), so the heads-up was just friction.
 
     // ── In-progress guard: open timeclock blocks date/time/team edits ──────
     const tcRows = await db.execute(sql`

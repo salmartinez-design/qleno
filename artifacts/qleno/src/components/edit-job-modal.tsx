@@ -354,11 +354,6 @@ export default function EditJobModal({
   // the cascade prompt explaining what "Just this visit" will and
   // won't do. See FIELD_SCOPE_CLASSIFICATION at the top of this file.
   const [mixedEditWarning, setMixedEditWarning] = useState<{ template: string[]; occurrence: string[] } | null>(null);
-  // [edit-decouple 2026-04-29] When the route returns warn=true, we
-  // open this confirmation dialog. User confirms → we re-submit with
-  // force_unlock: true so per-field warn locks pass through.
-  const [warnPrompt, setWarnPrompt] = useState<{ message: string; field?: string } | null>(null);
-
   const [saving, setSaving] = useState(false);
 
   // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
@@ -856,7 +851,7 @@ export default function EditJobModal({
     setCascadePromptOpen(true);
   }
 
-  async function submit(cascade: CascadeChoice, opts?: { force_unlock?: boolean; dry_run?: boolean }) {
+  async function submit(cascade: CascadeChoice, opts?: { dry_run?: boolean }) {
     if (opts?.dry_run) setPreviewing(true); else setSaving(true);
     // [PR / 2026-05-01] Clear stale error banner at the start of every
     // save attempt so retries don't show outdated messages.
@@ -898,11 +893,6 @@ export default function EditJobModal({
         // tx. Production state stays untouched. Response shape carries
         // `dry_run: true` and `cascade.future_jobs_would_be_*`.
         dry_run: opts?.dry_run === true,
-        // [edit-decouple 2026-04-29] When the route returned warn=true on
-        // a previous attempt and the operator confirmed in the dialog,
-        // we replay the request with this flag set so per-field warn
-        // locks (price-on-completed, all-with-paid-past) pass through.
-        force_unlock: opts?.force_unlock === true,
       };
       // [AH] Commercial-only fields. service_type is a real enum value the
       // user picked from the commercial dropdown; hourly_rate persists to
@@ -959,14 +949,7 @@ export default function EditJobModal({
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
         console.error("[edit-job-modal] PATCH failed", { status: r.status, body: d, payload });
-        // [edit-decouple 2026-04-29] 409 + warn=true is a "are you sure"
-        // signal — surface a confirm dialog and let the operator re-submit
-        // with force_unlock: true. Other 409s stay as terminal errors
-        // (cancelled job, hard-locked field, tech clocked in).
-        if (r.status === 409 && d.warn === true) {
-          setWarnPrompt({ message: d.message || "This change requires confirmation.", field: d.field });
-          setCascadePromptOpen(false);
-        } else {
+        {
           // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
           // Persistent in-modal banner mirrors the toast (transient
           // confirmation) but stays put until the operator's next save
@@ -1861,40 +1844,6 @@ export default function EditJobModal({
         </>
       )}
 
-      {/* [edit-decouple 2026-04-29] Confirmation dialog for warn-locked
-          edits. Opens when the route returns 409 + warn=true. The
-          operator's "Confirm and save" re-submits the same payload with
-          force_unlock: true so the per-field warn lock passes through. */}
-      {warnPrompt && (
-        <>
-          <div onClick={() => setWarnPrompt(null)}
-            style={{ position: "fixed", inset: 0, backgroundColor: "rgba(15,16,18,0.55)", zIndex: 220 }} />
-          <div style={{
-            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-            zIndex: 221, width: 440, maxWidth: "92vw",
-            backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
-            boxShadow: "0 16px 48px rgba(0,0,0,0.18)", padding: "20px 22px",
-            fontFamily: FF,
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 8 }}>
-              Confirm change
-            </div>
-            <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5, marginBottom: 18 }}>
-              {warnPrompt.message}
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setWarnPrompt(null)} disabled={saving}
-                style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                Cancel
-              </button>
-              <button onClick={() => { setWarnPrompt(null); submit(cascadeChoice, { force_unlock: true }); }} disabled={saving}
-                style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#D97706", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
-                {saving ? "Saving…" : "Confirm and save"}
-              </button>
-            </div>
-          </div>
-        </>
-      )}
     </>
   );
 }
