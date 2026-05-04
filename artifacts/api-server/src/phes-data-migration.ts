@@ -576,6 +576,34 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'semi_monthly'` },
     { label: "recurring_schedules.days_of_month",
       stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS days_of_month INTEGER[]` },
+
+    // [PR #60] Per-client hourly rate. Drives the recurring-schedule
+    // editor's Schedule Rate auto-calc (hourly_rate × allowed_hours =
+    // schedule_rate). Distinct from commercial_hourly_rate (commission
+    // engine). Backfill below populates it for existing clients.
+    { label: "clients.hourly_rate",
+      stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(10,2)` },
+    // [PR #60] Backfill clients.hourly_rate. Priority order:
+    // 1) commercial_hourly_rate (already-set commercial value)
+    // 2) base_fee / allowed_hours (residential — implied rate)
+    // Skip rows that already have hourly_rate populated. Idempotent —
+    // safe to run on every cold-start.
+    { label: "clients.hourly_rate backfill",
+      stmt: `
+        UPDATE clients
+        SET hourly_rate = COALESCE(
+          commercial_hourly_rate,
+          CASE
+            WHEN base_fee IS NOT NULL
+              AND allowed_hours IS NOT NULL
+              AND allowed_hours::numeric > 0
+            THEN ROUND((base_fee::numeric / allowed_hours::numeric)::numeric, 2)
+            ELSE NULL
+          END
+        )
+        WHERE hourly_rate IS NULL
+      `,
+    },
   ];
 
   for (const { label, stmt } of guards) {

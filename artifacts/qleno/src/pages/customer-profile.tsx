@@ -3423,6 +3423,14 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
     rec_duration: recurringSchedule?.duration_minutes
       ? String(Number(recurringSchedule.duration_minutes) / 60)
       : "",
+    // [PR #60] Per-client hourly rate. Sourced from clients.hourly_rate
+    // (backfilled at deploy from base_fee/allowed_hours). Drives the
+    // Schedule Rate auto-calc: typing a new Hourly Rate or Allowed Hours
+    // updates Schedule Rate to (hourly × hours). Editing Schedule Rate
+    // directly stays as a flat override.
+    rec_hourly_rate: client.hourly_rate
+      ? String(client.hourly_rate)
+      : "",
     rec_base_fee: recurringSchedule?.base_fee || "",
     rec_service_type: recurringSchedule?.service_type || "",
     rec_notes: recurringSchedule?.notes || "",
@@ -3781,9 +3789,59 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                   </div>
                 </div>
               )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>{lbl("Allowed Hours")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" step="0.5" placeholder="3" style={inp} /></div>
-                <div>{lbl("Schedule Rate ($)")}<input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
+              {/* [PR #60] Three-field rate row. Type Hourly OR Hours →
+                  Schedule Rate auto-recalcs (hourly × hours). Edit Schedule
+                  Rate directly → stays as a flat override (operator's
+                  intent: discount visit, special rate). Helper text below
+                  surfaces the implied formula so operator sees the math. */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                <div>{lbl("Hourly Rate ($)")}
+                  <input value={form.rec_hourly_rate}
+                    onChange={e => {
+                      const newHourly = e.target.value;
+                      setForm(f => {
+                        const hours = parseFloat(String(f.rec_duration));
+                        const hourly = parseFloat(newHourly);
+                        const next: any = { ...f, rec_hourly_rate: newHourly };
+                        if (!isNaN(hourly) && !isNaN(hours) && hours > 0) {
+                          next.rec_base_fee = (hourly * hours).toFixed(2);
+                        }
+                        return next;
+                      });
+                    }}
+                    type="number" min="0" step="0.01" placeholder="60" style={inp} />
+                </div>
+                <div>{lbl("Allowed Hours")}
+                  <input value={form.rec_duration}
+                    onChange={e => {
+                      const newHours = e.target.value;
+                      setForm(f => {
+                        const hourly = parseFloat(String(f.rec_hourly_rate));
+                        const hours = parseFloat(newHours);
+                        const next: any = { ...f, rec_duration: newHours };
+                        if (!isNaN(hourly) && !isNaN(hours) && hours > 0) {
+                          next.rec_base_fee = (hourly * hours).toFixed(2);
+                        }
+                        return next;
+                      });
+                    }}
+                    type="number" min="0" step="0.5" placeholder="3" style={inp} />
+                </div>
+                <div>{lbl("Schedule Rate ($)")}
+                  <input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} />
+                  {(() => {
+                    const h = parseFloat(String(form.rec_hourly_rate));
+                    const d = parseFloat(String(form.rec_duration));
+                    if (!isNaN(h) && !isNaN(d) && d > 0) {
+                      return (
+                        <div style={{ fontSize: 11, color: "#6B6860", marginTop: 4, fontFamily: FF }}>
+                          ${h.toFixed(2)}/hr × {d} hrs = ${(h * d).toFixed(2)}
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
               </div>
               <div>{lbl("Service Type")}
                 {(() => {
@@ -3802,7 +3860,16 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                   const isRecurring = recurringFreqs.has(form.rec_frequency);
                   const isOneTime = oneTimeFreqs.has(form.rec_frequency);
                   const recurringNoise = /^recurring cleaning\s*[-–—]/i;
-                  const recurringOk = (n: string) => /standard|hourly recurring/i.test(n) && !recurringNoise.test(n);
+                  // [PR #60] Also drop scopes whose name explicitly says
+                  // "one-time" when the operator picked a recurring
+                  // frequency. The user pointed out "Standard Clean" and
+                  // "One-Time Standard Clean" are the same scope from a
+                  // recurring-client POV — only the recurring variant
+                  // should appear.
+                  const oneTimeMarker = /one[- ]?time/i;
+                  const recurringOk = (n: string) => /standard|hourly recurring/i.test(n)
+                    && !recurringNoise.test(n)
+                    && !oneTimeMarker.test(n);
                   const oneTimeOk = (n: string) => /standard clean|deep clean|move in|move out|hourly standard|hourly deep/i.test(n) && !recurringNoise.test(n);
                   const scopeFiltered = filteredScopes.filter(s => {
                     if (recurringNoise.test(s.name)) return false;

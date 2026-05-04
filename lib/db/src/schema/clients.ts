@@ -77,6 +77,13 @@ export const clientsTable = pgTable("clients", {
   // residential clients. Multi-location commercial accounts use
   // account_rate_cards instead — see KNOWN_BUGS.md.
   commercial_hourly_rate: numeric("commercial_hourly_rate", { precision: 10, scale: 2 }),
+  // [PR #60] Per-client hourly rate. Drives the recurring-schedule editor's
+  // Schedule Rate auto-calc (hourly_rate × allowed_hours = schedule_rate).
+  // Distinct from commercial_hourly_rate (which is consumed by the
+  // commission engine / edit-job modal commercial branch). Set for both
+  // residential and commercial clients. Backfilled at cold-start from
+  // base_fee / allowed_hours when null.
+  hourly_rate: numeric("hourly_rate", { precision: 10, scale: 2 }),
   // Per-client parking-fee default. Schedule-level (recurring_schedules.
   // parking_fee_amount) and per-occurrence (job_add_ons.unit_price) overrides
   // both win over this. Enabled flag drives the pre-fill behavior in the

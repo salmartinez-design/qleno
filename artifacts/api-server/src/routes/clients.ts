@@ -558,7 +558,8 @@ router.put("/:id", requireAuth, async (req, res) => {
       po_number_required, default_po_number, payment_terms, auto_charge,
       card_last_four, card_brand, card_expiry, card_saved_at,
       payment_method, net_terms,
-      commercial_hourly_rate,    // [AH] Per-client commercial hourly rate
+      commercial_hourly_rate,    // [AH] Per-client commercial hourly rate (commission engine)
+      hourly_rate,               // [PR #60] Per-client hourly rate (Schedule Rate auto-calc)
       parking_fee_enabled, parking_fee_amount,
     } = req.body;
 
@@ -613,6 +614,14 @@ router.put("/:id", requireAuth, async (req, res) => {
         commercial_hourly_rate: commercial_hourly_rate === null || commercial_hourly_rate === ""
           ? null
           : String(commercial_hourly_rate),
+      }),
+      // [PR #60] Per-client hourly rate. Persisted explicitly so the
+      // recurring-schedule editor's Schedule Rate auto-calc has a
+      // first-class field rather than inferring from base_fee/allowed_hours.
+      ...(hourly_rate !== undefined && {
+        hourly_rate: hourly_rate === null || hourly_rate === ""
+          ? null
+          : String(hourly_rate),
       }),
       ...(parking_fee_enabled !== undefined && { parking_fee_enabled: !!parking_fee_enabled }),
       ...(parking_fee_amount !== undefined && {
@@ -1356,18 +1365,31 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
     // profile UI no longer surfaces these — the schedule is the single
     // source of truth — but the data drift from old code reading
     // clients.frequency would surface stale values otherwise.
+    //
+    // [PR #60] Also recompute clients.hourly_rate when base_fee or
+    // duration_minutes change. The recurring-schedule editor's Schedule
+    // Rate auto-calc treats hourly_rate as first-class, so keep it in
+    // sync with whatever (rate, hours) the operator just saved.
     if (updated[0]) {
       const sched = updated[0] as any;
+      const newBaseFee = base_fee === "" || base_fee == null ? null : Number(base_fee);
+      const newAllowedHours = duration_minutes === "" || duration_minutes == null
+        ? null
+        : Number(duration_minutes) / 60;
+      const computedHourlyRate = newBaseFee != null && newAllowedHours != null && newAllowedHours > 0
+        ? Number((newBaseFee / newAllowedHours).toFixed(2))
+        : null;
       await db.update(clientsTable).set({
         ...(frequency && { frequency: String(frequency) }),
         ...(service_type !== undefined && { service_type: service_type ?? null }),
         ...(base_fee !== undefined && {
-          base_fee: base_fee === "" || base_fee == null ? null : String(base_fee),
+          base_fee: newBaseFee == null ? null : String(newBaseFee),
         }),
         ...(duration_minutes !== undefined && {
-          allowed_hours: duration_minutes === "" || duration_minutes == null
-            ? null
-            : String((Number(duration_minutes) / 60).toFixed(2)),
+          allowed_hours: newAllowedHours == null ? null : String(newAllowedHours.toFixed(2)),
+        }),
+        ...((base_fee !== undefined || duration_minutes !== undefined) && computedHourlyRate != null && {
+          hourly_rate: String(computedHourlyRate),
         }),
       }).where(and(
         eq(clientsTable.id, clientId),
