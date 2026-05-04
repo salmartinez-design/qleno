@@ -3417,7 +3417,12 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
     notes: client.notes || "",
     rec_frequency: recurringSchedule?.frequency || "",
     rec_day: recurringSchedule?.day_of_week || "",
-    rec_duration: recurringSchedule?.duration_minutes || "",
+    // [PR #59] Stored in DB as duration_minutes but operators talk in
+    // hours. Form value is hours (with 0.5 step), converted to minutes
+    // on save. 180 minutes -> "3", 90 minutes -> "1.5".
+    rec_duration: recurringSchedule?.duration_minutes
+      ? String(Number(recurringSchedule.duration_minutes) / 60)
+      : "",
     rec_base_fee: recurringSchedule?.base_fee || "",
     rec_service_type: recurringSchedule?.service_type || "",
     rec_notes: recurringSchedule?.notes || "",
@@ -3444,12 +3449,19 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
   const save = async () => {
     setSaving(true);
     try {
+      // [PR #59] Client-level update is now scoped to property + access
+      // fields only. base_fee / frequency / service_type / allowed_hours
+      // are mirrored from the schedule on the server side (see PATCH
+      // /:id/recurring-schedule), so no need to send them from here.
       await onUpdate({
-        base_fee: form.base_fee, frequency: form.frequency, service_type: form.service_type,
-        allowed_hours: form.allowed_hours, home_access_notes: form.home_access_notes,
+        home_access_notes: form.home_access_notes,
         alarm_code: form.alarm_code, pets: form.pets, notes: form.notes,
       });
-      if (recurringSchedule) {
+      // [PR #59] Always run the schedule PATCH if the operator picked a
+      // frequency — the endpoint UPSERTs, so first-time setup ("convert
+      // one-time client to recurring") and subsequent edits both flow
+      // through the same code path.
+      if (form.rec_frequency || recurringSchedule) {
         // [AI.6] Resolve parking_fee_days: only persist a non-null array when
         // (a) the toggle is on AND (b) the frequency is multi-day. Single-day
         // schedules (weekly/biweekly/etc.) leave it null — there's only one
@@ -3476,7 +3488,11 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
           method: "PATCH",
           body: JSON.stringify({
             frequency: form.rec_frequency || undefined, day_of_week: form.rec_day || undefined,
-            duration_minutes: form.rec_duration, base_fee: form.rec_base_fee,
+            // [PR #59] Hours -> minutes on save. Empty stays empty.
+            duration_minutes: form.rec_duration === ""
+              ? ""
+              : Math.round(parseFloat(String(form.rec_duration)) * 60),
+            base_fee: form.rec_base_fee,
             service_type: form.rec_service_type, notes: form.rec_notes,
             days_of_month: daysOfMonthToSend,
             custom_frequency_weeks: customWeeksToSend,
@@ -3552,34 +3568,19 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         )}
       </div>
 
-      {/* Client-level service fields */}
+      {/* [PR #59] Property + access details. The redundant Frequency /
+          Service Type / Base Rate / Allowed Hours fields used to live here
+          AND on the Recurring Schedule below — operators saw two of each
+          and assumed they were different concepts. They aren't: the
+          schedule is the single source of truth. We dropped the duplicate
+          fields and kept only the actually-property-level info (entry
+          instructions, alarm code, pets, internal notes). The schedule
+          editor below now mirrors its values back to the legacy clients.*
+          columns on save so any old code path that still reads them stays
+          correct. */}
       {editing ? (
         <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Client Service Settings</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>{lbl("Base Rate ($)")}<input value={form.base_fee} onChange={upd("base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
-            <div>{lbl("Allowed Hours")}<input value={form.allowed_hours} onChange={upd("allowed_hours")} type="number" min="0" step="0.5" style={inp} /></div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-            <div>
-              {lbl("Frequency")}
-              <select value={form.frequency} onChange={upd("frequency")} style={{ ...inp }}>
-                <option value="">Not set</option>
-                {Object.entries(FREQ_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select>
-            </div>
-            <div>{lbl("Service Type")}
-              <select value={form.service_type} onChange={upd("service_type")} style={inp}>
-                <option value="">— Select —</option>
-                {filteredScopes.map(s => (
-                  <option key={s.id} value={s.name}>{s.name}{s.scope_group ? ` · ${s.scope_group}` : ""}</option>
-                ))}
-                {form.service_type && !findMatchingScope(form.service_type) && (
-                  <option value={form.service_type}>(current) {form.service_type}</option>
-                )}
-              </select>
-            </div>
-          </div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Access &amp; Notes</div>
           <div>{lbl("Entry Instructions")}<textarea value={form.home_access_notes} onChange={upd("home_access_notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>{lbl("Alarm / Lockbox Code")}<input value={form.alarm_code} onChange={upd("alarm_code")} style={inp} /></div>
@@ -3589,10 +3590,6 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
-          {client.base_fee && <DL label="Base Rate" value={fmtCurrency(client.base_fee)} />}
-          {client.frequency && <DL label="Frequency" value={FREQ_LABELS[client.frequency] || client.frequency} />}
-          {client.service_type && <DL label="Service Type" value={client.service_type} />}
-          {client.allowed_hours && <DL label="Allowed Hours" value={`${client.allowed_hours} hrs`} />}
           {client.home_access_notes && <DL label="Entry Instructions" value={client.home_access_notes} />}
           {client.alarm_code && <DL label="Alarm Code" value="••••••" />}
           {client.pets && <DL label="Pets / Equipment" value={client.pets} />}
@@ -3600,12 +3597,44 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         </div>
       )}
 
-      {/* Recurring Schedule */}
-      {recurringSchedule && (
-        <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
-          {editing ? (
+      {/* [PR #59] Recurring Schedule — now ALWAYS rendered. When the
+          client has no schedule yet, the read-only view shows a "Set Up
+          Recurring Schedule" CTA. In edit mode, the operator picks a
+          frequency and saves; the PATCH endpoint UPSERTs (creates the
+          row on first save). Combined with the consolidation above,
+          this is the single service-config surface — no more duplicate
+          Frequency / Service Type fields. */}
+      <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
+        {/* Empty-state CTA when no schedule + edit mode + no frequency picked yet */}
+        {editing && !recurringSchedule && !form.rec_frequency && (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>No recurring schedule yet</div>
+              <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2, fontFamily: FF }}>
+                One-time client. Click below to set up a recurring service.
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => setForm(f => ({ ...f, rec_frequency: "biweekly" }))}
+              style={{ padding: "8px 14px", borderRadius: 7, background: "var(--brand, #00C9A0)", color: "#FFFFFF", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              + Set Up Recurring Schedule
+            </button>
+          </div>
+        )}
+        {/* Empty-state read-only message when no schedule + view mode */}
+        {!editing && !recurringSchedule && (
+          <div style={{ padding: "8px 0" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>No recurring schedule</div>
+            <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2, fontFamily: FF }}>
+              Click Edit to set up a recurring service for this client.
+            </div>
+          </div>
+        )}
+        {/* Editor — always rendered in edit mode once a frequency is
+            picked (or schedule already exists). */}
+        {editing && (recurringSchedule || form.rec_frequency) ? (
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>Recurring Schedule</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>{recurringSchedule ? "Recurring Schedule" : "New Recurring Schedule"}</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>
                   {lbl("Frequency")}
@@ -3753,7 +3782,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                 </div>
               )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                <div>{lbl("Duration (min)")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" style={inp} /></div>
+                <div>{lbl("Allowed Hours")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" step="0.5" placeholder="3" style={inp} /></div>
                 <div>{lbl("Schedule Rate ($)")}<input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
               </div>
               <div>{lbl("Service Type")}
@@ -3880,7 +3909,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                 )}
               </div>
             </div>
-          ) : (
+          ) : recurringSchedule ? (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
               {(recurringSchedule.frequency || recurringSchedule.day_of_week) && (
                 <DL label="Schedule" value={[
@@ -3891,7 +3920,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
               <DL label="Start Date" value={fmtDate(recurringSchedule.start_date)} />
               {recurringSchedule.base_fee && <DL label="Rate" value={fmtCurrency(recurringSchedule.base_fee)} />}
               {recurringSchedule.duration_minutes && (
-                <DL label="Duration" value={`${Math.round(recurringSchedule.duration_minutes / 60 * 10) / 10} hrs`} />
+                <DL label="Allowed Hours" value={`${Math.round(recurringSchedule.duration_minutes / 60 * 10) / 10} hrs`} />
               )}
               {(recurringSchedule.tech_first || recurringSchedule.tech_last) && (
                 <DL label="Technician" value={[recurringSchedule.tech_first, recurringSchedule.tech_last].filter(Boolean).join(" ")} />
@@ -3911,9 +3940,8 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                 })()} />
               )}
             </div>
-          )}
+          ) : null}
         </div>
-      )}
 
       {/* Rate History */}
       <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
