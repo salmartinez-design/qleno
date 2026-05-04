@@ -551,6 +551,20 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS parking_fee_amount NUMERIC(10,2)` },
     { label: "recurring_schedules.parking_fee_days",
       stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS parking_fee_days INTEGER[]` },
+
+    // Per-client parking-fee default. Resolution waterfall at job-generation
+    // time: schedule.parking_fee_amount > clients.parking_fee_amount >
+    // pricing_addons.parking_fee.price (tenant default). The enabled flag
+    // does NOT auto-stamp parking on every job — it only affects the default
+    // pre-fill in the recurring-schedule editor and the edit-job modal so
+    // operators don't have to re-type $15 every time. The actual gate for
+    // whether parking gets stamped is still recurring_schedules.parking_fee_enabled
+    // (per-occurrence) or the operator manually checking the addon in the
+    // edit-job modal (one-off).
+    { label: "clients.parking_fee_enabled",
+      stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS parking_fee_enabled BOOLEAN NOT NULL DEFAULT false` },
+    { label: "clients.parking_fee_amount",
+      stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS parking_fee_amount NUMERIC(10,2)` },
   ];
 
   for (const { label, stmt } of guards) {

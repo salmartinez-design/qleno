@@ -77,6 +77,13 @@ export const clientsTable = pgTable("clients", {
   // residential clients. Multi-location commercial accounts use
   // account_rate_cards instead — see KNOWN_BUGS.md.
   commercial_hourly_rate: numeric("commercial_hourly_rate", { precision: 10, scale: 2 }),
+  // Per-client parking-fee default. Schedule-level (recurring_schedules.
+  // parking_fee_amount) and per-occurrence (job_add_ons.unit_price) overrides
+  // both win over this. Enabled flag drives the pre-fill behavior in the
+  // recurring-schedule editor and edit-job modal — actual stamping is gated
+  // by recurring_schedules.parking_fee_enabled or a manual modal toggle.
+  parking_fee_enabled: boolean("parking_fee_enabled").notNull().default(false),
+  parking_fee_amount: numeric("parking_fee_amount", { precision: 10, scale: 2 }),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

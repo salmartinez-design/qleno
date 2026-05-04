@@ -59,7 +59,7 @@ export type ResolvedParkingAddon = {
 // to the older catalog table). Returns null when no active row found
 // (engine then logs once and skips parking stamping for the run).
 export async function resolveParkingAddon(
-  schedule: Pick<ScheduleInput, "company_id" | "parking_fee_amount">,
+  schedule: Pick<ScheduleInput, "company_id" | "customer_id" | "parking_fee_amount">,
   txOrDb: any = db,
 ): Promise<ResolvedParkingAddon | null> {
   const addonLookup = await txOrDb.execute(sql`
@@ -74,11 +74,24 @@ export async function resolveParkingAddon(
   if (!addonRow) return null;
 
   const addonName = String(addonRow.name ?? "Parking Fee");
-  const fallbackAmount = String(addonRow.price ?? "20");
-  const overrideAmount = schedule.parking_fee_amount;
-  const unitPrice = overrideAmount != null && overrideAmount !== ""
-    ? String(overrideAmount)
-    : fallbackAmount;
+  const tenantDefault = String(addonRow.price ?? "20");
+
+  // 3-tier waterfall: schedule.parking_fee_amount > clients.parking_fee_amount
+  // > pricing_addons.price (tenant default). Only hit the clients lookup when
+  // the schedule didn't pin a value — saves the query on schedules that
+  // already have an explicit override.
+  const scheduleOverride = schedule.parking_fee_amount;
+  let clientDefault: string | null = null;
+  if ((scheduleOverride == null || scheduleOverride === "") && schedule.customer_id != null) {
+    const clientRow = await txOrDb.execute(sql`
+      SELECT parking_fee_amount FROM clients WHERE id = ${schedule.customer_id} LIMIT 1
+    `);
+    const cd = (clientRow.rows[0] as any)?.parking_fee_amount;
+    if (cd != null && cd !== "") clientDefault = String(cd);
+  }
+  const unitPrice = scheduleOverride != null && scheduleOverride !== ""
+    ? String(scheduleOverride)
+    : (clientDefault ?? tenantDefault);
 
   // Resolve the real `add_ons.id` for the FK on `job_add_ons.add_on_id`.
   // pricing_addons.id and add_ons.id live in different tables; the
@@ -101,11 +114,18 @@ export async function resolveParkingAddon(
     realAddOnId = Number((created.rows[0] as any).id);
   }
 
+  // override_amount = "anything other than the tenant default was used to
+  // produce this row", regardless of which tier (schedule or client) supplied
+  // it. Callers use this for diagnostic logging / cascade decisions.
+  const effectiveOverride = scheduleOverride != null && scheduleOverride !== ""
+    ? String(scheduleOverride)
+    : clientDefault;
+
   return {
     pricing_addon_id: Number(addonRow.id),
     add_on_id: realAddOnId,
     unit_price: unitPrice,
-    override_amount: overrideAmount != null && overrideAmount !== "" ? String(overrideAmount) : null,
+    override_amount: effectiveOverride,
   };
 }
 

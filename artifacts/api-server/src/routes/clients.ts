@@ -559,6 +559,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       card_last_four, card_brand, card_expiry, card_saved_at,
       payment_method, net_terms,
       commercial_hourly_rate,    // [AH] Per-client commercial hourly rate
+      parking_fee_enabled, parking_fee_amount,
     } = req.body;
 
     // [AH] Snapshot the previous commercial_hourly_rate so we can write a
@@ -612,6 +613,12 @@ router.put("/:id", requireAuth, async (req, res) => {
         commercial_hourly_rate: commercial_hourly_rate === null || commercial_hourly_rate === ""
           ? null
           : String(commercial_hourly_rate),
+      }),
+      ...(parking_fee_enabled !== undefined && { parking_fee_enabled: !!parking_fee_enabled }),
+      ...(parking_fee_amount !== undefined && {
+        parking_fee_amount: parking_fee_amount === null || parking_fee_amount === ""
+          ? null
+          : String(parking_fee_amount),
       }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });

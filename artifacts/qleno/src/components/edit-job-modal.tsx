@@ -271,6 +271,17 @@ export default function EditJobModal({
   const [addonsLoading, setAddonsLoading] = useState(false);
   const [selectedAddons, setSelectedAddons] = useState<Map<number, number>>(new Map());
 
+  // Per-addon unit-price override. When the operator types a number into the
+  // inline `$___` input next to the addon row (currently rendered only for
+  // Parking Fee, but the state is generic), it lands here keyed by
+  // pricing_addon_id. Save path checks this map first; falls back to the calc
+  // engine's per-addon amount when no override is set. Initial seed comes from
+  // the existing job_add_ons.unit_price returned by GET /api/jobs/:id, so the
+  // input shows the actual saved price (e.g. $15 for Nicholas Cooper) instead
+  // of the tenant default.
+  const [addonPriceOverrides, setAddonPriceOverrides] = useState<Map<number, number>>(new Map());
+  const [initialAddonPriceOverrides, setInitialAddonPriceOverrides] = useState<Map<number, number>>(new Map());
+
   const [baseFee, setBaseFee] = useState<number>(initialBaseFee);
   const [manualRate, setManualRate] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -484,13 +495,21 @@ export default function EditJobModal({
         // Existing add-ons → selectedAddons (keyed by pricing_addon_id).
         const existing = Array.isArray(d.existing_add_ons) ? d.existing_add_ons : [];
         const addonMap = new Map<number, number>();
+        const priceMap = new Map<number, number>();
         for (const a of existing) {
           if (a.pricing_addon_id != null) {
-            addonMap.set(Number(a.pricing_addon_id), Number(a.quantity ?? 1));
+            const pid = Number(a.pricing_addon_id);
+            addonMap.set(pid, Number(a.quantity ?? 1));
+            // Seed the override map with the saved unit_price so the inline
+            // input pre-fills with what's actually on the job (not the
+            // tenant default). User can then tweak or leave alone.
+            if (a.unit_price != null) priceMap.set(pid, Number(a.unit_price));
           }
         }
         setSelectedAddons(addonMap);
         setInitialSelectedAddons(addonMap);
+        setAddonPriceOverrides(priceMap);
+        setInitialAddonPriceOverrides(priceMap);
 
         // Recurring schedule snapshot.
         const rs = d.recurring_schedule;
@@ -732,6 +751,15 @@ export default function EditJobModal({
     const addonsSame = selectedAddons.size === initialSelectedAddons.size
       && Array.from(selectedAddons.entries()).every(([k, v]) => initialSelectedAddons.get(k) === v);
     if (!addonsSame) return true;
+    // Per-addon unit-price override changes are also dirty (e.g. operator
+    // typed $15 in the parking row when the saved value was $20).
+    const overrideKeys = new Set([...addonPriceOverrides.keys(), ...initialAddonPriceOverrides.keys()]);
+    for (const k of overrideKeys) {
+      const a = addonPriceOverrides.get(k);
+      const b = initialAddonPriceOverrides.get(k);
+      if ((a == null) !== (b == null)) return true;
+      if (a != null && b != null && Math.abs(a - b) > 0.005) return true;
+    }
     if (job.assigned_user_id != null && (selectedTechIds[0] !== job.assigned_user_id || selectedTechIds.length !== 1)) return true;
     if (job.assigned_user_id == null && selectedTechIds.length > 0) return true;
     // [AH] Commercial-only dirty checks
@@ -754,7 +782,7 @@ export default function EditJobModal({
     const curDays = parkingFeeDays == null ? null : [...parkingFeeDays].sort();
     if (JSON.stringify(initDays) !== JSON.stringify(curDays)) return true;
     return false;
-  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, initialSelectedAddons, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek, availableAddons, parkingFeeAmount, parkingFeeAmountInitial, parkingFeeDays, parkingFeeDaysInitial, parkingFeeEnabledInitial]);
+  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, initialSelectedAddons, addonPriceOverrides, initialAddonPriceOverrides, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek, availableAddons, parkingFeeAmount, parkingFeeAmountInitial, parkingFeeDays, parkingFeeDaysInitial, parkingFeeEnabledInitial]);
 
   // [AI.4] Commercial save requires a real tenant-managed service type slug.
   // Legacy MC-import values (e.g., 'standard_clean') get auto-cleared when
@@ -816,6 +844,20 @@ export default function EditJobModal({
     const addonsSame = selectedAddons.size === initialSelectedAddons.size
       && Array.from(selectedAddons.entries()).every(([k, v]) => initialSelectedAddons.get(k) === v);
     if (!addonsSame) push("add_ons");
+
+    // Per-addon unit-price override changes also belong to the add_ons bucket
+    // (occurrence-scoped — does not cascade to the schedule template).
+    {
+      const overrideKeys = new Set([...addonPriceOverrides.keys(), ...initialAddonPriceOverrides.keys()]);
+      for (const k of overrideKeys) {
+        const a = addonPriceOverrides.get(k);
+        const b = initialAddonPriceOverrides.get(k);
+        if ((a == null) !== (b == null) || (a != null && b != null && Math.abs(a - b) > 0.005)) {
+          push("add_ons");
+          break;
+        }
+      }
+    }
 
     const techSame = (job.assigned_user_id != null
       && selectedTechIds[0] === job.assigned_user_id
@@ -907,12 +949,25 @@ export default function EditJobModal({
       // pass can map distinct addon catalogs.
       const addOnsPayload = Array.from(selectedAddons.entries()).map(([pricingAddonId, qty]) => {
         const detail = calcResult?.addon_breakdown?.find(x => x.id === pricingAddonId);
+        // Operator-typed override wins over the calc engine. Catalog price is
+        // a fallback only — without an override and without a calc result,
+        // we still need to write something or the save would round to $0.
+        const override = addonPriceOverrides.get(pricingAddonId);
+        const catalogPrice = (() => {
+          const a = availableAddons.find(x => x.id === pricingAddonId);
+          if (!a) return 0;
+          const v = (a as any).price_value ?? (a as any).price ?? 0;
+          return Number(v) || 0;
+        })();
+        const unitPrice = override != null
+          ? override
+          : (detail ? Math.round((detail.amount / qty) * 100) / 100 : catalogPrice);
         return {
           add_on_id: pricingAddonId,
           pricing_addon_id: pricingAddonId,
           qty,
-          unit_price: detail ? Math.round((detail.amount / qty) * 100) / 100 : 0,
-          subtotal: detail ? detail.amount : 0,
+          unit_price: unitPrice,
+          subtotal: Math.round(unitPrice * qty * 100) / 100,
         };
       });
 
@@ -1454,15 +1509,33 @@ export default function EditJobModal({
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {availableAddons.map(a => {
                   const checked = selectedAddons.has(a.id);
+                  const isPct = a.price_type === "percent" || a.price_type === "percentage";
+                  const catalogPrice = Number(a.price_value ?? a.price ?? 0);
+                  const override = addonPriceOverrides.get(a.id);
+                  // Fixed-$ addons get an inline editable price when checked.
+                  // Percentage addons (Windows 15%, etc.) keep the % readout —
+                  // overriding a percentage as a flat $ would be confusing,
+                  // and we don't have UI to flip an addon's pricing model
+                  // mid-edit. Operators can use Manual rate for that.
+                  const editable = checked && !isPct;
+                  // Controlled input convention: `value` is the override
+                  // (string-of-number when set, "" when not set).
+                  // `placeholder` shows the catalog default so the operator
+                  // sees what they'll fall back to without committing it as
+                  // an override. Without this split, clearing the field
+                  // would snap back to the catalog price and the cursor
+                  // would jump — clearing wouldn't visually work.
+                  const inputValue = override != null ? String(override) : "";
                   return (
-                    <label key={a.id} style={{
+                    <div key={a.id} style={{
                       display: "flex", alignItems: "center", gap: 8,
                       padding: "8px 10px", borderRadius: 8,
                       border: `1px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
                       backgroundColor: checked ? "rgba(0,201,160,0.05)" : "#F7F6F3",
-                      cursor: "pointer", fontFamily: FF,
+                      fontFamily: FF,
                     }}>
                       <input type="checkbox" checked={checked}
+                        style={{ cursor: "pointer" }}
                         onChange={() => {
                           setSelectedAddons(prev => {
                             const next = new Map(prev);
@@ -1470,18 +1543,82 @@ export default function EditJobModal({
                             else next.set(a.id, 1);
                             return next;
                           });
+                          // When unchecking, drop any pending override so a
+                          // future re-check starts from the catalog default
+                          // again instead of resurrecting a stale value.
+                          if (selectedAddons.has(a.id)) {
+                            setAddonPriceOverrides(prev => {
+                              if (!prev.has(a.id)) return prev;
+                              const next = new Map(prev);
+                              next.delete(a.id);
+                              return next;
+                            });
+                          }
                         }} />
-                      <span style={{ flex: 1, fontSize: 13, color: "#1A1917" }}>{a.name}</span>
-                      <span style={{ fontSize: 12, color: "#6B6860" }}>
-                        {/* [AI.2] price_value is the canonical column; price_type
-                            seeded as 'percentage' (not 'percent'), accept both. */}
-                        {(() => {
-                          const v = a.price_value ?? a.price ?? 0;
-                          const isPct = a.price_type === "percent" || a.price_type === "percentage";
-                          return isPct ? `${v}%` : `$${Number(v).toFixed(0)}`;
-                        })()}
+                      <span style={{ flex: 1, fontSize: 13, color: "#1A1917", cursor: "pointer" }}
+                        onClick={() => {
+                          setSelectedAddons(prev => {
+                            const next = new Map(prev);
+                            if (next.has(a.id)) next.delete(a.id);
+                            else next.set(a.id, 1);
+                            return next;
+                          });
+                        }}>
+                        {a.name}
                       </span>
-                    </label>
+                      {editable ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 12, color: "#6B6860" }}>$</span>
+                          <input type="number" min={0} step={0.01} inputMode="decimal"
+                            value={inputValue}
+                            placeholder={String(catalogPrice)}
+                            onChange={e => {
+                              const raw = e.target.value;
+                              const isParking = /^parking fee$/i.test(a.name);
+                              setAddonPriceOverrides(prev => {
+                                const next = new Map(prev);
+                                if (raw === "") {
+                                  next.delete(a.id);
+                                } else {
+                                  const n = parseFloat(raw);
+                                  if (!isNaN(n) && n >= 0) next.set(a.id, n);
+                                }
+                                return next;
+                              });
+                              // Mirror parking changes to parkingFeeAmount so a
+                              // cascade=this_and_future save also updates
+                              // recurring_schedules.parking_fee_amount, not just
+                              // job_add_ons. Other addons aren't tracked at the
+                              // schedule level so this only applies to parking.
+                              if (isParking) {
+                                const n = parseFloat(raw);
+                                setParkingFeeAmount(raw === "" || isNaN(n) ? null : n);
+                              }
+                            }}
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              width: 70, padding: "3px 6px", borderRadius: 5,
+                              border: "1px solid #E5E2DC", fontSize: 12,
+                              fontFamily: FF, backgroundColor: "#FFFFFF",
+                              textAlign: "right",
+                            }} />
+                        </div>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "#6B6860", cursor: "pointer" }}
+                          onClick={() => {
+                            setSelectedAddons(prev => {
+                              const next = new Map(prev);
+                              if (next.has(a.id)) next.delete(a.id);
+                              else next.set(a.id, 1);
+                              return next;
+                            });
+                          }}>
+                          {/* [AI.2] price_value is the canonical column; price_type
+                              seeded as 'percentage' (not 'percent'), accept both. */}
+                          {isPct ? `${catalogPrice}%` : `$${catalogPrice.toFixed(0)}`}
+                        </span>
+                      )}
+                    </div>
                   );
                 })}
               </div>
