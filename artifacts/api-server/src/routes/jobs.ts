@@ -627,9 +627,15 @@ router.get("/:id", requireAuth, async (req, res) => {
     // which caused the server to DELETE existing parking-fee rows on save
     // — i.e. "I hit save and parking disappeared" / "none of the changes
     // take place" reproduces. See edit-job-modal.tsx initial-load useEffect.
+    // days_of_week lives on recurring_schedules, not jobs — JOIN to read it
+    // through the schedule. Without the JOIN, this 500s the entire endpoint
+    // with `column "days_of_week" does not exist`. Applies to all jobs
+    // (schedule-attached or not) since the SELECT runs unconditionally.
     const jobMetaRows = await db.execute(sql`
-      SELECT recurring_schedule_id, hourly_rate, days_of_week, account_id
-      FROM jobs WHERE id = ${jobId} LIMIT 1
+      SELECT j.recurring_schedule_id, j.hourly_rate, rs.days_of_week, j.account_id
+      FROM jobs j
+      LEFT JOIN recurring_schedules rs ON rs.id = j.recurring_schedule_id
+      WHERE j.id = ${jobId} LIMIT 1
     `);
     const jobMeta = (jobMetaRows.rows[0] as any) ?? {};
 
