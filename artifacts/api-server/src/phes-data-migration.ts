@@ -565,6 +565,17 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS parking_fee_enabled BOOLEAN NOT NULL DEFAULT false` },
     { label: "clients.parking_fee_amount",
       stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS parking_fee_amount NUMERIC(10,2)` },
+
+    // [PR #58] Semi-monthly cadence support. Adds the enum value to both
+    // jobs.frequency and recurring_schedules.frequency, plus the anchor
+    // days_of_month INTEGER[] column on recurring_schedules. ALTER TYPE
+    // ADD VALUE IF NOT EXISTS is idempotent on Postgres 12+.
+    { label: "frequency enum: semi_monthly",
+      stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'semi_monthly'` },
+    { label: "recurring_frequency enum: semi_monthly",
+      stmt: `ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'semi_monthly'` },
+    { label: "recurring_schedules.days_of_month",
+      stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS days_of_month INTEGER[]` },
   ];
 
   for (const { label, stmt } of guards) {

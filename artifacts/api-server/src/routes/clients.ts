@@ -1264,6 +1264,10 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       // [AI.6] Parking fee per-occurrence config. days uses 0=Sun..6=Sat;
       // null/empty days = "apply to every scheduled occurrence."
       parking_fee_enabled, parking_fee_amount, parking_fee_days,
+      // [PR #58] Anchor days for monthly + semi_monthly. Sentinel 0 = "last day".
+      days_of_month,
+      // [PR #58] N for "every N weeks" custom cadence (frequency='custom').
+      custom_frequency_weeks,
       // [audit BUG #3] cascade flag — default true. When true, the
       // schedule's rate / hours / service_type / frequency changes
       // also propagate to existing future scheduled jobs linked to
@@ -1286,6 +1290,20 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
         parking_fee_days: Array.isArray(parking_fee_days) && parking_fee_days.length > 0
           ? parking_fee_days.filter((n: unknown) => typeof n === "number" && (n as number) >= 0 && (n as number) <= 6)
           : null,
+      }),
+      // [PR #58] days_of_month: validate 0–31. Sentinel 0 means "last day"
+      // and the engine resolves per-month. Empty array stored as NULL so
+      // queries can use IS NULL semantics (mirrors parking_fee_days).
+      ...(days_of_month !== undefined && {
+        days_of_month: Array.isArray(days_of_month) && days_of_month.length > 0
+          ? days_of_month.filter((n: unknown) => typeof n === "number" && (n as number) >= 0 && (n as number) <= 31)
+          : null,
+      }),
+      // [PR #58] custom_frequency_weeks: 1..52 only — "every N weeks".
+      ...(custom_frequency_weeks !== undefined && {
+        custom_frequency_weeks: custom_frequency_weeks === null || custom_frequency_weeks === ""
+          ? null
+          : Math.max(1, Math.min(52, parseInt(String(custom_frequency_weeks)) || 0)) || null,
       }),
     }).where(and(
       eq(recurringSchedulesTable.customer_id, clientId),
@@ -1519,6 +1537,10 @@ router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
       // gate; surface here so the customer-profile editor matches the
       // edit-job modal's behavior. NULL for single-day frequencies.
       days_of_week: recurringSchedulesTable.days_of_week,
+      // [PR #58] days_of_month anchors for semi_monthly + monthly
+      // sentence-builder UI ([1, 15] / [15, 30] / single day for monthly).
+      days_of_month: recurringSchedulesTable.days_of_month,
+      custom_frequency_weeks: recurringSchedulesTable.custom_frequency_weeks,
       tech_first: usersTable.first_name,
       tech_last: usersTable.last_name,
     })

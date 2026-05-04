@@ -254,11 +254,35 @@ function resolveMultiDayPattern(
   return null;
 }
 
+// [PR #58] Snap a date forward to the next business day (Mon–Fri) when it
+// falls on a Saturday or Sunday. Used for semi_monthly + monthly anchors —
+// matches the user's "Q1: A — snap forward" design decision. Holidays are
+// not snapped (operator can manually reschedule one-off observed dates).
+function snapToBusinessDay(d: Date): Date {
+  const dow = d.getDay(); // 0=Sun..6=Sat
+  if (dow === 6) return addDays(d, 2); // Saturday -> Monday
+  if (dow === 0) return addDays(d, 1); // Sunday -> Monday
+  return d;
+}
+
+// [PR #58] Resolve the actual day-of-month for a given month, supporting
+// the sentinel 0 = "last day of month". For Feb 30, e.g., returns Feb 28
+// (or 29 in a leap year). For [15, 30] in February, the second anchor
+// resolves to the last day of February. Day-of-month values 29/30/31 in
+// short months also clamp to the month's length.
+function resolveDayOfMonth(year: number, month: number, day: number): number {
+  // Last day of month (month is 0-indexed, +1 then day=0 returns last day).
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  if (day === 0 || day > lastDay) return lastDay;
+  return day;
+}
+
 function generateOccurrences(
   schedule: {
     frequency: string;
     day_of_week: string | null;
     days_of_week?: number[] | null;
+    days_of_month?: number[] | null;
     custom_frequency_weeks?: number | null;
     start_date: string;
     end_date?: string | null;
@@ -303,13 +327,51 @@ function generateOccurrences(
     ? (DAY_NAME_TO_NUM[schedule.day_of_week.toLowerCase()] ?? start.getDay())
     : start.getDay();
 
+  // [PR #58] Semi-monthly path. Anchors stored in days_of_month (e.g.,
+  // [1, 15] or [15, 30]). For each month in the window, emit one
+  // occurrence per anchor, snapping weekend dates forward to Monday.
+  // Sentinel 0 in days_of_month = "last day of month" — handles short
+  // months (Feb 28/29) without operator intervention.
+  if (freq === "semi_monthly") {
+    const anchors = schedule.days_of_month && schedule.days_of_month.length > 0
+      ? schedule.days_of_month
+      : [1, 15]; // safe default if column wasn't populated
+    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+    while (cursor <= effectiveEnd) {
+      const y = cursor.getFullYear();
+      const m = cursor.getMonth();
+      for (const a of anchors) {
+        const day = resolveDayOfMonth(y, m, a);
+        const raw = new Date(y, m, day);
+        const snapped = snapToBusinessDay(raw);
+        if (snapped >= start && snapped >= fromDate && snapped <= effectiveEnd) {
+          dates.push(snapped);
+        }
+      }
+      cursor = addMonths(cursor, 1);
+    }
+    // Sort because anchors[0] for month N+1 may land before anchors[1]
+    // for month N once snap-forward kicks in (e.g., 30th of Jan snaps to
+    // Feb 1, then Feb 1 anchor lands the same day).
+    dates.sort((a, b) => a.getTime() - b.getTime());
+    return dates;
+  }
+
   if (freq === "monthly") {
-    const dayOfMonth = start.getDate();
-    let current = new Date(fromDate.getFullYear(), fromDate.getMonth(), dayOfMonth);
-    if (current < fromDate) current = addMonths(current, 1);
-    while (current <= effectiveEnd) {
-      if (current >= fromDate) dates.push(new Date(current));
-      current = addMonths(current, 1);
+    // [PR #58] Prefer days_of_month[0] when set (sentence-builder UI
+    // writes it), fall back to start_date's day for legacy schedules.
+    const dayOfMonth = schedule.days_of_month && schedule.days_of_month.length > 0
+      ? schedule.days_of_month[0]
+      : start.getDate();
+    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+    while (cursor <= effectiveEnd) {
+      const day = resolveDayOfMonth(cursor.getFullYear(), cursor.getMonth(), dayOfMonth);
+      const raw = new Date(cursor.getFullYear(), cursor.getMonth(), day);
+      const snapped = snapToBusinessDay(raw);
+      if (snapped >= start && snapped >= fromDate && snapped <= effectiveEnd) {
+        dates.push(snapped);
+      }
+      cursor = addMonths(cursor, 1);
     }
   } else {
     // Interval picker. Order matters — explicit checks before the legacy
@@ -350,6 +412,9 @@ type ScheduleInput = {
   // walking N-week intervals when frequency='custom' (now superseded by
   // 'every_3_weeks' enum value but the column remains for backward compat).
   days_of_week?: number[] | null;
+  // [PR #58] Anchor days for monthly + semi_monthly frequencies. Sentinel
+  // 0 = "last day of month" — engine resolves per-month.
+  days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
   start_date: string;
   end_date?: string | null;

@@ -26,6 +26,10 @@ export const frequencyEnum = pgEnum("frequency", [
   "weekly", "biweekly", "every_3_weeks", "monthly", "on_demand",
   // [AI] Multi-day commercial scheduling (2026-04-27)
   "daily", "weekdays", "custom_days",
+  // [PR #58] Semi-monthly cadence — anchors on specific days_of_month
+  // (typically [1, 15] or [15, 30]). Engine snaps forward to next
+  // business day when an anchor falls on a weekend.
+  "semi_monthly",
 ]);
 
 export const jobsTable = pgTable("jobs", {

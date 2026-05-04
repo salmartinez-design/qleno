@@ -10,6 +10,10 @@ export const recurringFrequencyEnum = pgEnum("recurring_frequency", [
   "every_3_weeks",
   // [AI] Multi-day commercial scheduling (2026-04-27)
   "daily", "weekdays", "custom_days",
+  // [PR #58] Semi-monthly cadence — anchors on specific days_of_month
+  // (typically [1, 15] or [15, 30]). Engine snaps forward to next
+  // business day when an anchor falls on a weekend.
+  "semi_monthly",
 ]);
 
 export const recurringDayEnum = pgEnum("recurring_day", [
@@ -51,6 +55,12 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // PATCH endpoint enforces exclusivity; engine warns and prefers
   // days_of_week if both end up populated.
   days_of_week: integer("days_of_week").array(),
+  // [PR #58] Anchor days for monthly + semi_monthly cadences. Stored as an
+  // INTEGER[] of day-of-month values (1..31 plus a sentinel 0 for "last day
+  // of month" — engine resolves 0 to the actual last day per month).
+  // monthly: a single-element array (e.g., [15]). semi_monthly: two-element
+  // (e.g., [1, 15] or [15, 30]). NULL for non-anchored frequencies.
+  days_of_month: integer("days_of_month").array(),
   // [AI.6] Parking fee per-occurrence config. When parking_fee_enabled,
   // engine stamps a job_add_ons row (parking) on each generated job whose
   // weekday matches parking_fee_days (NULL = apply to all). Amount falls

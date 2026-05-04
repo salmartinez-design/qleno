@@ -37,6 +37,17 @@ function fmtCurrency(v?: number | string | null) {
   return `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// [PR #58] Ordinal day-of-month label ("1st", "2nd", "3rd", "4th"…) used by
+// the monthly + semi_monthly sentence-builders. Day 0 is the engine's
+// sentinel for "last day of month" — surfaced to operators as a separate
+// "Last day" option in the dropdown rather than rendering "0th".
+function ordinal(d: number): string {
+  if (d === 0) return "Last day";
+  const s = ["th", "st", "nd", "rd"];
+  const v = d % 100;
+  return d + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
 function freqLabel(f?: string | null) {
   const m: Record<string,string> = { weekly:"Weekly", biweekly:"Bi-weekly", monthly:"Monthly", on_demand:"On Demand" };
   return f ? (m[f] || f) : "Not set";
@@ -2341,7 +2352,7 @@ function RecurringTab({ clientId }: { clientId: number }) {
     refetch();
   }
 
-  const FREQ_LABELS: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", monthly: "Monthly", custom: "Custom" };
+  const FREQ_LABELS: Record<string, string> = { weekly: "Every week", biweekly: "Every 2 weeks", monthly: "Monthly", custom: "Custom", semi_monthly: "Twice a month", every_3_weeks: "Every 3 weeks" };
   const DAY_LABELS: Record<string, string> = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
 
   return (
@@ -2714,24 +2725,35 @@ function TechAvatar({ name, size = 24 }: { name: string; size?: number }) {
   );
 }
 
+// [PR #58] Plain-English frequency labels. Operator-facing strings —
+// reads like how you'd describe the cadence to a customer on the phone.
+// Canonical enum values stay the same in DB.
 const FREQ_LABELS: Record<string, string> = {
-  weekly: "Weekly", biweekly: "Bi-Weekly", monthly: "Monthly",
-  on_demand: "On Demand", every_3_weeks: "Every 3 Weeks",
-  custom: "Custom", semi_monthly: "Semi-Monthly",
+  weekly: "Every week",
+  biweekly: "Every 2 weeks",
+  every_3_weeks: "Every 3 weeks",
+  monthly: "Monthly",
+  semi_monthly: "Twice a month",
+  custom: "Custom (every N weeks)",
+  on_demand: "One-time",
   // [AI.1] Commercial multi-day frequencies. Surfaced in dropdowns when
   // the client is commercial; hidden for residential clients.
-  daily: "Daily", weekdays: "Weekdays (M–F)", custom_days: "Custom days",
+  daily: "Daily",
+  weekdays: "Weekdays (M–F)",
+  custom_days: "Custom days",
 };
 
-// [AI.1] Frequency options grouped by audience. Standard always shown;
-// Commercial multi-day shown only when client_type='commercial' or the
-// schedule belongs to a commercial account (account_id != null).
+// [PR #58] Frequency options for residential / standard recurring. Order
+// matters — most-common at the top. on_demand sits last because it's the
+// "no recurrence" escape hatch.
 const FREQ_OPTIONS_STANDARD: Array<{ value: string; label: string }> = [
-  { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Bi-Weekly" },
-  { value: "every_3_weeks", label: "Every 3 Weeks" },
-  { value: "monthly", label: "Monthly" },
-  { value: "on_demand", label: "On Demand" },
+  { value: "weekly", label: FREQ_LABELS.weekly },
+  { value: "biweekly", label: FREQ_LABELS.biweekly },
+  { value: "every_3_weeks", label: FREQ_LABELS.every_3_weeks },
+  { value: "semi_monthly", label: FREQ_LABELS.semi_monthly },
+  { value: "monthly", label: FREQ_LABELS.monthly },
+  { value: "custom", label: FREQ_LABELS.custom },
+  { value: "on_demand", label: FREQ_LABELS.on_demand },
 ];
 const FREQ_OPTIONS_COMMERCIAL_MULTI: Array<{ value: string; label: string }> = [
   { value: "daily", label: "Daily (every day)" },
@@ -3399,6 +3421,15 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
     rec_base_fee: recurringSchedule?.base_fee || "",
     rec_service_type: recurringSchedule?.service_type || "",
     rec_notes: recurringSchedule?.notes || "",
+    // [PR #58] Anchor days for monthly + semi_monthly (sentence-builder UI).
+    // Default to [1, 15] for semi_monthly when nothing's saved — matches
+    // the most-common Phes pattern. Empty array = use defaults on save.
+    rec_days_of_month: (Array.isArray(recurringSchedule?.days_of_month) && recurringSchedule.days_of_month.length > 0
+      ? recurringSchedule.days_of_month
+      : []) as number[],
+    // [PR #58] N for "every N weeks" Custom frequency. Defaults to 2 to
+    // hint at "every other week" — operator can tweak.
+    rec_custom_weeks: recurringSchedule?.custom_frequency_weeks ?? 2,
     // [AI.6] Parking fee per-occurrence config.
     rec_parking_fee_enabled: !!recurringSchedule?.parking_fee_enabled,
     rec_parking_fee_amount: recurringSchedule?.parking_fee_amount ?? "",
@@ -3430,12 +3461,25 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         const parkingDaysToSend = form.rec_parking_fee_enabled && isMultiDayFreq
           ? form.rec_parking_fee_days
           : null;
+        // [PR #58] Resolve days_of_month: only relevant for monthly /
+        // semi_monthly. Send NULL for other frequencies so old data
+        // doesn't linger after a frequency change.
+        const daysOfMonthToSend = form.rec_frequency === "monthly" || form.rec_frequency === "semi_monthly"
+          ? (form.rec_days_of_month && form.rec_days_of_month.length > 0
+              ? form.rec_days_of_month
+              : (form.rec_frequency === "semi_monthly" ? [1, 15] : [1]))
+          : null;
+        const customWeeksToSend = form.rec_frequency === "custom"
+          ? (form.rec_custom_weeks || 2)
+          : null;
         const patchRes = await apiFetch(`/api/clients/${client.id}/recurring-schedule`, {
           method: "PATCH",
           body: JSON.stringify({
             frequency: form.rec_frequency || undefined, day_of_week: form.rec_day || undefined,
             duration_minutes: form.rec_duration, base_fee: form.rec_base_fee,
             service_type: form.rec_service_type, notes: form.rec_notes,
+            days_of_month: daysOfMonthToSend,
+            custom_frequency_weeks: customWeeksToSend,
             parking_fee_enabled: form.rec_parking_fee_enabled,
             parking_fee_amount: form.rec_parking_fee_enabled
               ? (form.rec_parking_fee_amount === "" ? null : form.rec_parking_fee_amount)
@@ -3582,28 +3626,173 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                     )}
                   </select>
                 </div>
-                <div>
-                  {lbl("Day of Week")}
-                  <select value={form.rec_day} onChange={upd("rec_day")} style={{ ...inp }}>
-                    <option value="">Not set</option>
-                    {Object.entries(DAY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
+                {/* [PR #58] Day-of-week pill selector for single-day
+                    recurring frequencies. Replaces the dropdown — easier
+                    to scan and tap. Hidden for monthly / semi_monthly /
+                    on_demand / commercial multi-day; those have their own
+                    sub-pickers below. */}
+                {(form.rec_frequency === "weekly"
+                  || form.rec_frequency === "biweekly"
+                  || form.rec_frequency === "every_3_weeks"
+                  || form.rec_frequency === "custom") && (
+                  <div>
+                    {lbl("Day of week")}
+                    <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
+                      {[
+                        { v: "sunday", l: "S" },
+                        { v: "monday", l: "M" },
+                        { v: "tuesday", l: "T" },
+                        { v: "wednesday", l: "W" },
+                        { v: "thursday", l: "T" },
+                        { v: "friday", l: "F" },
+                        { v: "saturday", l: "S" },
+                      ].map(d => {
+                        const selected = form.rec_day === d.v;
+                        return (
+                          <button key={d.v} type="button"
+                            onClick={() => setForm(f => ({ ...f, rec_day: d.v }))}
+                            style={{
+                              width: 36, height: 32, borderRadius: 6,
+                              border: `1.5px solid ${selected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                              backgroundColor: selected ? "var(--brand, #00C9A0)" : "#F7F6F3",
+                              color: selected ? "#FFFFFF" : "#1A1917",
+                              fontWeight: 700, fontSize: 13, fontFamily: FF, cursor: "pointer",
+                            }}>{d.l}</button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
+
+              {/* [PR #58] Twice a month — sentence-style two-anchor picker. */}
+              {form.rec_frequency === "semi_monthly" && (
+                <div>
+                  {lbl("Days of the month")}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginTop: 6 }}>
+                    <span>Service happens on the</span>
+                    <select
+                      value={String(form.rec_days_of_month?.[0] ?? 1)}
+                      onChange={e => {
+                        const a = parseInt(e.target.value);
+                        const b = form.rec_days_of_month?.[1] ?? 15;
+                        setForm(f => ({ ...f, rec_days_of_month: [a, b === a ? (a === 31 ? 1 : a + 14) : b].sort((x, y) => x - y) }));
+                      }}
+                      style={{ ...inp, width: 100 }}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{ordinal(d)}</option>
+                      ))}
+                      <option value={0}>Last day</option>
+                    </select>
+                    <span>and</span>
+                    <select
+                      value={String(form.rec_days_of_month?.[1] ?? 15)}
+                      onChange={e => {
+                        const b = parseInt(e.target.value);
+                        const a = form.rec_days_of_month?.[0] ?? 1;
+                        setForm(f => ({ ...f, rec_days_of_month: [a === b ? (b === 1 ? 15 : b - 14) : a, b].sort((x, y) => x - y) }));
+                      }}
+                      style={{ ...inp, width: 100 }}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{ordinal(d)}</option>
+                      ))}
+                      <option value={0}>Last day</option>
+                    </select>
+                    <span>of every month.</span>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                    Snaps forward to the next business day when the 1st / 15th / 30th lands on a weekend.
+                  </p>
+                </div>
+              )}
+
+              {/* [PR #58] Monthly — single-day-of-month sentence picker. */}
+              {form.rec_frequency === "monthly" && (
+                <div>
+                  {lbl("Day of the month")}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginTop: 6 }}>
+                    <span>Service happens on the</span>
+                    <select
+                      value={String(form.rec_days_of_month?.[0] ?? 1)}
+                      onChange={e => {
+                        const d = parseInt(e.target.value);
+                        setForm(f => ({ ...f, rec_days_of_month: [d] }));
+                      }}
+                      style={{ ...inp, width: 110 }}>
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{ordinal(d)}</option>
+                      ))}
+                      <option value={0}>Last day</option>
+                    </select>
+                    <span>of every month.</span>
+                  </div>
+                  <p style={{ margin: "6px 0 0", fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                    Snaps forward to the next business day when the chosen date lands on a weekend.
+                  </p>
+                </div>
+              )}
+
+              {/* [PR #58] Custom — every-N-weeks stepper. */}
+              {form.rec_frequency === "custom" && (
+                <div>
+                  {lbl("Custom cadence")}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginTop: 6 }}>
+                    <span>Service happens every</span>
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, rec_custom_weeks: Math.max(1, (f.rec_custom_weeks || 2) - 1) }))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E5E2DC", background: "#F7F6F3", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>−</button>
+                    <input type="number" min={1} max={52}
+                      value={form.rec_custom_weeks || 2}
+                      onChange={e => setForm(f => ({ ...f, rec_custom_weeks: parseInt(e.target.value) || 1 }))}
+                      style={{ ...inp, width: 56, textAlign: "center" }} />
+                    <button type="button"
+                      onClick={() => setForm(f => ({ ...f, rec_custom_weeks: Math.min(52, (f.rec_custom_weeks || 2) + 1) }))}
+                      style={{ width: 28, height: 28, borderRadius: 6, border: "1px solid #E5E2DC", background: "#F7F6F3", cursor: "pointer", fontSize: 16, fontWeight: 700 }}>+</button>
+                    <span>{(form.rec_custom_weeks || 2) === 1 ? "week" : "weeks"} on the day above.</span>
+                  </div>
+                </div>
+              )}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>{lbl("Duration (min)")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" style={inp} /></div>
                 <div>{lbl("Schedule Rate ($)")}<input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
               </div>
               <div>{lbl("Service Type")}
-                <select value={form.rec_service_type} onChange={upd("rec_service_type")} style={inp}>
-                  <option value="">— Select —</option>
-                  {filteredScopes.map(s => (
-                    <option key={s.id} value={s.name}>{s.name}{s.scope_group ? ` · ${s.scope_group}` : ""}</option>
-                  ))}
-                  {form.rec_service_type && !findMatchingScope(form.rec_service_type) && (
-                    <option value={form.rec_service_type}>(current) {form.rec_service_type}</option>
-                  )}
-                </select>
+                {(() => {
+                  // [PR #58] Filter Service Type by Frequency. Per the user's
+                  // design: when a recurring frequency is selected, only show
+                  // services that make sense for repeat visits (Standard +
+                  // Hourly Recurring). One-time shows the full one-off list
+                  // (Deep Clean, Move In/Out, etc.). The frequency-encoded
+                  // pricing_scopes rows ("Recurring Cleaning - Weekly", etc.)
+                  // get hidden everywhere — they were MC-import noise.
+                  const recurringFreqs = new Set([
+                    "weekly", "biweekly", "every_3_weeks", "monthly",
+                    "semi_monthly", "custom",
+                  ]);
+                  const oneTimeFreqs = new Set(["on_demand"]);
+                  const isRecurring = recurringFreqs.has(form.rec_frequency);
+                  const isOneTime = oneTimeFreqs.has(form.rec_frequency);
+                  const recurringNoise = /^recurring cleaning\s*[-–—]/i;
+                  const recurringOk = (n: string) => /standard|hourly recurring/i.test(n) && !recurringNoise.test(n);
+                  const oneTimeOk = (n: string) => /standard clean|deep clean|move in|move out|hourly standard|hourly deep/i.test(n) && !recurringNoise.test(n);
+                  const scopeFiltered = filteredScopes.filter(s => {
+                    if (recurringNoise.test(s.name)) return false;
+                    if (isRecurring) return recurringOk(s.name);
+                    if (isOneTime) return oneTimeOk(s.name);
+                    return true; // commercial multi-day or unset frequency: keep filteredScopes as-is
+                  });
+                  return (
+                    <select value={form.rec_service_type} onChange={upd("rec_service_type")} style={inp}>
+                      <option value="">— Select —</option>
+                      {scopeFiltered.map(s => (
+                        <option key={s.id} value={s.name}>{s.name}{s.scope_group ? ` · ${s.scope_group}` : ""}</option>
+                      ))}
+                      {form.rec_service_type && !scopeFiltered.some(s => s.name.toLowerCase() === form.rec_service_type.toLowerCase() || scopeToSlug(s.name) === form.rec_service_type.toLowerCase()) && (
+                        <option value={form.rec_service_type}>(current) {form.rec_service_type}</option>
+                      )}
+                    </select>
+                  );
+                })()}
               </div>
 
               {/* [AI.6] Parking Fee subsection. Toggle + amount + (multi-day only) day picker.
