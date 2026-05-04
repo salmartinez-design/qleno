@@ -1786,45 +1786,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
         if (instructions !== undefined) pushFj("notes", instructions);
         if (nextManualOverride !== undefined) pushFj("manual_rate_override", nextManualOverride);
 
-        // [PR / 2026-05-01 — Tue–Fri stale-import sweep] Re-fetch the
-        // schedule after the UPDATE above so we have the post-UPDATE
-        // days_of_week / day_of_week to drive the unlinked-job sweep
-        // below. ALWAYS link the cascade target rows back to the
-        // schedule (this is what was missing — MC-imported Tue–Fri
-        // jobs have recurring_schedule_id IS NULL, so the legacy
-        // schedule_id-only candidates query at line 1894 missed them
-        // entirely; result: Sal saved Mon edits and Tue–Fri stayed
-        // stale per his 2026-05-01 screenshot).
-        const updatedSchedRow = await tx
-          .select({
-            days_of_week: recurringSchedulesTable.days_of_week,
-            day_of_week: recurringSchedulesTable.day_of_week,
-          })
-          .from(recurringSchedulesTable)
-          .where(and(
-            eq(recurringSchedulesTable.id, scheduleId),
-            eq(recurringSchedulesTable.company_id, companyId),
-          ))
-          .limit(1);
-        const schedDaysOfWeek = (updatedSchedRow[0]?.days_of_week as number[] | null) ?? null;
-        const schedDayOfWeekEnum = (updatedSchedRow[0]?.day_of_week as string | null) ?? null;
-        // Build the int[] of weekdays the schedule fires on for the
-        // unlinked-sweep filter. Multi-day uses days_of_week directly;
-        // single-day converts the enum string to a single-element int[].
-        let schedFireDays: number[] = [];
-        if (Array.isArray(schedDaysOfWeek) && schedDaysOfWeek.length > 0) {
-          schedFireDays = schedDaysOfWeek.map(Number);
-        } else if (schedDayOfWeekEnum) {
-          const dayMap: Record<string, number> = {
-            sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-            thursday: 4, friday: 5, saturday: 6,
-          };
-          const dayInt = dayMap[String(schedDayOfWeekEnum).toLowerCase()];
-          if (dayInt !== undefined) schedFireDays = [dayInt];
-        }
         // Always link cascade targets back to the schedule so the
-        // next save sees them via the schedule_id path even if MC
-        // import never linked them.
+        // next save sees them via the schedule_id path even if some
+        // older path (e.g., MC import, manual SQL fix) left
+        // recurring_schedule_id NULL on a row that's truly part of
+        // this series.
         pushFj("recurring_schedule_id", scheduleId);
 
         if (futureJobsSet.length > 0 || dayPatternChanged) {
@@ -1838,27 +1804,37 @@ router.patch("/:id", requireAuth, async (req, res) => {
           // updates via the main UPDATE statement so we exclude it
           // here to avoid double-write.
           //
-          // [PR / 2026-05-01] WHERE clause now matches:
-          //   (a) jobs already linked to this schedule, OR
-          //   (b) unlinked jobs for the same client whose weekday
-          //       matches the schedule's days_of_week.
-          // (b) is the MC-imported-stale fix.
+          // [PR / 2026-05-03] Conflict semantics rewrite. The previous
+          // PR #42 OR clause also picked up unlinked client jobs whose
+          // weekday matched the schedule's days_of_week (the MC-import
+          // absorb sweep). That had a nasty side effect: when an
+          // unrelated standalone job (different tech / time / service)
+          // happened to fall on a matching weekday, the cascade would
+          // silently relink it to this schedule (pushFj on line 1828
+          // sets recurring_schedule_id = scheduleId). Then the INSERT
+          // step's compute() helper, which dedupes by
+          // recurring_schedule_id, saw the now-relinked row in
+          // existingDates and skipped creating the missing-day
+          // occurrence. Net: the standalone got clobbered AND no new
+          // recurring instance was created on that day.
+          //
+          // New behavior matches Google Calendar / Outlook /
+          // ServiceTitan / Jobber: cascade only operates on jobs
+          // explicitly linked to THIS schedule. Unrelated jobs on the
+          // same (client_id, scheduled_date) are left alone, and the
+          // cascade INSERTs a fresh recurring occurrence on that day
+          // — both jobs coexist; the operator resolves the dupe via
+          // the UI (e.g., cancels the unrelated standalone). Trade-off
+          // accepted: MC-imported unlinked jobs no longer auto-absorb,
+          // so operators see two rows on absorb-eligible days until
+          // they archive the standalone.
           const candidates = await tx.execute(sql`
             SELECT j.id, j.scheduled_date::text AS scheduled_date
             FROM jobs j
             WHERE j.company_id = ${companyId}
               AND j.id != ${jobId}
               AND j.status NOT IN ('cancelled')
-              AND (
-                j.recurring_schedule_id = ${scheduleId}
-                OR (
-                  j.recurring_schedule_id IS NULL
-                  AND j.client_id = ${Number(before.client_id)}
-                  ${schedFireDays.length > 0
-                    ? sql`AND EXTRACT(DOW FROM j.scheduled_date)::int IN (${sql.raw(schedFireDays.join(","))})`
-                    : sql`AND FALSE`}
-                )
-              )
+              AND j.recurring_schedule_id = ${scheduleId}
               AND ${cascadeAllScope
                   ? sql`j.charge_succeeded_at IS NULL AND j.status != 'complete'`
                   : sql`j.scheduled_date > CURRENT_DATE AND j.status = 'scheduled'`}
