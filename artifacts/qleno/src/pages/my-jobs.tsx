@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Car, X, Check, Eye } from "lucide-react";
+import { Car, X, Check, Eye, Navigation, Phone } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress } from "@/lib/format-address";
@@ -77,6 +77,7 @@ type Job = {
   job_lat: number | null;
   job_lng: number | null;
   geocode_failed: boolean;
+  client_phone: string | null;
   client_notes: string | null;
   service_type: string;
   status: string;
@@ -418,9 +419,38 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
         <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>Est. {job.estimated_hours.toFixed(1)} hrs</p>
       )}
       {job.address && (
-        <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>
+        <a
+          href={`https://maps.apple.com/?address=${encodeURIComponent(formatAddress(job.address, job.city, job.state, job.zip))}`}
+          target="_blank"
+          rel="noreferrer"
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            fontSize: 12, color: "var(--brand)", fontWeight: 600,
+            textDecoration: "underline", margin: "2px 0 0",
+            padding: "4px 0", minHeight: 28,
+          }}
+        >
+          <Navigation size={14} aria-hidden="true" />
           {formatAddress(job.address, job.city, job.state, job.zip)}
-        </p>
+        </a>
+      )}
+      {job.client_phone && (
+        <div style={{ marginTop: 6 }}>
+          <a
+            href={`tel:${job.client_phone.replace(/[^\d+]/g, "")}`}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              fontSize: 12, color: "var(--brand)", fontWeight: 600,
+              textDecoration: "underline",
+              padding: "6px 10px", borderRadius: 999,
+              backgroundColor: "var(--brand-dim, #EBF4FF)",
+              minHeight: 32,
+            }}
+          >
+            <Phone size={14} aria-hidden="true" />
+            {job.client_phone}
+          </a>
+        </div>
       )}
       {job.account_id && job.property_name && (
         <p style={{ fontSize: 11, color: "#9E9B94", margin: "2px 0 0" }}>
