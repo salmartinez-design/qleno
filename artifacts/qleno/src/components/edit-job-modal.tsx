@@ -282,6 +282,15 @@ export default function EditJobModal({
   const [addonPriceOverrides, setAddonPriceOverrides] = useState<Map<number, number>>(new Map());
   const [initialAddonPriceOverrides, setInitialAddonPriceOverrides] = useState<Map<number, number>>(new Map());
 
+  // [W2] Client property sqft. Pre-filled from GET /api/jobs/:id which now
+  // joins client_homes and surfaces sq_footage. Operator can edit inline;
+  // changes (a) trigger calc re-run so %-based addons compute, and (b)
+  // PATCH to client_homes on save so the value persists across all future
+  // jobs for this client. null = no sqft on file (legacy MC import).
+  const [propertySqft, setPropertySqft] = useState<number | null>(null);
+  const [initialPropertySqft, setInitialPropertySqft] = useState<number | null>(null);
+  const [primaryHomeId, setPrimaryHomeId] = useState<number | null>(null);
+
   const [baseFee, setBaseFee] = useState<number>(initialBaseFee);
   const [manualRate, setManualRate] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -511,6 +520,14 @@ export default function EditJobModal({
         setAddonPriceOverrides(priceMap);
         setInitialAddonPriceOverrides(priceMap);
 
+        // [W2] sqft pre-fill. The route returns null for legacy MC-imported
+        // homes. We set both current + initial to the same value so the
+        // dirty check fires only when the operator actually edits.
+        const sqft = d.client_home_sq_footage != null ? Number(d.client_home_sq_footage) : null;
+        setPropertySqft(sqft);
+        setInitialPropertySqft(sqft);
+        setPrimaryHomeId(d.client_home_id != null ? Number(d.client_home_id) : null);
+
         // Recurring schedule snapshot.
         const rs = d.recurring_schedule;
         if (rs) {
@@ -708,6 +725,11 @@ export default function EditJobModal({
           body: JSON.stringify({
             scope_id: scopeId,
             hours: allowedHours,
+            // [W2] Passing sqft enables the calc engine to compute %-based
+            // sqft addons (Windows 15%, Basement 15%) and also satisfies
+            // the "sqft is required for sqft-based scopes" 400 path. null
+            // is passed through (engine still runs for hourly scopes).
+            sqft: propertySqft,
             frequency,
             addon_ids: Array.from(selectedAddons.keys()),
             addon_quantities: Object.fromEntries(
@@ -726,7 +748,7 @@ export default function EditJobModal({
       }
     }, 250);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, isCommercial, hourlyRate, availableAddons]);
+  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, isCommercial, hourlyRate, availableAddons, propertySqft]);
 
   // ── Validation / dirty check ────────────────────────────────────────────
   const dirty = useMemo(() => {
@@ -781,8 +803,11 @@ export default function EditJobModal({
     const initDays = parkingFeeDaysInitial == null ? null : [...parkingFeeDaysInitial].sort();
     const curDays = parkingFeeDays == null ? null : [...parkingFeeDays].sort();
     if (JSON.stringify(initDays) !== JSON.stringify(curDays)) return true;
+    // [W2] sqft change marks the modal dirty even if nothing else changed,
+    // so the operator can backfill sqft on a legacy client and save.
+    if (propertySqft !== initialPropertySqft) return true;
     return false;
-  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, initialSelectedAddons, addonPriceOverrides, initialAddonPriceOverrides, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek, availableAddons, parkingFeeAmount, parkingFeeAmountInitial, parkingFeeDays, parkingFeeDaysInitial, parkingFeeEnabledInitial]);
+  }, [frequency, scheduledDate, scheduledTime, allowedHours, baseFee, instructions, manualRate, selectedAddons, initialSelectedAddons, addonPriceOverrides, initialAddonPriceOverrides, selectedTechIds, job, initialAllowedHours, initialBaseFee, isCommercial, commercialServiceType, hourlyRate, daysOfWeek, availableAddons, parkingFeeAmount, parkingFeeAmountInitial, parkingFeeDays, parkingFeeDaysInitial, parkingFeeEnabledInitial, propertySqft, initialPropertySqft]);
 
   // [AI.4] Commercial save requires a real tenant-managed service type slug.
   // Legacy MC-import values (e.g., 'standard_clean') get auto-cleared when
@@ -953,15 +978,19 @@ export default function EditJobModal({
         // a fallback only — without an override and without a calc result,
         // we still need to write something or the save would round to $0.
         const override = addonPriceOverrides.get(pricingAddonId);
-        const catalogPrice = (() => {
-          const a = availableAddons.find(x => x.id === pricingAddonId);
-          if (!a) return 0;
-          const v = (a as any).price_value ?? (a as any).price ?? 0;
-          return Number(v) || 0;
-        })();
+        const addonRow = availableAddons.find(x => x.id === pricingAddonId);
+        const isPct = addonRow?.price_type === "percent" || addonRow?.price_type === "percentage";
+        const catalogPrice = addonRow
+          ? Number((addonRow as any).price_value ?? (addonRow as any).price ?? 0) || 0
+          : 0;
+        // [W1] %-based addons fall back to 0 (not catalogPrice — that's a
+        // percentage like 15, NOT a dollar amount). Operator must type an
+        // override OR the calc engine must produce a detail. Otherwise the
+        // save would store $15 for "15%" — silent miscalculation.
+        const fallback = isPct ? 0 : catalogPrice;
         const unitPrice = override != null
           ? override
-          : (detail ? Math.round((detail.amount / qty) * 100) / 100 : catalogPrice);
+          : (detail ? Math.round((detail.amount / qty) * 100) / 100 : fallback);
         return {
           add_on_id: pricingAddonId,
           pricing_addon_id: pricingAddonId,
@@ -1035,6 +1064,28 @@ export default function EditJobModal({
         payload.parking_fee_days = parkingNowChecked && isMultiDayEffective
           ? (parkingFeeDays != null && parkingFeeDays.length < 7 ? [...parkingFeeDays].sort() : null)
           : null;
+      }
+
+      // [W2] Persist sqft to client_homes BEFORE the job PATCH if the
+      // operator changed it. We do this first so a downstream calc on
+      // the next modal open already reflects the new sqft, even if the
+      // job PATCH fails for some other reason (the sqft change is a
+      // client-level update — independent of the job edit's success).
+      // Skipped on dry-run (preview) and when home_id is unknown (no
+      // home row exists; rare, but we don't auto-create one here).
+      if (!opts?.dry_run && primaryHomeId != null && propertySqft !== initialPropertySqft && !isCommercial) {
+        try {
+          await fetch(`${API}/api/clients/${job.client_id}/homes/${primaryHomeId}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ sq_footage: propertySqft }),
+          });
+          // Update the snapshot locally so a subsequent save in the
+          // same modal session doesn't re-PATCH the same value.
+          setInitialPropertySqft(propertySqft);
+        } catch (e) {
+          console.warn("[edit-job-modal] sqft PATCH failed (non-fatal):", e);
+        }
       }
 
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
@@ -1496,6 +1547,55 @@ export default function EditJobModal({
             </div>
           </div>
 
+          {/* [W2] Section 3.5 — Property sqft. Pre-fills from
+              client_homes.sq_footage and feeds /api/pricing/calculate so
+              %-based addons (Windows, Basement) compute. Hidden for
+              commercial jobs (which don't use sqft pricing). When the
+              operator types a value here, save() PATCHes the primary
+              client_home so all future jobs for this client inherit it
+              — closing the legacy MC-import gap. */}
+          {!isCommercial && (
+            <div style={SECTION}>
+              <span style={LABEL}>Property</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <label style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>Square footage</label>
+                <input
+                  type="number"
+                  min={0}
+                  step={50}
+                  inputMode="numeric"
+                  placeholder="e.g. 1850"
+                  value={propertySqft != null ? String(propertySqft) : ""}
+                  onChange={e => {
+                    const raw = e.target.value;
+                    if (raw === "") { setPropertySqft(null); return; }
+                    const n = parseInt(raw, 10);
+                    if (!isNaN(n) && n >= 0) setPropertySqft(n);
+                  }}
+                  style={{
+                    width: 120, padding: "6px 10px", borderRadius: 6,
+                    border: "1px solid #E5E2DC", fontSize: 13, fontFamily: FF,
+                  }} />
+                <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>sqft</span>
+                {propertySqft == null && (
+                  <span style={{
+                    fontSize: 11, color: "#92400E", backgroundColor: "#FEF3C7",
+                    padding: "3px 8px", borderRadius: 4, fontFamily: FF,
+                  }}>
+                    No sqft on file — type once to enable %-based addons for all future jobs
+                  </span>
+                )}
+                {propertySqft != null && propertySqft !== initialPropertySqft && (
+                  <span style={{
+                    fontSize: 11, color: "#1D4ED8", fontFamily: FF,
+                  }}>
+                    Saves to property on Save changes
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Section 4 — Add-ons */}
           <div style={SECTION}>
             <span style={LABEL}>Add-ons</span>
@@ -1526,7 +1626,15 @@ export default function EditJobModal({
                   // overriding a percentage as a flat $ would be confusing,
                   // and we don't have UI to flip an addon's pricing model
                   // mid-edit. Operators can use Manual rate for that.
-                  const editable = checked && !isPct;
+                  // [W1] Fixed-$ addons are always inline-editable when checked.
+                  // %-based addons get the SAME inline $ input ONLY when the
+                  // job has no sqft on file — otherwise the calc engine
+                  // computes the amount and we keep the readout (15%) as the
+                  // pricing signal. This is the legacy-MC escape hatch:
+                  // operator can charge whatever for Windows/Basement on a
+                  // residential client without a recorded sqft, while clients
+                  // with sqft retain the auto-calc.
+                  const editable = checked && (!isPct || (isPct && propertySqft == null));
                   // Controlled input convention: `value` is the override
                   // (string-of-number when set, "" when not set).
                   // `placeholder` shows the catalog default so the operator
