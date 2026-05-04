@@ -8,7 +8,8 @@
     "build": "tsx ./build.ts",
     "start": "node dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:bundle": "tsx --test src/tests/bundle-discount.test.ts"
+    "test:bundle": "tsx --test src/tests/bundle-discount.test.ts",
+    "test:parking": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/parking-waterfall.test.ts"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
