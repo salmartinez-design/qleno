@@ -24,17 +24,17 @@
   "categories": ["business", "productivity"],
   "shortcuts": [
     {
+      "name": "My Jobs",
+      "short_name": "My Jobs",
+      "description": "Today's assigned jobs",
+      "url": "/my-jobs",
+      "icons": [{ "src": "/images/phes-logo.jpeg", "sizes": "96x96" }]
+    },
+    {
       "name": "Dashboard",
       "short_name": "Dashboard",
       "description": "Go to dashboard",
       "url": "/dashboard",
-      "icons": [{ "src": "/images/phes-logo.jpeg", "sizes": "96x96" }]
-    },
-    {
-      "name": "Jobs",
-      "short_name": "Jobs",
-      "description": "View all jobs",
-      "url": "/jobs",
       "icons": [{ "src": "/images/phes-logo.jpeg", "sizes": "96x96" }]
     }
   ]

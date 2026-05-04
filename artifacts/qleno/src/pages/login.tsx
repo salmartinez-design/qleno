@@ -46,6 +46,8 @@ export default function Login() {
           toast({ title: "Welcome back", description: `Logged in as ${res.user.first_name}` });
           if (res.user.role === 'super_admin') {
             setLocation("/admin");
+          } else if (res.user.role === 'technician' || res.user.role === 'team_lead') {
+            setLocation("/my-jobs");
           } else {
             setLocation("/dashboard");
           }

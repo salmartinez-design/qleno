@@ -3905,7 +3905,7 @@ export default function JobsPage() {
                 })()}
               </div>
             </div>
-            {loading ? (
+            {loading && !data ? (
               <div style={{ textAlign: "center", padding: 32, color: "#9E9B94", fontSize: 13 }}>Loading...</div>
             ) : allJobs.length === 0 ? (
               <div style={{ textAlign: "center", padding: 32 }}>
@@ -4115,7 +4115,7 @@ export default function JobsPage() {
 
             <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center", flexWrap: "nowrap" }}>
               {/* Stats pills */}
-              {!loading && data && [
+              {data && [
                 { label: `${stats.total} jobs`, color: "#1A1917", bg: "#F7F6F3" },
                 { label: `${stats.complete} done`, color: "#16A34A", bg: "#DCFCE7" },
                 ...(stats.inProgress > 0 ? [{ label: `${stats.inProgress} active`, color: "#D97706", bg: "#FEF3C7" }] : []),
@@ -4190,7 +4190,7 @@ export default function JobsPage() {
           </div>
 
           {/* KPI STRIP */}
-          {!loading && data && (() => {
+          {data && (() => {
             const techsWorking = filteredData?.employees?.filter(e => e.jobs?.length > 0).length ?? 0;
             const totalTechs = filteredData?.employees?.length ?? 0;
             const scheduledHrs = allJobs.reduce((s, j) => s + (j.duration_minutes || 120) / 60, 0);
@@ -4253,7 +4253,7 @@ export default function JobsPage() {
           {/* GANTT / LIST — fills remaining height */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {/* Timeline or list */}
-            {loading ? (
+            {loading && !data ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9E9B94", fontSize: 13 }}>Loading schedule...</div>
             ) : desktopView === "timeline" ? (
               <div ref={timelineRef} style={{ flex: 1, overflow: "auto" }}>

@@ -251,6 +251,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         job_lat: jobsTable.job_lat,
         job_lng: jobsTable.job_lng,
         geocode_failed: jobsTable.geocode_failed,
+        client_phone: clientsTable.phone,
         client_notes: clientsTable.notes,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
