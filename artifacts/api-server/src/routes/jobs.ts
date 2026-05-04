@@ -2090,42 +2090,236 @@ router.patch("/:id", requireAuth, async (req, res) => {
             futureDeleted = (delRes as any).rowCount ?? toDelete.length;
           }
 
-          // INSERT new dates the new pattern requires. Use the cron's compute
-          // helper so dedupe matches engine behavior. Dates with existing jobs
-          // (the toUpdate set) get filtered by the helper's dedupe.
-          if (dayPatternChanged) {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            tomorrow.setHours(0, 0, 0, 0);
-            const horizon = new Date(tomorrow);
-            horizon.setDate(horizon.getDate() + 60);
-            const schedRow = await tx.execute(sql`
-              SELECT id, company_id, customer_id, frequency, day_of_week,
-                     days_of_week, custom_frequency_weeks, start_date, end_date,
-                     assigned_employee_id, service_type, duration_minutes,
-                     base_fee, notes
-              FROM recurring_schedules WHERE id = ${scheduleId} LIMIT 1
+        }
+
+        // ── INSERT missing-day occurrences ─────────────────────────────────
+        // [PR / 2026-05-04 — take 2 of PR #48] Fill any day the schedule
+        // says should have an occurrence but where one doesn't yet exist
+        // linked to this schedule. Runs unconditionally for this_and_future
+        // and all on active schedules — not gated on dayPatternChanged
+        // (the previous gate left missing days unfilled when the operator
+        // toggled M-F off→on without a real pattern change).
+        //
+        // PR #48 stopped the cascade from re-linking unrelated standalones
+        // (good — Juan's 6am job on a Tuesday stays as-is) but didn't add
+        // the create-missing pass. Result on Sal's repro: schedule #88
+        // (Jaira / weekdays / Alma 8am) Apr 28 had only Juan's standalone
+        // (schedule_id=NULL); cascade UPDATE'd 63 future jobs but left
+        // Apr 28 with zero schedule-linked rows. This block fixes that.
+        //
+        // Window:
+        //   this_and_future: from before.scheduled_date (the anchor date)
+        //                    → today + 90d
+        //   all:             from min(earliest existing schedule job,
+        //                    schedule.start_date) → today + 90d
+        //
+        // Status for newly-created rows:
+        //   past dates → 'complete' (historical record reflects the
+        //                  schedule fired in the real world)
+        //   today/future → 'scheduled'
+        //
+        // Per-occurrence stamps: assigned_user_id + job_technicians from
+        // team_user_ids (when teamProvided) else recurring_schedule_technicians;
+        // job_add_ons from add_ons (when addOnsProvided) else
+        // recurring_schedule_add_ons; parking via stampParkingFeeOnJob
+        // when schedule.parking_fee_enabled and DOW matches.
+        if ((cascade_scope === "this_and_future" || cascadeAllScope) && before.recurring_schedule_id != null) {
+          const scheduleId2 = Number(before.recurring_schedule_id);
+          const fillSchedRow = await tx.execute(sql`
+            SELECT id, company_id, customer_id, frequency, day_of_week,
+                   days_of_week, custom_frequency_weeks, start_date, end_date,
+                   assigned_employee_id, service_type, duration_minutes, base_fee,
+                   scheduled_time, commercial_hourly_rate, notes, instructions, is_active,
+                   parking_fee_enabled, parking_fee_amount, parking_fee_days
+            FROM recurring_schedules WHERE id = ${scheduleId2} LIMIT 1
+          `);
+          const fillSched = fillSchedRow.rows[0] as any;
+          if (fillSched && fillSched.is_active) {
+            const today2 = new Date();
+            today2.setHours(0, 0, 0, 0);
+            const horizon2 = new Date(today2);
+            horizon2.setDate(horizon2.getDate() + 90);
+            const todayStr = `${today2.getFullYear()}-${String(today2.getMonth() + 1).padStart(2, "0")}-${String(today2.getDate()).padStart(2, "0")}`;
+
+            // Coerce a possibly-Date scheduled_date back to "YYYY-MM-DD" so
+            // string concatenation with "T00:00:00" produces a valid ISO
+            // datetime regardless of driver behavior.
+            const toIsoDate = (v: unknown): string => {
+              if (v instanceof Date) {
+                const y = v.getFullYear();
+                const m = String(v.getMonth() + 1).padStart(2, "0");
+                const d = String(v.getDate()).padStart(2, "0");
+                return `${y}-${m}-${d}`;
+              }
+              return String(v);
+            };
+            let fromDate: Date;
+            if (cascadeAllScope) {
+              const earliestRow = await tx.execute(sql`
+                SELECT MIN(scheduled_date)::text AS earliest
+                FROM jobs
+                WHERE company_id = ${companyId}
+                  AND recurring_schedule_id = ${scheduleId2}
+              `);
+              const earliest = (earliestRow.rows[0] as any)?.earliest as string | null;
+              const startStr = toIsoDate(fillSched.start_date);
+              const startDate = earliest ? earliest : startStr;
+              fromDate = new Date(`${startDate}T00:00:00`);
+            } else {
+              fromDate = new Date(`${toIsoDate(before.scheduled_date)}T00:00:00`);
+            }
+
+            // Tech list for new occurrences. teamProvided update to
+            // recurring_schedule_technicians runs AFTER this block (line ~2147),
+            // so when teamProvided=true we use the in-scope team_user_ids.
+            // Otherwise read the schedule's current crew.
+            let fillTechList: number[];
+            if (teamProvided && Array.isArray(team_user_ids) && team_user_ids.length > 0) {
+              fillTechList = team_user_ids.map((u: unknown) => Number(u));
+            } else {
+              const techRows = await tx.execute(sql`
+                SELECT user_id, is_primary
+                FROM recurring_schedule_technicians
+                WHERE recurring_schedule_id = ${scheduleId2}
+                ORDER BY is_primary DESC NULLS LAST, user_id ASC
+              `);
+              fillTechList = (techRows.rows as any[]).map(r => Number(r.user_id));
+              if (fillTechList.length === 0 && fillSched.assigned_employee_id != null) {
+                fillTechList = [Number(fillSched.assigned_employee_id)];
+              }
+            }
+
+            // Add-on list for new occurrences. Same pattern: addOnsProvided
+            // update to recurring_schedule_add_ons runs AFTER this block, so
+            // when addOnsProvided=true we use the in-scope add_ons payload.
+            type FillAddon = { pricing_addon_id: number; add_on_id: number; qty: number; unit_price: string; subtotal: string };
+            const fillAddons: FillAddon[] = [];
+            const resolveRealAddOnId2 = async (pricingId: number, fallbackPrice: string): Promise<{ id: number; name: string; price: string } | null> => {
+              const paRows = await tx.execute(sql`
+                SELECT name, COALESCE(price_value, price, '0')::text AS price
+                FROM pricing_addons WHERE id = ${pricingId} LIMIT 1
+              `);
+              const paName = String((paRows.rows[0] as any)?.name ?? "").trim();
+              const paPrice = String((paRows.rows[0] as any)?.price ?? fallbackPrice ?? "0");
+              if (!paName) return null;
+              const ex = await tx.execute(sql`
+                SELECT id FROM add_ons
+                WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${paName})
+                LIMIT 1
+              `);
+              let realAddOnId: number;
+              if (ex.rows.length) {
+                realAddOnId = Number((ex.rows[0] as any).id);
+              } else {
+                const cre = await tx.execute(sql`
+                  INSERT INTO add_ons (company_id, name, price, category, is_active)
+                  VALUES (${companyId}, ${paName}, ${paPrice}, 'other', true)
+                  RETURNING id
+                `);
+                realAddOnId = Number((cre.rows[0] as any).id);
+              }
+              return { id: realAddOnId, name: paName, price: paPrice };
+            };
+            if (addOnsProvided && Array.isArray(add_ons)) {
+              for (const a of add_ons as Array<{ pricing_addon_id?: number; qty?: number; unit_price?: number; subtotal?: number }>) {
+                const pricingId = Number(a.pricing_addon_id ?? 0);
+                if (!pricingId) continue;
+                const resolved = await resolveRealAddOnId2(pricingId, "0");
+                if (!resolved) continue;
+                const qty = Number(a.qty ?? 1) || 1;
+                const unitPrice = a.unit_price != null ? String(a.unit_price) : resolved.price;
+                const subtotal = a.subtotal != null
+                  ? String(a.subtotal)
+                  : String((Number(unitPrice) * qty).toFixed(2));
+                fillAddons.push({ pricing_addon_id: pricingId, add_on_id: resolved.id, qty, unit_price: unitPrice, subtotal });
+              }
+            } else {
+              const addonRows = await tx.execute(sql`
+                SELECT pricing_addon_id, qty
+                FROM recurring_schedule_add_ons
+                WHERE recurring_schedule_id = ${scheduleId2}
+              `);
+              for (const r of addonRows.rows as any[]) {
+                const pricingId = Number(r.pricing_addon_id);
+                if (!pricingId) continue;
+                const resolved = await resolveRealAddOnId2(pricingId, "0");
+                if (!resolved) continue;
+                const qty = Number(r.qty ?? 1) || 1;
+                fillAddons.push({
+                  pricing_addon_id: pricingId,
+                  add_on_id: resolved.id,
+                  qty,
+                  unit_price: resolved.price,
+                  subtotal: String((Number(resolved.price) * qty).toFixed(2)),
+                });
+              }
+            }
+
+            const { resolveParkingAddon, parkingApplies, stampParkingFeeOnJob, computeOccurrencesForSchedule: compute } =
+              await import("../lib/recurring-jobs.js");
+            const fillParking = fillSched.parking_fee_enabled === true
+              ? await resolveParkingAddon(fillSched, tx)
+              : null;
+
+            const fillClientRow = await tx.execute(sql`
+              SELECT zip FROM clients WHERE id = ${Number(fillSched.customer_id)} LIMIT 1
             `);
-            const sched = schedRow.rows[0] as any;
-            const { computeOccurrencesForSchedule: compute } = await import("../lib/recurring-jobs.js");
-            const planned = await compute(sched, tomorrow, horizon, null, null);
-            // Per-row INSERT — small N (≤60 daily for one schedule) so loop is fine,
-            // and keeps the SQL shape readable. The compute helper's dedupe ensures
-            // no duplicates against existing jobs.
+            const fillClientZip = ((fillClientRow.rows[0] as any)?.zip ?? null) as string | null;
+
+            const planned = await compute(fillSched, fromDate, horizon2, null, fillClientZip);
             for (const r of planned.rows) {
-              await tx.execute(sql`
+              const dateStr = String(r.scheduled_date);
+              const isPast = dateStr < todayStr;
+              const status = isPast ? "complete" : "scheduled";
+              const primaryUid = fillTechList.length > 0
+                ? fillTechList[0]
+                : (fillSched.assigned_employee_id != null ? Number(fillSched.assigned_employee_id) : null);
+              const insertRes = await tx.execute(sql`
                 INSERT INTO jobs
                   (company_id, client_id, assigned_user_id, service_type, status,
-                   scheduled_date, scheduled_time, frequency, base_fee, allowed_hours,
-                   notes, recurring_schedule_id, booking_location, address_zip)
+                   scheduled_date, scheduled_time, frequency, base_fee, hourly_rate,
+                   allowed_hours, notes, recurring_schedule_id, booking_location, address_zip)
                 VALUES
-                  (${r.company_id}, ${r.client_id}, ${r.assigned_user_id},
-                   ${r.service_type}, ${r.status}, ${r.scheduled_date},
-                   ${r.scheduled_time}, ${r.frequency}, ${r.base_fee},
+                  (${r.company_id}, ${r.client_id}, ${primaryUid},
+                   ${r.service_type}, ${status}, ${r.scheduled_date},
+                   ${fillSched.scheduled_time ?? null},
+                   ${r.frequency}, ${r.base_fee},
+                   ${fillSched.commercial_hourly_rate != null ? String(fillSched.commercial_hourly_rate) : null},
                    ${r.allowed_hours}, ${r.notes}, ${r.recurring_schedule_id},
                    ${r.booking_location}, ${r.address_zip})
+                RETURNING id
               `);
+              const newJobId = Number((insertRes.rows[0] as any).id);
               futureInserted++;
+
+              for (let i = 0; i < fillTechList.length; i++) {
+                const uid = fillTechList[i];
+                const isPrimary = i === 0;
+                await tx.execute(sql`
+                  INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+                  VALUES (${newJobId}, ${uid}, ${companyId}, ${isPrimary})
+                  ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+                `);
+              }
+
+              for (const a of fillAddons) {
+                await tx.execute(sql`
+                  INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+                  VALUES (${newJobId}, ${a.add_on_id}, ${a.qty}, ${a.unit_price}, ${a.subtotal}, ${a.pricing_addon_id})
+                  ON CONFLICT (job_id, add_on_id) DO UPDATE
+                    SET quantity = EXCLUDED.quantity,
+                        unit_price = EXCLUDED.unit_price,
+                        subtotal = EXCLUDED.subtotal,
+                        pricing_addon_id = EXCLUDED.pricing_addon_id
+                `);
+              }
+
+              if (fillParking) {
+                const occDate = new Date(`${dateStr}T00:00:00`);
+                if (parkingApplies(fillSched, occDate)) {
+                  await stampParkingFeeOnJob(newJobId, fillParking, tx);
+                }
+              }
             }
           }
         }
@@ -2169,6 +2363,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
           changed_fields: changes.map(c => c.field),
           values: Object.fromEntries(changes.map(c => [c.field, c.next])),
           future_jobs_updated: futureCount,
+          future_jobs_inserted: futureInserted,
+          future_jobs_deleted: futureDeleted,
           future_jobs_skipped_in_progress: futureClockedSkipped,
         };
         await tx.execute(sql`
@@ -2203,6 +2399,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // Stash counters for the response (read after commit via closure).
       (req as any)._agFutureCount = futureCount;
       (req as any)._agFutureSkipped = futureClockedSkipped;
+      (req as any)._agFutureInserted = futureInserted;
+      (req as any)._agFutureDeleted = futureDeleted;
 
       // [PR / 2026-04-30] Dry-run rollback. Throwing here forces
       // Drizzle's tx wrapper to roll back every write that landed
@@ -2292,6 +2490,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
       cascade: {
         scope: cascade_scope,
         future_jobs_updated: (req as any)._agFutureCount ?? 0,
+        future_jobs_inserted: (req as any)._agFutureInserted ?? 0,
+        future_jobs_deleted: (req as any)._agFutureDeleted ?? 0,
         future_jobs_skipped_in_progress: (req as any)._agFutureSkipped ?? 0,
         // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
         // Anchor-protection signals so the modal can render an honest
