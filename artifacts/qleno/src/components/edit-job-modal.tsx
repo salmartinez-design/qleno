@@ -1075,16 +1075,33 @@ export default function EditJobModal({
       // home row exists; rare, but we don't auto-create one here).
       if (!opts?.dry_run && primaryHomeId != null && propertySqft !== initialPropertySqft && !isCommercial) {
         try {
-          await fetch(`${API}/api/clients/${job.client_id}/homes/${primaryHomeId}`, {
+          const sqftRes = await fetch(`${API}/api/clients/${job.client_id}/homes/${primaryHomeId}`, {
             method: "PATCH",
             headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
             body: JSON.stringify({ sq_footage: propertySqft }),
           });
+          // [audit BUG #5] Previously the response wasn't checked, so a
+          // 4xx/5xx silently passed and the operator thought the sqft
+          // saved. Now we throw on non-2xx so the catch surfaces an
+          // error to the operator and the modal stays open with the
+          // unsaved value visible.
+          if (!sqftRes.ok) {
+            const errBody = await sqftRes.json().catch(() => ({}));
+            throw new Error(errBody.error || `HTTP ${sqftRes.status}`);
+          }
           // Update the snapshot locally so a subsequent save in the
           // same modal session doesn't re-PATCH the same value.
           setInitialPropertySqft(propertySqft);
-        } catch (e) {
-          console.warn("[edit-job-modal] sqft PATCH failed (non-fatal):", e);
+        } catch (e: any) {
+          // [audit BUG #5] Surface the failure. The job PATCH below
+          // still runs (sqft is a property-level update, independent
+          // of the job edit's success), but the operator now sees that
+          // the property record didn't update and can retry.
+          console.warn("[edit-job-modal] sqft PATCH failed:", e);
+          setLastSaveError({
+            title: "Couldn't save sqft to property",
+            message: `${e?.message ?? "unknown error"}. Job changes still saved — retry sqft from the customer profile.`,
+          });
         }
       }
 

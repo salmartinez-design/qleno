@@ -1337,6 +1337,19 @@ router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
       notes: recurringSchedulesTable.notes,
       is_active: recurringSchedulesTable.is_active,
       assigned_employee_id: recurringSchedulesTable.assigned_employee_id,
+      // [audit BUG #1] Parking-fee config columns (added in PR #51) were
+      // missing from this SELECT. Customer-profile editor seeds
+      // form.rec_parking_fee_* from these — without them, the editor opens
+      // with parking unchecked + amount blank even when the DB has saved
+      // values, and saving wipes the schedule's parking config because the
+      // form thinks nothing was set.
+      parking_fee_enabled: recurringSchedulesTable.parking_fee_enabled,
+      parking_fee_amount: recurringSchedulesTable.parking_fee_amount,
+      parking_fee_days: recurringSchedulesTable.parking_fee_days,
+      // [audit BUG #4 prep] days_of_week needed by the parking-day picker
+      // gate; surface here so the customer-profile editor matches the
+      // edit-job modal's behavior. NULL for single-day frequencies.
+      days_of_week: recurringSchedulesTable.days_of_week,
       tech_first: usersTable.first_name,
       tech_last: usersTable.last_name,
     })
