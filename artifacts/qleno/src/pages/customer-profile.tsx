@@ -2055,56 +2055,6 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                 </div>
               )}
             </div>
-            {/* Per-client parking-fee default. Recurring schedules and one-off
-                jobs inherit this unless explicitly overridden. */}
-            <div>
-              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
-                Parking Fee
-                {!editingParking && (
-                  <button onClick={() => {
-                    setParkingValue(client.parking_fee_amount != null ? String(client.parking_fee_amount) : "");
-                    setParkingEnabled(!!client.parking_fee_enabled);
-                    setEditingParking(true);
-                  }}
-                    style={{ background: "none", border: "none", color: "#1D4ED8", fontSize: 11, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
-                    {client.parking_fee_enabled || client.parking_fee_amount != null ? "Edit" : "Set"}
-                  </button>
-                )}
-              </div>
-              {editingParking ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#1A1917", fontFamily: FF, cursor: "pointer" }}>
-                    <input type="checkbox" checked={parkingEnabled}
-                      onChange={e => setParkingEnabled(e.target.checked)} />
-                    Charge parking by default
-                  </label>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
-                    <input type="number" min={0} step={0.01} value={parkingValue}
-                      onChange={e => setParkingValue(e.target.value)}
-                      placeholder="20.00"
-                      style={{ width: 90, padding: "4px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
-                    <button onClick={saveParkingFee} disabled={savingParking}
-                      style={{ background: "var(--brand, #00C9A0)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "4px 10px", cursor: savingParking ? "wait" : "pointer", fontFamily: FF }}>
-                      {savingParking ? "…" : "Save"}
-                    </button>
-                    <button onClick={() => setEditingParking(false)} disabled={savingParking}
-                      style={{ background: "none", border: "none", color: "#6B7280", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
-                      Cancel
-                    </button>
-                  </div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
-                    Blank uses tenant default. Schedules and jobs override per-occurrence.
-                  </div>
-                </div>
-              ) : (
-                <div style={{ fontWeight: 600, color: client.parking_fee_enabled || client.parking_fee_amount != null ? "#1A1917" : "#9E9B94", fontFamily: FF }}>
-                  {client.parking_fee_enabled || client.parking_fee_amount != null
-                    ? `${client.parking_fee_enabled ? "On" : "Off"}${client.parking_fee_amount != null ? ` · $${Number(client.parking_fee_amount).toFixed(2)}` : " · tenant default"}`
-                    : "Not set"}
-                </div>
-              )}
-            </div>
             {client.billing_contact_name && (
               <div>
                 <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Billing Contact</div>
@@ -2120,6 +2070,60 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
           </div>
         </div>
       )}
+
+      {/* Per-client parking-fee default. Lives outside the commercial-only
+          Billing Settings block on purpose — residential clients (Nicholas
+          Cooper, etc.) also incur parking fees, so the setting must always
+          be visible. Recurring schedules and one-off jobs inherit this
+          unless explicitly overridden. */}
+      <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", fontFamily: FF }}>Parking Fee</div>
+          {!editingParking && (
+            <button onClick={() => {
+              setParkingValue(client.parking_fee_amount != null ? String(client.parking_fee_amount) : "");
+              setParkingEnabled(!!client.parking_fee_enabled);
+              setEditingParking(true);
+            }}
+              style={{ background: "none", border: "none", color: "#1D4ED8", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
+              {client.parking_fee_enabled || client.parking_fee_amount != null ? "Edit" : "Set"}
+            </button>
+          )}
+        </div>
+        {editingParking ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#1A1917", fontFamily: FF, cursor: "pointer" }}>
+              <input type="checkbox" checked={parkingEnabled}
+                onChange={e => setParkingEnabled(e.target.checked)} />
+              Charge parking by default
+            </label>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
+              <input type="number" min={0} step={0.01} value={parkingValue}
+                onChange={e => setParkingValue(e.target.value)}
+                placeholder="20.00"
+                style={{ width: 100, padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+              <button onClick={saveParkingFee} disabled={savingParking}
+                style={{ background: "var(--brand, #00C9A0)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: savingParking ? "wait" : "pointer", fontFamily: FF }}>
+                {savingParking ? "…" : "Save"}
+              </button>
+              <button onClick={() => setEditingParking(false)} disabled={savingParking}
+                style={{ background: "none", border: "none", color: "#6B7280", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
+                Cancel
+              </button>
+            </div>
+            <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
+              Blank uses tenant default. Schedules and jobs can override per-occurrence.
+            </div>
+          </div>
+        ) : (
+          <div style={{ fontSize: 13, fontWeight: 600, color: client.parking_fee_enabled || client.parking_fee_amount != null ? "#1A1917" : "#9E9B94", fontFamily: FF }}>
+            {client.parking_fee_enabled || client.parking_fee_amount != null
+              ? `${client.parking_fee_enabled ? "On" : "Off"}${client.parking_fee_amount != null ? ` · $${Number(client.parking_fee_amount).toFixed(2)}` : " · tenant default"}`
+              : "Not set"}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

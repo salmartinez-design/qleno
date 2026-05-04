@@ -1518,9 +1518,14 @@ export default function EditJobModal({
                   // and we don't have UI to flip an addon's pricing model
                   // mid-edit. Operators can use Manual rate for that.
                   const editable = checked && !isPct;
-                  const inputValue = override != null
-                    ? String(override)
-                    : (editable ? String(catalogPrice) : "");
+                  // Controlled input convention: `value` is the override
+                  // (string-of-number when set, "" when not set).
+                  // `placeholder` shows the catalog default so the operator
+                  // sees what they'll fall back to without committing it as
+                  // an override. Without this split, clearing the field
+                  // would snap back to the catalog price and the cursor
+                  // would jump — clearing wouldn't visually work.
+                  const inputValue = override != null ? String(override) : "";
                   return (
                     <div key={a.id} style={{
                       display: "flex", alignItems: "center", gap: 8,
@@ -1566,6 +1571,7 @@ export default function EditJobModal({
                           <span style={{ fontSize: 12, color: "#6B6860" }}>$</span>
                           <input type="number" min={0} step={0.01} inputMode="decimal"
                             value={inputValue}
+                            placeholder={String(catalogPrice)}
                             onChange={e => {
                               const raw = e.target.value;
                               const isParking = /^parking fee$/i.test(a.name);
@@ -1598,7 +1604,15 @@ export default function EditJobModal({
                             }} />
                         </div>
                       ) : (
-                        <span style={{ fontSize: 12, color: "#6B6860" }}>
+                        <span style={{ fontSize: 12, color: "#6B6860", cursor: "pointer" }}
+                          onClick={() => {
+                            setSelectedAddons(prev => {
+                              const next = new Map(prev);
+                              if (next.has(a.id)) next.delete(a.id);
+                              else next.set(a.id, 1);
+                              return next;
+                            });
+                          }}>
                           {/* [AI.2] price_value is the canonical column; price_type
                               seeded as 'percentage' (not 'percent'), accept both. */}
                           {isPct ? `${catalogPrice}%` : `$${catalogPrice.toFixed(0)}`}
