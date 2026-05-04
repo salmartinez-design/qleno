@@ -470,6 +470,31 @@ export async function generateJobsFromSchedule(
     }
   }
 
+  // [audit BUG #8] Hoist the schedule's tech roster once per generation
+  // run so we can mirror it to job_technicians on each newly-inserted job.
+  // Without this, a schedule with multiple techs (helper / trainee on top
+  // of the primary) silently lost everyone except the primary on every
+  // generated occurrence — assigned_user_id was set by insertJobFromSchedule
+  // but job_technicians was never populated. Dispatch grid + commission
+  // engine both read job_technicians, so the helpers vanished from
+  // pay reports until the office manually re-added them per job.
+  // Fallback chain matches the cascade path at jobs.ts:2188+:
+  // recurring_schedule_technicians > schedule.assigned_employee_id alone.
+  type ScheduleTech = { user_id: number; is_primary: boolean };
+  const scheduleTechRows = await db.execute(sql`
+    SELECT user_id, is_primary
+    FROM recurring_schedule_technicians
+    WHERE recurring_schedule_id = ${schedule.id}
+    ORDER BY is_primary DESC NULLS LAST, user_id ASC
+  `);
+  let scheduleTechs: ScheduleTech[] = (scheduleTechRows.rows as any[]).map(r => ({
+    user_id: Number(r.user_id),
+    is_primary: !!r.is_primary,
+  }));
+  if (scheduleTechs.length === 0 && schedule.assigned_employee_id != null) {
+    scheduleTechs = [{ user_id: Number(schedule.assigned_employee_id), is_primary: true }];
+  }
+
   let parkingStamped = 0;
   let created = 0;
   for (const row of rows) {
@@ -486,6 +511,19 @@ export async function generateJobsFromSchedule(
       clientZip ?? null,
     );
     created++;
+    // [audit BUG #8] Mirror the schedule's tech roster onto
+    // job_technicians. Idempotent via ON CONFLICT — safe even if a
+    // concurrent path also wrote the rows. assigned_user_id is already
+    // set by insertJobFromSchedule (single primary mirror); this adds
+    // helpers + trainees so the grid and commission engine see the
+    // full crew.
+    for (const t of scheduleTechs) {
+      await db.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        VALUES (${newId}, ${t.user_id}, ${schedule.company_id}, ${t.is_primary})
+        ON CONFLICT (job_id, user_id) DO NOTHING
+      `);
+    }
     if (resolved && (row as any)._parking_fee_applies) {
       await stampParkingFeeOnJob(newId, resolved);
       parkingStamped++;

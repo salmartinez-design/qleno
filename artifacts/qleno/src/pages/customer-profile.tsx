@@ -3328,10 +3328,24 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    base_fee: client.base_fee || "",
-    frequency: client.frequency || "",
-    service_type: client.service_type || "",
-    allowed_hours: client.allowed_hours || "",
+    // [audit BUG #4] Fall back to the recurring schedule's values when the
+    // client-level fields are empty. Migrated MC clients have the schedule
+    // populated but `clients.frequency` / `clients.service_type` /
+    // `clients.base_fee` / `clients.allowed_hours` blank — operators saw
+    // CLIENT SERVICE SETTINGS as empty even though the schedule below it
+    // had real values, then assumed the data was missing. The fallback
+    // does NOT overwrite client fields on save (that would silently mutate
+    // historical data) — it only prefills the editor so the operator sees
+    // and can confirm/edit the effective values. Clean separation: client
+    // fields are the LEGACY default, schedule is the active template.
+    base_fee: client.base_fee || recurringSchedule?.base_fee || "",
+    frequency: client.frequency || recurringSchedule?.frequency || "",
+    service_type: client.service_type || recurringSchedule?.service_type || "",
+    allowed_hours: client.allowed_hours
+      || (recurringSchedule?.duration_minutes
+        ? String((Number(recurringSchedule.duration_minutes) / 60).toFixed(2))
+        : "")
+      || "",
     home_access_notes: client.home_access_notes || "",
     alarm_code: client.alarm_code || "",
     pets: client.pets || "",
@@ -3372,7 +3386,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         const parkingDaysToSend = form.rec_parking_fee_enabled && isMultiDayFreq
           ? form.rec_parking_fee_days
           : null;
-        await apiFetch(`/api/clients/${client.id}/recurring-schedule`, {
+        const patchRes = await apiFetch(`/api/clients/${client.id}/recurring-schedule`, {
           method: "PATCH",
           body: JSON.stringify({
             frequency: form.rec_frequency || undefined, day_of_week: form.rec_day || undefined,
@@ -3383,9 +3397,23 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
               ? (form.rec_parking_fee_amount === "" ? null : form.rec_parking_fee_amount)
               : null,
             parking_fee_days: parkingDaysToSend,
+            // [audit BUG #3] Cascade rate / hours / service_type / frequency
+            // changes to existing future scheduled jobs. Default true.
+            cascade: true,
           }),
         });
         qc.invalidateQueries({ queryKey: ["client-recurring", client.id] });
+        // [audit BUG #3] Surface the cascade count in the toast so the
+        // operator sees that "save and stick" actually propagated.
+        const cascadeCount = patchRes?.cascade?.updated_jobs ?? 0;
+        if (cascadeCount > 0) {
+          onToast(`Service details saved · ${cascadeCount} future job${cascadeCount === 1 ? "" : "s"} updated`);
+        } else {
+          onToast("Service details saved");
+        }
+        refetch();
+        setEditing(false);
+        return;
       }
       refetch();
       setEditing(false);

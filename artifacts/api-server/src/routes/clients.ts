@@ -1264,6 +1264,12 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       // [AI.6] Parking fee per-occurrence config. days uses 0=Sun..6=Sat;
       // null/empty days = "apply to every scheduled occurrence."
       parking_fee_enabled, parking_fee_amount, parking_fee_days,
+      // [audit BUG #3] cascade flag — default true. When true, the
+      // schedule's rate / hours / service_type / frequency changes
+      // also propagate to existing future scheduled jobs linked to
+      // this schedule. Operator can pass cascade=false to update only
+      // the template (used by silent backfills and tests).
+      cascade,
     } = req.body;
     const updated = await db.update(recurringSchedulesTable).set({
       ...(frequency && { frequency }),
@@ -1286,7 +1292,68 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       eq(recurringSchedulesTable.company_id, companyId),
       eq(recurringSchedulesTable.is_active, true),
     )).returning();
-    return res.json(updated[0] || null);
+
+    // [audit BUG #3] Cascade rate / hours / service_type / frequency
+    // changes to existing future scheduled jobs. Without this, operators
+    // editing the customer-profile schedule saw their changes vanish on
+    // "next visit" because the existing job rows were frozen at their
+    // original migration-time values. Mirrors the edit-job modal's
+    // cascade=this_and_future behavior, scoped to the same client +
+    // schedule.
+    //
+    // NOT cascaded: parking_fee_*, day_of_week, notes. Parking has its
+    // own per-job stamping flow (job_add_ons rows are added by the
+    // engine at generation time; updating the template doesn't
+    // retroactively stamp existing jobs — operator opens the edit-job
+    // modal to flip parking on individual occurrences). day_of_week
+    // changes the *scheduled_date* of future visits, which is the
+    // engine's job, not a row update. Notes are template-only.
+    let cascadeUpdated = 0;
+    const shouldCascade = cascade !== false && updated[0];
+    const hasCascadableField = base_fee !== undefined
+      || duration_minutes !== undefined
+      || service_type !== undefined
+      || frequency !== undefined;
+    if (shouldCascade && hasCascadableField) {
+      const today = new Date().toISOString().slice(0, 10);
+      // Build the SET clause dynamically — only include fields the
+      // operator actually changed, mirror jobs columns from the new
+      // schedule values. allowed_hours is the per-job analogue of
+      // duration_minutes (jobs stores hours, not minutes).
+      const setFragments: any[] = [];
+      if (base_fee !== undefined) {
+        const v = base_fee === "" ? null : String(base_fee);
+        setFragments.push(sql`base_fee = ${v}`);
+      }
+      if (duration_minutes !== undefined) {
+        const mins = duration_minutes === "" ? null : parseInt(String(duration_minutes)) || null;
+        const hrs = mins == null ? null : (mins / 60).toFixed(2);
+        setFragments.push(sql`allowed_hours = ${hrs}`);
+      }
+      if (service_type !== undefined) {
+        // Pass the raw value — the jobs.service_type enum is the same
+        // as recurring_schedules.service_type so no mapping needed.
+        setFragments.push(sql`service_type = ${service_type}::service_type`);
+      }
+      if (frequency !== undefined) {
+        setFragments.push(sql`frequency = ${frequency}::frequency`);
+      }
+      const setSql = setFragments.reduce((acc: any, frag: any, i: number) => i === 0 ? frag : sql`${acc}, ${frag}`);
+      const cascadeRes = await db.execute(sql`
+        UPDATE jobs
+        SET ${setSql}
+        WHERE company_id = ${companyId}
+          AND recurring_schedule_id = ${updated[0].id}
+          AND status = 'scheduled'
+          AND scheduled_date >= ${today}
+      `);
+      cascadeUpdated = (cascadeRes as any).rowCount ?? 0;
+    }
+
+    return res.json({
+      ...(updated[0] || {}),
+      cascade: { updated_jobs: cascadeUpdated },
+    });
   } catch (err) {
     console.error("Patch recurring schedule error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
