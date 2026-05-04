@@ -1311,6 +1311,70 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       eq(recurringSchedulesTable.is_active, true),
     )).returning();
 
+    // [PR #59] If no active schedule existed (operator is converting a
+    // one-time client to recurring via the consolidated Service Details
+    // editor), INSERT the schedule. UPSERT semantics so the same endpoint
+    // handles "first save" + "subsequent edits" — no separate POST route.
+    // Required fields fall back to safe defaults (start_date = today,
+    // is_active=true). The day_of_week / days_of_month / etc. that the
+    // operator just picked land on the new row.
+    if (!updated[0] && frequency) {
+      const today = new Date().toISOString().slice(0, 10);
+      const inserted = await db.insert(recurringSchedulesTable).values({
+        company_id: companyId,
+        customer_id: clientId,
+        frequency: frequency as any,
+        day_of_week: day_of_week || null,
+        start_date: today,
+        is_active: true,
+        service_type: service_type ?? null,
+        duration_minutes: duration_minutes === "" || duration_minutes == null
+          ? null
+          : (parseInt(String(duration_minutes)) || null),
+        base_fee: base_fee === "" || base_fee == null ? null : String(base_fee),
+        notes: notes ?? null,
+        parking_fee_enabled: !!parking_fee_enabled,
+        parking_fee_amount: parking_fee_amount === null || parking_fee_amount === "" || parking_fee_amount == null
+          ? null
+          : String(parking_fee_amount),
+        parking_fee_days: Array.isArray(parking_fee_days) && parking_fee_days.length > 0
+          ? parking_fee_days.filter((n: unknown) => typeof n === "number" && (n as number) >= 0 && (n as number) <= 6)
+          : null,
+        days_of_month: Array.isArray(days_of_month) && days_of_month.length > 0
+          ? days_of_month.filter((n: unknown) => typeof n === "number" && (n as number) >= 0 && (n as number) <= 31)
+          : null,
+        custom_frequency_weeks: custom_frequency_weeks === null || custom_frequency_weeks === "" || custom_frequency_weeks == null
+          ? null
+          : (Math.max(1, Math.min(52, parseInt(String(custom_frequency_weeks)) || 0)) || null),
+      } as any).returning();
+      updated[0] = inserted[0];
+    }
+
+    // [PR #59] Mirror schedule fields back onto clients.* columns so the
+    // legacy code paths that read them (booking widget defaults, quote
+    // builder, scattered display surfaces) stay correct. The customer
+    // profile UI no longer surfaces these — the schedule is the single
+    // source of truth — but the data drift from old code reading
+    // clients.frequency would surface stale values otherwise.
+    if (updated[0]) {
+      const sched = updated[0] as any;
+      await db.update(clientsTable).set({
+        ...(frequency && { frequency: String(frequency) }),
+        ...(service_type !== undefined && { service_type: service_type ?? null }),
+        ...(base_fee !== undefined && {
+          base_fee: base_fee === "" || base_fee == null ? null : String(base_fee),
+        }),
+        ...(duration_minutes !== undefined && {
+          allowed_hours: duration_minutes === "" || duration_minutes == null
+            ? null
+            : String((Number(duration_minutes) / 60).toFixed(2)),
+        }),
+      }).where(and(
+        eq(clientsTable.id, clientId),
+        eq(clientsTable.company_id, companyId),
+      ));
+    }
+
     // [audit BUG #3] Cascade rate / hours / service_type / frequency
     // changes to existing future scheduled jobs. Without this, operators
     // editing the customer-profile schedule saw their changes vanish on
