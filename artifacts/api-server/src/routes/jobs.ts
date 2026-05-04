@@ -660,12 +660,32 @@ router.get("/:id", requireAuth, async (req, res) => {
       recurringSchedule = (rs.rows[0] as any) ?? null;
     }
 
+    // Surface the client's primary home sq_footage so the edit-job modal
+    // can pre-fill it without an extra round trip and pass it to
+    // /api/pricing/calculate. Without this, %-based addons (Windows 15%,
+    // Basement 15%) silently compute to $0 because the modal never sends
+    // sqft. is_primary is the canonical flag; we fall back to the first
+    // row by id when no primary is flagged (legacy MC-imported homes).
+    const homeRows = await db.execute(sql`
+      SELECT id, sq_footage
+      FROM client_homes
+      WHERE client_id = ${job[0].client_id}
+        AND company_id = ${req.auth!.companyId}
+      ORDER BY is_primary DESC NULLS LAST, id ASC
+      LIMIT 1
+    `);
+    const primaryHome = homeRows.rows[0] as { id: number; sq_footage: number | null } | undefined;
+    const clientHomeId = primaryHome ? Number(primaryHome.id) : null;
+    const clientHomeSqFootage = primaryHome ? primaryHome.sq_footage : null;
+
     return res.json({
       ...job[0],
       recurring_schedule_id: jobMeta.recurring_schedule_id ?? null,
       hourly_rate: jobMeta.hourly_rate ?? null,
       days_of_week: jobMeta.days_of_week ?? null,
       account_id: jobMeta.account_id ?? null,
+      client_home_id: clientHomeId,
+      client_home_sq_footage: clientHomeSqFootage != null ? Number(clientHomeSqFootage) : null,
       before_photo_count: beforePhotos.length,
       after_photo_count: afterPhotos.length,
       photos: photos.map(p => ({
