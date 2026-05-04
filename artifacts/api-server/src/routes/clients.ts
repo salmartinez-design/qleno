@@ -1350,9 +1350,111 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       cascadeUpdated = (cascadeRes as any).rowCount ?? 0;
     }
 
+    // [parking-cascade] Cascade parking config to existing future scheduled
+    // jobs. The recurring engine stamps parking on NEW occurrences via
+    // stampParkingFeeOnJob, but existing jobs created before the operator
+    // toggled parking on (or before they changed the amount) carry no
+    // job_add_ons row OR carry a stale unit_price. The user-reported repro:
+    // saved parking $15 on Nicholas Cooper's profile, May 11 job stayed at
+    // base $180 with no parking row. Now we:
+    //  - Resolve the tenant's Parking Fee addon once (3-tier waterfall)
+    //  - For each existing future scheduled job linked to this schedule
+    //    where parking_fee_days matches the job's weekday:
+    //      enabled  -> UPSERT job_add_ons with the new unit_price
+    //      disabled -> DELETE the job_add_ons parking row
+    let parkingCascadeUpserted = 0;
+    let parkingCascadeRemoved = 0;
+    const parkingTouched = parking_fee_enabled !== undefined
+      || parking_fee_amount !== undefined
+      || parking_fee_days !== undefined;
+    if (shouldCascade && parkingTouched && updated[0]) {
+      const today = new Date().toISOString().slice(0, 10);
+      const sched = updated[0] as any;
+      if (sched.parking_fee_enabled) {
+        // UPSERT path. Pull the resolved parking addon (handles 3-tier
+        // waterfall: schedule.parking_fee_amount > clients.parking_fee_amount
+        // > pricing_addons.parking_fee.price). Reuse the engine helper so
+        // the resolution logic stays single-sourced.
+        const { resolveParkingAddon } = await import("../lib/recurring-jobs.js");
+        const resolved = await resolveParkingAddon({
+          company_id: companyId,
+          customer_id: clientId,
+          parking_fee_amount: sched.parking_fee_amount,
+        });
+        if (resolved) {
+          // Day filter: NULL parking_fee_days = "every visit"; populated
+          // array = "only matching weekdays". Postgres EXTRACT(DOW...)
+          // returns 0=Sun..6=Sat which matches our 0=Sun..6=Sat
+          // convention for parking_fee_days.
+          const dayFilter = sched.parking_fee_days == null
+            ? sql`TRUE`
+            : sql`EXTRACT(DOW FROM scheduled_date)::int = ANY(${sched.parking_fee_days as number[]})`;
+          // INSERT ... ON CONFLICT (job_id, add_on_id) DO UPDATE so amount
+          // changes propagate to already-stamped jobs.
+          const upsertRes = await db.execute(sql`
+            INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+            SELECT j.id, ${resolved.add_on_id}, 1, ${resolved.unit_price}, ${resolved.unit_price}, ${resolved.pricing_addon_id}
+            FROM jobs j
+            WHERE j.company_id = ${companyId}
+              AND j.recurring_schedule_id = ${sched.id}
+              AND j.status = 'scheduled'
+              AND j.scheduled_date >= ${today}
+              AND ${dayFilter}
+            ON CONFLICT (job_id, add_on_id) DO UPDATE
+              SET unit_price = EXCLUDED.unit_price,
+                  subtotal = EXCLUDED.subtotal
+          `);
+          parkingCascadeUpserted = (upsertRes as any).rowCount ?? 0;
+          // Also DELETE parking from jobs whose weekday is NOT in the day
+          // filter (when parking_fee_days is set to a partial subset and
+          // some jobs previously had parking stamped via "every visit").
+          if (sched.parking_fee_days != null) {
+            const removeRes = await db.execute(sql`
+              DELETE FROM job_add_ons
+              WHERE add_on_id = ${resolved.add_on_id}
+                AND job_id IN (
+                  SELECT j.id
+                  FROM jobs j
+                  WHERE j.company_id = ${companyId}
+                    AND j.recurring_schedule_id = ${sched.id}
+                    AND j.status = 'scheduled'
+                    AND j.scheduled_date >= ${today}
+                    AND NOT (EXTRACT(DOW FROM scheduled_date)::int = ANY(${sched.parking_fee_days as number[]}))
+                )
+            `);
+            parkingCascadeRemoved = (removeRes as any).rowCount ?? 0;
+          }
+        }
+      } else {
+        // Parking toggled OFF — DELETE parking rows from all future
+        // scheduled jobs linked to this schedule. Use a name-based
+        // lookup to find the add_on row (no schedule-amount required).
+        const removeRes = await db.execute(sql`
+          DELETE FROM job_add_ons
+          WHERE add_on_id IN (
+            SELECT id FROM add_ons
+            WHERE company_id = ${companyId} AND LOWER(name) = 'parking fee'
+          )
+          AND job_id IN (
+            SELECT j.id
+            FROM jobs j
+            WHERE j.company_id = ${companyId}
+              AND j.recurring_schedule_id = ${sched.id}
+              AND j.status = 'scheduled'
+              AND j.scheduled_date >= ${today}
+          )
+        `);
+        parkingCascadeRemoved = (removeRes as any).rowCount ?? 0;
+      }
+    }
+
     return res.json({
       ...(updated[0] || {}),
-      cascade: { updated_jobs: cascadeUpdated },
+      cascade: {
+        updated_jobs: cascadeUpdated,
+        parking_upserted: parkingCascadeUpserted,
+        parking_removed: parkingCascadeRemoved,
+      },
     });
   } catch (err) {
     console.error("Patch recurring schedule error:", err);

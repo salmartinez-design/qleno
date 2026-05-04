@@ -1457,7 +1457,7 @@ export default function EditJobModal({
               <>
                 <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 10 }}>
                   <div>
-                    <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Scope</span>
+                    <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Service Type</span>
                     <select value={scopeId ?? ""} onChange={e => setScopeId(parseInt(e.target.value))}
                       style={INPUT} disabled={scopesLoading}>
                       {scopesLoading ? <option>Loading…</option> : null}

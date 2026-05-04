@@ -3089,7 +3089,7 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-            {row.service_type && <Field label="Scope" value={row.service_type} />}
+            {row.service_type && <Field label="Service Type" value={row.service_type} />}
             {duration && <Field label="Duration" value={`${duration} hours`} />}
             {addOn && <Field label="Add-On" value={addOn} />}
             {address && <Field label="Service Address" value={address} />}
@@ -3328,8 +3328,44 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // [audit follow-up] Build form values from current props. Reused by both
-  // the useState initializer and the Edit-click handler so the form always
+  // Tenant pricing_scopes for the Service Type dropdown. Filter rule
+  // matches the edit-job modal (PR #52): residential clients drop
+  // scope_group="Commercial", commercial clients drop scope_group=
+  // "Residential". Recurring Cleaning + Hourly stay for both. Storage
+  // convention: dropdown value = scope.name (readable), engine's
+  // mapServiceType handles both readable names and slug-style values
+  // via case-insensitive substring matching, so the round-trip works
+  // for legacy slug data ("standard_clean") as well.
+  const [scopes, setScopes] = useState<Array<{ id: number; name: string; scope_group: string | null }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiFetch("/api/pricing/scopes");
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : (data?.data ?? []);
+        setScopes(list);
+      } catch { /* non-fatal — falls back to free-text "(current)" option */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const isCommercialClient = client.client_type === "commercial" || client.account_id != null;
+  const filteredScopes = scopes.filter(s => isCommercialClient
+    ? s.scope_group !== "Residential"
+    : s.scope_group !== "Commercial");
+  const scopeToSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  // Match a saved value (slug-style "standard_clean" OR readable
+  // "Standard Clean") against the filtered scope list. Used for the
+  // (current) fallback option so legacy data isn't silently swapped
+  // when the editor opens.
+  const findMatchingScope = (saved: string) => {
+    if (!saved) return undefined;
+    const target = saved.toLowerCase();
+    return filteredScopes.find(s => s.name.toLowerCase() === target || scopeToSlug(s.name) === target);
+  };
+
+  // [PR #56] Build form values from current props. Reused by both the
+  // useState initializer and the Edit-click handler so the form always
   // reflects the LATEST props when the operator opens the editor — fixes
   // the "Schedule Rate field is blank but view shows $215" repro where the
   // form was initialized once at mount (before recurringSchedule had
@@ -3414,11 +3450,13 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         // [audit BUG #3] Surface the cascade count in the toast so the
         // operator sees that "save and stick" actually propagated.
         const cascadeCount = patchRes?.cascade?.updated_jobs ?? 0;
-        if (cascadeCount > 0) {
-          onToast(`Service details saved · ${cascadeCount} future job${cascadeCount === 1 ? "" : "s"} updated`);
-        } else {
-          onToast("Service details saved");
-        }
+        const parkingUpserted = patchRes?.cascade?.parking_upserted ?? 0;
+        const parkingRemoved = patchRes?.cascade?.parking_removed ?? 0;
+        const parts = [];
+        if (cascadeCount > 0) parts.push(`${cascadeCount} future job${cascadeCount === 1 ? "" : "s"} updated`);
+        if (parkingUpserted > 0) parts.push(`parking added/updated on ${parkingUpserted}`);
+        if (parkingRemoved > 0) parts.push(`parking removed from ${parkingRemoved}`);
+        onToast(parts.length ? `Service details saved · ${parts.join(", ")}` : "Service details saved");
         refetch();
         setEditing(false);
         return;
@@ -3486,7 +3524,17 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                 {Object.entries(FREQ_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
-            <div>{lbl("Scope / Service Type")}<input value={form.service_type} onChange={upd("service_type")} style={inp} /></div>
+            <div>{lbl("Service Type")}
+              <select value={form.service_type} onChange={upd("service_type")} style={inp}>
+                <option value="">— Select —</option>
+                {filteredScopes.map(s => (
+                  <option key={s.id} value={s.name}>{s.name}{s.scope_group ? ` · ${s.scope_group}` : ""}</option>
+                ))}
+                {form.service_type && !findMatchingScope(form.service_type) && (
+                  <option value={form.service_type}>(current) {form.service_type}</option>
+                )}
+              </select>
+            </div>
           </div>
           <div>{lbl("Entry Instructions")}<textarea value={form.home_access_notes} onChange={upd("home_access_notes")} rows={2} style={{ ...inp, resize: "vertical" as const }} /></div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -3499,7 +3547,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
           {client.base_fee && <DL label="Base Rate" value={fmtCurrency(client.base_fee)} />}
           {client.frequency && <DL label="Frequency" value={FREQ_LABELS[client.frequency] || client.frequency} />}
-          {client.service_type && <DL label="Scope" value={client.service_type} />}
+          {client.service_type && <DL label="Service Type" value={client.service_type} />}
           {client.allowed_hours && <DL label="Allowed Hours" value={`${client.allowed_hours} hrs`} />}
           {client.home_access_notes && <DL label="Entry Instructions" value={client.home_access_notes} />}
           {client.alarm_code && <DL label="Alarm Code" value="••••••" />}
@@ -3546,7 +3594,17 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                 <div>{lbl("Duration (min)")}<input value={form.rec_duration} onChange={upd("rec_duration")} type="number" min="0" style={inp} /></div>
                 <div>{lbl("Schedule Rate ($)")}<input value={form.rec_base_fee} onChange={upd("rec_base_fee")} type="number" min="0" step="0.01" style={inp} /></div>
               </div>
-              <div>{lbl("Scope")}<input value={form.rec_service_type} onChange={upd("rec_service_type")} style={inp} /></div>
+              <div>{lbl("Service Type")}
+                <select value={form.rec_service_type} onChange={upd("rec_service_type")} style={inp}>
+                  <option value="">— Select —</option>
+                  {filteredScopes.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}{s.scope_group ? ` · ${s.scope_group}` : ""}</option>
+                  ))}
+                  {form.rec_service_type && !findMatchingScope(form.rec_service_type) && (
+                    <option value={form.rec_service_type}>(current) {form.rec_service_type}</option>
+                  )}
+                </select>
+              </div>
 
               {/* [AI.6] Parking Fee subsection. Toggle + amount + (multi-day only) day picker.
                   Day picker uses 0=Sun..6=Sat to match recurring_schedules.days_of_week. */}
