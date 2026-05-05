@@ -552,16 +552,39 @@ router.post("/calculate", requireAuth, async (req, res) => {
     let used_sqft: number | null = null;
 
     if (method === "sqft") {
-      if (!sqft) return res.status(400).json({ error: "sqft is required for sqft-based scopes" });
-      const tiers = await db.select().from(pricingTiersTable)
-        .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, companyId)));
-      const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
-      const tier = sortedTiers.find(t => sqft >= t.min_sqft && sqft <= t.max_sqft)
-        ?? (sqft < Number(sortedTiers[0]?.min_sqft) ? sortedTiers[0] : sortedTiers[sortedTiers.length - 1]);
-      if (!tier) return res.status(422).json({ error: "No tier found for the given sqft" });
-      base_hours = parseFloat(String(tier.hours));
-      tier_id = tier.id;
-      used_sqft = sqft;
+      // [PR #62] Prefer caller-supplied hours over sqft tier lookup. The
+      // edit-job modal opens on legacy MC-migrated clients with no sqft
+      // on file but a known allowed_hours. Before this change the engine
+      // refused to compute (400 "sqft is required") which froze the
+      // modal — operators couldn't reconcile rate / parking / addons
+      // because the New total wouldn't move. Now: if the caller passes
+      // hours, use them directly with hours × hourly_rate (skip tier
+      // lookup). Sqft is still optional UI input — when provided it
+      // populates `used_sqft` for downstream %-based sqft addons. When
+      // both sqft and hours are missing, we still 400 — at that point
+      // the engine genuinely can't compute.
+      const hoursProvided = hours != null && hours !== "" && Number(hours) > 0;
+      if (!sqft && !hoursProvided) {
+        return res.status(400).json({ error: "sqft is required for sqft-based scopes" });
+      }
+      if (hoursProvided) {
+        // Use the explicit hours value, no tier lookup. used_sqft stays
+        // null (unless sqft was also passed) so sqft-based %-addons that
+        // depend on actual square footage compute to 0 — consistent with
+        // the no-sqft-known reality.
+        base_hours = parseFloat(String(hours));
+        used_sqft = sqft ?? null;
+      } else {
+        const tiers = await db.select().from(pricingTiersTable)
+          .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, companyId)));
+        const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
+        const tier = sortedTiers.find(t => sqft! >= t.min_sqft && sqft! <= t.max_sqft)
+          ?? (sqft! < Number(sortedTiers[0]?.min_sqft) ? sortedTiers[0] : sortedTiers[sortedTiers.length - 1]);
+        if (!tier) return res.status(422).json({ error: "No tier found for the given sqft" });
+        base_hours = parseFloat(String(tier.hours));
+        tier_id = tier.id;
+        used_sqft = sqft!;
+      }
     } else {
       if (!hours || Number(hours) <= 0) return res.status(400).json({ error: "hours is required for hourly/simplified scopes" });
       base_hours = parseFloat(String(hours));
