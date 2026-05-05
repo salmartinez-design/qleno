@@ -18,6 +18,7 @@ import {
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
   ChevronDown, Eye, LogOut, CircleHelp, Lock, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
+  GraduationCap,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -89,6 +90,7 @@ const MORE_CARDS = [
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
   { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
+  { title: 'Training',       href: '/training',           icon: GraduationCap },
   { title: 'Company',        href: '/company',            icon: Settings    },
   { title: 'Clock Monitor',  href: '/employees/clocks',  icon: Clock       },
 ];
