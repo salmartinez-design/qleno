@@ -21,6 +21,7 @@ import {
   GraduationCap,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
+import { useTrainingRequired } from "@/lib/training-status";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -90,13 +91,13 @@ const MORE_CARDS = [
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
   { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
-  { title: 'Training',       href: '/training',           icon: GraduationCap },
   { title: 'Company',        href: '/company',            icon: Settings    },
   { title: 'Clock Monitor',  href: '/employees/clocks',  icon: Clock       },
 ];
 
 function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void }) {
   const logout = useAuthStore(state => state.logout);
+  const trainingRequired = useTrainingRequired();
 
   useEffect(() => {
     if (open) document.body.style.overflow = 'hidden';
@@ -136,6 +137,60 @@ function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onC
           </button>
         </div>
         <div style={{ overflowY: 'auto', padding: '0 16px 0', flex: 1 }}>
+          {/* Featured Training card — full-width, prominent, with Required pill
+              while the user has not yet acknowledged the LMS. Lives above the
+              regular MORE_CARDS grid so it's the first thing the user sees. */}
+          <button
+            onClick={() => { navigate('/training'); onClose(); }}
+            style={{
+              width: '100%',
+              background: trainingRequired
+                ? 'linear-gradient(135deg, #0A2342 0%, #163059 100%)'
+                : '#0A2342',
+              border: 'none', borderRadius: 14,
+              padding: '16px 18px',
+              cursor: 'pointer', textAlign: 'left' as const,
+              display: 'flex', alignItems: 'center', gap: 14,
+              color: '#FFFFFF',
+              boxShadow: '0 4px 14px rgba(10,35,66,0.20)',
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+              marginBottom: 12,
+            }}
+          >
+            <span style={{
+              width: 44, height: 44, flexShrink: 0,
+              borderRadius: 10,
+              background: 'rgba(255,255,255,0.14)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <GraduationCap size={22} style={{ color: '#FFFFFF' }} />
+            </span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: '-0.005em' }}>Training</span>
+                {trainingRequired && (
+                  <span style={{
+                    backgroundColor: '#DC2626',
+                    color: '#FFFFFF',
+                    fontSize: 9, fontWeight: 800, letterSpacing: '0.06em',
+                    textTransform: 'uppercase' as const,
+                    borderRadius: 999,
+                    padding: '2px 7px', lineHeight: '14px',
+                  }}>Required</span>
+                )}
+              </div>
+              <span style={{
+                display: 'block', fontSize: 12, fontWeight: 500,
+                color: 'rgba(255,255,255,0.78)', marginTop: 2,
+              }}>
+                {trainingRequired
+                  ? 'Complete your new-hire onboarding'
+                  : 'Review your training materials'}
+              </span>
+            </div>
+            <ChevronRight size={18} style={{ color: 'rgba(255,255,255,0.85)', flexShrink: 0 }} />
+          </button>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             {MORE_CARDS.map(card => {
               const Icon = card.icon;

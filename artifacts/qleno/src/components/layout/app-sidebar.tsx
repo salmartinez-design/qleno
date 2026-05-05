@@ -8,6 +8,7 @@ import {
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
+import { useTrainingRequired } from "@/lib/training-status";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { useEffect, useState, useCallback } from "react";
@@ -49,6 +50,11 @@ const NAV_SECTIONS = [
     label: "Operations",
     items: [
       { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+      // Training is featured in the main nav (not the Company section) so the
+      // "Required" badge surfaces on every screen until the user completes the
+      // LMS. Badge logic: useTrainingRequired() reads localStorage for
+      // `qleno_lms_progress_<email>.acknowledgedAt`.
+      { title: "Training",  url: "/training", icon: GraduationCap, badge: "training_required" },
       // [2026-04-22] Consolidated "Dispatch Board" + "Jobs" → single "Jobs"
       // entry pointing at /dispatch (the Gantt). /jobs and /jobs/list still
       // resolve to JobsListPage via direct URL; the sidebar just prefers the
@@ -88,7 +94,6 @@ const NAV_SECTIONS = [
     items: [
       { title: "Settings",        url: "/company",         icon: Settings, roles: ["owner", "admin"] },
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
-      { title: "Training",        url: "/training",        icon: GraduationCap },
     ],
   },
 ];
@@ -120,6 +125,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
   }
 
   const needsContactedCount = useNeedsContactedCount(userInfo?.role);
+  const trainingRequired = useTrainingRequired();
 
   const initials = userInfo
     ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
@@ -256,6 +262,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
                 const active = isActive(item.url);
                 const Icon = item.icon;
                 const badgeCount = item.badge === "needs_contacted" ? needsContactedCount : 0;
+                const showRequired = item.badge === "training_required" && trainingRequired;
                 return (
                   <Link key={item.title + item.url} href={item.url} onClick={mobile ? onClose : undefined}>
                     <div
@@ -324,6 +331,35 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
                           height: 7,
                           borderRadius: '50%',
                           backgroundColor: 'var(--brand)',
+                          border: '1.5px solid #fff',
+                        }} />
+                      )}
+                      {expanded && showRequired && (
+                        <span style={{
+                          backgroundColor: '#DC2626',
+                          color: '#FFFFFF',
+                          fontSize: 9,
+                          fontWeight: 800,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase' as const,
+                          borderRadius: 999,
+                          padding: '2px 7px',
+                          flexShrink: 0,
+                          lineHeight: '14px',
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                        }}>
+                          Required
+                        </span>
+                      )}
+                      {!expanded && showRequired && (
+                        <span style={{
+                          position: 'absolute',
+                          top: 4,
+                          right: 4,
+                          width: 7,
+                          height: 7,
+                          borderRadius: '50%',
+                          backgroundColor: '#DC2626',
                           border: '1.5px solid #fff',
                         }} />
                       )}
