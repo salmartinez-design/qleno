@@ -13,6 +13,12 @@
     },
     {
       "path": "../../lib/api-zod"
+    },
+    {
+      "path": "../../lib/lms-curriculum"
+    },
+    {
+      "path": "../../lib/training"
     }
   ]
 }
