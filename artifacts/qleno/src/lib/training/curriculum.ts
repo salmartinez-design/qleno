@@ -8,6 +8,22 @@
  *
  * Each module ships in EN and ES. Sections are rendered in order. Optional
  * `bullets`, `callout`, and `divider` blocks compose the page content.
+ *
+ * Structure (Phes-restructure 2026-05-09):
+ *   1. Phes Policies & Procedures   — Welcome + Attendance + Dress Code merged
+ *   2. Compensation                 — Tiered residential (35% standard, 32%
+ *                                     deep + move at $80/hr to client),
+ *                                     commercial $20/hr, Fix-It, probation
+ *   3. Cleaning Best Practices      — Speed-Cleaning Method (13 rules,
+ *                                     name-stripped from former branded ref)
+ *   4. MaidCentral                  — Two-clock system + Qleno coming-next
+ *   5. Products & Tools             — Existing 10 products + Zep Mold &
+ *                                     Mildew, Magic Eraser, Pumice Stone,
+ *                                     #0000 Steel Wool with safety + don'ts
+ *   plus Acknowledgment final step.
+ *
+ * 15 quiz questions per module = 75 total. The final mixed exam samples
+ * 50 from the pool (FINAL_TEST_SIZE in lib/lms-curriculum/src/index.ts).
  */
 
 export type Locale = "en" | "es";
@@ -20,14 +36,11 @@ export type ContentBlock =
   | { type: "table"; head: { en: string[]; es: string[] }; rows: { en: string[]; es: string[] }[] };
 
 export type IconKind =
-  | "house"        // welcome
-  | "clock"        // attendance
-  | "uniform"      // dress-code
+  | "house"        // phes-policies
   | "money"        // compensation
-  | "flow"         // cleaning-standards
-  | "spray"        // products-tools
+  | "flow"         // cleaning-best-practices
   | "pin"          // maidcentral
-  | "sparkle"      // qleno-app
+  | "spray"        // products-tools
   | "shield";      // acknowledgment
 
 export interface Module {
@@ -59,153 +72,70 @@ export interface Curriculum {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BASE_MODULES: Module[] = [
-  // 1. Welcome
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 1. PHES POLICIES & PROCEDURES (Welcome + Attendance + Dress Code merged)
+  // ═══════════════════════════════════════════════════════════════════════════
   {
-    id: "welcome",
+    id: "phes-policies",
     number: 1,
     iconKind: "house",
-    title: { en: "Welcome to Phes", es: "Bienvenido a Phes" },
+    title: { en: "Phes Policies & Procedures", es: "Políticas y Procedimientos de Phes" },
     subtitle: {
-      en: "Mission, values, and what it means to be part of the team.",
-      es: "Misión, valores y lo que significa ser parte del equipo.",
+      en: "Mission, what we do (and don't), attendance, dress code, and conduct.",
+      es: "Misión, qué hacemos (y qué no), asistencia, código de vestimenta y conducta.",
     },
-    estimatedMinutes: 6,
+    estimatedMinutes: 12,
     blocks: [
+      // ── Welcome ────────────────────────────────────────────────────────────
+      { type: "h", text: { en: "Welcome to Phes", es: "Bienvenido a Phes" } },
       {
         type: "p",
         text: {
-          en: "Phes is a Chicago-based residential cleaning company built on a single principle: every home we clean should feel cared for. We earn long-term clients by being the team that gets the small things right — every visit, every time.",
-          es: "Phes es una compañía de limpieza residencial con sede en Chicago construida sobre un único principio: cada hogar que limpiamos debe sentirse cuidado. Ganamos clientes a largo plazo siendo el equipo que hace bien las pequeñas cosas — en cada visita, cada vez.",
+          en: "Phes Cleaning Service is a residential and light-commercial cleaning company serving the Chicago southwest suburbs and northwest suburbs. You are joining a W-2 team — not a contractor pool — with steady scheduled work, real benefits, and a clear path from training to full commission.",
+          es: "Phes Cleaning Service es una compañía de limpieza residencial y comercial ligera que sirve a los suburbios del suroeste y noroeste de Chicago. Está uniéndose a un equipo W-2 — no un grupo de contratistas — con trabajo programado constante, beneficios reales y un camino claro del entrenamiento a la comisión completa.",
         },
       },
-      { type: "h", text: { en: "Our Mission", es: "Nuestra Misión" } },
+      { type: "h", text: { en: "Our 24-Hour Satisfaction Guarantee", es: "Garantía de Satisfacción de 24 Horas" } },
       {
         type: "p",
         text: {
-          en: "Deliver exceptional, dependable cleaning that gives our clients time back for what matters most — while building stable, well-paid careers for the people who do the work.",
-          es: "Entregar un servicio de limpieza excepcional y confiable que devuelva tiempo a nuestros clientes para lo que más importa — mientras construimos carreras estables y bien remuneradas para quienes lo realizan.",
+          en: "Every Phes cleaning is backed by a 24-hour guarantee — if a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. This is the Fix-It Rule. The returning team is paid normally. We never refuse a guarantee call.",
+          es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas — si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Esto es la Regla de Corrección. El equipo que regresa recibe pago normal. Nunca rechazamos una llamada de garantía.",
         },
       },
-      { type: "h", text: { en: "How We Train", es: "Cómo Capacitamos" } },
+      { type: "h", text: { en: "What Phes Does NOT Do", es: "Lo que Phes NO Hace" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Bodily fluids — blood, vomit, urine, feces. Decline politely; the office can refer a biohazard service.", es: "Fluidos corporales — sangre, vómito, orina, heces. Rechace cortésmente; la oficina puede referir un servicio de biohazard." },
+          { en: "Inside the oven, refrigerator, or freezer (unless it's an explicit add-on on the Worksheet).", es: "Dentro del horno, refrigerador o congelador (a menos que sea un add-on explícito en la Hoja de Trabajo)." },
+          { en: "Pet waste, including litter boxes (we clean around them, not into them).", es: "Desechos de mascotas, incluyendo cajas de arena (limpiamos alrededor, no dentro)." },
+          { en: "Cash transactions on site — all payment goes through the office.", es: "Transacciones en efectivo en el sitio — todo pago pasa por la oficina." },
+          { en: "Climbing higher than the company-issued step stool — we do not stand on furniture.", es: "Subir más alto que el banquito de la compañía — no nos paramos sobre muebles." },
+        ],
+      },
+      { type: "h", text: { en: "Tipping", es: "Propinas" } },
       {
         type: "p",
         text: {
-          en: "At Phes, you are trained on technique — not just told what to clean. You will learn exactly how to hold a microfiber cloth, how many sprays to use on a surface, which direction to wipe, and why. This precision is what separates a professional cleaner from anyone with a mop. As Debbie Sardone — America's #1 cleaning industry trainer — puts it: speed is the natural byproduct of quality technique. We train the technique. The speed follows.",
-          es: "En Phes, lo capacitamos en técnica — no solo le decimos qué limpiar. Aprenderá exactamente cómo sostener un paño de microfibra, cuántos rocíos usar en una superficie, en qué dirección limpiar y por qué. Esta precisión es lo que separa a un limpiador profesional de cualquiera con un trapeador. Como dice Debbie Sardone — la capacitadora #1 de la industria de limpieza en EE.UU. —: la velocidad es el subproducto natural de la técnica de calidad. Nosotros enseñamos la técnica. La velocidad sigue.",
+          en: "Tips are appreciated and 100% yours. The office never holds a tip. Cash tips: keep them. Tips left through the booking system: paid out on your next paycheck. You do not owe a kickback to anyone — your pay matrix is your pay.",
+          es: "Las propinas se agradecen y son 100% suyas. La oficina nunca retiene una propina. Propinas en efectivo: quédeselas. Propinas a través del sistema de reservas: se pagan en su próximo cheque. No le debe ningún porcentaje a nadie — su matriz de pago es su pago.",
         },
       },
 
-      { type: "h", text: { en: "Our Core Values", es: "Nuestros Valores" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Reliability — we show up, on time, prepared.", es: "Confiabilidad — llegamos, a tiempo, preparados." },
-          { en: "Pride in craft — we treat every home like our own.", es: "Orgullo en el oficio — tratamos cada casa como la nuestra." },
-          { en: "Respect — for clients, for teammates, for property.", es: "Respeto — por clientes, compañeros y la propiedad." },
-          { en: "Honesty — we admit mistakes and fix them fast.", es: "Honestidad — admitimos errores y los corregimos rápido." },
-          { en: "Growth — we learn, we improve, we mentor.", es: "Crecimiento — aprendemos, mejoramos, enseñamos." },
-        ],
-      },
-      { type: "h", text: { en: "Employment Status", es: "Estado de Empleo" } },
+      // ── Attendance ─────────────────────────────────────────────────────────
+      { type: "h", text: { en: "Attendance — Grace Period", es: "Asistencia — Periodo de Gracia" } },
       {
         type: "p",
         text: {
-          en: "Employment with Phes is at-will. This means you may end your employment at any time, for any reason, and Phes may end the employment relationship at any time, with or without cause or advance notice. No supervisor, manager, or representative of Phes — other than the owner in writing — has authority to alter the at-will nature of your employment.",
-          es: "El empleo con Phes es a voluntad (\"at-will\"). Esto significa que usted puede terminar su empleo en cualquier momento, por cualquier razón, y Phes puede terminar la relación laboral en cualquier momento, con o sin causa, y con o sin previo aviso. Ningún supervisor, gerente o representante de Phes — salvo el dueño por escrito — tiene autoridad para alterar la naturaleza a voluntad de su empleo.",
-        },
-      },
-      { type: "h", text: { en: "What Sets Phes Apart", es: "Lo Que Distingue a Phes" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Every cleaner is a W-2 employee — not a contractor — with payroll, taxes, and benefits handled by the company.", es: "Cada limpiador es empleado W-2 — no contratista — con nómina, impuestos y beneficios gestionados por la compañía." },
-          { en: "Every employee is background-checked before stepping inside a client home.", es: "Cada empleado pasa una verificación de antecedentes antes de entrar a un hogar de cliente." },
-          { en: "Phes has earned 500+ verified client reviews across our service area.", es: "Phes ha ganado más de 500 reseñas verificadas de clientes en nuestra área de servicio." },
-          { en: "Same-team consistency is a core promise to clients — when you are assigned to a client, expect to be the recurring face.", es: "La consistencia del mismo equipo es una promesa central a los clientes — cuando se le asigna a un cliente, espere ser el rostro recurrente." },
-          { en: "24-hour satisfaction guarantee — if a client is unhappy, the team returns same-day to fix it (this connects to the Fix-It Rule in the Compensation module).", es: "Garantía de satisfacción de 24 horas — si un cliente no está satisfecho, el equipo regresa el mismo día para corregirlo (esto se conecta con la Regla de Corrección en el módulo de Compensación)." },
-        ],
-      },
-      { type: "h", text: { en: "How a Job Reaches You", es: "Cómo Llega un Trabajo a Ti" } },
-      {
-        type: "p",
-        text: {
-          en: "Most clients book online through the Phes website. Once they confirm a date, the office assigns the job to a crew based on zone and history, and you receive a notification through MaidCentral with date, time, address, scope of work, and any client-specific notes.",
-          es: "La mayoría de los clientes reservan en línea a través del sitio web de Phes. Una vez confirmada la fecha, la oficina asigna el trabajo a un equipo según zona e historial, y usted recibe una notificación en MaidCentral con fecha, hora, dirección, alcance del trabajo y cualquier nota específica del cliente.",
-        },
-      },
-      { type: "h", text: { en: "What Phes Does NOT Do", es: "Lo Que Phes NO Hace" } },
-      {
-        type: "p",
-        text: {
-          en: "Knowing our scope protects you and the client. We do not handle:",
-          es: "Conocer nuestro alcance lo protege a usted y al cliente. No manejamos:",
-        },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "Bodily fluids or biohazard cleanup of any kind.", es: "Fluidos corporales o limpieza de riesgo biológico de ningún tipo." },
-          { en: "Organizing personal belongings — we clean around items, we do not relocate or sort them.", es: "Organización de pertenencias personales — limpiamos alrededor de los artículos, no los reubicamos ni clasificamos." },
-          { en: "Cash. We never accept cash from clients.", es: "Efectivo. Nunca aceptamos efectivo de los clientes." },
-          { en: "Inside appliances (oven, fridge, dishwasher) unless that exact appliance was added as a paid add-on for the visit.", es: "Interior de electrodomésticos (horno, refrigerador, lavavajillas) a menos que ese electrodoméstico exacto haya sido agregado como add-on pagado para la visita." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "If a client asks for any of the above on-site, politely decline and explain it is outside scope. Direct them to office to add it for a future visit.",
-          es: "Si un cliente solicita lo anterior en sitio, decline cortésmente y explique que está fuera de alcance. Diríjalo a la oficina para agregarlo en una futura visita.",
-        },
-      },
-      { type: "h", text: { en: "Professional Standards in the Home", es: "Estándares Profesionales en el Hogar" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Introduce yourself by name to the client if they are home when you arrive.", es: "Preséntese con su nombre al cliente si está en casa cuando llegue." },
-          { en: "Knock before entering any closed room — even bedrooms during a clean — in case someone is inside.", es: "Toque antes de entrar a cualquier habitación cerrada — incluso dormitorios durante la limpieza — por si hay alguien dentro." },
-          { en: "No personal cell phone use during the visit (covered in the Dress Code module).", es: "No use teléfono celular personal durante la visita (cubierto en el módulo de Código de Vestimenta)." },
-          { en: "Tipping is allowed and appreciated, but we never request, hint at, or expect a tip. We never accept cash for the service itself — the client pays Phes directly.", es: "Las propinas están permitidas y se agradecen, pero nunca las solicitamos, insinuamos ni esperamos. Nunca aceptamos efectivo por el servicio en sí — el cliente paga directamente a Phes." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "What you do every day directly shapes whether a client renews or cancels. Quality is not a department — it is every cleaner, every visit.",
-          es: "Lo que haces cada día determina directamente si un cliente renueva o cancela. La calidad no es un departamento — es cada limpiador, en cada visita.",
-        },
-      },
-    ],
-  },
-
-  // 2. Attendance
-  {
-    id: "attendance",
-    number: 2,
-    iconKind: "clock",
-    title: { en: "Attendance Policy", es: "Política de Asistencia" },
-    subtitle: {
-      en: "Grace period, tardiness scale, sick leave, PTO, time-off requests, and unexcused absences.",
-      es: "Periodo de gracia, escala de tardanzas, licencia por enfermedad, PTO, solicitudes de tiempo libre y ausencias injustificadas.",
-    },
-    estimatedMinutes: 10,
-    blocks: [
-      { type: "h", text: { en: "Grace Period", es: "Periodo de Gracia" } },
-      {
-        type: "p",
-        text: {
-          en: "You have a 20-minute grace window after your scheduled clock-in time. Beyond 20 minutes, the visit is recorded as tardy.",
-          es: "Cuenta con un periodo de gracia de 20 minutos después de su hora programada para registrarse. Después de 20 minutos, la visita se registra como tardanza.",
+          en: "You have a 20-minute grace window after your scheduled clock-in time. Beyond 20 minutes, the visit is recorded as tardy. Always call the office BEFORE the 20-minute mark if you'll be late — even within the grace window. Communication closes the gap; silence triggers the dispatch board's late chip.",
+          es: "Tiene un periodo de gracia de 20 minutos después de la hora programada. Más allá de 20 minutos, la visita se registra como tardanza. Siempre llame a la oficina ANTES del minuto 20 si llegará tarde — incluso dentro del periodo de gracia. La comunicación cierra la brecha; el silencio activa el chip de tardanza en el tablero de despacho.",
         },
       },
       { type: "h", text: { en: "Tardiness Scale", es: "Escala de Tardanzas" } },
       {
         type: "table",
-        head: {
-          en: ["Occurrence", "Action"],
-          es: ["Ocurrencia", "Acción"],
-        },
+        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
         rows: [
           { en: ["1st", "Recorded — coaching conversation"], es: ["1ª", "Registrada — conversación de orientación"] },
           { en: ["2nd", "Recorded — coaching conversation"], es: ["2ª", "Registrada — conversación de orientación"] },
@@ -226,115 +156,81 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Under the Illinois Paid Leave for All Workers Act (PLAWA), you accrue up to 40 hours of paid leave per benefit year that may be used for any reason. Eligibility begins 90 days from your hire date.",
-          es: "Bajo la Ley de Licencia Pagada para Todos los Trabajadores (PLAWA) de Illinois, usted acumula hasta 40 horas de licencia pagada por año de beneficios que puede usar por cualquier razón. La elegibilidad comienza 90 días después de su fecha de contratación.",
+          en: "Under the Illinois Paid Leave for All Workers Act, you accrue up to 40 hours of paid leave per benefit year that may be used for any reason. Eligibility begins 90 days from your hire date.",
+          es: "Bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois, acumula hasta 40 horas de licencia pagada por año de beneficios que puede usar por cualquier razón. La elegibilidad comienza 90 días después de su fecha de contratación.",
         },
       },
       { type: "h", text: { en: "Paid Time Off (PTO)", es: "Tiempo Libre Pagado (PTO)" } },
       {
         type: "bullets",
         items: [
-          { en: "After 1 year of service: 40 hours of PTO per year.", es: "Después de 1 año de servicio: 40 horas de PTO por año." },
-          { en: "After 2 years of service: 80 hours of PTO per year.", es: "Después de 2 años de servicio: 80 horas de PTO por año." },
-          { en: "PTO is requested in advance and approved by office.", es: "El PTO se solicita con anticipación y debe ser aprobado por la oficina." },
+          { en: "After 1 year: 40 hours PTO per year.", es: "Después de 1 año: 40 horas de PTO por año." },
+          { en: "After 2 years: 80 hours PTO per year.", es: "Después de 2 años: 80 horas de PTO por año." },
+          { en: "Requested in advance and approved by office.", es: "Se solicita con anticipación y debe ser aprobado por la oficina." },
         ],
       },
-
-      { type: "h", text: { en: "How to Request Time Off — Through the System", es: "Cómo Solicitar Tiempo Libre — A Través del Sistema" } },
+      { type: "h", text: { en: "Time-Off Requests Go Through the System", es: "Solicitudes de Tiempo Libre — Por el Sistema" } },
       {
         type: "p",
         text: {
-          en: "Every time-off request — PTO, sick day, schedule change — must be submitted through MaidCentral (and Qleno once we cut over). Do not text or call a manager directly to request time off. This is not optional.",
-          es: "Toda solicitud de tiempo libre — PTO, día por enfermedad, cambio de horario — debe enviarse a través de MaidCentral (y Qleno una vez que hagamos el cambio). No envíe mensajes ni llame a un gerente directamente para solicitar tiempo libre. Esto no es opcional.",
+          en: "Every time-off request — PTO, sick day, schedule change — must be submitted through MaidCentral (and Qleno once we cut over). Texting or calling a manager directly does not start the schedule update; the dispatcher won't see it; clients won't be notified.",
+          es: "Toda solicitud de tiempo libre — PTO, día por enfermedad, cambio de horario — debe enviarse a través de MaidCentral (y Qleno una vez que hagamos el cambio). Mensajes o llamadas directas a un gerente no inician la actualización del horario; el despachador no lo verá; los clientes no serán notificados.",
         },
       },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Why it matters: when requests go through the system, the schedule updates in real time, the office can re-route the day, and clients are notified properly. A text to a manager doesn't do any of that — and a missed handoff means a client gets no cleaner.",
-          es: "Por qué importa: cuando las solicitudes pasan por el sistema, el horario se actualiza en tiempo real, la oficina puede redirigir el día y los clientes son notificados correctamente. Un mensaje a un gerente no hace nada de eso — y un traspaso perdido significa que un cliente se queda sin limpiador.",
-        },
-      },
-
       { type: "h", text: { en: "Unexcused Absences", es: "Ausencias Injustificadas" } },
       {
-        type: "p",
-        text: {
-          en: "An unexcused absence is missing a scheduled shift without an approved request through the system. The progression mirrors the tardiness scale:",
-          es: "Una ausencia injustificada es faltar a un turno programado sin una solicitud aprobada a través del sistema. La progresión refleja la escala de tardanzas:",
-        },
-      },
-      {
         type: "table",
-        head: {
-          en: ["Occurrence", "Action"],
-          es: ["Ocurrencia", "Acción"],
-        },
+        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
         rows: [
-          { en: ["1st", "Recorded"],         es: ["1ª", "Registrada"] },
-          { en: ["2nd", "Recorded"],         es: ["2ª", "Registrada"] },
-          { en: ["3rd", "Written warning"],  es: ["3ª", "Advertencia por escrito"] },
-          { en: ["4th", "Final warning"],    es: ["4ª", "Última advertencia"] },
-          { en: ["5th", "Termination"],      es: ["5ª", "Terminación"] },
+          { en: ["1st", "Recorded"], es: ["1ª", "Registrada"] },
+          { en: ["2nd", "Recorded"], es: ["2ª", "Registrada"] },
+          { en: ["3rd", "Written warning"], es: ["3ª", "Advertencia por escrito"] },
+          { en: ["4th", "Final warning"], es: ["4ª", "Última advertencia"] },
+          { en: ["5th", "Termination"], es: ["5ª", "Terminación"] },
         ],
       },
-
       { type: "h", text: { en: "Paid Holidays", es: "Feriados Pagados" } },
       {
         type: "p",
         text: {
           en: "Phes observes 6 paid holidays plus your birthday: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas Day, and your birthday (taken any day that month).",
-          es: "Phes observa 6 feriados pagados más su cumpleaños: Año Nuevo, Memorial Day, Día de la Independencia, Día del Trabajo, Acción de Gracias, Navidad, y su cumpleaños (tomado cualquier día de ese mes).",
+          es: "Phes observa 6 feriados pagados más su cumpleaños: Año Nuevo, Memorial Day, Día de la Independencia, Día del Trabajo, Acción de Gracias, Navidad, y su cumpleaños (cualquier día de ese mes).",
         },
       },
-    ],
-  },
 
-  // 3. Dress Code
-  {
-    id: "dress-code",
-    number: 3,
-    iconKind: "uniform",
-    title: { en: "Dress Code & Conduct", es: "Código de Vestimenta y Conducta" },
-    subtitle: {
-      en: "Uniform standards, shoe covers, and phone policy.",
-      es: "Estándares de uniforme, cubrezapatos y política de teléfono.",
-    },
-    estimatedMinutes: 5,
-    blocks: [
+      // ── Dress Code & Conduct ───────────────────────────────────────────────
       { type: "h", text: { en: "Uniform — Mandatory", es: "Uniforme — Obligatorio" } },
       {
         type: "p",
         text: {
           en: "You must arrive at every job in full Phes attire — the company-issued shirt and pants. The uniform is what every client expects to see at their door, and it is how we keep the brand consistent across hundreds of homes a week.",
-          es: "Debe llegar a cada trabajo con el uniforme Phes completo — la camisa y los pantalones provistos por la compañía. El uniforme es lo que cada cliente espera ver en su puerta, y es como mantenemos la marca consistente en cientos de hogares por semana.",
+          es: "Debe llegar a cada trabajo con el uniforme Phes completo — la camisa y los pantalones provistos por la compañía. El uniforme es lo que cada cliente espera ver en su puerta y es como mantenemos la marca consistente en cientos de hogares por semana.",
         },
       },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "No personal clothing substitutions — even if your uniform is dirty or you forgot it at home. If you don't have your uniform, contact the office BEFORE the job. Do not show up at a client's home out of uniform.",
-          es: "No se permiten sustituciones de ropa personal — incluso si el uniforme está sucio o lo olvidó en casa. Si no tiene su uniforme, contacte a la oficina ANTES del trabajo. No se presente en el hogar de un cliente fuera de uniforme.",
+          en: "No personal clothing substitutions — even if your uniform is dirty or you forgot it. If you don't have your uniform, contact the office BEFORE the job. Do not show up at a client's home out of uniform.",
+          es: "No se permiten sustituciones de ropa personal — incluso si el uniforme está sucio o lo olvidó. Si no tiene su uniforme, contacte a la oficina ANTES del trabajo. No se presente en el hogar de un cliente fuera de uniforme.",
         },
       },
       {
         type: "bullets",
         items: [
           { en: "Phes-issued shirt — clean, untucked is acceptable, no visible stains.", es: "Camisa Phes — limpia, sin manchas visibles, puede llevarse por fuera." },
-          { en: "Phes-issued pants in good condition. No shorts, no leggings as outerwear, no personal pants.", es: "Pantalones Phes en buen estado. Sin shorts, sin leggings como ropa exterior, sin pantalones personales." },
+          { en: "Phes-issued pants in good condition. No shorts, no leggings as outerwear.", es: "Pantalones Phes en buen estado. Sin shorts, sin leggings como ropa exterior." },
           { en: "Closed-toe athletic shoes. No sandals, no Crocs, no open backs.", es: "Calzado deportivo cerrado. Sin sandalias, sin Crocs, sin parte trasera abierta." },
-          { en: "Hair tied back if shoulder length or longer.", es: "Cabello recogido si llega a los hombros o más largo." },
-          { en: "Jewelry minimal — no large rings or bracelets that can scratch surfaces.", es: "Joyería mínima — sin anillos o pulseras grandes que puedan rayar superficies." },
+          { en: "Hair tied back if shoulder-length or longer.", es: "Cabello recogido si llega a los hombros o más largo." },
+          { en: "Jewelry minimal — no large rings or bracelets that can scratch surfaces.", es: "Joyería mínima — sin anillos ni pulseras grandes que puedan rayar superficies." },
         ],
       },
       { type: "h", text: { en: "Shoe Covers", es: "Cubrezapatos" } },
       {
         type: "p",
         text: {
-          en: "Shoe covers are mandatory inside every client home from the moment you cross the threshold. You change covers between homes. Never reuse covers from a previous job.",
-          es: "Los cubrezapatos son obligatorios dentro de cada hogar de cliente desde el momento en que cruza el umbral. Cambie los cubrezapatos entre hogares. Nunca reutilice cubrezapatos de un trabajo anterior.",
+          en: "Shoe covers are mandatory inside every client home from the moment you cross the threshold. Change covers between homes. Never reuse covers from a previous job.",
+          es: "Los cubrezapatos son obligatorios dentro de cada hogar desde el momento en que cruza el umbral. Cambie los cubrezapatos entre hogares. Nunca reutilice cubrezapatos de un trabajo anterior.",
         },
       },
       { type: "h", text: { en: "Personal Phone Use", es: "Uso de Teléfono Personal" } },
@@ -342,7 +238,7 @@ const BASE_MODULES: Module[] = [
         type: "p",
         text: {
           en: "Personal cell phones are not allowed during a job. Keep your phone in your bag or vehicle. The only phone use during a job is the company app for clock-in / check-in / job worksheet — and only when stepping aside briefly. Personal calls, texts, and social media wait until break or after the visit.",
-          es: "No se permiten teléfonos celulares personales durante un trabajo. Mantenga su teléfono en su bolso o vehículo. El único uso de teléfono permitido durante un trabajo es la aplicación de la compañía para registro / chequeo / hoja de trabajo — y solo apartándose brevemente. Llamadas personales, mensajes y redes sociales esperan hasta el descanso o después de la visita.",
+          es: "No se permiten teléfonos personales durante un trabajo. Mantenga su teléfono en su bolso o vehículo. El único uso permitido durante un trabajo es la aplicación de la compañía para Clock In / Check In / Hoja de Trabajo — y solo apartándose brevemente. Llamadas personales, mensajes y redes sociales esperan hasta el descanso o después de la visita.",
         },
       },
       {
@@ -356,15 +252,17 @@ const BASE_MODULES: Module[] = [
     ],
   },
 
-  // 4. Compensation
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 2. COMPENSATION
+  // ═══════════════════════════════════════════════════════════════════════════
   {
     id: "compensation",
-    number: 4,
+    number: 2,
     iconKind: "money",
-    title: { en: "Compensation & Quality", es: "Compensación y Calidad" },
+    title: { en: "Compensation", es: "Compensación" },
     subtitle: {
-      en: "Training pay, residential commission, hourly + commercial jobs, the Fix-It Rule, probation, and payroll.",
-      es: "Pago de entrenamiento, comisión residencial, trabajos por hora y comerciales, la Regla de Corrección, periodo de prueba y nómina.",
+      en: "Training pay, tiered residential commission, commercial hourly, the Fix-It Rule, probation, and payroll.",
+      es: "Pago de entrenamiento, comisión residencial por niveles, hora comercial, la Regla de Corrección, periodo de prueba y nómina.",
     },
     estimatedMinutes: 12,
     blocks: [
@@ -376,90 +274,89 @@ const BASE_MODULES: Module[] = [
           es: "Durante sus primeras limpiezas como nuevo miembro del equipo, se le paga $20.00 por hora de trabajo. El pago de entrenamiento aplica hasta que la oficina lo active como técnico regular.",
         },
       },
-      { type: "h", text: { en: "Residential Commission — 35%", es: "Comisión Residencial — 35%" } },
+
+      { type: "h", text: { en: "Residential Commission — Tiered", es: "Comisión Residencial — Por Niveles" } },
       {
         type: "p",
         text: {
-          en: "Once activated, you earn 35% commission on the residential jobs you complete. When two or more technicians are assigned to the same job, the 35% pool is split among the team — equally if you arrive together, proportional to actual minutes on site if your clock-in times differ.",
-          es: "Una vez activado, gana 35% de comisión en los trabajos residenciales que complete. Cuando dos o más técnicos están asignados al mismo trabajo, el 35% se divide entre el equipo — en partes iguales si llegan juntos, proporcional a los minutos reales en sitio si los tiempos de Check In difieren.",
+          en: "Once activated, you earn a percentage commission on residential jobs. The rate depends on the service type:",
+          es: "Una vez activado, gana una comisión porcentual en trabajos residenciales. La tarifa depende del tipo de servicio:",
         },
       },
       {
         type: "table",
         head: {
-          en: ["Team size", "Each tech earns", "Example on a $200 job"],
-          es: ["Tamaño del equipo", "Cada técnico gana", "Ejemplo en un trabajo de $200"],
+          en: ["Service Type", "Tech Pay %", "Why"],
+          es: ["Tipo de Servicio", "% de Pago al Técnico", "Por qué"],
         },
         rows: [
-          { en: ["1 cleaner",  "35%",     "$70 total"],         es: ["1 limpiador",  "35%",     "$70 total"] },
-          { en: ["2 cleaners", "17.5% each",  "$35 each"],      es: ["2 limpiadores", "17.5% c/u", "$35 c/u"] },
-          { en: ["3 cleaners", "~11.67% each", "~$23.33 each"], es: ["3 limpiadores", "~11.67% c/u", "~$23.33 c/u"] },
+          { en: ["Standard Clean / Recurring", "35%", "Standard residential rate"], es: ["Limpieza Estándar / Recurrente", "35%", "Tarifa residencial estándar"] },
+          { en: ["Deep Clean", "32%", "Phes bills client $80/hr — higher labor intensity"], es: ["Limpieza Profunda", "32%", "Phes factura $80/hr al cliente — más intensidad"] },
+          { en: ["Move In / Move Out", "32%", "Phes bills client $80/hr — higher labor intensity"], es: ["Move In / Move Out", "32%", "Phes factura $80/hr al cliente — más intensidad"] },
+          { en: ["Commercial (any)", "$20/hr × allowed hours", "Hourly base, see below"], es: ["Comercial (cualquiera)", "$20/hr × horas asignadas", "Base por hora, ver abajo"] },
         ],
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "More teammates means a smaller individual cut on each job — but the team finishes faster and can fit more jobs into the day. Most days, that adds up to more total earnings.",
-          es: "Más compañeros significa un corte individual más pequeño por trabajo — pero el equipo termina más rápido y caben más trabajos en el día. La mayoría de los días, eso suma más ganancias totales.",
+          en: "Why the tier? Deep cleans and move in / move out are more physically demanding and higher-margin services for the client. We bill more per hour and pay you a slightly lower percentage so total dollars per hour stay strong on a fast deep clean — but you gain reliable volume.",
+          es: "¿Por qué el nivel? Las limpiezas profundas y move in / move out son más demandantes y de mayor margen para el cliente. Facturamos más por hora y le pagamos un porcentaje ligeramente menor para que sus dólares por hora se mantengan fuertes en limpiezas profundas rápidas — pero gana volumen confiable.",
         },
       },
 
-      { type: "h", text: { en: "Hourly Jobs — Time Management", es: "Trabajos por Hora — Gestión del Tiempo" } },
+      { type: "h", text: { en: "Multi-Tech Split", es: "División en Equipos" } },
       {
         type: "p",
         text: {
-          en: "Phes also sells hourly time blocks — typically 3 to 4 hours — to clients who want specific areas of their home cleaned. You are assigned a set number of hours to complete the work. The most important rule:",
-          es: "Phes también vende bloques de tiempo por hora — típicamente 3 a 4 horas — a clientes que quieren limpiar áreas específicas de su hogar. Se le asigna un número fijo de horas para completar el trabajo. La regla más importante:",
+          en: "When two or more techs are assigned to the same job, the commission pool is split among the team — equally if you all check in together, proportionally by actual on-site minutes if check-in times differ.",
+          es: "Cuando dos o más técnicos están asignados al mismo trabajo, la comisión se divide entre el equipo — en partes iguales si todos hacen Check In juntos, proporcional a los minutos reales en sitio si los tiempos de Check In difieren.",
         },
       },
       {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "If you sense early in the job that the time you were given will not be enough, call the office IMMEDIATELY — within the first half of the job, never in the last hour.",
-          es: "Si percibe temprano en el trabajo que el tiempo asignado no será suficiente, llame a la oficina INMEDIATAMENTE — dentro de la primera mitad del trabajo, nunca en la última hora.",
+        type: "table",
+        head: {
+          en: ["Team Size", "Each tech (Standard 35%)", "Example on $200 job"],
+          es: ["Tamaño del Equipo", "Cada técnico (Estándar 35%)", "Ejemplo en trabajo de $200"],
         },
-      },
-      {
-        type: "p",
-        text: {
-          en: "Why this matters: an early call gives the office time to talk to the client gracefully and either authorize more time or adjust scope. A last-hour call forces office to ask the client for more time at the end of the visit — clients are not pleased and the conversation gets very hard. Never leave a job incomplete without communicating with the office first.",
-          es: "Por qué importa: una llamada temprana le da a la oficina tiempo para hablar con el cliente con elegancia y autorizar más tiempo o ajustar el alcance. Una llamada en la última hora obliga a la oficina a pedirle al cliente más tiempo al final de la visita — los clientes no están contentos y la conversación se vuelve muy difícil. Nunca deje un trabajo incompleto sin comunicarse primero con la oficina.",
-        },
-      },
-
-      { type: "h", text: { en: "Commercial Jobs — Hourly Pay", es: "Trabajos Comerciales — Pago por Hora" } },
-      {
-        type: "p",
-        text: {
-          en: "Commercial cleaning is paid differently from residential. There is no commission. You are paid $20 per hour, flat, for the time you spend on the job.",
-          es: "La limpieza comercial se paga diferente a la residencial. No hay comisión. Se le paga $20 por hora, fijo, por el tiempo que dedica al trabajo.",
-        },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "Each commercial job in MaidCentral has an allotted time (for example, 3 hours) — that time is calibrated from Phes's history at that exact site. It is not arbitrary.", es: "Cada trabajo comercial en MaidCentral tiene un tiempo asignado (por ejemplo, 3 horas) — ese tiempo está calibrado con el historial de Phes en ese sitio exacto. No es arbitrario." },
-          { en: "Work the full allotted time and complete the job to that standard.", es: "Trabaje el tiempo asignado completo y complete el trabajo a ese estándar." },
-          { en: "If you only work 1 hour of a 3-hour job, you only get paid for 1 hour.", es: "Si solo trabaja 1 hora de un trabajo de 3 horas, solo se le paga 1 hora." },
+        rows: [
+          { en: ["1 cleaner", "35%", "$70 total"], es: ["1 limpiador", "35%", "$70 total"] },
+          { en: ["2 cleaners", "17.5% each", "$35 each"], es: ["2 limpiadores", "17.5% c/u", "$35 c/u"] },
+          { en: ["3 cleaners", "~11.67% each", "~$23.33 each"], es: ["3 limpiadores", "~11.67% c/u", "~$23.33 c/u"] },
         ],
       },
+
+      { type: "h", text: { en: "Hourly Time Blocks", es: "Bloques de Tiempo por Hora" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes also sells hourly time blocks — typically 3 to 4 hours — to clients who want specific areas cleaned. You're assigned a set number of hours.",
+          es: "Phes también vende bloques de tiempo por hora — típicamente 3 a 4 horas — a clientes que quieren limpiar áreas específicas. Se le asigna un número fijo de horas.",
+        },
+      },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "Do NOT upload completion photos and mark the job complete early just because you finished the visible work. Uploading early on a 3-hour job after only 1.5 hours triggers a red flag in the system. If something seems off about the assigned time, call the office before closing the job.",
-          es: "NO suba fotos de finalización ni marque el trabajo completado temprano solo porque terminó el trabajo visible. Subir temprano en un trabajo de 3 horas después de solo 1.5 horas activa una alerta roja en el sistema. Si algo parece extraño sobre el tiempo asignado, llame a la oficina antes de cerrar el trabajo.",
+          en: "Most important rule: if you can already tell partway through that you won't finish in the assigned time, CALL THE OFFICE EARLY — not at the last hour. An early call lets the office talk to the client and either authorize more time or adjust scope. A last-hour call forces the office to ask the client for more time at the end of the visit; clients are not pleased and the conversation gets very hard.",
+          es: "Regla más importante: si ya ve a la mitad que no terminará en el tiempo asignado, LLAME A LA OFICINA TEMPRANO — no en la última hora. Una llamada temprana permite a la oficina hablar con el cliente y autorizar más tiempo o ajustar el alcance. Una llamada tardía obliga a la oficina a pedir más tiempo al final; los clientes no quedan contentos y la conversación se vuelve muy difícil.",
         },
       },
 
-      { type: "h", text: { en: "Your Payroll Summary", es: "Su Resumen de Nómina" } },
+      { type: "h", text: { en: "Commercial — $20/hr × Allowed Hours", es: "Comercial — $20/hr × Horas Asignadas" } },
       {
         type: "p",
         text: {
-          en: "You can review your payroll summary directly inside MaidCentral — your hours, commissions, and any deductions. Once Qleno is fully built, your payroll summary will live there too. Check it regularly so you catch any discrepancy early; the office will work with you to correct it before the next pay run.",
-          es: "Puede revisar su resumen de nómina directamente dentro de MaidCentral — sus horas, comisiones y cualquier descuento. Una vez que Qleno esté completamente construido, su resumen de nómina estará allí también. Revíselo regularmente para detectar cualquier discrepancia temprano; la oficina trabajará con usted para corregirla antes del siguiente pago.",
+          en: "Commercial jobs (offices, retail, medical buildings) pay a flat $20/hr × the allowed hours assigned to the visit, regardless of job total. The tiered residential rates do not apply.",
+          es: "Trabajos comerciales (oficinas, comercio, edificios médicos) pagan $20/hr × las horas asignadas a la visita, sin importar el total del trabajo. Las tarifas residenciales por niveles no aplican.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Commercial completion rule: if you finish a 3-hour commercial job in 1.5 hours, CALL THE OFFICE before uploading completion photos. The allowed hours are calibrated; closing early without checking can trigger a Prorate Employee Pay reduction.",
+          es: "Regla de finalización comercial: si termina un trabajo comercial de 3 horas en 1.5 horas, LLAME A LA OFICINA antes de subir fotos. Las horas asignadas están calibradas; cerrar temprano sin avisar puede activar una reducción de Prorate Employee Pay.",
         },
       },
 
@@ -467,164 +364,109 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If a client reports an issue with your work, you (or a teammate) return the same day to make it right whenever possible. If a same-day return is not possible and the company has to send another team or issue a credit, $50.00 is deducted from your next check.",
-          es: "Si un cliente reporta un problema con su trabajo, usted (o un compañero) regresa el mismo día para corregirlo cuando sea posible. Si no es posible regresar el mismo día y la compañía debe enviar a otro equipo o emitir un crédito, se descontarán $50.00 de su siguiente cheque.",
+          en: "If a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. Phes covers the labor — the returning team is paid normally. We never refuse a guarantee call. Repeated Fix-It calls on your jobs may trigger Quality Probation.",
+          es: "Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Phes cubre la mano de obra — el equipo que regresa recibe pago normal. Nunca rechazamos una llamada de garantía. Llamadas Fix-It repetidas pueden activar Periodo de Prueba de Calidad.",
         },
       },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "The goal of the Fix-It Rule is not punishment — it is closing the loop with the client fast so they stay with us. Owning a miss and fixing it is a sign of a strong technician.",
-          es: "El objetivo de la Regla de Corrección no es castigo — es cerrar el ciclo con el cliente rápidamente para que se quede con nosotros. Reconocer un error y corregirlo es señal de un técnico fuerte.",
-        },
-      },
+
       { type: "h", text: { en: "Quality Probation", es: "Periodo de Prueba de Calidad" } },
       {
         type: "p",
         text: {
-          en: "Every new technician is on Quality Probation for the first 60 days. During probation, two valid quality complaints in a 30-day window will trigger a formal review. Continued issues during probation may result in termination.",
-          es: "Cada nuevo técnico está en Periodo de Prueba de Calidad durante los primeros 60 días. Durante el periodo de prueba, dos quejas de calidad válidas en una ventana de 30 días desencadenan una revisión formal. Problemas continuos durante el periodo de prueba pueden resultar en terminación.",
+          en: "If you have 2 client complaints in any 30-day window, you enter Quality Probation: 30 days at $20/hr training rate (no commission) while you ride along with senior techs. Pass the probation by completing 30 days clean of complaints; you return to commission. Fail again and the next step is termination.",
+          es: "Si tiene 2 quejas de clientes en cualquier ventana de 30 días, entra a Periodo de Prueba de Calidad: 30 días a $20/hr de entrenamiento (sin comisión) mientras acompaña a técnicos senior. Pase la prueba completando 30 días limpios; regresa a comisión. Falle de nuevo y el siguiente paso es terminación.",
         },
       },
+
       { type: "h", text: { en: "Mileage Reimbursement", es: "Reembolso de Millaje" } },
       {
         type: "p",
         text: {
-          en: "Phes reimburses job-to-job mileage at the current IRS standard rate ($0.70 per mile in 2025). Submit mileage through the company app within 30 days of the trip — older claims will not be honored. Mileage from home to your first job and from your last job home is not reimbursed.",
-          es: "Phes reembolsa el millaje entre trabajos a la tarifa estándar actual del IRS ($0.70 por milla en 2025). Envíe el millaje a través de la aplicación de la compañía dentro de los 30 días posteriores al viaje — reclamos más antiguos no se aceptarán. El millaje desde su casa al primer trabajo y desde su último trabajo a casa no se reembolsa.",
+          en: "Phes reimburses mileage between client homes (not your commute from home to first job, or last job to home). Submit mileage requests through the system; the office reviews and approves. The current rate is $0.70 per mile.",
+          es: "Phes reembolsa el millaje entre hogares de clientes (no su trayecto desde casa al primer trabajo, ni del último trabajo a casa). Envíe solicitudes de millaje a través del sistema; la oficina revisa y aprueba. La tarifa actual es $0.70 por milla.",
         },
+      },
+
+      { type: "h", text: { en: "Payroll", es: "Nómina" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Pay cycle: biweekly, deposited every other Friday.", es: "Ciclo de pago: quincenal, depositado cada dos viernes." },
+          { en: "Direct deposit only — no paper checks.", es: "Solo depósito directo — sin cheques de papel." },
+          { en: "Tips paid out same cycle as the work that earned them.", es: "Las propinas se pagan en el mismo ciclo que el trabajo que las generó." },
+          { en: "Mileage paid out the cycle after the request is approved.", es: "Millaje pagado el ciclo siguiente a la aprobación de la solicitud." },
+        ],
       },
     ],
   },
 
-  // 5. Cleaning Standards
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 3. CLEANING BEST PRACTICES & EFFICIENCY (Speed-Cleaning Method)
+  // ═══════════════════════════════════════════════════════════════════════════
   {
-    id: "cleaning-standards",
-    number: 5,
+    id: "cleaning-best-practices",
+    number: 3,
     iconKind: "flow",
-    title: { en: "Cleaning Standards", es: "Estándares de Limpieza" },
+    title: { en: "Cleaning Best Practices & Efficiency", es: "Mejores Prácticas de Limpieza y Eficiencia" },
     subtitle: {
-      en: "Room flow, top-to-bottom, the spray-cloth-first rule, and microfiber protocol.",
-      es: "Flujo de habitaciones, de arriba hacia abajo, la regla de rociar el paño primero y protocolo de microfibra.",
+      en: "The Speed-Cleaning Method — 13 rules that turn a 2-hour job into a 90-minute job without cutting quality.",
+      es: "El Método de Limpieza Rápida — 13 reglas que convierten un trabajo de 2 horas en uno de 90 minutos sin reducir la calidad.",
     },
-    estimatedMinutes: 10,
+    estimatedMinutes: 14,
     blocks: [
+      { type: "h", text: { en: "Why Speed-Cleaning Works", es: "Por qué Funciona la Limpieza Rápida" } },
       {
         type: "p",
         text: {
-          en: "Phes trains the way Debbie Sardone — \"The Maid Coach\" — trains professional house cleaners across the country. The principle: speed is a natural byproduct of correct technique. You are NOT trying to rush. You are following a tight, repeatable system that happens to be fast. Technique is taught explicitly — not just outcomes. You will be shown exactly how to hold the cloth, how many sprays to use, and which direction to wipe. There is a right way, and Phes trains you on it.",
-          es: "Phes capacita siguiendo el método de Debbie Sardone — \"The Maid Coach\" — quien capacita limpiadores profesionales en todo el país. El principio: la velocidad es un subproducto natural de la técnica correcta. NO se trata de apresurarse. Se trata de seguir un sistema repetible y ajustado que resulta ser rápido. La técnica se enseña explícitamente — no solo los resultados. Se le mostrará exactamente cómo sostener el paño, cuántos rocíos usar y en qué dirección limpiar. Hay una forma correcta, y Phes lo capacita en ella.",
+          en: "Speed comes from technique, not from cutting corners. The Speed-Cleaning Method is a 13-rule framework adopted across Phes that lets every tech move through a home in a planned sequence — every motion has a purpose, every product has a place, and you never re-touch a surface.",
+          es: "La velocidad viene de la técnica, no de tomar atajos. El Método de Limpieza Rápida es un marco de 13 reglas adoptado en Phes que permite a cada técnico moverse por un hogar en una secuencia planeada — cada movimiento tiene un propósito, cada producto un lugar, y nunca vuelve a tocar una superficie.",
         },
       },
 
-      { type: "h", text: { en: "The 13 Speed-Cleaning Rules", es: "Las 13 Reglas del Speed-Cleaning" } },
+      { type: "h", text: { en: "The 13 Rules", es: "Las 13 Reglas" } },
       {
         type: "bullets",
         items: [
-          { en: "1. Work top to bottom, left to right — never backtrack to a surface you've already cleaned.", es: "1. Trabaje de arriba hacia abajo, de izquierda a derecha — nunca regrese a una superficie ya limpiada." },
-          { en: "2. Load yourself up before entering a room. Carry every cloth, every product, the apron, and the caddy IN with you on the first trip.", es: "2. Cárguese completamente antes de entrar a la habitación. Lleve cada paño, cada producto, el delantal y el portasuministros CON usted en el primer viaje." },
-          { en: "3. Use both hands. One sprays while the other wipes. One moves an item while the other cleans behind it.", es: "3. Use ambas manos. Una rocía mientras la otra limpia. Una mueve un artículo mientras la otra limpia detrás." },
-          { en: "4. Use the right tool for each surface. Switching tools mid-room wastes time — pre-stage the caddy.", es: "4. Use la herramienta correcta para cada superficie. Cambiar herramientas a mitad de habitación pierde tiempo — pre-organice el portasuministros." },
-          { en: "5. Never put down what you can carry. The apron and the caddy stay on you the whole visit.", es: "5. Nunca suelte lo que pueda cargar. El delantal y el portasuministros se quedan con usted durante toda la visita." },
-          { en: "6. Let products dwell. Spray, then move to another task in the same room while the chemical does its work.", es: "6. Deje que los productos reposen. Rocíe, luego pase a otra tarea en la misma habitación mientras el químico hace su trabajo." },
-          { en: "7. Clean to a standard, not to a time — efficient technique is what gets you there fast, never cutting corners.", es: "7. Limpie a un estándar, no a un tiempo — la técnica eficiente es lo que lo hace rápido, nunca tomar atajos." },
-          { en: "8. One continuous pass per room — enter, clean completely, exit. Don't re-enter a finished room.", es: "8. Una pasada continua por habitación — entre, limpie completamente, salga. No vuelva a entrar a una habitación terminada." },
-          { en: "9. Feather your edges — overlap slightly when cleaning adjacent surfaces so you don't leave visible lines.", es: "9. Mezcle los bordes — superponga ligeramente al limpiar superficies adyacentes para no dejar líneas visibles." },
-          { en: "10. Use the S-pattern wipe — never circular motions on glass or flat surfaces. Circles leave streaks; the S-pattern doesn't.", es: "10. Use el patrón en S — nunca movimientos circulares en vidrio o superficies planas. Los círculos dejan rayas; el patrón en S no." },
-          { en: "11. Clean the unexpected — baseboards, top of door frames, light switches, doorknobs. Check these every visit.", es: "11. Limpie lo inesperado — rodapiés, parte superior de marcos de puerta, interruptores, perillas. Revise estos en cada visita." },
-          { en: "12. Leave no footprints. Always back out of a room after cleaning the floor — never walk across a freshly mopped surface.", es: "12. No deje huellas. Siempre salga de espaldas después de limpiar el piso — nunca camine sobre una superficie recién trapeada." },
-          { en: "13. Restock and reset — leave the home exactly as the client keeps it: toilet paper folded, toiletries aligned, pillows fluffed.", es: "13. Reabastezca y restablezca — deje el hogar exactamente como lo mantiene el cliente: papel higiénico doblado, artículos de tocador alineados, almohadas esponjadas." },
+          { en: "1. Work top to bottom — start with the highest surface in the room and finish at the floor. Gravity helps you.", es: "1. Trabaje de arriba hacia abajo — comience por la superficie más alta y termine en el piso. La gravedad le ayuda." },
+          { en: "2. Work left to right — pick a direction at the door and move consistently around the room.", es: "2. Trabaje de izquierda a derecha — escoja una dirección en la puerta y muévase consistentemente." },
+          { en: "3. Don't backtrack — if you finished a wall, you don't return to it.", es: "3. No regrese — si terminó una pared, no vuelva a ella." },
+          { en: "4. Carry everything in once — load your caddy completely before entering a room: every cloth, every product, in one trip.", es: "4. Cargue todo de una vez — llene su portasuministros completamente antes de entrar: cada paño, cada producto, en un solo viaje." },
+          { en: "5. Use both hands — wipe with one, spray with the other; one cloth wet, one dry.", es: "5. Use ambas manos — limpie con una, rocíe con la otra; un paño húmedo, uno seco." },
+          { en: "6. Spray and let dwell — spray a surface, then move to another task in the same room while the chemical does its work. Wipe when you come back.", es: "6. Rocíe y deje reposar — rocíe una superficie, pase a otra tarea, regrese y limpie. El químico trabaja por usted." },
+          { en: "7. Pre-treat the toughest spots first — soap scum, grease, hard-water stains get product first so they soak while you do the easy parts.", es: "7. Pretrate las manchas más difíciles primero — sarro, grasa y manchas duras reciben producto primero para que se ablanden mientras hace lo fácil." },
+          { en: "8. Wipe in S-pattern on glass and mirrors — circles leave streaks; the S lifts dirt cleanly.", es: "8. Limpie en patrón de S en vidrio y espejos — los círculos dejan rayas; la S levanta la suciedad limpiamente." },
+          { en: "9. Color-coded cloths — yellow for kitchens, blue for glass, green for bathrooms. Never cross-contaminate.", es: "9. Paños por color — amarillo para cocinas, azul para vidrio, verde para baños. Nunca contamine cruzado." },
+          { en: "10. Vacuum before mopping — never mop dust; you'll smear it.", es: "10. Aspire antes de trapear — nunca trapee polvo; se esparcirá." },
+          { en: "11. Mop yourself out of the room — start at the far corner and back out toward the door so you don't walk on a wet floor.", es: "11. Trapee saliendo de la habitación — empiece en la esquina más lejana y salga de espaldas hacia la puerta para no caminar sobre piso mojado." },
+          { en: "12. Finish each room completely before moving on — don't half-clean and circle back.", es: "12. Termine cada habitación por completo antes de moverse — no limpie a medias y regrese." },
+          { en: "13. Clean to a standard, not to a time — efficiency comes from technique, not from skipping steps. The clock is a tool, not a goal.", es: "13. Limpie a un estándar, no a un tiempo — la eficiencia viene de la técnica, no de saltarse pasos. El reloj es una herramienta, no una meta." },
         ],
       },
+
+      { type: "h", text: { en: "Room Order", es: "Orden de Habitaciones" } },
       {
-        type: "callout",
-        tone: "info",
+        type: "p",
         text: {
-          en: "These 13 rules come from Debbie Sardone — \"The Maid Coach\" — who has trained more residential cleaning companies than anyone in North America. They are not Phes inventions; they are the industry standard, and we follow them.",
-          es: "Estas 13 reglas provienen de Debbie Sardone — \"The Maid Coach\" — quien ha capacitado a más compañías de limpieza residencial que cualquier otra persona en Norteamérica. No son invenciones de Phes; son el estándar de la industria, y los seguimos.",
+          en: "Start at the room farthest from the entrance and work your way back toward the door. The last room you finish should be the one closest to your exit. This way you never walk through a freshly cleaned area dragging dust from a not-yet-cleaned area.",
+          es: "Comience en la habitación más lejana de la entrada y trabaje hacia la puerta. La última habitación que termine debe ser la más cercana a la salida. Así nunca camina por un área recién limpia arrastrando polvo de un área aún sucia.",
         },
       },
 
-      { type: "h", text: { en: "Room Flow: Back to Front", es: "Flujo de Habitaciones: De Atrás hacia Adelante" } },
+      { type: "h", text: { en: "The Caddy Discipline", es: "Disciplina del Portasuministros" } },
       {
         type: "p",
         text: {
-          en: "Across the home, always start at the back — the room farthest from the entrance — and work your way toward the door you came in through. This means you never walk dirty floors back across rooms you have already cleaned.",
-          es: "En todo el hogar, siempre comience en la parte trasera — la habitación más lejana de la entrada — y trabaje hacia la puerta por la que entró. Esto evita que pise pisos sucios sobre habitaciones ya limpiadas.",
-        },
-      },
-      { type: "h", text: { en: "Within Each Room: Top to Bottom", es: "Dentro de Cada Habitación: De Arriba hacia Abajo" } },
-      {
-        type: "p",
-        text: {
-          en: "Inside the room, work top to bottom. Dust and dirt fall down. If you vacuum first and then dust shelves, the dust lands on a freshly cleaned floor. Ceilings, vents, and tops of cabinets first; baseboards and floors last.",
-          es: "Dentro de la habitación, trabaje de arriba hacia abajo. El polvo y la suciedad caen. Si aspira primero y luego sacude estantes, el polvo cae en un piso recién limpiado. Techos, rejillas y partes superiores de gabinetes primero; rodapiés y pisos al final.",
-        },
-      },
-      { type: "h", text: { en: "Spray-Cloth-First Rule", es: "Regla: Rociar el Paño Primero" } },
-      {
-        type: "p",
-        text: {
-          en: "Never spray cleaning product directly onto a surface in a client's home. Always spray onto your microfiber cloth first, then wipe. This prevents overspray onto electronics, photographs, finished wood, and fabric — all of which can be permanently damaged by chemicals.",
-          es: "Nunca rocíe producto de limpieza directamente sobre una superficie en el hogar de un cliente. Siempre rocíe primero sobre el paño de microfibra y luego limpie. Esto previene sobre-rocío en electrónicos, fotografías, madera acabada y telas — todo lo cual puede dañarse permanentemente por químicos.",
-        },
-      },
-      { type: "h", text: { en: "Microfiber Protocol", es: "Protocolo de Microfibra" } },
-      {
-        type: "p",
-        text: {
-          en: "We use color-coded microfiber cloths to prevent cross-contamination between zones of the home:",
-          es: "Usamos paños de microfibra codificados por color para evitar la contaminación cruzada entre zonas del hogar:",
-        },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "BLUE — glass and mirrors only.", es: "AZUL — solo vidrio y espejos." },
-          { en: "YELLOW — kitchen surfaces (counters, appliances, cabinets).", es: "AMARILLO — superficies de cocina (mostradores, electrodomésticos, gabinetes)." },
-          { en: "GREEN — general dusting (living areas, bedrooms, furniture).", es: "VERDE — sacudido general (áreas comunes, habitaciones, muebles)." },
-          { en: "RED — bathroom surfaces. Never use a red cloth anywhere else.", es: "ROJO — superficies de baño. Nunca use un paño rojo en otro lugar." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "A red cloth used on a kitchen counter is a critical hygiene violation. When in doubt, grab a fresh cloth — bring more than you think you need to every job.",
-          es: "Un paño rojo usado en un mostrador de cocina es una violación crítica de higiene. En caso de duda, tome un paño nuevo — lleve más de los que cree necesarios a cada trabajo.",
-        },
-      },
-      { type: "h", text: { en: "Supply Placement", es: "Colocación de Suministros" } },
-      {
-        type: "p",
-        text: {
-          en: "Never place cleaning supplies, sprays, or buckets on furniture or directly on the floor in a client's home. Use the supply caddy. Chemical bottles can sweat and leave rings on wood, marble, and granite. Caddies on tile or in tubs only.",
-          es: "Nunca coloque suministros de limpieza, rociadores o cubetas sobre muebles o directamente sobre el piso en el hogar de un cliente. Use el portasuministros. Las botellas de químicos pueden sudar y dejar marcas en madera, mármol y granito. Coloque el portasuministros solo sobre azulejo o dentro de tinas.",
+          en: "Every trip back to your car or supply bag costs you 60–90 seconds. Across 5 rooms, that's 5–8 minutes of pure waste. Load your caddy ONCE per room — every product, every cloth, the right tools — and only re-enter that room. If you find yourself walking back to your bag mid-clean, stop and ask: what did I forget? Add it to your pre-load checklist.",
+          es: "Cada regreso a su auto o bolsa cuesta 60–90 segundos. En 5 habitaciones, son 5–8 minutos de desperdicio puro. Cargue su portasuministros UNA VEZ por habitación — cada producto, cada paño, las herramientas correctas — y solo vuelva a entrar a esa habitación. Si se ve regresando a la bolsa, deténgase y pregunte: ¿qué olvidé?",
         },
       },
 
-      { type: "h", text: { en: "Your Supply Bag — Your Responsibility", es: "Su Bolsa de Suministros — Su Responsabilidad" } },
+      { type: "h", text: { en: "Two-Hand Technique", es: "Técnica de Dos Manos" } },
       {
         type: "p",
         text: {
-          en: "You are responsible for bringing your own complete set of assigned supplies to every job. Supplies, mops, dusters, and the caddy itself are Phes property — they must be accounted for, kept clean, and returned in working condition.",
-          es: "Usted es responsable de llevar su propio juego completo de suministros asignados a cada trabajo. Los suministros, trapeadores, plumeros y el portasuministros son propiedad de Phes — deben rendirse cuentas de ellos, mantenerse limpios y devolverse en condiciones funcionales.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "If you arrive at a job and realize you left your supply bag at the previous client's home (or anywhere else), call the office immediately. Do not proceed without supplies — improvising with the client's products is not allowed.",
-          es: "Si llega a un trabajo y se da cuenta que dejó su bolsa de suministros en el hogar del cliente anterior (o en cualquier otro lugar), llame a la oficina inmediatamente. No proceda sin suministros — improvisar con los productos del cliente no está permitido.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "If equipment is lost or damaged, report it to the office on the same day so it can be replaced before your next assignment. Repeated loss or damage is documented under the equipment policy in the Employee Handbook.",
-          es: "Si se pierde o daña el equipo, repórtelo a la oficina el mismo día para que pueda reemplazarse antes de su próxima asignación. La pérdida o daño repetido se documenta bajo la política de equipo en el Manual del Empleado.",
+          en: "Both hands work simultaneously: wet cloth in one hand wiping; dry cloth or spray bottle in the other ready to follow up. On glass: dry hand follows wet hand within 2 seconds — no streaks. On counters: spray with dominant hand, wipe with supporting hand. This doubles your speed without increasing effort.",
+          es: "Ambas manos trabajan al mismo tiempo: paño húmedo en una mano limpiando; paño seco o atomizador en la otra listo para seguir. En vidrio: la mano seca sigue a la mojada en 2 segundos — sin rayas. En mostradores: rocíe con la mano dominante, limpie con la otra. Esto duplica su velocidad sin aumentar el esfuerzo.",
         },
       },
 
@@ -632,417 +474,324 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "When you are assigned to a job as a team, you wait for every team member to arrive before entering the client's home. No one goes inside alone, even if you have the keys or door code.",
-          es: "Cuando está asignado a un trabajo en equipo, espera a que cada miembro del equipo llegue antes de entrar al hogar del cliente. Nadie entra solo, incluso si tiene las llaves o el código de la puerta.",
+          en: "Always enter the home together as a team, even if you arrive separately. Wait at the door for your partner — never enter alone, even with the door code. The client expects to see the team; entering solo damages trust and creates security exposure on both sides.",
+          es: "Siempre entre al hogar junto con su equipo, incluso si llegan por separado. Espere en la puerta a su compañero — nunca entre solo, ni con el código. El cliente espera ver al equipo; entrar solo daña la confianza y crea exposición de seguridad para ambos lados.",
         },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "Each teammate brings their own complete set of supplies — never share one supply bag between two people.", es: "Cada compañero lleva su propio juego completo de suministros — nunca se comparte una sola bolsa de suministros entre dos personas." },
-          { en: "Arriving as a unit is part of the professional impression we make on the client.", es: "Llegar como una unidad es parte de la impresión profesional que damos al cliente." },
-          { en: "It is also a safety standard — there is always a witness present.", es: "También es un estándar de seguridad — siempre hay un testigo presente." },
-        ],
       },
     ],
   },
 
-  // 6. Products & Tools
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 4. MAIDCENTRAL (with Qleno coming-next callout)
+  // ═══════════════════════════════════════════════════════════════════════════
   {
-    id: "products-tools",
-    number: 6,
-    iconKind: "spray",
-    title: { en: "Products & Tools", es: "Productos y Herramientas" },
+    id: "maidcentral",
+    number: 4,
+    iconKind: "pin",
+    title: { en: "MaidCentral", es: "MaidCentral" },
     subtitle: {
-      en: "What we use, where to use it, and the safety rules that go with each one.",
-      es: "Qué usamos, dónde usarlo y las reglas de seguridad que acompañan a cada producto.",
+      en: "Day Clock vs Job Clock, GPS check-in, the 600-foot rule, efficiency, travel pay, and time-correction requests.",
+      es: "Reloj de Día vs Reloj de Trabajo, Check In por GPS, la regla de 600 pies, eficiencia, pago de traslado y solicitudes de corrección.",
     },
-    estimatedMinutes: 9,
+    estimatedMinutes: 10,
     blocks: [
+      { type: "h", text: { en: "The Two-Clock System", es: "El Sistema de Dos Relojes" } },
       {
         type: "p",
         text: {
-          en: "The right product on the right surface is the difference between a flawless clean and a permanent damage claim. Read this module before your first job — when in doubt, default to the gentler product.",
-          es: "El producto correcto en la superficie correcta es la diferencia entre una limpieza impecable y un reclamo por daños permanentes. Lea este módulo antes de su primer trabajo — en caso de duda, opte por el producto más suave.",
+          en: "MaidCentral has TWO clocks running every workday. The Day Clock starts when you Clock In at the start of your shift and stops when you Clock Out at the end. The Job Clock starts when you Check In to a specific client and stops when you Check Out of that client. The difference between them is travel time — paid as travel pay.",
+          es: "MaidCentral tiene DOS relojes cada día. El Reloj de Día comienza cuando hace Clock In al inicio del turno y se detiene cuando hace Clock Out al final. El Reloj de Trabajo comienza cuando hace Check In en un cliente específico y se detiene en Check Out. La diferencia entre ambos es tiempo de traslado — pagado como travel pay.",
         },
       },
-
-      { type: "h", text: { en: "All-Purpose & Surface", es: "Multiusos y Superficies" } },
-      {
-        type: "bullets",
-        items: [
-          {
-            en: "Mr. Clean with Febreze — general surface cleaner and deodorizer for counters, appliance exteriors, and bathrooms. Spray on cloth, not surface.",
-            es: "Mr. Clean con Febreze — limpiador y desodorizador general para mostradores, exteriores de electrodomésticos y baños. Rocíe sobre el paño, no sobre la superficie.",
-          },
-          {
-            en: "Simple Green concentrate — all-purpose degreaser. Dilute correctly: full strength for grout / heavy grease, 1:10 for general surfaces, 1:30 for light cleaning and glass prep.",
-            es: "Simple Green concentrado — desengrasante multiusos. Diluya correctamente: fuerza total para lechada / grasa pesada, 1:10 para superficies generales, 1:30 para limpieza ligera y preparación de vidrio.",
-          },
-          {
-            en: "Dawn Dish Soap — for dishes when requested by the client; also a safe degreaser for range hoods and stovetops.",
-            es: "Jabón Dawn — para platos cuando el cliente lo solicite; también un desengrasante seguro para campanas extractoras y estufas.",
-          },
-        ],
-      },
-
-      { type: "h", text: { en: "Bathrooms, Sinks, and Tubs", es: "Baños, Lavabos y Tinas" } },
-      {
-        type: "bullets",
-        items: [
-          {
-            en: "Bar Keepers Friend Liquid — for stainless sinks, porcelain tubs, and stovetops. Apply to a wet surface, scrub, then rinse fully so no residue dries on the surface.",
-            es: "Bar Keepers Friend Líquido — para lavabos de acero inoxidable, tinas de porcelana y estufas. Aplique sobre superficie mojada, frote y enjuague por completo para que no quede residuo seco.",
-          },
-          {
-            en: "Scouring sticks — for grout, tile, and stovetops. Wet the surface first. Rub gently in a circular motion. Rinse thoroughly to remove any abrasive residue.",
-            es: "Barras abrasivas — para lechada, azulejo y estufas. Moje la superficie primero. Frote suavemente con movimiento circular. Enjuague bien para eliminar cualquier residuo abrasivo.",
-          },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "NEVER use Bar Keepers Friend on natural stone (marble, granite), polished metals, or lacquered surfaces — it will permanently etch the finish.",
-          es: "NUNCA use Bar Keepers Friend en piedra natural (mármol, granito), metales pulidos o superficies lacadas — corroe el acabado permanentemente.",
-        },
-      },
-
-      { type: "h", text: { en: "Glass and Mirrors", es: "Vidrio y Espejos" } },
-      {
-        type: "bullets",
-        items: [
-          {
-            en: "Ecolab Window Cleaner — glass and mirrors only. Spray onto your blue microfiber cloth first, never directly on the surface. Wipe in a smooth S-pattern for a streak-free finish.",
-            es: "Ecolab Window Cleaner — solo vidrio y espejos. Rocíe primero sobre su paño de microfibra azul, nunca directamente sobre la superficie. Limpie con un patrón en S suave para un acabado sin rayas.",
-          },
-          {
-            en: "Unger Window Cleaning Pole — for high windows and out-of-reach glass. Attach the microfiber head for general dusting or the squeegee head for streak-free finish.",
-            es: "Pértiga de Limpieza de Ventanas Unger — para ventanas altas y vidrio de difícil alcance. Acople el cabezal de microfibra para sacudido general o el cabezal de escobilla de goma para acabado sin rayas.",
-          },
-        ],
-      },
-
-      { type: "h", text: { en: "Floors", es: "Pisos" } },
-      {
-        type: "p",
-        text: {
-          en: "OCedar Deep Clean Mop — used for mopping all floor types. Wring the mop thoroughly before each pass; do not oversaturate hardwood, laminate, or LVP, which can warp or lift seams over time.",
-          es: "Trapeador OCedar Deep Clean — usado para trapear todo tipo de piso. Escurra el trapeador a fondo antes de cada pasada; no sobre-sature pisos de madera, laminado o LVP, lo que puede deformar o levantar uniones con el tiempo.",
-        },
-      },
-
-      { type: "h", text: { en: "Dusting", es: "Sacudido" } },
-      {
-        type: "p",
-        text: {
-          en: "Swiffer Dusters — for blinds, baseboards, ceiling fans, and shelves. Replace the pad as soon as it is visibly dirty — a saturated duster just redistributes dust.",
-          es: "Plumeros Swiffer — para persianas, rodapiés, ventiladores de techo y estantes. Reemplace la almohadilla en cuanto esté visiblemente sucia — un plumero saturado solo redistribuye el polvo.",
-        },
-      },
-
-      { type: "h", text: { en: "Step Stools — Safety", es: "Banquillos — Seguridad" } },
-      {
-        type: "p",
-        text: {
-          en: "Inspect a step stool before every single use — even if you used it ten minutes ago. Check that:",
-          es: "Inspeccione un banquillo antes de cada uso — incluso si lo usó hace diez minutos. Verifique que:",
-        },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "All four feet sit flat on a hard, level surface — no carpet edges, no rugs, no transition strips.", es: "Las cuatro patas se apoyen completamente en una superficie dura y nivelada — sin bordes de alfombra, sin tapetes, sin tiras de transición." },
-          { en: "There is zero wobble when you press down on the platform.", es: "No haya ningún tambaleo cuando presione la plataforma." },
-          { en: "Your weight is on the second step or below — never stand on the very top step.", es: "Su peso esté en el segundo escalón o por debajo — nunca se pare en el escalón superior." },
-          { en: "If anything looks bent, cracked, or unstable, mark it and tell office. Do not use it.", es: "Si algo se ve doblado, agrietado o inestable, márquelo e informe a la oficina. No lo use." },
-        ],
-      },
-
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "Quick rule: spray the cloth, not the surface — for every product on this page. The only exceptions are floor cleaner (applied to the mop) and tub/sink cleaners that explicitly require contact with the wet surface.",
-          es: "Regla rápida: rocíe el paño, no la superficie — para cada producto de esta página. Las únicas excepciones son el limpiador de pisos (aplicado al trapeador) y los limpiadores de tina/lavabo que requieren explícitamente contacto con la superficie mojada.",
+          en: "First action of the day is always Clock In. Every Check In after that happens INSIDE your already-running Day Clock — you do not Clock In a second time. At the end of the day, Check Out of your last job, then Clock Out for the day.",
+          es: "La primera acción del día siempre es Clock In. Cada Check In después ocurre DENTRO del Reloj de Día — no haga Clock In una segunda vez. Al final del día, haga Check Out del último trabajo, luego Clock Out del día.",
+        },
+      },
+
+      { type: "h", text: { en: "Individual Per-Tech Check-In", es: "Check In Individual por Técnico" } },
+      {
+        type: "p",
+        text: {
+          en: "Every tech checks in INDIVIDUALLY — even when working as a team. If two techs arrive at 9:00 AM but one waits in the car until 9:20, MaidCentral records the actual check-in time for each. Commission split is calculated by actual minutes on site, not by who's listed first.",
+          es: "Cada técnico hace Check In INDIVIDUAL — incluso trabajando en equipo. Si dos técnicos llegan a las 9:00 AM pero uno espera en el auto hasta las 9:20, MaidCentral registra el tiempo real de cada uno. La división de comisión se calcula por minutos reales en sitio.",
+        },
+      },
+
+      { type: "h", text: { en: "The 600-Foot GPS Rule", es: "La Regla GPS de 600 Pies" } },
+      {
+        type: "p",
+        text: {
+          en: "MaidCentral verifies your physical location at Check In. You must be within 600 feet of the property to Check In successfully. If you try from your car parked two blocks away, the app will reject the check-in with a GPS warning. Walk to the door first, then check in.",
+          es: "MaidCentral verifica su ubicación física al hacer Check In. Debe estar a 600 pies o menos de la propiedad. Si intenta desde el auto a dos cuadras, la app rechazará el Check In con advertencia de GPS. Camine hasta la puerta primero, luego haga Check In.",
+        },
+      },
+
+      { type: "h", text: { en: "Efficiency Score", es: "Puntuación de Eficiencia" } },
+      {
+        type: "p",
+        text: {
+          en: "Your efficiency score is your total Job Clock hours divided by your total Day Clock hours. It measures how much of your day was spent actively cleaning vs travel + breaks + admin. Phes target: 70%+. Below 60% triggers a coaching conversation about route, technique, or tooling.",
+          es: "Su puntuación de eficiencia es el total de horas del Reloj de Trabajo dividido por el total de horas del Reloj de Día. Mide cuánto de su día fue limpieza activa vs traslado + descansos + administración. Meta de Phes: 70%+. Menos de 60% activa una conversación de orientación sobre ruta, técnica o herramientas.",
+        },
+      },
+
+      { type: "h", text: { en: "Travel Pay", es: "Pago de Traslado" } },
+      {
+        type: "p",
+        text: {
+          en: "Time when you're Clocked In for the day but NOT Checked Into a job — that's travel pay. Driving between client homes is paid. Driving from your home to the first job, or from the last job back home, is NOT paid (it's commute, not travel).",
+          es: "El tiempo en que está con Clock In del día pero NO con Check In en un trabajo — eso es travel pay. Manejar entre hogares se paga. Manejar de su casa al primer trabajo, o del último trabajo de regreso a casa, NO se paga (es trayecto, no traslado).",
+        },
+      },
+
+      { type: "h", text: { en: "Clock / Job Change Requests", es: "Solicitudes de Cambio de Reloj / Trabajo" } },
+      {
+        type: "p",
+        text: {
+          en: "If you forgot to Check Out, missed a Check In, or have any other clock-time error, submit a Clock/Job Change Request through MaidCentral. The office reviews and approves. Do NOT text managers, DM the office, or hope payroll figures it out — only the system creates an audit trail that lands on your paycheck correctly.",
+          es: "Si olvidó hacer Check Out, no hizo Check In, o tiene cualquier error de tiempo, envíe una Clock/Job Change Request en MaidCentral. La oficina revisa y aprueba. NO mande mensaje a gerentes, ni DM a la oficina, ni espere que la nómina lo resuelva — solo el sistema crea un registro de auditoría.",
+        },
+      },
+
+      { type: "h", text: { en: "When Worksheet and Client Note Conflict", es: "Cuando la Hoja de Trabajo y la Nota del Cliente se Contradicen" } },
+      {
+        type: "p",
+        text: {
+          en: "The Worksheet shows the standard scope. Client notes can override specific items (\"don't move the rug under the dining table,\" \"my cat is hiding in the laundry closet — don't open it\"). Client note wins on the specific item; the rest of the Worksheet still applies. Never ask the client to choose mid-clean — read both BEFORE you start.",
+          es: "La Hoja de Trabajo muestra el alcance estándar. Las notas del cliente pueden anular elementos específicos (\"no mueva la alfombra bajo la mesa del comedor\", \"mi gato está en el closet de lavandería — no lo abra\"). La nota del cliente gana en lo específico; el resto de la Hoja sigue aplicando. Nunca pregunte al cliente durante la limpieza — lea ambas ANTES.",
+        },
+      },
+
+      { type: "h", text: { en: "Coming Next: Qleno", es: "Próximamente: Qleno" } },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Phes is migrating from MaidCentral to Qleno over the next several months. Qleno is the company's own platform — same two-clock system, same GPS check-in, same Worksheet, but a faster mobile app with offline support, simpler day view, and integrated quotes / invoices. You'll be trained on Qleno before the cutover; until then, MaidCentral is the system of record.",
+          es: "Phes está migrando de MaidCentral a Qleno en los próximos meses. Qleno es la plataforma propia de la compañía — mismo sistema de dos relojes, mismo Check In por GPS, misma Hoja de Trabajo, pero una app móvil más rápida con soporte offline, vista de día más simple, y cotizaciones / facturas integradas. Lo entrenaremos en Qleno antes del cambio; hasta entonces, MaidCentral es el sistema oficial.",
         },
       },
     ],
   },
 
-  // 7. MaidCentral App
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 5. PRODUCTS & TOOLS (existing 10 + 4 new items)
+  // ═══════════════════════════════════════════════════════════════════════════
   {
-    id: "maidcentral",
-    number: 7,
-    iconKind: "pin",
-    title: { en: "MaidCentral App", es: "Aplicación MaidCentral" },
+    id: "products-tools",
+    number: 5,
+    iconKind: "spray",
+    title: { en: "Products & Tools", es: "Productos y Herramientas" },
     subtitle: {
-      en: "The two-clock system, individual GPS check-in, efficiency, and time corrections.",
-      es: "El sistema de dos relojes, check-in GPS individual, eficiencia y correcciones de tiempo.",
+      en: "Every product Phes uses, what surfaces it belongs on, and the surfaces where it will damage the home.",
+      es: "Cada producto que usa Phes, sobre qué superficies va, y las superficies donde dañará el hogar.",
     },
     estimatedMinutes: 14,
     blocks: [
       {
         type: "p",
         text: {
-          en: "Your pay accuracy depends on understanding MaidCentral's clock system. Read this module twice if you have to — every minute you don't track is a minute you don't get paid for, and every minute mis-tracked creates payroll errors that take days to unwind.",
-          es: "La precisión de su pago depende de entender el sistema de reloj de MaidCentral. Lea este módulo dos veces si es necesario — cada minuto que no rastrea es un minuto que no se le paga, y cada minuto mal rastreado crea errores de nómina que tardan días en corregirse.",
+          en: "The right product on the wrong surface is more expensive than no product at all. A $30 spray that etches a $4,000 quartz countertop is a damage claim, a Fix-It call, and a hard conversation with the client. This module is about WHERE each product belongs and — equally important — where it does NOT.",
+          es: "El producto correcto en la superficie equivocada es más caro que no usar producto. Un atomizador de $30 que daña un mostrador de cuarzo de $4,000 es un reclamo, una llamada Fix-It y una conversación difícil. Este módulo trata de DÓNDE va cada producto y — igualmente importante — dónde NO.",
         },
       },
 
-      { type: "h", text: { en: "The Two-Clock System", es: "El Sistema de Dos Relojes" } },
+      { type: "h", text: { en: "Mr. Clean with Febreze", es: "Mr. Clean con Febreze" } },
       {
-        type: "p",
-        text: {
-          en: "MaidCentral has TWO separate clocks. Both must be used correctly — they measure different things and feed different parts of your paycheck.",
-          es: "MaidCentral tiene DOS relojes separados. Ambos deben usarse correctamente — miden cosas diferentes y alimentan partes diferentes de su pago.",
-        },
+        type: "bullets",
+        items: [
+          { en: "Use on: sealed counters, painted walls (spot), tile floors.", es: "Use en: mostradores sellados, paredes pintadas (puntual), pisos de baldosa." },
+          { en: "Cloth: yellow microfiber.", es: "Paño: microfibra amarilla." },
+          { en: "Don't use on: natural stone, unfinished wood.", es: "No use en: piedra natural, madera sin sellar." },
+        ],
       },
+
+      { type: "h", text: { en: "Bar Keepers Friend Liquid", es: "Bar Keepers Friend Líquido" } },
       {
-        type: "table",
-        head: {
-          en: ["Clock", "When", "What it pays"],
-          es: ["Reloj", "Cuándo", "Qué paga"],
-        },
-        rows: [
-          { en: ["Clock In / Clock Out (Day Clock)", "At the start and end of your workday", "Total hours, overtime, and travel pay"], es: ["Clock In / Clock Out (Reloj de Día)", "Al inicio y final de su día de trabajo", "Horas totales, horas extras y pago de traslado"] },
-          { en: ["Check In / Check Out (Job Clock)", "When you arrive and leave each client home", "Commission and job-level pay"], es: ["Check In / Check Out (Reloj de Trabajo)", "Cuando llega y sale de cada hogar", "Comisión y pago por trabajo"] },
+        type: "bullets",
+        items: [
+          { en: "Use on: stainless steel sinks, porcelain tubs, ceramic toilets, glass cooktops.", es: "Use en: fregaderos de acero, tinas de porcelana, inodoros de cerámica, estufas de vidrio." },
+          { en: "Method: small dab on a damp cloth, gentle circular motions, rinse fully.", es: "Método: pequeña cantidad en paño húmedo, movimientos circulares suaves, enjuague total." },
         ],
       },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "If you Clock In but never Check In to jobs, all job-level pay data is lost. If you Check In to jobs without a Day Clock running, payroll will error. Both must run together, all day.",
-          es: "Si hace Clock In pero nunca hace Check In a los trabajos, todos los datos de pago por trabajo se pierden. Si hace Check In sin un reloj de día corriendo, la nómina dará error. Ambos deben funcionar juntos, todo el día.",
+          en: "NEVER on natural stone — granite, marble, soapstone, travertine. Bar Keepers Friend contains oxalic acid and will etch the surface, leaving permanent dull spots. Use a damp microfiber with water for granite.",
+          es: "NUNCA en piedra natural — granito, mármol, esteatita, travertino. Bar Keepers Friend contiene ácido oxálico y dañará la superficie, dejando manchas opacas permanentes. Use microfibra húmeda con agua para granito.",
         },
       },
 
-      { type: "h", text: { en: "Travel Pay — What It Covers", es: "Pago de Traslado — Qué Cubre" } },
-      {
-        type: "p",
-        text: {
-          en: "Travel pay = the time you are Clocked In for the day but NOT Checked Into a job. This covers your drive time between client homes. It is one of the reasons the Day Clock matters: every minute you forget to start it is a minute of travel pay you lose.",
-          es: "Pago de traslado = el tiempo en que está con Clock In del día pero NO con Check In en un trabajo. Esto cubre su tiempo de manejo entre hogares. Es una de las razones por las que el reloj de día importa: cada minuto que olvida iniciarlo es un minuto de pago de traslado que pierde.",
-        },
-      },
-
-      { type: "h", text: { en: "Individual Clocks — Where Pay Comes From", es: "Relojes Individuales — De Donde Sale el Pago" } },
-      {
-        type: "p",
-        text: {
-          en: "MaidCentral tracks each person individually. It does NOT average team time.",
-          es: "MaidCentral rastrea a cada persona individualmente. NO promedia el tiempo del equipo.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "Real example: You and your partner are assigned the same job. You arrive at 9:00 AM and Check In. Your partner arrives at 9:17 AM and Checks In. MaidCentral records two separate job clocks — yours starts at 9:00, your partner's at 9:17. The pay formula uses each person's percentage of time on the job. Your partner worked a smaller percentage, so they receive less commission. You earn more because you were on-site and Checked In the whole time.",
-          es: "Ejemplo real: Usted y su compañero están asignados al mismo trabajo. Usted llega a las 9:00 AM y hace Check In. Su compañero llega a las 9:17 AM y hace Check In. MaidCentral registra dos relojes de trabajo separados — el suyo empieza a las 9:00, el de su compañero a las 9:17. La fórmula de pago usa el porcentaje de tiempo de cada persona en el trabajo. Su compañero trabajó un porcentaje menor, así que recibe menos comisión. Usted gana más porque estuvo en sitio y con Check In todo el tiempo.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "This is not a penalty — it's accuracy. Check In when you arrive on site, Check Out when you leave. Your clock is your paycheck.",
-          es: "Esto no es un castigo — es precisión. Haga Check In cuando llegue al sitio, Check Out cuando se vaya. Su reloj es su sueldo.",
-        },
-      },
-
-      { type: "h", text: { en: "GPS — The 600-Foot Rule", es: "GPS — La Regla de los 600 Pies" } },
-      {
-        type: "p",
-        text: {
-          en: "MaidCentral records your GPS location at every Check In and Check Out. If your location is more than 600 feet from the client's address, a red flag appears in the manager dashboard. The check-in still goes through — but every flag gets reviewed.",
-          es: "MaidCentral registra su ubicación GPS en cada Check In y Check Out. Si su ubicación está a más de 600 pies de la dirección del cliente, aparece una alerta roja en el panel del gerente. El check-in se procesa — pero cada alerta se revisa.",
-        },
-      },
+      { type: "h", text: { en: "Simple Green (1:30 dilution)", es: "Simple Green (dilución 1:30)" } },
       {
         type: "bullets",
         items: [
-          { en: "Location services must be enabled on your phone at all times during work.", es: "Los servicios de ubicación deben estar activados en su teléfono durante todo el trabajo." },
-          { en: "Check In at the front door — not from your car, not from down the street.", es: "Haga Check In en la puerta principal — no desde su auto, no desde calle abajo." },
-          { en: "A GPS error (red ban icon) means your location couldn't be captured — that gets flagged too.", es: "Un error de GPS (ícono rojo de prohibición) significa que su ubicación no pudo capturarse — eso también se marca." },
+          { en: "Use on: light surface cleaning — counters, appliances, baseboards.", es: "Use en: limpieza ligera — mostradores, electrodomésticos, rodapiés." },
+          { en: "Dilution: 1 part Simple Green to 30 parts water in a spray bottle. Never use full strength inside a home.", es: "Dilución: 1 parte Simple Green por 30 de agua en atomizador. Nunca a fuerza total dentro de un hogar." },
+          { en: "Don't use on: aluminum cookware, polished marble.", es: "No use en: utensilios de aluminio, mármol pulido." },
         ],
       },
 
-      { type: "h", text: { en: "Your Efficiency Score", es: "Su Puntuación de Eficiencia" } },
-      {
-        type: "p",
-        text: {
-          en: "Efficiency % = Total Job Clock Hours ÷ Total Day Clock Hours. The remainder is drive and travel time.",
-          es: "Eficiencia % = Total de Horas de Reloj de Trabajo ÷ Total de Horas de Reloj de Día. El resto es tiempo de manejo y traslado.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "Example: Clocked In for 8 hours, Checked Into jobs for 6.5 hours → 81% efficiency. The remaining 1.5 hours is drive/travel. Target: 80% or higher.",
-          es: "Ejemplo: Clock In de 8 horas, Check In en trabajos de 6.5 horas → 81% de eficiencia. Las 1.5 horas restantes son traslado. Meta: 80% o más.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "The most important metric managers track is Revenue Per Clock Hour — how much revenue Phes earns for every hour you are clocked in. Checking in promptly and finishing within allowed time directly improves this number for everyone.",
-          es: "La métrica más importante que los gerentes rastrean es Ingreso Por Hora de Reloj — cuánto ingreso gana Phes por cada hora que usted está con Clock In. Hacer Check In con prontitud y terminar dentro del tiempo asignado mejora este número directamente para todos.",
-        },
-      },
-
-      { type: "h", text: { en: "Commercial Jobs — Allowed Hours", es: "Trabajos Comerciales — Horas Asignadas" } },
-      {
-        type: "p",
-        text: {
-          en: "Commercial jobs have an allowed-hours budget (e.g., 3 hours). Pay is based on those allowed hours, not necessarily the actual time. But: if you only work 1 of the 3 allowed hours, the Prorate Employee Pay setting reduces your pay to actual time worked. Finish the job in the allotted time. If something is off, call the office BEFORE uploading completion photos — never close out early without communicating first.",
-          es: "Los trabajos comerciales tienen un presupuesto de horas asignadas (por ejemplo, 3 horas). El pago se basa en esas horas asignadas, no necesariamente en el tiempo real. Pero: si solo trabaja 1 de las 3 horas asignadas, la configuración de Prorate Employee Pay reduce su pago al tiempo real trabajado. Termine el trabajo en el tiempo asignado. Si algo está mal, llame a la oficina ANTES de subir las fotos de finalización — nunca cierre temprano sin comunicarse primero.",
-        },
-      },
-
-      { type: "h", text: { en: "Time Correction Requests", es: "Solicitudes de Corrección de Tiempo" } },
-      {
-        type: "p",
-        text: {
-          en: "If you forget to Check In, Check Out, Clock In, or Clock Out, submit a Clock/Job Change Request through the app. The office reviews and approves corrections. Do not text or DM a manager — use the formal request system inside MaidCentral. The audit trail matters.",
-          es: "Si olvida hacer Check In, Check Out, Clock In o Clock Out, envíe una solicitud de Clock/Job Change Request a través de la aplicación. La oficina revisa y aprueba las correcciones. No envíe mensaje ni DM a un gerente — use el sistema formal de solicitudes dentro de MaidCentral. El registro de auditoría importa.",
-        },
-      },
-
-      { type: "h", text: { en: "The Job Worksheet — 3 Tiers", es: "La Hoja de Trabajo — 3 Niveles" } },
-      {
-        type: "p",
-        text: {
-          en: "Inside MaidCentral, every job has a Worksheet. Read it before you start. The instructions are organized in three tiers, from most specific to most general:",
-          es: "Dentro de MaidCentral, cada trabajo tiene una Hoja de Trabajo. Léala antes de comenzar. Las instrucciones están organizadas en tres niveles, del más específico al más general:",
-        },
-      },
+      { type: "h", text: { en: "Ecolab Glass Cleaner", es: "Limpiador de Vidrio Ecolab" } },
       {
         type: "bullets",
         items: [
-          {
-            en: "Tier 1 — Client-Specific Notes. Things only this client wants. \"Don't move the rug under the table.\" Highest priority.",
-            es: "Nivel 1 — Notas Específicas del Cliente. Cosas que solo este cliente quiere. \"No mueva la alfombra debajo de la mesa.\" Máxima prioridad.",
-          },
-          {
-            en: "Tier 2 — General Service Standards. The standard scope for the type of cleaning (Standard, Deep, Move-In/Out). Applies when client notes don't say otherwise.",
-            es: "Nivel 2 — Estándares Generales del Servicio. El alcance estándar para el tipo de limpieza (Estándar, Profunda, Entrada/Salida). Aplica cuando las notas del cliente no dicen lo contrario.",
-          },
-          {
-            en: "Tier 3 — Company Policy. Phes-wide rules: shoe covers, color-coded cloths, top-to-bottom flow. Always apply.",
-            es: "Nivel 3 — Política de la Compañía. Reglas de toda Phes: cubrezapatos, paños codificados por color, flujo de arriba hacia abajo. Siempre aplican.",
-          },
+          { en: "Use on: mirrors, glass shower doors, windows (interior).", es: "Use en: espejos, puertas de ducha de vidrio, ventanas (interior)." },
+          { en: "Method: spray on the BLUE microfiber cloth (never directly on the mirror), wipe in S-pattern.", es: "Método: rocíe sobre el paño AZUL de microfibra (nunca directamente en el espejo), limpie en patrón de S." },
+          { en: "Why blue: dedicated glass cloth — no residue from kitchen or bathroom cleaners.", es: "Por qué azul: paño dedicado a vidrio — sin residuos de cocina o baño." },
         ],
       },
-      {
-        type: "p",
-        text: {
-          en: "When two tiers conflict, the higher tier wins. A specific client note overrides the standard scope. The standard scope overrides nothing — company policy is non-negotiable.",
-          es: "Cuando dos niveles entran en conflicto, gana el nivel superior. Una nota específica del cliente reemplaza el alcance estándar. El alcance estándar no reemplaza la política de la compañía — esta no es negociable.",
-        },
-      },
-      { type: "h", text: { en: "Marking the Job Complete", es: "Marcar el Trabajo Completado" } },
-      {
-        type: "p",
-        text: {
-          en: "When you finish: Check Out, attach \"after\" photos of every room cleaned, note any issues you found (broken items, areas you couldn't access), and tap Complete. Do not mark Complete until you have walked through every room one final time.",
-          es: "Cuando termine: haga Check Out, adjunte fotos de \"después\" de cada habitación limpiada, anote cualquier problema encontrado (artículos rotos, áreas inaccesibles) y toque Completar. No marque Completar hasta haber recorrido cada habitación una última vez.",
-        },
-      },
-    ],
-  },
 
-  // 8. Qleno App — Coming Soon
-  {
-    id: "qleno-app",
-    number: 8,
-    iconKind: "sparkle",
-    title: { en: "Qleno App", es: "Aplicación Qleno" },
-    subtitle: {
-      en: "Phes is migrating to Qleno — full training coming soon.",
-      es: "Phes está migrando a Qleno — entrenamiento completo próximamente.",
-    },
-    estimatedMinutes: 2,
-    blocks: [
-      {
-        type: "p",
-        text: {
-          en: "Phes is in the process of migrating from MaidCentral to Qleno — our own purpose-built operations platform. Once Qleno is live for field operations, this module will be expanded with screen-by-screen instructions for clock-in, check-in, the job worksheet, mileage submission, and team chat.",
-          es: "Phes está en el proceso de migrar de MaidCentral a Qleno — nuestra propia plataforma de operaciones diseñada a medida. Una vez que Qleno esté activo para operaciones de campo, este módulo se expandirá con instrucciones pantalla por pantalla para registrarse, hacer check-in, la hoja de trabajo, envío de millaje y chat del equipo.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "For now, continue to use MaidCentral as your operational app. Office will give you advance notice and a hands-on training session before any cutover to Qleno.",
-          es: "Por ahora, continúe usando MaidCentral como su aplicación operacional. La oficina le dará aviso anticipado y una sesión de entrenamiento práctica antes de cualquier cambio a Qleno.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "Screen capture instructions and walkthroughs will be added to this module when Qleno is ready for field use.",
-          es: "Se agregarán capturas de pantalla y guías paso a paso a este módulo cuando Qleno esté listo para uso en campo.",
-        },
-      },
-    ],
-  },
-
-  // 9. Acknowledgment (rendered specially as final step)
-  {
-    id: "acknowledgment",
-    number: 9,
-    iconKind: "shield",
-    title: { en: "Acknowledgment", es: "Reconocimiento" },
-    subtitle: {
-      en: "Review, take the quiz, and acknowledge your training.",
-      es: "Revise, tome el examen y reconozca su entrenamiento.",
-    },
-    estimatedMinutes: 6,
-    blocks: [
-      { type: "h", text: { en: "Summary of What You Have Learned", es: "Resumen de lo Aprendido" } },
+      { type: "h", text: { en: "OCedar Deep Clean Mop", es: "Trapeador OCedar Deep Clean" } },
       {
         type: "bullets",
         items: [
-          { en: "Phes is built on reliability, pride in craft, respect, honesty, and growth — and your employment is at-will.", es: "Phes se basa en confiabilidad, orgullo en el oficio, respeto, honestidad y crecimiento — y su empleo es a voluntad." },
-          { en: "You have a 20-minute grace period; the tardiness scale runs 1–2 recorded, 3rd written, 4th final, 5th termination.", es: "Tiene 20 minutos de gracia; la escala es 1ª–2ª registrada, 3ª escrita, 4ª última, 5ª terminación." },
-          { en: "You accrue up to 40 hours of paid sick leave (PLAWA), and earn 40 hours of PTO at year 1 / 80 hours at year 2.", es: "Acumula hasta 40 horas de licencia por enfermedad (PLAWA), y gana 40 horas de PTO al año 1 / 80 horas al año 2." },
-          { en: "Phes observes 6 paid holidays plus your birthday.", es: "Phes observa 6 feriados pagados más su cumpleaños." },
-          { en: "Wear the Phes uniform with shoe covers in every home; personal phones stay out of sight during the visit.", es: "Use el uniforme Phes con cubrezapatos en cada hogar; los teléfonos personales se mantienen fuera de la vista durante la visita." },
-          { en: "Training pay is $20/hr; activated technicians earn 35% commission. The Fix-It Rule means a same-day return — or a $50 deduction if the company has to send another team.", es: "El pago de entrenamiento es $20/h; los técnicos activos ganan 35% de comisión. La Regla de Corrección significa regresar el mismo día — o un descuento de $50 si la compañía debe enviar a otro equipo." },
-          { en: "Your first 60 days are Quality Probation. Mileage is reimbursed at the IRS rate, job-to-job only, within 30 days.", es: "Sus primeros 60 días son Periodo de Prueba de Calidad. El millaje se reembolsa a la tarifa del IRS, solo entre trabajos, dentro de 30 días." },
-          { en: "Clean back-to-front, top-to-bottom, spray your cloth (never the surface), and follow the color-coded microfiber rules.", es: "Limpie de atrás hacia adelante, de arriba hacia abajo, rocíe el paño (nunca la superficie) y siga las reglas de microfibra codificada por color." },
-          { en: "Use the right product for the job — Bar Keepers Friend stays off natural stone, Ecolab on glass only, and Simple Green follows its dilution chart.", es: "Use el producto correcto para cada tarea — Bar Keepers Friend no va sobre piedra natural, Ecolab solo en vidrio y Simple Green sigue su tabla de dilución." },
-          { en: "Inspect every step stool before each use; never stand on the top step.", es: "Inspeccione cada banquillo antes de cada uso; nunca se pare en el escalón superior." },
-          { en: "Phes does not handle bodily fluids, organize belongings, accept cash, or clean inside appliances unless added as a paid scope. Tipping is allowed but never requested.", es: "Phes no maneja fluidos corporales, no organiza pertenencias, no acepta efectivo y no limpia dentro de electrodomésticos a menos que se agregue como alcance pagado. Las propinas están permitidas pero nunca se solicitan." },
-          { en: "Clock In once per workday; Check In once per job. Read the Worksheet — client notes beat scope, scope beats nothing, company policy always applies.", es: "Clock In una vez por día; Check In una vez por trabajo. Lea la Hoja de Trabajo — notas del cliente vencen al alcance, el alcance no vence nada, la política de la compañía siempre aplica." },
+          { en: "Use on: hardwood, tile, laminate.", es: "Use en: madera, baldosa, laminado." },
+          { en: "Method: wring thoroughly so the mop is DAMP, not soaked. Never spray cleaner directly on the floor.", es: "Método: escurra bien para que el trapeador esté HÚMEDO, no empapado. Nunca rocíe limpiador directamente en el piso." },
+          { en: "Hardwood: water can warp wood — wring extra dry on hardwood floors.", es: "Madera: el agua puede deformarla — escurra extra-seco en madera." },
         ],
       },
-      { type: "h", text: { en: "Quality Control", es: "Control de Calidad" } },
+
+      { type: "h", text: { en: "Toilet Bowl Cleaner (Lysol)", es: "Limpiador de Inodoros (Lysol)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Apply under the rim, let dwell 5+ minutes while you clean the rest of the bathroom, then scrub with the toilet brush.", es: "Aplique bajo el borde, deje actuar 5+ minutos mientras limpia el resto del baño, luego restriegue con el cepillo." },
+          { en: "Cloth color: GREEN — bathroom-only. Never use a green cloth in a kitchen.", es: "Color de paño: VERDE — solo baño. Nunca use paño verde en cocina." },
+        ],
+      },
+
+      { type: "h", text: { en: "Lysol Disinfecting Wipes", es: "Toallitas Desinfectantes Lysol" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: high-touch surfaces — door handles, light switches, faucets, toilet seats.", es: "Use en: superficies de alto contacto — manijas, interruptores, llaves, asientos de inodoro." },
+          { en: "Don't use on: unfinished wood, electronics screens, leather.", es: "No use en: madera sin sellar, pantallas, cuero." },
+        ],
+      },
+
+      { type: "h", text: { en: "Stainless Steel Polish (3M)", es: "Pulidor de Acero Inoxidable (3M)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: appliance fronts (refrigerator, dishwasher, range hood).", es: "Use en: frentes de electrodomésticos (refrigerador, lavavajillas, campana)." },
+          { en: "Method: small amount on the cloth (not the appliance), wipe in the direction of the grain.", es: "Método: poca cantidad en el paño (no en el electrodoméstico), limpie en la dirección del grano." },
+        ],
+      },
+
+      { type: "h", text: { en: "Microfiber Cloths — Color Code", es: "Paños de Microfibra — Código de Color" } },
+      {
+        type: "table",
+        head: { en: ["Color", "Surface", "Why"], es: ["Color", "Superficie", "Por qué"] },
+        rows: [
+          { en: ["Yellow", "Kitchens, counters", "General hard-surface duty"], es: ["Amarillo", "Cocinas, mostradores", "Superficies generales"] },
+          { en: ["Blue", "Glass, mirrors", "No residue from soap or grease"], es: ["Azul", "Vidrio, espejos", "Sin residuos de jabón o grasa"] },
+          { en: ["Green", "Bathrooms (toilets, tubs)", "Bathroom-only — never cross to kitchen"], es: ["Verde", "Baños (inodoros, tinas)", "Solo baño — nunca pasa a cocina"] },
+          { en: ["White", "Dusting, polish", "Dust-only — keeps polish clean"], es: ["Blanco", "Polvo, pulido", "Solo polvo — mantiene el pulidor limpio"] },
+        ],
+      },
+
+      { type: "h", text: { en: "Vacuum (Sebo or Miele)", es: "Aspiradora (Sebo o Miele)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use BEFORE you mop — never mop dust; you'll smear it.", es: "Use ANTES de trapear — nunca trapee polvo; se esparcirá." },
+          { en: "Empty the canister between homes — full canister loses suction.", es: "Vacíe el contenedor entre hogares — un contenedor lleno pierde succión." },
+          { en: "Adjust the height for the surface (carpet vs hard floor) — wrong setting damages the brush bar or the floor.", es: "Ajuste la altura según la superficie (alfombra vs piso duro) — la configuración incorrecta daña el cepillo o el piso." },
+        ],
+      },
+
+      // ── NEW PRODUCTS (added 2026-05-09) ─────────────────────────────────────
+      { type: "h", text: { en: "Zep Mold & Mildew Stain Remover (NEW)", es: "Removedor de Manchas de Moho Zep (NUEVO)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: tile grout, shower caulk, fiberglass tubs, vinyl shower curtains — visible mold/mildew stains.", es: "Use en: lechada de baldosa, sellador de ducha, tinas de fibra de vidrio, cortinas de vinilo — manchas visibles de moho." },
+          { en: "Method: spray, let dwell 5–10 minutes (do not scrub immediately), rinse with water.", es: "Método: rocíe, deje actuar 5–10 minutos (no restriegue inmediato), enjuague con agua." },
+          { en: "Ventilation: open the bathroom window or run the exhaust fan — Zep contains bleach.", es: "Ventilación: abra la ventana o encienda el extractor — Zep contiene cloro." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Bleach-based — never mix with ammonia products (Windex, some bathroom cleaners). Will release toxic fumes. Wear gloves; do not let it contact colored fabrics or carpet — it will permanently bleach them. Never spray near the client's clothing or bath mats.",
+          es: "Base cloro — nunca mezcle con productos de amoníaco (Windex, algunos limpiadores). Liberará gases tóxicos. Use guantes; no permita contacto con telas o alfombras de color — las decolorará permanentemente. Nunca rocíe cerca de ropa o tapetes del cliente.",
+        },
+      },
+
+      { type: "h", text: { en: "Magic Eraser (Mr. Clean) (NEW)", es: "Borrador Mágico (Mr. Clean) (NUEVO)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: scuff marks on baseboards, crayon on walls, soap scum on glass shower doors, sneaker marks on white floors.", es: "Use en: marcas en rodapiés, crayola en paredes, sarro en puertas de ducha, marcas de zapato en pisos blancos." },
+          { en: "Method: wet the eraser, squeeze excess water, light pressure in small circular motions. Test in an inconspicuous spot first.", es: "Método: humedezca el borrador, exprima exceso de agua, presión ligera en pequeños círculos. Pruebe primero en un lugar discreto." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Magic Eraser is a fine abrasive — it will DULL satin or matte paint, polished stone, glossy plastic, car finishes, and stainless steel with a brushed finish. Never use on: painted walls beyond the smallest scuff, polished countertops, or anything with a sheen the client values. If the client's wall has a flat (matte) paint and you erase too aggressively, you'll leave a visibly cleaner spot — which is itself a damage claim.",
+          es: "El Borrador Mágico es abrasivo fino — DAÑARÁ pintura satinada o mate, piedra pulida, plástico brillante, acabados de auto y acero inoxidable cepillado. Nunca use en: paredes pintadas (más allá de la marca más pequeña), mostradores pulidos, o cualquier cosa con brillo que el cliente valore. Si la pared tiene pintura mate y borra agresivamente, dejará una mancha visiblemente más limpia — eso también es un reclamo por daño.",
+        },
+      },
+
+      { type: "h", text: { en: "Pumice Stone (NEW)", es: "Piedra Pómez (NUEVO)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: hard-water rings inside porcelain toilet bowls — and only inside the bowl.", es: "Use en: anillos de agua dura dentro de inodoros de porcelana — y solo dentro del inodoro." },
+          { en: "Method: wet the stone AND the surface (never use dry — dry pumice scratches), light pressure, small motions.", es: "Método: humedezca la piedra Y la superficie (nunca seca — la piedra seca raya), presión ligera, movimientos pequeños." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Pumice will scratch every other surface in the bathroom. NEVER use on: enameled tubs, fiberglass tubs, sinks, faucets, chrome, glass, or coated toilet bowls. Coated bowls (some newer designer toilets have a ceramic coating) will scratch — if in doubt, use Bar Keepers Friend instead. Pumice is for unsealed white porcelain only.",
+          es: "La piedra pómez rayará cualquier otra superficie del baño. NUNCA use en: tinas esmaltadas, tinas de fibra de vidrio, fregaderos, llaves, cromo, vidrio, o inodoros con recubrimiento. Los inodoros con recubrimiento (algunos modernos tienen capa cerámica) se rayarán — en caso de duda, use Bar Keepers Friend. La piedra pómez es solo para porcelana blanca sin sellar.",
+        },
+      },
+
+      { type: "h", text: { en: "#0000 Steel Wool (NEW)", es: "Lana de Acero #0000 (NUEVO)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Use on: stuck-on residue on glass cooktops, hardened mineral deposits on glass shower doors, light rust on cast iron.", es: "Use en: residuos pegados en estufas de vidrio, depósitos minerales endurecidos en puertas de ducha, óxido ligero en hierro fundido." },
+          { en: "Grade matters: ONLY use #0000 (extra fine). Coarser grades (000, 00, 0) will scratch.", es: "El grado importa: SOLO use #0000 (extra fino). Grados más gruesos (000, 00, 0) rayarán." },
+          { en: "Method: dampen with the matching cleaner (Bar Keepers Friend on glass, water on rust), light pressure, follow the surface grain when one exists.", es: "Método: humedezca con el limpiador apropiado (Bar Keepers Friend en vidrio, agua en óxido), presión ligera, siga el grano de la superficie si existe." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "NEVER on chrome — even #0000 dulls a chrome finish on first pass. Never on stainless steel appliance fronts (use the 3M polish instead). Never on coated cookware, glass shower-door film coatings, or polished marble. Always rinse thoroughly afterward — steel wool fibers left on a surface rust within hours and will stain.",
+          es: "NUNCA en cromo — incluso #0000 daña el acabado cromado al primer pase. Nunca en frentes de electrodomésticos de acero (use el pulidor 3M). Nunca en utensilios con recubrimiento, recubrimientos de puertas de ducha, o mármol pulido. Siempre enjuague completamente — fibras de lana de acero dejadas en una superficie se oxidan en horas y mancharán.",
+        },
+      },
+
+      // ── Step Stool ─────────────────────────────────────────────────────────
+      { type: "h", text: { en: "Step Stool — Inspection Protocol", es: "Banquito — Protocolo de Inspección" } },
       {
         type: "p",
         text: {
-          en: "Phes conducts random post-clean quality inspections — sometimes by a teammate, sometimes by office. The standard is plain: every surface you touched must be visibly clean and streak-free.",
-          es: "Phes realiza inspecciones de calidad aleatorias después de la limpieza — a veces por un compañero, a veces por la oficina. El estándar es claro: cada superficie que tocó debe estar visiblemente limpia y sin rayas.",
+          en: "Before EVERY use of the company step stool, run the 3-point check: rubber feet present and not worn smooth, hinges fully locked open with no wobble, top platform clean and dry. A stool with worn feet on a tile floor is a fall waiting to happen. If any check fails, do not use it; mark it for replacement and tell the office.",
+          es: "Antes de CADA uso del banquito de la compañía, realice la revisión de 3 puntos: patas de goma presentes y no lisas, bisagras totalmente abiertas sin movimiento, plataforma limpia y seca. Un banquito con patas gastadas en piso de baldosa es una caída esperando suceder. Si algo falla, no lo use; márquelo para reemplazo y avise a la oficina.",
         },
       },
       {
         type: "callout",
-        tone: "info",
+        tone: "warning",
         text: {
-          en: "During your first 60 days (Quality Probation) inspections happen more often. This is by design — it is how new technicians build the habits that become muscle memory.",
-          es: "Durante sus primeros 60 días (Periodo de Prueba de Calidad) las inspecciones suceden con más frecuencia. Es por diseño — así es como los nuevos técnicos construyen los hábitos que se convierten en memoria muscular.",
-        },
-      },
-
-      {
-        type: "p",
-        text: {
-          en: "By submitting the acknowledgment below, you confirm that you have read, understood, and agree to follow each of the policies covered in this training. A copy of your acknowledgment is sent to Phes management.",
-          es: "Al enviar el reconocimiento a continuación, confirma que ha leído, entendido y acepta seguir cada una de las políticas cubiertas en este entrenamiento. Se envía una copia de su reconocimiento a la gerencia de Phes.",
+          en: "Never stand on a chair, table, counter, or any furniture in the client's home. Never stand on the top step of any ladder or stool. If you can't reach the surface safely from the company step stool, leave a note for the office and skip the surface — never improvise.",
+          es: "Nunca se pare sobre una silla, mesa, mostrador, o cualquier mueble en el hogar. Nunca se pare en el escalón superior de una escalera o banquito. Si no puede alcanzar una superficie con seguridad desde el banquito, deje una nota para la oficina y omita la superficie — nunca improvise.",
         },
       },
     ],
@@ -1050,214 +799,250 @@ const BASE_MODULES: Module[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QUIZ — scenario-based situations a technician faces on the job
+// QUIZ — 15 scenario-based questions per module = 75 total
+// The final mixed test samples 50 from this pool (FINAL_TEST_SIZE).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BASE_QUIZ: QuizQuestion[] = [
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 1: PHES POLICIES & PROCEDURES (15 questions)
+  // ═════════════════════════════════════════════════════════════════════════════
   {
-    id: "q-room-flow",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You arrive at a client's home for a standard clean. Which room do you start in?",
-      es: "Llegas al hogar de un cliente para una limpieza estándar. ¿En qué habitación empiezas?",
-    },
+    id: "q-pp-01-w2",
+    moduleId: "phes-policies",
+    prompt: { en: "What kind of employee are Phes technicians?", es: "¿Qué tipo de empleado son los técnicos de Phes?" },
     options: [
-      { en: "The kitchen — it's the dirtiest", es: "La cocina — es la más sucia" },
-      { en: "The room farthest from the entrance, working back toward the door", es: "La habitación más lejana de la entrada, trabajando hacia la puerta" },
-      { en: "Whichever room the client is not currently in", es: "La habitación donde el cliente no esté en ese momento" },
-      { en: "The bathroom — to give chemicals time to sit", es: "El baño — para que los químicos tengan tiempo de actuar" },
+      { en: "Independent 1099 contractors", es: "Contratistas 1099 independientes" },
+      { en: "W-2 employees with steady scheduled work and benefits", es: "Empleados W-2 con trabajo programado constante y beneficios" },
+      { en: "Day laborers paid in cash", es: "Jornaleros pagados en efectivo" },
+      { en: "Volunteers with stipend", es: "Voluntarios con estipendio" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-room-order",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You're cleaning a bedroom. In what order do you work the surfaces?",
-      es: "Estás limpiando un dormitorio. ¿En qué orden trabajas las superficies?",
-    },
+    id: "q-pp-02-guarantee",
+    moduleId: "phes-policies",
+    prompt: { en: "An hour after you finish a clean, the client calls Phes unhappy with the bathroom. What happens?", es: "Una hora después de terminar una limpieza, el cliente llama a Phes inconforme con el baño. ¿Qué sucede?" },
     options: [
-      { en: "Floors first so they dry while you do the rest", es: "Pisos primero para que se sequen mientras haces el resto" },
-      { en: "Whatever the client prefers", es: "Lo que el cliente prefiera" },
-      { en: "Top to bottom — vents, shelves, then baseboards and floor last", es: "De arriba hacia abajo — rejillas, estantes, luego rodapiés y piso al final" },
-      { en: "Side to side — order doesn't matter", es: "De un lado al otro — el orden no importa" },
+      { en: "Nothing — once the job is marked complete, it's closed", es: "Nada — una vez completado, queda cerrado" },
+      { en: "The client gets a refund and we move on", es: "El cliente recibe un reembolso y seguimos" },
+      { en: "A team returns the same day to fix it — the Fix-It Rule", es: "Un equipo regresa el mismo día — la Regla de Corrección" },
+      { en: "The client can rebook for free next month", es: "El cliente puede reservar gratis el próximo mes" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-products-granite",
-    moduleId: "products-tools",
-    prompt: {
-      en: "You're about to wipe a granite kitchen countertop. Which product should you NEVER use on it?",
-      es: "Vas a limpiar un mostrador de granito en la cocina. ¿Qué producto NUNCA debes usar?",
-    },
+    id: "q-pp-03-scope-oven",
+    moduleId: "phes-policies",
+    prompt: { en: "Mid-clean, the client asks if you can clean inside the oven. The Worksheet does not include oven cleaning. What do you do?", es: "Durante la limpieza, el cliente le pide limpiar por dentro del horno. La Hoja de Trabajo no lo incluye. ¿Qué hace?" },
     options: [
-      { en: "Mr. Clean with Febreze on a yellow cloth", es: "Mr. Clean con Febreze en un paño amarillo" },
-      { en: "A damp microfiber cloth with water", es: "Un paño de microfibra húmedo con agua" },
-      { en: "Bar Keepers Friend Liquid", es: "Bar Keepers Friend Líquido" },
-      { en: "Diluted Simple Green at 1:30", es: "Simple Green diluido a 1:30" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-products-mop",
-    moduleId: "products-tools",
-    prompt: {
-      en: "You're about to mop a hardwood floor with the OCedar Deep Clean Mop. What do you do first?",
-      es: "Vas a trapear un piso de madera con el trapeador OCedar Deep Clean. ¿Qué haces primero?",
-    },
-    options: [
-      { en: "Soak the mop fully so it cleans deeper", es: "Empapas el trapeador para que limpie más profundo" },
-      { en: "Wring the mop thoroughly so it's damp, not soaked", es: "Escurres bien el trapeador para que esté húmedo, no empapado" },
-      { en: "Spray the cleaner directly on the floor", es: "Rocías el limpiador directamente sobre el piso" },
-      { en: "Use the mop dry — water can warp wood", es: "Usas el trapeador seco — el agua puede deformar la madera" },
+      { en: "Clean it — the customer is always right", es: "Lo limpia — el cliente siempre tiene la razón" },
+      { en: "Politely explain it's not in today's scope and direct them to office to add it for next time", es: "Explica cortésmente que no está en el alcance de hoy y los dirige a la oficina para agregarlo la próxima vez" },
+      { en: "Clean it but charge them in cash directly", es: "Lo limpia pero cobra en efectivo" },
+      { en: "Refuse and walk out", es: "Se niega y se va" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-products-glass",
-    moduleId: "products-tools",
-    prompt: {
-      en: "You need to clean a bathroom mirror. Where do you spray the Ecolab glass cleaner?",
-      es: "Necesitas limpiar un espejo del baño. ¿Dónde rocías el limpiador de vidrio Ecolab?",
-    },
+    id: "q-pp-04-bodily-fluids",
+    moduleId: "phes-policies",
+    prompt: { en: "You arrive at a job and see fresh blood on the bathroom floor. What's the right move?", es: "Llega a un trabajo y ve sangre fresca en el piso del baño. ¿Cuál es la acción correcta?" },
     options: [
-      { en: "Directly on the mirror, then wipe in circles", es: "Directamente sobre el espejo, luego limpias en círculos" },
-      { en: "On a yellow cloth, then wipe", es: "Sobre un paño amarillo, luego limpias" },
-      { en: "On a blue microfiber cloth, then wipe in an S-pattern", es: "Sobre un paño de microfibra azul, luego limpias en patrón de S" },
-      { en: "On the floor first, so it doesn't drip", es: "En el piso primero, para que no gotee" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-products-simplegreen",
-    moduleId: "products-tools",
-    prompt: {
-      en: "You're prepping Simple Green for light surface cleaning. What's the right dilution?",
-      es: "Estás preparando Simple Green para limpieza ligera. ¿Cuál es la dilución correcta?",
-    },
-    options: [
-      { en: "Full strength — Simple Green is always full strength", es: "Fuerza total — Simple Green siempre va a fuerza total" },
-      { en: "1:10", es: "1:10" },
-      { en: "1:30", es: "1:30" },
-      { en: "1:100", es: "1:100" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-shoe-covers",
-    moduleId: "dress-code",
-    prompt: {
-      en: "You arrive at a client's home and realize you forgot your shoe covers in your other bag. What do you do?",
-      es: "Llegas al hogar de un cliente y te das cuenta que olvidaste los cubrezapatos en tu otra bolsa. ¿Qué haces?",
-    },
-    options: [
-      { en: "Take off your shoes at the door and clean barefoot", es: "Te quitas los zapatos en la puerta y limpias descalzo" },
-      { en: "Walk in carefully without covers — just don't track dirt", es: "Entras con cuidado sin cubrezapatos — solo no traigas suciedad" },
-      { en: "Don't enter — get fresh covers from your vehicle, or call office for a teammate to bring some", es: "No entras — toma cubrezapatos nuevos de tu vehículo, o llama a la oficina" },
-      { en: "Ask the client if they mind", es: "Le preguntas al cliente si le importa" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-running-late",
-    moduleId: "attendance",
-    prompt: {
-      en: "You're stuck in traffic and will arrive 30 minutes after your scheduled time. What do you do?",
-      es: "Estás en el tráfico y llegarás 30 minutos después de tu hora programada. ¿Qué haces?",
-    },
-    options: [
-      { en: "Drive faster to make up time", es: "Manejas más rápido para recuperar el tiempo" },
-      { en: "Don't worry about it — 30 minutes is within the grace period", es: "No te preocupes — 30 minutos están dentro del periodo de gracia" },
-      { en: "Call or text the office immediately so the client can be notified", es: "Llamas o envías mensaje a la oficina inmediatamente para que el cliente sea notificado" },
-      { en: "Just show up when you get there — they'll figure it out", es: "Solo llegas cuando puedas — lo entenderán" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-fixit",
-    moduleId: "compensation",
-    prompt: {
-      en: "An hour after you finish a clean, the client calls Phes unhappy with the bathroom. What happens?",
-      es: "Una hora después de terminar una limpieza, el cliente llama a Phes inconforme con el baño. ¿Qué sucede?",
-    },
-    options: [
-      { en: "Nothing — once the job is marked complete, it's closed", es: "Nada — una vez marcado el trabajo como completado, queda cerrado" },
-      { en: "The client gets a refund and we move on", es: "El cliente recibe un reembolso y seguimos adelante" },
-      { en: "A team returns the same day to fix it — the Fix-It Rule", es: "Un equipo regresa el mismo día para corregirlo — la Regla de Corrección" },
-      { en: "The client can rebook for free next month", es: "El cliente puede reservar de nuevo gratis el próximo mes" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-clock-vs-check",
-    moduleId: "maidcentral",
-    prompt: {
-      en: "You start your workday at 8:00 AM. What's the very first thing you do in MaidCentral?",
-      es: "Comienzas tu día de trabajo a las 8:00 AM. ¿Qué es lo primero que haces en MaidCentral?",
-    },
-    options: [
-      { en: "Check In to your first job", es: "Check In en tu primer trabajo" },
-      { en: "Clock In for the workday", es: "Clock In para el día de trabajo" },
-      { en: "Open the Job Worksheet for the day", es: "Abres la Hoja de Trabajo del día" },
-      { en: "Submit yesterday's mileage", es: "Envías el millaje de ayer" },
+      { en: "Clean it — it's part of the bathroom", es: "Lo limpia — es parte del baño" },
+      { en: "Decline politely; bodily fluids are not part of Phes scope. Call the office for a biohazard referral.", es: "Rechaza cortésmente; los fluidos corporales no son parte del alcance de Phes. Llame a la oficina para referencia de biohazard." },
+      { en: "Wear extra gloves and clean it anyway", es: "Use guantes extras y límpielo de todos modos" },
+      { en: "Charge the client extra and clean it", es: "Cobre extra al cliente y límpielo" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-tier-conflict",
-    moduleId: "maidcentral",
-    prompt: {
-      en: "The Worksheet says \"vacuum all rugs\" but the client note says \"don't move the rug under the dining table.\" What do you do?",
-      es: "La Hoja de Trabajo dice \"aspirar todas las alfombras\" pero la nota del cliente dice \"no mueva la alfombra debajo de la mesa del comedor.\" ¿Qué haces?",
-    },
+    id: "q-pp-05-tipping",
+    moduleId: "phes-policies",
+    prompt: { en: "A client hands you $20 in cash as a tip at the end of the job. What's the right thing to do?", es: "Un cliente le da $20 en efectivo como propina al final. ¿Qué es correcto?" },
     options: [
-      { en: "Vacuum every rug — the standard scope wins", es: "Aspiras cada alfombra — el alcance estándar gana" },
-      { en: "Skip vacuuming completely — instructions conflict", es: "No aspiras nada — las instrucciones se contradicen" },
-      { en: "Follow the client note — leave the dining-table rug alone, vacuum the rest", es: "Sigues la nota del cliente — dejas la alfombra del comedor, aspiras las demás" },
-      { en: "Ask the client which they prefer mid-clean", es: "Le preguntas al cliente cuál prefiere durante la limpieza" },
+      { en: "Refuse — Phes doesn't allow tips", es: "Rechazarla — Phes no permite propinas" },
+      { en: "Take it and split with your partner if you have one — tips are 100% yours, no kickback to office", es: "Tomarla y dividirla con su compañero si lo tiene — las propinas son 100% suyas, sin porcentaje a la oficina" },
+      { en: "Take it but turn it in to the office to be redistributed", es: "Tomarla pero entregarla a la oficina para redistribución" },
+      { en: "Take it and report it as job revenue", es: "Tomarla y reportarla como ingreso del trabajo" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-06-running-late",
+    moduleId: "phes-policies",
+    prompt: { en: "You're stuck in traffic and will arrive 30 minutes after your scheduled time. What do you do?", es: "Está en el tráfico y llegará 30 minutos después de la hora programada. ¿Qué hace?" },
+    options: [
+      { en: "Drive faster to make up time", es: "Maneja más rápido para recuperar tiempo" },
+      { en: "Don't worry about it — 30 minutes is within the grace period", es: "No se preocupa — 30 minutos están dentro del periodo de gracia" },
+      { en: "Call or text the office immediately so the client can be notified", es: "Llama o envía mensaje a la oficina inmediatamente para que el cliente sea notificado" },
+      { en: "Just show up when you get there — they'll figure it out", es: "Solo llega cuando pueda — ya lo entenderán" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-scope-oven",
-    moduleId: "welcome",
-    prompt: {
-      en: "Mid-clean, the client asks if you can clean inside the oven. The Worksheet does not include oven cleaning. What do you do?",
-      es: "Durante la limpieza, el cliente te pide que limpies por dentro del horno. La Hoja de Trabajo no incluye limpieza del horno. ¿Qué haces?",
-    },
+    id: "q-pp-07-grace-window",
+    moduleId: "phes-policies",
+    prompt: { en: "What is the grace window after your scheduled clock-in time before a visit is recorded as tardy?", es: "¿Cuál es el periodo de gracia después de la hora programada antes de registrarse como tardanza?" },
     options: [
-      { en: "Clean it — the customer is always right", es: "Lo limpias — el cliente siempre tiene la razón" },
-      { en: "Politely explain it's not in today's scope and direct them to office to add it for next time", es: "Explicas cortésmente que no está en el alcance de hoy y los diriges a la oficina para agregarlo la próxima vez" },
-      { en: "Clean it but charge them in cash directly", es: "Lo limpias pero les cobras en efectivo directamente" },
-      { en: "Refuse and walk out", es: "Te niegas y te vas" },
+      { en: "5 minutes", es: "5 minutos" },
+      { en: "10 minutes", es: "10 minutos" },
+      { en: "20 minutes", es: "20 minutos" },
+      { en: "60 minutes", es: "60 minutos" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-08-tardy-progression",
+    moduleId: "phes-policies",
+    prompt: { en: "After how many tardy occurrences does the policy reach 'Final warning'?", es: "¿Después de cuántas tardanzas la política llega a 'Última advertencia'?" },
+    options: [
+      { en: "2nd", es: "2ª" },
+      { en: "3rd", es: "3ª" },
+      { en: "4th", es: "4ª" },
+      { en: "5th", es: "5ª" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-09-sick-tomorrow",
+    moduleId: "phes-policies",
+    prompt: { en: "You're feeling sick tonight and won't work tomorrow. How do you report it?", es: "Se siente mal esta noche y no trabajará mañana. ¿Cómo lo reporta?" },
+    options: [
+      { en: "Text your manager", es: "Mensaje al gerente" },
+      { en: "Call the office in the morning when you should be at work", es: "Llamar a la oficina en la mañana cuando debería estar trabajando" },
+      { en: "Submit a sick request through MaidCentral / Qleno — through the system", es: "Enviar solicitud de enfermedad a través de MaidCentral / Qleno — por el sistema" },
+      { en: "Just don't show up — they'll figure it out", es: "Simplemente no presentarse — ya lo entenderán" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-10-pto-request",
+    moduleId: "phes-policies",
+    prompt: { en: "You want PTO for next Friday. What do you do?", es: "Quiere PTO para el próximo viernes. ¿Qué hace?" },
+    options: [
+      { en: "Text your manager directly", es: "Mensaje directo al gerente" },
+      { en: "Submit a PTO request through MaidCentral / Qleno — every time-off request goes through the system", es: "Solicitud de PTO en MaidCentral / Qleno — toda solicitud de tiempo libre va por el sistema" },
+      { en: "Call the office Friday morning", es: "Llamar a la oficina el viernes en la mañana" },
+      { en: "Tell a teammate to relay it", es: "Pedir a un compañero que lo transmita" },
     ],
     correctIndex: 1,
+  },
+  {
+    id: "q-pp-11-unexcused-fourth",
+    moduleId: "phes-policies",
+    prompt: { en: "You've already had three unexcused absences this year. What happens with a fourth?", es: "Ya ha tenido tres ausencias injustificadas este año. ¿Qué sucede con la cuarta?" },
+    options: [
+      { en: "Coaching conversation", es: "Conversación de orientación" },
+      { en: "Written warning", es: "Advertencia por escrito" },
+      { en: "Final warning", es: "Última advertencia" },
+      { en: "Immediate termination", es: "Terminación inmediata" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-12-uniform-forgot",
+    moduleId: "phes-policies",
+    prompt: { en: "You wake up and realize your Phes shirt is in the wash. What do you do?", es: "Se despierta y su camisa Phes está en la lavadora. ¿Qué hace?" },
+    options: [
+      { en: "Wear a similar-looking personal shirt — clients won't notice", es: "Ponerse una camisa parecida — el cliente no notará" },
+      { en: "Skip the shirt and wear just a t-shirt", es: "Saltarse la camisa y usar solo camiseta" },
+      { en: "Contact the office before the job — never show up at a client's home out of uniform", es: "Contactar a la oficina antes del trabajo — nunca presentarse fuera de uniforme" },
+      { en: "Borrow a uniform from a teammate at the job", es: "Pedir prestado el uniforme a un compañero" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-13-shoe-covers",
+    moduleId: "phes-policies",
+    prompt: { en: "You arrive and realize you forgot your shoe covers in your other bag. What do you do?", es: "Llega y se da cuenta que olvidó los cubrezapatos en su otra bolsa. ¿Qué hace?" },
+    options: [
+      { en: "Take off your shoes at the door and clean barefoot", es: "Quitarse los zapatos y limpiar descalzo" },
+      { en: "Walk in carefully without covers — just don't track dirt", es: "Entrar con cuidado sin cubrezapatos" },
+      { en: "Don't enter — get fresh covers from your vehicle, or call office for a teammate to bring some", es: "No entrar — buscar cubrezapatos en el vehículo, o llamar a la oficina" },
+      { en: "Ask the client if they mind", es: "Preguntar al cliente si le importa" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-14-phone-use",
+    moduleId: "phes-policies",
+    prompt: { en: "Mid-clean, your sister texts you about dinner plans. When do you respond?", es: "Durante la limpieza, su hermana le envía mensaje sobre la cena. ¿Cuándo responde?" },
+    options: [
+      { en: "Right away — it'll only take a second", es: "Ahora mismo — solo toma un segundo" },
+      { en: "Step into the bathroom for privacy and respond", es: "Entrar al baño por privacidad y responder" },
+      { en: "After the visit or during your break — personal phones are not allowed during a job", es: "Después de la visita o en su descanso — los teléfonos personales no se permiten durante un trabajo" },
+      { en: "Ask your partner to respond for you", es: "Pedirle a su compañero que responda por usted" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-15-photos",
+    moduleId: "phes-policies",
+    prompt: { en: "You see a beautiful kitchen and want to take a photo to show your sister. Is that OK?", es: "Ve una cocina hermosa y quiere tomar foto para mostrársela a su hermana. ¿Está bien?" },
+    options: [
+      { en: "Yes — as long as you don't post it on social media", es: "Sí — mientras no la publique en redes sociales" },
+      { en: "Yes if you ask the client first", es: "Sí si pregunta al cliente primero" },
+      { en: "No — photos or videos of client homes are strictly forbidden, except inside the company app for documenting work", es: "No — fotos o videos de hogares de clientes están estrictamente prohibidos, excepto dentro de la app de la compañía para documentar trabajo" },
+      { en: "Yes if you only photograph the surface, not the family", es: "Sí si solo fotografía la superficie, no a la familia" },
+    ],
+    correctIndex: 2,
   },
 
-  // ── Compensation, communication, and policy scenarios ──────────────────────
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 2: COMPENSATION (15 questions)
+  // ═════════════════════════════════════════════════════════════════════════════
   {
-    id: "q-hourly-overrun",
+    id: "q-cm-01-training-pay",
     moduleId: "compensation",
-    prompt: {
-      en: "You're an hour into a 3-hour hourly job and you can already tell you won't finish in time. What do you do?",
-      es: "Llevas una hora en un trabajo por hora de 3 horas y ya ves que no terminarás a tiempo. ¿Qué haces?",
-    },
+    prompt: { en: "What's the training pay rate for new techs during their first cleanings?", es: "¿Cuál es la tarifa de pago de entrenamiento para nuevos técnicos en sus primeras limpiezas?" },
     options: [
-      { en: "Wait until the last hour, then call the office", es: "Esperar a la última hora, luego llamar a la oficina" },
-      { en: "Call the office right away — early, while there's still time to talk to the client gracefully", es: "Llamar a la oficina inmediatamente — temprano, mientras aún hay tiempo de hablar con el cliente con elegancia" },
-      { en: "Skip the easier rooms to fit it in", es: "Saltar las habitaciones más fáciles para que quepa" },
-      { en: "Just leave the job incomplete — they'll figure it out", es: "Dejar el trabajo incompleto — ya lo entenderán" },
+      { en: "$15.00 per hour", es: "$15.00 por hora" },
+      { en: "$20.00 per hour", es: "$20.00 por hora" },
+      { en: "$25.00 per hour", es: "$25.00 por hora" },
+      { en: "Commission from day one", es: "Comisión desde el primer día" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-comm-split",
+    id: "q-cm-02-standard-rate",
     moduleId: "compensation",
-    prompt: {
-      en: "You and a partner complete a $200 residential job together. How much commission does each of you earn?",
-      es: "Tú y un compañero completan juntos un trabajo residencial de $200. ¿Cuánta comisión gana cada uno?",
-    },
+    prompt: { en: "What is the commission rate on a Standard Clean (residential, recurring or one-time)?", es: "¿Cuál es la comisión en una Limpieza Estándar (residencial, recurrente o única)?" },
+    options: [
+      { en: "30%", es: "30%" },
+      { en: "32%", es: "32%" },
+      { en: "35%", es: "35%" },
+      { en: "40%", es: "40%" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-cm-03-deep-clean-rate",
+    moduleId: "compensation",
+    prompt: { en: "You're assigned a Deep Clean job. What is the commission rate?", es: "Le asignan una Limpieza Profunda. ¿Cuál es la tarifa de comisión?" },
+    options: [
+      { en: "35% — same as standard", es: "35% — igual que estándar" },
+      { en: "32% — Phes bills the client $80/hr on Deep Cleans", es: "32% — Phes factura $80/hr al cliente en Limpiezas Profundas" },
+      { en: "20% — same as commercial", es: "20% — igual que comercial" },
+      { en: "40% — premium rate for hard work", es: "40% — tarifa premium" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-04-move-in-rate",
+    moduleId: "compensation",
+    prompt: { en: "You're assigned a Move In / Move Out clean. What is the commission rate?", es: "Le asignan una limpieza de Move In / Move Out. ¿Cuál es la tarifa?" },
+    options: [
+      { en: "35% — same as standard", es: "35% — igual que estándar" },
+      { en: "32% — Phes bills the client $80/hr on Move In / Move Out", es: "32% — Phes factura $80/hr al cliente" },
+      { en: "$20/hr — same as commercial", es: "$20/hr — igual que comercial" },
+      { en: "Determined by the office case-by-case", es: "Decidido por la oficina caso por caso" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-05-comm-split-200",
+    moduleId: "compensation",
+    prompt: { en: "You and a partner complete a $200 Standard Clean together with the same check-in time. How much commission does each of you earn?", es: "Tú y un compañero completan una Limpieza Estándar de $200 juntos con el mismo tiempo de Check In. ¿Cuánta comisión gana cada uno?" },
     options: [
       { en: "$70 each (35% each)", es: "$70 c/u (35% c/u)" },
       { en: "$50 each", es: "$50 c/u" },
@@ -1267,323 +1052,676 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 2,
   },
   {
-    id: "q-commercial-early",
+    id: "q-cm-06-deep-split-300",
     moduleId: "compensation",
-    prompt: {
-      en: "Your commercial job is assigned 3 hours. You finish the visible work in 1.5 hours and start uploading the completion photos. What's the problem?",
-      es: "Tu trabajo comercial tiene 3 horas asignadas. Terminas el trabajo visible en 1.5 horas y empiezas a subir las fotos de finalización. ¿Cuál es el problema?",
-    },
+    prompt: { en: "You and a partner complete a $300 Deep Clean together. The pool rate is 32%. Roughly how much does each of you earn?", es: "Tú y un compañero completan una Limpieza Profunda de $300 juntos. La tarifa es 32%. ¿Aproximadamente cuánto gana cada uno?" },
     options: [
-      { en: "No problem — finishing early is good", es: "No hay problema — terminar temprano es bueno" },
-      { en: "It triggers a red flag — the allotted time is calibrated; call the office before closing the job early", es: "Activa una alerta roja — el tiempo asignado está calibrado; llama a la oficina antes de cerrar temprano" },
-      { en: "You should clock out and leave", es: "Debes hacer clock out e irte" },
-      { en: "You earn extra commission for finishing early", es: "Ganas comisión adicional por terminar temprano" },
+      { en: "$96 each (32% each)", es: "$96 c/u (32% c/u)" },
+      { en: "$48 each (32% pool split two ways)", es: "$48 c/u (el 32% dividido en dos)" },
+      { en: "$52.50 each (35% pool / 2)", es: "$52.50 c/u (35% / 2)" },
+      { en: "$60 each", es: "$60 c/u" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-gps-checkin",
-    moduleId: "maidcentral",
-    prompt: {
-      en: "You just parked half a block from the client's home. When should you Check In on MaidCentral?",
-      es: "Acabas de estacionarte a media cuadra del hogar del cliente. ¿Cuándo debes hacer Check In en MaidCentral?",
-    },
+    id: "q-cm-07-clock-in-difference",
+    moduleId: "compensation",
+    prompt: { en: "You arrive at 9:00 AM and Check In immediately. Your partner Checks In at 9:30 AM. How is the commission split calculated?", es: "Llega a las 9:00 AM y hace Check In de inmediato. Su compañero hace Check In a las 9:30 AM. ¿Cómo se calcula la comisión?" },
     options: [
-      { en: "Right now from your car so you don't forget", es: "Ahora mismo desde tu auto para no olvidar" },
-      { en: "After you walk to the property — at the door, not from your car", es: "Después de caminar hasta la propiedad — en la puerta, no desde tu auto" },
-      { en: "Whenever — GPS is just for show", es: "Cuando sea — el GPS es solo decorativo" },
-      { en: "From home, before leaving for the job", es: "Desde casa, antes de salir al trabajo" },
+      { en: "Always 50/50 — same job, same pay", es: "Siempre 50/50 — mismo trabajo, mismo pago" },
+      { en: "Proportionally by actual minutes on site — your Job Clock shows more time, so you receive a larger share", es: "Proporcional a los minutos reales en sitio — su Reloj de Trabajo muestra más tiempo, recibe mayor porción" },
+      { en: "Whoever Checks Out first earns more", es: "Quien haga Check Out primero gana más" },
+      { en: "The office decides at the end of the week", es: "La oficina decide al final de la semana" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-uniform-forgot",
-    moduleId: "dress-code",
-    prompt: {
-      en: "You wake up and realize your Phes shirt is in the wash. What do you do?",
-      es: "Te despiertas y te das cuenta de que tu camisa Phes está en la lavadora. ¿Qué haces?",
-    },
+    id: "q-cm-08-hourly-overrun",
+    moduleId: "compensation",
+    prompt: { en: "You're an hour into a 3-hour hourly job and you can already tell you won't finish in time. What do you do?", es: "Lleva una hora en un trabajo por hora de 3 horas y ya ve que no terminará a tiempo. ¿Qué hace?" },
     options: [
-      { en: "Wear a similar-looking personal shirt — clients won't notice", es: "Usar una camisa personal parecida — el cliente no se dará cuenta" },
-      { en: "Skip the shirt and go in just a t-shirt", es: "Saltarte la camisa e ir solo en camiseta" },
-      { en: "Contact the office before the job — never show up at a client's home out of uniform", es: "Contactar a la oficina antes del trabajo — nunca presentarse en el hogar de un cliente fuera de uniforme" },
-      { en: "Borrow a uniform from a teammate at the job", es: "Pedir prestado el uniforme a un compañero en el trabajo" },
+      { en: "Wait until the last hour, then call the office", es: "Esperar a la última hora, luego llamar" },
+      { en: "Call the office right away — early, while there's still time to talk to the client gracefully", es: "Llamar a la oficina inmediatamente — temprano, mientras aún hay tiempo de hablar con el cliente con elegancia" },
+      { en: "Skip the easier rooms to fit it in", es: "Saltar las habitaciones más fáciles" },
+      { en: "Just leave the job incomplete — they'll figure it out", es: "Dejar el trabajo incompleto" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-09-commercial-rate",
+    moduleId: "compensation",
+    prompt: { en: "What is the pay structure for a commercial cleaning job?", es: "¿Cuál es la estructura de pago de un trabajo comercial?" },
+    options: [
+      { en: "32% commission of job total", es: "32% de comisión del total" },
+      { en: "35% commission of job total", es: "35% de comisión del total" },
+      { en: "$20/hr × allowed hours assigned", es: "$20/hr × horas asignadas" },
+      { en: "Same as residential — depends on service type", es: "Igual que residencial — depende del tipo de servicio" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-supplies-left",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You arrive at your second job of the day and realize you left your supply bag at the previous client's home. What do you do?",
-      es: "Llegas a tu segundo trabajo del día y te das cuenta de que dejaste tu bolsa de suministros en el hogar del cliente anterior. ¿Qué haces?",
-    },
+    id: "q-cm-10-commercial-early",
+    moduleId: "compensation",
+    prompt: { en: "Your commercial job is assigned 3 allowed hours. You finish what you can see in 1.5 hours. What do you do BEFORE uploading completion photos?", es: "Su trabajo comercial tiene 3 horas asignadas. Termina lo visible en 1.5 horas. ¿Qué hace ANTES de subir las fotos?" },
     options: [
-      { en: "Use the client's own products — they'll understand", es: "Usar los productos del cliente — entenderán" },
-      { en: "Call the office immediately — do not proceed without supplies", es: "Llamar a la oficina inmediatamente — no proceder sin suministros" },
-      { en: "Skip the job and drive home", es: "Saltarte el trabajo y manejar a casa" },
-      { en: "Try to clean by hand without supplies", es: "Intentar limpiar a mano sin suministros" },
+      { en: "Upload them — finishing early is good", es: "Subirlas — terminar temprano es bueno" },
+      { en: "Call the office to confirm before closing — Prorate Employee Pay can cut your pay if the system thinks you closed early without cause", es: "Llamar a la oficina antes de cerrar — Prorate Employee Pay puede reducir su pago si el sistema piensa que cerró temprano sin causa" },
+      { en: "Just Clock Out for the day", es: "Solo hacer Clock Out del día" },
+      { en: "Sit in the parking lot until 3 hours have passed", es: "Quedarse en el estacionamiento hasta que pasen las 3 horas" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-team-arrival",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You arrive at a client's home five minutes before your assigned partner. The client has given you the door code. What do you do?",
-      es: "Llegas al hogar del cliente cinco minutos antes que tu compañero asignado. El cliente te dio el código de la puerta. ¿Qué haces?",
-    },
+    id: "q-cm-11-fixit",
+    moduleId: "compensation",
+    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job. How is the returning team paid?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer. ¿Cómo se le paga al equipo que regresa?" },
     options: [
-      { en: "Go in and start working — get a head start", es: "Entrar y empezar a trabajar — adelantar trabajo" },
-      { en: "Wait outside for your partner — you enter together as a team", es: "Esperar afuera a tu compañero — entran juntos como equipo" },
-      { en: "Knock once, then enter alone if no one answers", es: "Tocar una vez, luego entrar solo si nadie responde" },
-      { en: "Call the office to ask permission to enter alone", es: "Llamar a la oficina para pedir permiso de entrar solo" },
+      { en: "Not paid — Fix-It is on the tech who did the original job", es: "Sin pago — Fix-It es por cuenta del técnico original" },
+      { en: "Paid normally — Phes covers the labor; we never refuse a guarantee call", es: "Pago normal — Phes cubre la mano de obra; nunca rechazamos una llamada de garantía" },
+      { en: "Half pay — Fix-It is a partial credit", es: "Medio pago — Fix-It es un crédito parcial" },
+      { en: "Cash bonus on top of regular pay", es: "Bono en efectivo sobre el pago regular" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sick-tomorrow",
-    moduleId: "attendance",
-    prompt: {
-      en: "You're feeling sick tonight and won't be able to work tomorrow. What is the right way to report it?",
-      es: "Te sientes mal esta noche y no podrás trabajar mañana. ¿Cuál es la forma correcta de reportarlo?",
-    },
+    id: "q-cm-12-quality-probation",
+    moduleId: "compensation",
+    prompt: { en: "What triggers Quality Probation?", es: "¿Qué activa el Periodo de Prueba de Calidad?" },
     options: [
-      { en: "Text your manager", es: "Enviar mensaje a tu gerente" },
-      { en: "Call the office in the morning when you should be at work", es: "Llamar a la oficina en la mañana cuando deberías estar en el trabajo" },
-      { en: "Submit a sick request through MaidCentral / Qleno — through the system", es: "Enviar una solicitud por enfermedad a través de MaidCentral / Qleno — a través del sistema" },
-      { en: "Just don't show up — they'll figure it out", es: "Simplemente no presentarse — ya lo entenderán" },
+      { en: "1 client complaint in any 30 days", es: "1 queja en cualquier 30 días" },
+      { en: "2 client complaints in any 30-day window", es: "2 quejas en cualquier ventana de 30 días" },
+      { en: "5 complaints in a year", es: "5 quejas en un año" },
+      { en: "Any negative review online", es: "Cualquier reseña negativa en línea" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-13-probation-pay",
+    moduleId: "compensation",
+    prompt: { en: "You're on Quality Probation. What's your pay structure during the 30 days?", es: "Está en Periodo de Prueba. ¿Cuál es su estructura de pago durante los 30 días?" },
+    options: [
+      { en: "Normal commission, just no tips", es: "Comisión normal, sin propinas" },
+      { en: "$20/hr training rate, no commission, while you ride along with senior techs", es: "Tarifa de entrenamiento $20/hr, sin comisión, mientras acompaña a técnicos senior" },
+      { en: "Half commission", es: "Media comisión" },
+      { en: "No pay until you complete the probation", es: "Sin pago hasta completar la prueba" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-14-mileage",
+    moduleId: "compensation",
+    prompt: { en: "Which of these is NOT covered by mileage reimbursement?", es: "¿Cuál de estos NO está cubierto por el reembolso de millaje?" },
+    options: [
+      { en: "Driving from Client A's home to Client B's home", es: "Manejar de la casa del Cliente A a la del B" },
+      { en: "Driving back to the office mid-day to swap supplies", es: "Manejar a la oficina a media-tarde para cambiar suministros" },
+      { en: "Driving from your home to your first job of the day (commute)", es: "Manejar de su casa al primer trabajo del día (trayecto)" },
+      { en: "Driving to a Fix-It call", es: "Manejar a una llamada Fix-It" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-pto-request",
-    moduleId: "attendance",
-    prompt: {
-      en: "You want to request PTO for next Friday. What do you do?",
-      es: "Quieres solicitar PTO para el próximo viernes. ¿Qué haces?",
-    },
+    id: "q-cm-15-payroll-cycle",
+    moduleId: "compensation",
+    prompt: { en: "How often is payroll deposited?", es: "¿Con qué frecuencia se deposita la nómina?" },
     options: [
-      { en: "Text your manager directly", es: "Enviar mensaje a tu gerente directamente" },
-      { en: "Submit a PTO request through MaidCentral / Qleno — every time-off request goes through the system", es: "Enviar una solicitud de PTO a través de MaidCentral / Qleno — toda solicitud de tiempo libre pasa por el sistema" },
-      { en: "Call the office on Friday morning", es: "Llamar a la oficina el viernes por la mañana" },
-      { en: "Tell a teammate to relay it for you", es: "Pedir a un compañero que lo transmita por ti" },
+      { en: "Weekly, every Friday", es: "Semanal, cada viernes" },
+      { en: "Biweekly, every other Friday", es: "Quincenal, cada dos viernes" },
+      { en: "Monthly on the 1st", es: "Mensual el día 1" },
+      { en: "Same-day cash at the end of each shift", es: "Efectivo el mismo día al final de cada turno" },
     ],
     correctIndex: 1,
-  },
-  {
-    id: "q-unexcused-fourth",
-    moduleId: "attendance",
-    prompt: {
-      en: "You've already had three unexcused absences this year. What happens if you have a fourth?",
-      es: "Ya has tenido tres ausencias injustificadas este año. ¿Qué sucede si tienes una cuarta?",
-    },
-    options: [
-      { en: "Coaching conversation", es: "Conversación de orientación" },
-      { en: "Written warning", es: "Advertencia por escrito" },
-      { en: "Final warning", es: "Última advertencia" },
-      { en: "Immediate termination", es: "Terminación inmediata" },
-    ],
-    correctIndex: 2,
   },
 
-  // ── Speed-cleaning / Sardone framework scenarios ───────────────────────────
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 3: CLEANING BEST PRACTICES (15 questions)
+  // ═════════════════════════════════════════════════════════════════════════════
   {
-    id: "q-sardone-direction",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You're cleaning a bathroom. What does \"top to bottom, left to right\" mean in practice?",
-      es: "Estás limpiando un baño. ¿Qué significa \"de arriba hacia abajo, de izquierda a derecha\" en la práctica?",
-    },
+    id: "q-cb-01-room-flow",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You arrive at a client's home for a standard clean. Which room do you start in?", es: "Llega al hogar de un cliente para una limpieza estándar. ¿En qué habitación empieza?" },
     options: [
-      { en: "Clean wherever looks dirtiest first", es: "Limpiar donde se vea más sucio primero" },
-      { en: "Start at the highest point and move in one consistent direction so you never re-contaminate a surface you already cleaned", es: "Empezar en el punto más alto y moverse en una dirección consistente para no volver a contaminar superficies ya limpiadas" },
-      { en: "Floors first, then mirrors, then walls", es: "Pisos primero, luego espejos, luego paredes" },
-      { en: "Whichever direction your dominant hand prefers", es: "La dirección que prefiera tu mano dominante" },
+      { en: "The kitchen — it's the dirtiest", es: "La cocina — es la más sucia" },
+      { en: "The room farthest from the entrance, working back toward the door", es: "La habitación más lejana de la entrada, trabajando hacia la puerta" },
+      { en: "Whichever room the client is not currently in", es: "La habitación donde el cliente no esté en ese momento" },
+      { en: "The bathroom — to give chemicals time to sit", es: "El baño — para que los químicos tengan tiempo de actuar" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sardone-dwell",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "Why do we spray a surface and then move to another task in the same room before wiping?",
-      es: "¿Por qué rociamos una superficie y luego pasamos a otra tarea en la misma habitación antes de limpiar?",
-    },
+    id: "q-cb-02-room-order",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You're cleaning a bedroom. In what order do you work the surfaces?", es: "Está limpiando un dormitorio. ¿En qué orden trabaja las superficies?" },
+    options: [
+      { en: "Floors first so they dry while you do the rest", es: "Pisos primero para que se sequen mientras hace el resto" },
+      { en: "Whatever the client prefers", es: "Lo que el cliente prefiera" },
+      { en: "Top to bottom — vents, shelves, then baseboards and floor last", es: "De arriba hacia abajo — rejillas, estantes, luego rodapiés y piso al final" },
+      { en: "Side to side — order doesn't matter", es: "De un lado al otro — el orden no importa" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-cb-03-direction",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You're cleaning a bathroom. What does 'top to bottom, left to right' mean in practice?", es: "Está limpiando un baño. ¿Qué significa 'de arriba hacia abajo, de izquierda a derecha' en la práctica?" },
+    options: [
+      { en: "Clean wherever looks dirtiest first", es: "Limpiar donde se vea más sucio primero" },
+      { en: "Start at the highest point and move in one consistent direction so you never re-contaminate a clean surface", es: "Empezar en el punto más alto y moverse en una dirección consistente para no contaminar de nuevo una superficie ya limpia" },
+      { en: "Floors first, then mirrors, then walls", es: "Pisos primero, luego espejos, luego paredes" },
+      { en: "Whichever direction your dominant hand prefers", es: "La dirección que prefiera su mano dominante" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-04-dwell",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "Why do we spray a surface and then move to another task in the same room before wiping?", es: "¿Por qué rociamos una superficie y pasamos a otra tarea en la misma habitación antes de limpiar?" },
     options: [
       { en: "To stretch the job to the assigned time", es: "Para estirar el trabajo al tiempo asignado" },
-      { en: "To let the product dwell and do its work — when we come back, it wipes clean faster and more effectively", es: "Para dejar que el producto repose y haga su trabajo — al regresar, se limpia más rápido y con mayor efectividad" },
+      { en: "To let the product dwell and do its work — when we come back, it wipes off faster and more effectively", es: "Para dejar que el producto repose y haga su trabajo — al regresar, se limpia más rápido y mejor" },
       { en: "Because the chemical needs sunlight to activate", es: "Porque el químico necesita luz solar para activarse" },
       { en: "To avoid breathing in the spray", es: "Para no respirar el rociador" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sardone-load",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You enter a bathroom and realize your glass cleaner is back in the hallway. What should you have done?",
-      es: "Entras al baño y te das cuenta de que tu limpiador de vidrio quedó en el pasillo. ¿Qué deberías haber hecho?",
-    },
+    id: "q-cb-05-load-caddy",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You enter a bathroom and realize your glass cleaner is back in the hallway. What should you have done?", es: "Entra al baño y se da cuenta que su limpiador de vidrio quedó en el pasillo. ¿Qué debería haber hecho?" },
     options: [
       { en: "Make a quick trip back — no big deal", es: "Hacer un viaje rápido — no es gran cosa" },
-      { en: "Loaded your caddy completely before entering the room — every cloth, every product, in one trip", es: "Cargar tu portasuministros completamente antes de entrar — cada paño, cada producto, en un solo viaje" },
-      { en: "Skip the mirror — use only what you have", es: "Saltarte el espejo — usar solo lo que tengas" },
-      { en: "Ask the client to lend you cleaner", es: "Pedirle al cliente que te preste limpiador" },
+      { en: "Loaded your caddy completely before entering — every cloth, every product, in one trip", es: "Cargar el portasuministros completamente antes de entrar — cada paño, cada producto, en un solo viaje" },
+      { en: "Skip the mirror — use only what you have", es: "Saltarse el espejo — usar solo lo que tenga" },
+      { en: "Ask the client to lend you cleaner", es: "Pedirle al cliente que le preste limpiador" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sardone-spattern",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "What's the correct wiping pattern for mirrors and glass?",
-      es: "¿Cuál es el patrón correcto para limpiar espejos y vidrio?",
-    },
+    id: "q-cb-06-spattern",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "What's the correct wiping pattern for mirrors and glass?", es: "¿Cuál es el patrón correcto para limpiar espejos y vidrio?" },
     options: [
       { en: "Tight circular motions — they cover the most surface", es: "Movimientos circulares apretados — cubren más superficie" },
       { en: "Up-and-down only", es: "Solo de arriba hacia abajo" },
-      { en: "S-pattern — circular motions leave streaks; the S-pattern lifts dirt cleanly", es: "Patrón en S — los movimientos circulares dejan rayas; el patrón en S levanta la suciedad limpiamente" },
+      { en: "S-pattern — circular motions leave streaks; the S-pattern lifts dirt cleanly", es: "Patrón en S — los círculos dejan rayas; la S levanta la suciedad limpiamente" },
       { en: "Whatever pattern feels natural", es: "Cualquier patrón que se sienta natural" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-sardone-backout",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "You just finished mopping the kitchen floor. How do you leave the room?",
-      es: "Acabas de terminar de trapear el piso de la cocina. ¿Cómo sales de la habitación?",
-    },
+    id: "q-cb-07-backout-mop",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You just finished mopping the kitchen floor. How do you leave the room?", es: "Acaba de terminar de trapear el piso de la cocina. ¿Cómo sale de la habitación?" },
     options: [
-      { en: "Walk straight out the same way you came in", es: "Salir caminando recto por donde entraste" },
-      { en: "Back out — never walk on a freshly mopped floor or you'll leave footprints", es: "Salir de espaldas — nunca camines sobre un piso recién trapeado o dejarás huellas" },
-      { en: "Wait inside the room for the floor to dry", es: "Esperar dentro de la habitación a que el piso se seque" },
+      { en: "Walk straight out the same way you came in", es: "Salir caminando recto por donde entró" },
+      { en: "Back out — never walk on a freshly mopped floor or you'll leave footprints", es: "Salir de espaldas — nunca camine sobre piso recién trapeado o dejará huellas" },
+      { en: "Wait inside until the floor dries", es: "Esperar dentro hasta que el piso se seque" },
       { en: "Open a window first, then walk out", es: "Abrir una ventana primero, luego salir" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sardone-standard",
-    moduleId: "cleaning-standards",
-    prompt: {
-      en: "What does \"clean to a standard, not to a time\" mean?",
-      es: "¿Qué significa \"limpiar a un estándar, no a un tiempo\"?",
-    },
+    id: "q-cb-08-standard-not-time",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "What does 'clean to a standard, not to a time' mean?", es: "¿Qué significa 'limpiar a un estándar, no a un tiempo'?" },
     options: [
-      { en: "Take as long as you want — time doesn't matter", es: "Tomar el tiempo que quieras — el tiempo no importa" },
-      { en: "Don't rush. Finish the job correctly. Efficiency comes from the technique, not from cutting corners.", es: "No te apresures. Termina el trabajo correctamente. La eficiencia viene de la técnica, no de tomar atajos." },
+      { en: "Take as long as you want — time doesn't matter", es: "Tomar el tiempo que quiera — el tiempo no importa" },
+      { en: "Don't rush. Finish the job correctly. Efficiency comes from technique, not from cutting corners.", es: "No se apresure. Termine correctamente. La eficiencia viene de la técnica, no de tomar atajos." },
       { en: "Clean only the visible dirty spots", es: "Limpiar solo las manchas visibles" },
-      { en: "Skip surfaces that look already clean", es: "Saltarte superficies que ya se vean limpias" },
+      { en: "Skip surfaces that look already clean", es: "Saltarse superficies que ya se vean limpias" },
     ],
     correctIndex: 1,
   },
-
-  // ── MaidCentral two-clock system, individual clocks, GPS, efficiency, time corrections
   {
-    id: "q-mc-arrive",
-    moduleId: "maidcentral",
-    prompt: {
-      en: "You arrive at a client's home. You already Clocked In for the day at home base. What is the very first thing you do in MaidCentral now?",
-      es: "Llegas al hogar del cliente. Ya hiciste Clock In para el día en la base. ¿Qué es lo primero que haces en MaidCentral ahora?",
-    },
+    id: "q-cb-09-vacuum-before-mop",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "Why do we always vacuum before mopping?", es: "¿Por qué siempre aspiramos antes de trapear?" },
     options: [
-      { en: "Clock In again", es: "Hacer Clock In otra vez" },
-      { en: "Check In on the specific job — your Day Clock keeps running", es: "Hacer Check In en el trabajo específico — tu Reloj de Día sigue corriendo" },
-      { en: "Open the Worksheet — Check In can wait until you finish", es: "Abrir la Hoja de Trabajo — el Check In puede esperar a que termines" },
+      { en: "Because the vacuum is louder — get the loud thing out of the way", es: "Porque la aspiradora es más ruidosa — sacar el ruido primero" },
+      { en: "Mopping a dusty floor smears the dust into a film instead of removing it", es: "Trapear un piso con polvo lo esparce en una capa en lugar de removerlo" },
+      { en: "It saves vacuum batteries", es: "Ahorra batería de la aspiradora" },
+      { en: "It doesn't matter which order — preference only", es: "El orden no importa — solo es preferencia" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-10-team-arrival",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You arrive at a client's home five minutes before your partner. The client has given you the door code. What do you do?", es: "Llega al hogar del cliente cinco minutos antes que su compañero. El cliente le dio el código de la puerta. ¿Qué hace?" },
+    options: [
+      { en: "Go in and start working — get a head start", es: "Entra y empieza a trabajar — adelantar trabajo" },
+      { en: "Wait outside for your partner — you enter together as a team", es: "Esperar afuera a su compañero — entran juntos como equipo" },
+      { en: "Knock once, then enter alone if no one answers", es: "Tocar una vez, luego entrar solo" },
+      { en: "Call the office to ask permission to enter alone", es: "Llamar a la oficina para pedir permiso de entrar solo" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-11-supplies-left",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You arrive at your second job and realize you left your supply bag at the previous client's home. What do you do?", es: "Llega a su segundo trabajo y se da cuenta que dejó la bolsa de suministros en la casa anterior. ¿Qué hace?" },
+    options: [
+      { en: "Use the client's own products — they'll understand", es: "Usar los productos del cliente — entenderán" },
+      { en: "Call the office immediately — do not proceed without supplies", es: "Llamar a la oficina inmediatamente — no proceder sin suministros" },
+      { en: "Skip the job and drive home", es: "Saltarse el trabajo y manejar a casa" },
+      { en: "Try to clean by hand without supplies", es: "Intentar limpiar a mano sin suministros" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-12-color-cloths",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "Which color cloth do you use for the kitchen counters?", es: "¿Qué color de paño usa para los mostradores de cocina?" },
+    options: [
+      { en: "Yellow", es: "Amarillo" },
+      { en: "Blue", es: "Azul" },
+      { en: "Green", es: "Verde" },
+      { en: "White", es: "Blanco" },
+    ],
+    correctIndex: 0,
+  },
+  {
+    id: "q-cb-13-two-hand",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "What does 'two-hand technique' mean while cleaning?", es: "¿Qué significa la 'técnica de dos manos' al limpiar?" },
+    options: [
+      { en: "Using two cloths in one hand to cover more area", es: "Usar dos paños en una mano para cubrir más" },
+      { en: "Wet cloth in one hand, dry cloth or spray bottle in the other — both hands working at once", es: "Paño húmedo en una mano, paño seco o atomizador en la otra — ambas manos trabajando a la vez" },
+      { en: "Trading off cleaning duties with your partner every 5 minutes", es: "Intercambiar tareas con su compañero cada 5 minutos" },
+      { en: "Always carrying the supply bag with both hands", es: "Siempre cargar la bolsa con ambas manos" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-14-dont-backtrack",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "You finished cleaning the upper cabinets, then notice a smudge while cleaning lower cabinets. What's the right move?", es: "Terminó los gabinetes superiores, luego nota una mancha al limpiar los inferiores. ¿Cuál es la acción correcta?" },
+    options: [
+      { en: "Stop the lower cabinet, go back to the upper, fix it, then return", es: "Pare el inferior, regrese al superior, corrija, luego regrese" },
+      { en: "Finish the lower cabinet first, then go back. Backtracking adds time and breaks the flow — you'll often miss spots elsewhere when you do it.", es: "Termine el inferior primero, luego regrese. Regresar añade tiempo y rompe el flujo — frecuentemente se pierde otras manchas al hacerlo." },
+      { en: "Skip the smudge — you finished that cabinet already", es: "Saltarse la mancha — ya terminó ese gabinete" },
+      { en: "Ask your partner to handle the upper", es: "Pedir a su compañero que limpie el superior" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cb-15-conflict-worksheet-note",
+    moduleId: "cleaning-best-practices",
+    prompt: { en: "The Worksheet says 'vacuum all rugs' but the client note says 'don't move the rug under the dining table.' What do you do?", es: "La Hoja de Trabajo dice 'aspirar todas las alfombras' pero la nota del cliente dice 'no mueva la alfombra bajo la mesa del comedor.' ¿Qué hace?" },
+    options: [
+      { en: "Vacuum every rug — the standard scope wins", es: "Aspirar cada alfombra — el alcance estándar gana" },
+      { en: "Skip vacuuming completely — instructions conflict", es: "No aspirar nada — las instrucciones se contradicen" },
+      { en: "Follow the client note — leave the dining-table rug alone, vacuum the rest", es: "Seguir la nota del cliente — deja la alfombra del comedor, aspira las demás" },
+      { en: "Ask the client mid-clean which they prefer", es: "Preguntar al cliente durante la limpieza" },
+    ],
+    correctIndex: 2,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 4: MAIDCENTRAL (15 questions)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-mc-01-clock-vs-check",
+    moduleId: "maidcentral",
+    prompt: { en: "You start your workday at 8:00 AM. What's the very first thing you do in MaidCentral?", es: "Comienza su día a las 8:00 AM. ¿Qué es lo primero que hace en MaidCentral?" },
+    options: [
+      { en: "Check In to your first job", es: "Check In en su primer trabajo" },
+      { en: "Clock In for the workday", es: "Clock In para el día de trabajo" },
+      { en: "Open the Job Worksheet for the day", es: "Abrir la Hoja de Trabajo del día" },
       { en: "Submit yesterday's mileage", es: "Enviar el millaje de ayer" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-mc-individual-clocks",
+    id: "q-mc-02-arrive-first-job",
     moduleId: "maidcentral",
-    prompt: {
-      en: "You both arrive at a job at 9:00 AM. You Check In immediately. Your partner stays in their car and doesn't Check In until 9:20 AM. How does pay end up?",
-      es: "Ambos llegan al trabajo a las 9:00 AM. Tú haces Check In inmediatamente. Tu compañero se queda en su auto y no hace Check In hasta las 9:20 AM. ¿Cómo termina el pago?",
-    },
+    prompt: { en: "You arrive at a client's home. You already Clocked In for the day. What do you do now?", es: "Llega al hogar del cliente. Ya hizo Clock In del día. ¿Qué hace ahora?" },
     options: [
-      { en: "It's split 50/50 — same job, same pay", es: "Se divide 50/50 — mismo trabajo, mismo pago" },
-      { en: "MaidCentral averages your times together", es: "MaidCentral promedia los tiempos juntos" },
-      { en: "Your Job Clock shows more time on site, so you receive a higher commission share for that job", es: "Tu Reloj de Trabajo muestra más tiempo en sitio, así que recibes una mayor parte de la comisión por ese trabajo" },
+      { en: "Clock In again", es: "Hacer Clock In otra vez" },
+      { en: "Check In on the specific job — your Day Clock keeps running", es: "Hacer Check In en el trabajo específico — el Reloj de Día sigue corriendo" },
+      { en: "Open the Worksheet — Check In can wait", es: "Abrir la Hoja de Trabajo — el Check In puede esperar" },
+      { en: "Submit yesterday's mileage", es: "Enviar el millaje de ayer" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-03-individual-clocks",
+    moduleId: "maidcentral",
+    prompt: { en: "You both arrive at a job at 9:00 AM. You Check In immediately. Your partner stays in the car and doesn't Check In until 9:20 AM. How is pay calculated?", es: "Ambos llegan a las 9:00 AM. Usted hace Check In de inmediato. Su compañero se queda en el auto hasta las 9:20 AM. ¿Cómo se calcula el pago?" },
+    options: [
+      { en: "Split 50/50 — same job, same pay", es: "Se divide 50/50 — mismo trabajo, mismo pago" },
+      { en: "MaidCentral averages your times together", es: "MaidCentral promedia los tiempos" },
+      { en: "Your Job Clock shows more time on site, so you receive a higher commission share", es: "Su Reloj de Trabajo muestra más tiempo en sitio, recibe mayor parte de la comisión" },
       { en: "Whoever Checks Out first earns more", es: "Quien haga Check Out primero gana más" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-mc-gps-distance",
+    id: "q-mc-04-gps-distance",
     moduleId: "maidcentral",
-    prompt: {
-      en: "You're about to Check In, but you're still in your car parked two blocks away. What should you do?",
-      es: "Estás a punto de hacer Check In, pero aún estás en tu auto estacionado a dos cuadras. ¿Qué debes hacer?",
-    },
+    prompt: { en: "You're about to Check In, but you're still in your car parked two blocks away. What should you do?", es: "Está por hacer Check In, pero aún está en su auto a dos cuadras. ¿Qué debe hacer?" },
     options: [
       { en: "Check In now — close enough", es: "Hacer Check In ahora — está suficientemente cerca" },
-      { en: "Drive to the property and walk to the door — Check In only when you're physically on site", es: "Manejar hasta la propiedad y caminar hasta la puerta — hacer Check In solo cuando estás físicamente en sitio" },
-      { en: "Skip Check In — GPS won't notice", es: "Saltarte el Check In — el GPS no notará" },
-      { en: "Check In from home tomorrow", es: "Hacer Check In desde casa mañana" },
+      { en: "Drive to the property and walk to the door — Check In only when physically on site", es: "Manejar a la propiedad y caminar a la puerta — hacer Check In solo en sitio" },
+      { en: "Skip Check In — GPS won't notice", es: "Saltar Check In — el GPS no notará" },
+      { en: "Check In from home tomorrow", es: "Check In desde casa mañana" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-mc-efficiency",
+    id: "q-mc-05-600-feet",
     moduleId: "maidcentral",
-    prompt: {
-      en: "What is your efficiency score and how is it calculated?",
-      es: "¿Qué es tu puntuación de eficiencia y cómo se calcula?",
-    },
+    prompt: { en: "Approximately how close to the property must you be for MaidCentral to allow Check In?", es: "¿Aproximadamente qué tan cerca debe estar de la propiedad para que MaidCentral permita el Check In?" },
     options: [
-      { en: "Number of jobs completed per day", es: "Número de trabajos completados por día" },
-      { en: "Total Job Clock hours divided by total Day Clock hours — how much of your day was spent actively cleaning", es: "Total de horas de Reloj de Trabajo dividido por el total de horas de Reloj de Día — cuánto de tu día fue limpieza activa" },
-      { en: "Your client satisfaction score average", es: "Tu promedio de satisfacción del cliente" },
-      { en: "Total tips earned divided by hours worked", es: "Total de propinas ganadas dividido por horas trabajadas" },
-    ],
-    correctIndex: 1,
-  },
-  {
-    id: "q-mc-forgot-checkout",
-    moduleId: "maidcentral",
-    prompt: {
-      en: "You realize you forgot to Check Out of your last job two hours ago. What's the right way to fix it?",
-      es: "Te das cuenta de que olvidaste hacer Check Out de tu último trabajo hace dos horas. ¿Cuál es la forma correcta de corregirlo?",
-    },
-    options: [
-      { en: "Text your manager", es: "Enviar mensaje a tu gerente" },
-      { en: "DM the office on Slack", es: "Enviar DM a la oficina en Slack" },
-      { en: "Submit a Clock/Job Change Request through the MaidCentral app — the office reviews and approves", es: "Enviar una solicitud de Clock/Job Change Request a través de MaidCentral — la oficina revisa y aprueba" },
-      { en: "Don't worry about it — payroll will figure it out", es: "No te preocupes — la nómina lo resolverá" },
+      { en: "5 miles", es: "5 millas" },
+      { en: "1 mile", es: "1 milla" },
+      { en: "Within 600 feet", es: "Dentro de 600 pies" },
+      { en: "Anywhere — there's no GPS check", es: "Cualquier lugar — no hay revisión de GPS" },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-mc-travel-pay",
+    id: "q-mc-06-efficiency",
     moduleId: "maidcentral",
-    prompt: {
-      en: "What is travel pay?",
-      es: "¿Qué es el pago de traslado?",
-    },
+    prompt: { en: "What is your efficiency score and how is it calculated?", es: "¿Qué es su puntuación de eficiencia y cómo se calcula?" },
     options: [
-      { en: "A bonus paid for long drives between cities", es: "Un bono que se paga por manejos largos entre ciudades" },
-      { en: "Time when you're Clocked In for the day but NOT Checked Into a job — covers drive time between client homes", es: "Tiempo en que estás con Clock In del día pero NO con Check In en un trabajo — cubre el tiempo de manejo entre hogares" },
-      { en: "Reimbursement for gas only", es: "Reembolso solo de gasolina" },
-      { en: "Pay for going to and from your home each day", es: "Pago por ir desde y hacia tu casa cada día" },
+      { en: "Number of jobs completed per day", es: "Número de trabajos completados por día" },
+      { en: "Total Job Clock hours divided by total Day Clock hours — how much of your day was spent actively cleaning", es: "Total horas Reloj de Trabajo dividido por total Reloj de Día — cuánto del día fue limpieza activa" },
+      { en: "Your client satisfaction score average", es: "Su promedio de satisfacción del cliente" },
+      { en: "Total tips earned divided by hours worked", es: "Total propinas dividido por horas trabajadas" },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-mc-commercial-1of3",
+    id: "q-mc-07-efficiency-target",
     moduleId: "maidcentral",
-    prompt: {
-      en: "A commercial job is assigned 3 allowed hours. You finish what you can see in 1.5 hours. What should you do BEFORE uploading completion photos?",
-      es: "Un trabajo comercial tiene 3 horas asignadas. Terminas lo visible en 1.5 horas. ¿Qué debes hacer ANTES de subir las fotos de finalización?",
-    },
+    prompt: { en: "What is the Phes target efficiency score?", es: "¿Cuál es la meta de eficiencia de Phes?" },
     options: [
-      { en: "Upload them — finishing early is good", es: "Subirlas — terminar temprano es bueno" },
-      { en: "Call the office to confirm the time before closing the job — Prorate Employee Pay can cut your pay if the system thinks you closed early without cause", es: "Llamar a la oficina para confirmar el tiempo antes de cerrar el trabajo — Prorate Employee Pay puede recortar tu pago si el sistema piensa que cerraste temprano sin causa" },
-      { en: "Just Clock Out for the day", es: "Solo hacer Clock Out del día" },
-      { en: "Sit in the parking lot until 3 hours have passed", es: "Quedarte en el estacionamiento hasta que pasen las 3 horas" },
+      { en: "50%+", es: "50%+" },
+      { en: "60%+", es: "60%+" },
+      { en: "70%+", es: "70%+" },
+      { en: "100%", es: "100%" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-mc-08-forgot-checkout",
+    moduleId: "maidcentral",
+    prompt: { en: "You realize you forgot to Check Out of your last job two hours ago. What's the right way to fix it?", es: "Se da cuenta que olvidó hacer Check Out hace dos horas. ¿Cómo lo corrige?" },
+    options: [
+      { en: "Text your manager", es: "Mensaje al gerente" },
+      { en: "DM the office on Slack", es: "DM a la oficina en Slack" },
+      { en: "Submit a Clock/Job Change Request through MaidCentral — the office reviews and approves", es: "Enviar Clock/Job Change Request en MaidCentral — la oficina revisa y aprueba" },
+      { en: "Don't worry — payroll will figure it out", es: "No preocuparse — la nómina lo resolverá" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-mc-09-travel-pay",
+    moduleId: "maidcentral",
+    prompt: { en: "What is travel pay?", es: "¿Qué es el pago de traslado?" },
+    options: [
+      { en: "A bonus paid for long drives between cities", es: "Un bono por manejos largos entre ciudades" },
+      { en: "Time when you're Clocked In for the day but NOT Checked Into a job — covers drive time between client homes", es: "Tiempo en que está con Clock In del día pero NO con Check In en un trabajo — cubre traslado entre hogares" },
+      { en: "Reimbursement for gas only", es: "Reembolso solo de gasolina" },
+      { en: "Pay for going to and from your home each day", es: "Pago por ir y venir de su casa cada día" },
     ],
     correctIndex: 1,
+  },
+  {
+    id: "q-mc-10-commute-not-paid",
+    moduleId: "maidcentral",
+    prompt: { en: "Is the drive from your home to your first job of the day paid as travel pay?", es: "¿El manejo de su casa al primer trabajo del día se paga como travel pay?" },
+    options: [
+      { en: "Yes — any drive once Clocked In is paid", es: "Sí — cualquier manejo después de Clock In se paga" },
+      { en: "No — that's commute, not travel. Travel pay covers drives BETWEEN client homes only.", es: "No — es trayecto, no traslado. Travel pay cubre manejos ENTRE hogares de clientes." },
+      { en: "Only if you live more than 30 miles away", es: "Solo si vive a más de 30 millas" },
+      { en: "Yes if you Clock In before leaving home", es: "Sí si hace Clock In antes de salir de casa" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-11-end-of-day",
+    moduleId: "maidcentral",
+    prompt: { en: "You finish your last job of the day. What's the correct order of actions?", es: "Termina su último trabajo del día. ¿Cuál es el orden correcto?" },
+    options: [
+      { en: "Clock Out, then Check Out of the job", es: "Clock Out, luego Check Out del trabajo" },
+      { en: "Check Out of the job, then Clock Out for the day", es: "Check Out del trabajo, luego Clock Out del día" },
+      { en: "Just Clock Out — Check Out happens automatically", es: "Solo Clock Out — el Check Out se hace solo" },
+      { en: "Order doesn't matter", es: "El orden no importa" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-12-conflict-note",
+    moduleId: "maidcentral",
+    prompt: { en: "The Worksheet and a client note give different instructions for the same item. Who wins?", es: "La Hoja de Trabajo y una nota del cliente dan instrucciones diferentes. ¿Cuál gana?" },
+    options: [
+      { en: "Worksheet always wins — it's the standard scope", es: "Hoja de Trabajo siempre gana — es el alcance estándar" },
+      { en: "Client note wins on the specific item; the rest of the Worksheet still applies", es: "La nota del cliente gana en lo específico; el resto de la Hoja sigue aplicando" },
+      { en: "Whichever you read first", es: "La que lea primero" },
+      { en: "Ask the client mid-clean", es: "Preguntar al cliente durante la limpieza" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-13-commercial-finished-early",
+    moduleId: "maidcentral",
+    prompt: { en: "Your commercial job is assigned 3 hours. You finish in 1.5 hours. What do you do BEFORE uploading completion photos?", es: "Su trabajo comercial tiene 3 horas asignadas. Termina en 1.5 horas. ¿Qué hace ANTES de subir fotos?" },
+    options: [
+      { en: "Upload them — finishing early is good", es: "Subirlas — terminar temprano es bueno" },
+      { en: "Call the office to confirm before closing — Prorate Employee Pay can cut your pay if it looks like you closed early without cause", es: "Llamar a la oficina antes de cerrar — Prorate Employee Pay puede reducir su pago" },
+      { en: "Just Clock Out for the day", es: "Solo Clock Out del día" },
+      { en: "Sit in the parking lot until 3 hours have passed", es: "Quedarse en el estacionamiento hasta que pasen las 3 horas" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-14-qleno-coming",
+    moduleId: "maidcentral",
+    prompt: { en: "What is Qleno's relationship to MaidCentral at Phes?", es: "¿Cuál es la relación de Qleno con MaidCentral en Phes?" },
+    options: [
+      { en: "Qleno is a separate company unrelated to Phes", es: "Qleno es una compañía aparte sin relación con Phes" },
+      { en: "Qleno is the company's own platform that will replace MaidCentral over the next several months", es: "Qleno es la plataforma propia de la compañía que reemplazará a MaidCentral en los próximos meses" },
+      { en: "Qleno is a backup app for emergencies only", es: "Qleno es una app de respaldo solo para emergencias" },
+      { en: "Qleno is a customer-facing booking site only", es: "Qleno es solo un sitio de reservas para clientes" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-15-day-clock-running",
+    moduleId: "maidcentral",
+    prompt: { en: "Between Job A and Job B, you stop for gas and lunch. Are you on the Day Clock?", es: "Entre el Trabajo A y B, para por gasolina y almuerzo. ¿Está con Clock In del día?" },
+    options: [
+      { en: "Day Clock paused — only running while at jobs", es: "El Reloj de Día se pausa — solo corre durante trabajos" },
+      { en: "Yes — Day Clock keeps running. Lunch is unpaid only if you Clock Out and back In; gas during travel is paid travel time.", es: "Sí — el Reloj de Día sigue corriendo. El almuerzo es sin pago solo si hace Clock Out y back In; la gasolina durante el traslado se paga." },
+      { en: "Day Clock pauses automatically when you stop driving", es: "El Reloj de Día se pausa automáticamente cuando deja de manejar" },
+      { en: "It depends on the length of the stop", es: "Depende de la duración de la parada" },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 5: PRODUCTS & TOOLS (15 questions)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-pt-01-granite",
+    moduleId: "products-tools",
+    prompt: { en: "You're about to wipe a granite kitchen countertop. Which product should you NEVER use on it?", es: "Está por limpiar un mostrador de granito. ¿Qué producto NUNCA debe usar?" },
+    options: [
+      { en: "Mr. Clean with Febreze on a yellow cloth", es: "Mr. Clean con Febreze en paño amarillo" },
+      { en: "A damp microfiber cloth with water", es: "Paño de microfibra húmedo con agua" },
+      { en: "Bar Keepers Friend Liquid", es: "Bar Keepers Friend Líquido" },
+      { en: "Diluted Simple Green at 1:30", es: "Simple Green diluido a 1:30" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-02-mop",
+    moduleId: "products-tools",
+    prompt: { en: "You're about to mop a hardwood floor with the OCedar Deep Clean Mop. What do you do first?", es: "Está por trapear un piso de madera con el OCedar Deep Clean Mop. ¿Qué hace primero?" },
+    options: [
+      { en: "Soak the mop fully so it cleans deeper", es: "Empapar el trapeador para limpiar más profundo" },
+      { en: "Wring the mop thoroughly so it's damp, not soaked", es: "Escurrir bien para que esté húmedo, no empapado" },
+      { en: "Spray the cleaner directly on the floor", es: "Rociar el limpiador directamente al piso" },
+      { en: "Use the mop dry — water can warp wood", es: "Usar el trapeador seco — el agua deforma la madera" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-03-glass",
+    moduleId: "products-tools",
+    prompt: { en: "You need to clean a bathroom mirror. Where do you spray the Ecolab glass cleaner?", es: "Necesita limpiar un espejo del baño. ¿Dónde rocía el limpiador de vidrio Ecolab?" },
+    options: [
+      { en: "Directly on the mirror, then wipe in circles", es: "Directamente al espejo, luego en círculos" },
+      { en: "On a yellow cloth, then wipe", es: "En paño amarillo, luego limpiar" },
+      { en: "On a blue microfiber cloth, then wipe in S-pattern", es: "En paño de microfibra azul, luego patrón en S" },
+      { en: "On the floor first, so it doesn't drip", es: "Al piso primero, para que no gotee" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-04-simplegreen",
+    moduleId: "products-tools",
+    prompt: { en: "You're prepping Simple Green for light surface cleaning. What's the right dilution?", es: "Está preparando Simple Green para limpieza ligera. ¿Cuál es la dilución correcta?" },
+    options: [
+      { en: "Full strength — Simple Green is always full strength", es: "Fuerza total — Simple Green siempre va a fuerza total" },
+      { en: "1:10", es: "1:10" },
+      { en: "1:30", es: "1:30" },
+      { en: "1:100", es: "1:100" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-05-zep-bleach",
+    moduleId: "products-tools",
+    prompt: { en: "You're using Zep Mold & Mildew Stain Remover in a bathroom. Which product MUST you NOT mix it with?", es: "Está usando Zep Mold & Mildew Stain Remover en un baño. ¿Con qué producto NUNCA debe mezclarlo?" },
+    options: [
+      { en: "Soap and water", es: "Jabón y agua" },
+      { en: "Bar Keepers Friend", es: "Bar Keepers Friend" },
+      { en: "Ammonia-based products like Windex (creates toxic fumes)", es: "Productos con amoníaco como Windex (genera gases tóxicos)" },
+      { en: "Pumice stone", es: "Piedra pómez" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-06-zep-fabric",
+    moduleId: "products-tools",
+    prompt: { en: "You're spraying Zep Mold & Mildew on shower caulk. The client's blue bath mat is a few feet away. What's the risk?", es: "Está rociando Zep Mold & Mildew en el sellador de la ducha. El tapete azul del cliente está a pocos pies. ¿Cuál es el riesgo?" },
+    options: [
+      { en: "No risk — Zep is safe on fabrics", es: "Sin riesgo — Zep es seguro en telas" },
+      { en: "Zep contains bleach — overspray on a colored bath mat will permanently bleach it. Move the mat first.", es: "Zep contiene cloro — la sobreaspersión en un tapete de color lo decolorará permanentemente. Mueva el tapete primero." },
+      { en: "It will only stain dark fabrics", es: "Solo manchará telas oscuras" },
+      { en: "It evaporates before reaching the mat", es: "Se evapora antes de llegar al tapete" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-07-magic-eraser-paint",
+    moduleId: "products-tools",
+    prompt: { en: "The client asks you to remove a small scuff from a matte-painted living room wall. What do you do?", es: "El cliente le pide remover una marca pequeña de una pared de sala con pintura mate. ¿Qué hace?" },
+    options: [
+      { en: "Use a Magic Eraser with firm pressure to remove it fully", es: "Usar Borrador Mágico con presión firme para removerla completamente" },
+      { en: "Test the Magic Eraser in an inconspicuous spot first; on matte paint it can DULL the finish and leave a visibly cleaner spot — sometimes leave a small scuff alone, or note for the office", es: "Probar el Borrador Mágico en un lugar discreto primero; en pintura mate puede DAÑAR el acabado y dejar una mancha visiblemente más limpia — a veces dejar la marca, o anotar para la oficina" },
+      { en: "Use #0000 steel wool", es: "Usar lana de acero #0000" },
+      { en: "Wipe it with Bar Keepers Friend", es: "Limpiar con Bar Keepers Friend" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-08-magic-eraser-glass",
+    moduleId: "products-tools",
+    prompt: { en: "Where IS a Magic Eraser a great tool to use?", es: "¿Dónde SÍ es buena herramienta el Borrador Mágico?" },
+    options: [
+      { en: "Polished marble countertops", es: "Mostradores de mármol pulido" },
+      { en: "Stainless steel appliance fronts", es: "Frentes de electrodomésticos de acero" },
+      { en: "Soap scum on glass shower doors and scuff marks on baseboards", es: "Sarro en puertas de ducha de vidrio y marcas en rodapiés" },
+      { en: "Chrome faucets", es: "Llaves cromadas" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-09-pumice-where",
+    moduleId: "products-tools",
+    prompt: { en: "Where is the ONLY surface where pumice stone is appropriate?", es: "¿Cuál es la ÚNICA superficie apropiada para la piedra pómez?" },
+    options: [
+      { en: "Inside an unsealed white porcelain toilet bowl, on hard-water rings", es: "Dentro de un inodoro de porcelana blanca sin sellar, en anillos de agua dura" },
+      { en: "Fiberglass tubs to remove soap scum", es: "Tinas de fibra de vidrio para sarro" },
+      { en: "Chrome faucets for stuck mineral deposits", es: "Llaves cromadas para depósitos minerales" },
+      { en: "Glass cooktops", es: "Estufas de vidrio" },
+    ],
+    correctIndex: 0,
+  },
+  {
+    id: "q-pt-10-pumice-wet",
+    moduleId: "products-tools",
+    prompt: { en: "Before using a pumice stone, what do you have to do?", es: "Antes de usar piedra pómez, ¿qué debe hacer?" },
+    options: [
+      { en: "Heat it under hot water to soften it", es: "Calentarla con agua caliente para ablandarla" },
+      { en: "Use it dry — water reduces its effectiveness", es: "Usarla seca — el agua reduce su efectividad" },
+      { en: "Wet both the stone AND the surface — dry pumice scratches", es: "Mojar la piedra Y la superficie — la piedra seca raya" },
+      { en: "Coat it in soap first", es: "Cubrirla con jabón primero" },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pt-11-steel-wool-grade",
+    moduleId: "products-tools",
+    prompt: { en: "Phes stocks several steel-wool grades. Which grade is approved for use in client homes?", es: "Phes tiene varios grados de lana de acero. ¿Cuál grado se permite en hogares de clientes?" },
+    options: [
+      { en: "#0 — coarse, removes anything", es: "#0 — gruesa, remueve cualquier cosa" },
+      { en: "#00 — medium", es: "#00 — media" },
+      { en: "#000 — fine", es: "#000 — fina" },
+      { en: "#0000 — extra fine; coarser grades scratch", es: "#0000 — extra fina; grados más gruesos rayan" },
+    ],
+    correctIndex: 3,
+  },
+  {
+    id: "q-pt-12-steel-wool-chrome",
+    moduleId: "products-tools",
+    prompt: { en: "There's a hard mineral deposit on a chrome faucet. Should you use #0000 steel wool to remove it?", es: "Hay un depósito mineral en una llave cromada. ¿Debe usar lana de acero #0000 para removerlo?" },
+    options: [
+      { en: "Yes — #0000 is safe on all metals", es: "Sí — #0000 es segura en todos los metales" },
+      { en: "No — even #0000 dulls chrome on first pass; use Bar Keepers Friend with a soft cloth instead", es: "No — incluso #0000 daña el cromo al primer pase; use Bar Keepers Friend con paño suave" },
+      { en: "Yes — but only with water, no cleaner", es: "Sí — pero solo con agua, sin limpiador" },
+      { en: "Yes — chrome is the right surface for steel wool", es: "Sí — el cromo es la superficie correcta para lana de acero" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-13-cloth-cross",
+    moduleId: "products-tools",
+    prompt: { en: "You're in a bathroom and your green cloth gets dirty. You finish the bathroom and head to the kitchen. Can you keep using the same green cloth?", es: "Está en un baño y su paño verde se ensució. Termina el baño y va a la cocina. ¿Puede seguir usando el mismo paño verde?" },
+    options: [
+      { en: "Yes — green cloths are general-purpose", es: "Sí — los paños verdes son de uso general" },
+      { en: "No — green is bathroom-only. Cross-contamination from a bathroom cloth into a kitchen is a major hygiene fail.", es: "No — el verde es solo para baños. La contaminación cruzada de un paño de baño a la cocina es una falla mayor de higiene." },
+      { en: "Yes if you rinse it", es: "Sí si lo enjuaga" },
+      { en: "Yes if you turn it over to a clean side", es: "Sí si lo voltea al lado limpio" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-14-step-stool",
+    moduleId: "products-tools",
+    prompt: { en: "Before using the company step stool, what's the 3-point check?", es: "Antes de usar el banquito de la compañía, ¿cuál es la revisión de 3 puntos?" },
+    options: [
+      { en: "Color, brand, age", es: "Color, marca, antigüedad" },
+      { en: "Rubber feet present (not worn smooth), hinges fully locked open with no wobble, top platform clean and dry", es: "Patas de goma presentes (no lisas), bisagras totalmente abiertas sin movimiento, plataforma limpia y seca" },
+      { en: "Weight rating, height, manufacture date", es: "Peso máximo, altura, fecha de fabricación" },
+      { en: "It doesn't matter — just use it", es: "No importa — solo úselo" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pt-15-furniture-stand",
+    moduleId: "products-tools",
+    prompt: { en: "You can't reach a high shelf even from the company step stool. What do you do?", es: "No puede alcanzar un estante alto ni con el banquito de la compañía. ¿Qué hace?" },
+    options: [
+      { en: "Stand on a sturdy chair from the dining room", es: "Pararse en una silla firme del comedor" },
+      { en: "Stand on the kitchen counter", es: "Pararse en el mostrador" },
+      { en: "Leave a note for the office and skip the surface — never improvise; never stand on furniture", es: "Dejar una nota para la oficina y saltarse la superficie — nunca improvisar; nunca pararse en muebles" },
+      { en: "Stand on the top step of the step stool", es: "Pararse en el escalón superior del banquito" },
+    ],
+    correctIndex: 2,
   },
 ];
 

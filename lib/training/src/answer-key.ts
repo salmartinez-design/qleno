@@ -16,6 +16,8 @@
  * RULE: any change to a question's correctIndex MUST update both this file
  * and @workspace/lms-curriculum's ANSWER_KEY in the same commit. The
  * drift-sync test will block the merge otherwise.
+ *
+ * Restructure 2026-05-09: 5 modules × 15 quiz questions = 75 entries.
  */
 
 /**
@@ -25,54 +27,90 @@
  * order of keys — it compares the maps as sets of (key, value) pairs.
  */
 export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // welcome
-  "q-scope-oven": 1,
+  // ── Module 1: phes-policies ──────────────────────────────────────────────
+  "q-pp-01-w2": 1,
+  "q-pp-02-guarantee": 2,
+  "q-pp-03-scope-oven": 1,
+  "q-pp-04-bodily-fluids": 1,
+  "q-pp-05-tipping": 1,
+  "q-pp-06-running-late": 2,
+  "q-pp-07-grace-window": 2,
+  "q-pp-08-tardy-progression": 2,
+  "q-pp-09-sick-tomorrow": 2,
+  "q-pp-10-pto-request": 1,
+  "q-pp-11-unexcused-fourth": 2,
+  "q-pp-12-uniform-forgot": 2,
+  "q-pp-13-shoe-covers": 2,
+  "q-pp-14-phone-use": 2,
+  "q-pp-15-photos": 2,
 
-  // attendance
-  "q-running-late": 2,
-  "q-sick-tomorrow": 2,
-  "q-pto-request": 1,
-  "q-unexcused-fourth": 2,
+  // ── Module 2: compensation ───────────────────────────────────────────────
+  "q-cm-01-training-pay": 1,
+  "q-cm-02-standard-rate": 2,
+  "q-cm-03-deep-clean-rate": 1,
+  "q-cm-04-move-in-rate": 1,
+  "q-cm-05-comm-split-200": 2,
+  "q-cm-06-deep-split-300": 1,
+  "q-cm-07-clock-in-difference": 1,
+  "q-cm-08-hourly-overrun": 1,
+  "q-cm-09-commercial-rate": 2,
+  "q-cm-10-commercial-early": 1,
+  "q-cm-11-fixit": 1,
+  "q-cm-12-quality-probation": 1,
+  "q-cm-13-probation-pay": 1,
+  "q-cm-14-mileage": 2,
+  "q-cm-15-payroll-cycle": 1,
 
-  // dress-code
-  "q-shoe-covers": 2,
-  "q-uniform-forgot": 2,
+  // ── Module 3: cleaning-best-practices ────────────────────────────────────
+  "q-cb-01-room-flow": 1,
+  "q-cb-02-room-order": 2,
+  "q-cb-03-direction": 1,
+  "q-cb-04-dwell": 1,
+  "q-cb-05-load-caddy": 1,
+  "q-cb-06-spattern": 2,
+  "q-cb-07-backout-mop": 1,
+  "q-cb-08-standard-not-time": 1,
+  "q-cb-09-vacuum-before-mop": 1,
+  "q-cb-10-team-arrival": 1,
+  "q-cb-11-supplies-left": 1,
+  "q-cb-12-color-cloths": 0,
+  "q-cb-13-two-hand": 1,
+  "q-cb-14-dont-backtrack": 1,
+  "q-cb-15-conflict-worksheet-note": 2,
 
-  // compensation
-  "q-fixit": 2,
-  "q-hourly-overrun": 1,
-  "q-comm-split": 2,
-  "q-commercial-early": 1,
+  // ── Module 4: maidcentral ────────────────────────────────────────────────
+  "q-mc-01-clock-vs-check": 1,
+  "q-mc-02-arrive-first-job": 1,
+  "q-mc-03-individual-clocks": 2,
+  "q-mc-04-gps-distance": 1,
+  "q-mc-05-600-feet": 2,
+  "q-mc-06-efficiency": 1,
+  "q-mc-07-efficiency-target": 2,
+  "q-mc-08-forgot-checkout": 2,
+  "q-mc-09-travel-pay": 1,
+  "q-mc-10-commute-not-paid": 1,
+  "q-mc-11-end-of-day": 1,
+  "q-mc-12-conflict-note": 1,
+  "q-mc-13-commercial-finished-early": 1,
+  "q-mc-14-qleno-coming": 1,
+  "q-mc-15-day-clock-running": 1,
 
-  // cleaning-standards
-  "q-room-flow": 1,
-  "q-room-order": 2,
-  "q-supplies-left": 1,
-  "q-team-arrival": 1,
-  "q-sardone-direction": 1,
-  "q-sardone-dwell": 1,
-  "q-sardone-load": 1,
-  "q-sardone-spattern": 2,
-  "q-sardone-backout": 1,
-  "q-sardone-standard": 1,
-
-  // products-tools
-  "q-products-granite": 2,
-  "q-products-mop": 1,
-  "q-products-glass": 2,
-  "q-products-simplegreen": 2,
-
-  // maidcentral
-  "q-clock-vs-check": 1,
-  "q-tier-conflict": 2,
-  "q-gps-checkin": 1,
-  "q-mc-arrive": 1,
-  "q-mc-individual-clocks": 2,
-  "q-mc-gps-distance": 1,
-  "q-mc-efficiency": 1,
-  "q-mc-forgot-checkout": 2,
-  "q-mc-travel-pay": 1,
-  "q-mc-commercial-1of3": 1,
+  // ── Module 5: products-tools ─────────────────────────────────────────────
+  "q-pt-01-granite": 2,
+  "q-pt-02-mop": 1,
+  "q-pt-03-glass": 2,
+  "q-pt-04-simplegreen": 2,
+  "q-pt-05-zep-bleach": 2,
+  "q-pt-06-zep-fabric": 1,
+  "q-pt-07-magic-eraser-paint": 1,
+  "q-pt-08-magic-eraser-glass": 2,
+  "q-pt-09-pumice-where": 0,
+  "q-pt-10-pumice-wet": 2,
+  "q-pt-11-steel-wool-grade": 3,
+  "q-pt-12-steel-wool-chrome": 1,
+  "q-pt-13-cloth-cross": 1,
+  "q-pt-14-step-stool": 1,
+  "q-pt-15-furniture-stand": 2,
 });
 
 /**

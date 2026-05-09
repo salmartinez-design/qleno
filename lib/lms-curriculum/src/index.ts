@@ -6,8 +6,7 @@
  *
  * What lives here:
  *   - MODULE_ORDER: every module the tech progresses through, in display
- *     order. Includes content-only modules (qleno-app) and the final
- *     acknowledgment module.
+ *     order. Includes the final acknowledgment module.
  *   - QUIZ_MODULE_IDS: the subset of MODULE_ORDER that has graded quizzes.
  *     Modules NOT in this set are content-only (read + acknowledge).
  *   - FINAL_MODULE_ID: the reserved id "__final" for the final mixed test.
@@ -28,6 +27,13 @@
  * `@workspace/training` (lib/training/answer-key.ts). The drift-sync test
  * in api-server enforces they stay identical. If you add or remove a
  * question, update BOTH here and answer-key.ts in the same commit.
+ *
+ * Restructure 2026-05-09:
+ *   5 modules × 15 quiz questions = 75 module questions. Final mixed
+ *   test samples 50 from the pool (FINAL_TEST_SIZE bumped from 15 → 50).
+ *   Old per-module ids ("welcome", "attendance", "dress-code",
+ *   "cleaning-standards", "qleno-app") consolidated into the new 5
+ *   modules.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,17 +41,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export type ModuleId =
-  | "welcome"
-  | "attendance"
-  | "dress-code"
+  | "phes-policies"
   | "compensation"
-  | "cleaning-standards"
-  | "products-tools"
+  | "cleaning-best-practices"
   | "maidcentral"
-  | "qleno-app"
+  | "products-tools"
   | "acknowledgment";
 
-export type QuizModuleId = Exclude<ModuleId, "qleno-app" | "acknowledgment">;
+export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
 
 /** Reserved id for the final mixed test. Not in MODULE_ORDER. */
 export const FINAL_MODULE_ID = "__final" as const;
@@ -62,14 +65,11 @@ export type AnyQuizId = QuizModuleId | FinalModuleId;
  * N is locked until every module before it is in `completedModuleIds`.
  */
 export const MODULE_ORDER: readonly ModuleId[] = [
-  "welcome",
-  "attendance",
-  "dress-code",
+  "phes-policies",
   "compensation",
-  "cleaning-standards",
-  "products-tools",
+  "cleaning-best-practices",
   "maidcentral",
-  "qleno-app",
+  "products-tools",
   "acknowledgment",
 ] as const;
 
@@ -79,13 +79,11 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * POST /lms/quiz/submit.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
-  "welcome",
-  "attendance",
-  "dress-code",
+  "phes-policies",
   "compensation",
-  "cleaning-standards",
-  "products-tools",
+  "cleaning-best-practices",
   "maidcentral",
+  "products-tools",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -95,11 +93,14 @@ export const QUIZ_PASS_THRESHOLD = 0.8;
  * Number of questions sampled for the final mixed test. Drawn at random
  * (without replacement) across every QUIZ_MODULE_IDS. If the curriculum has
  * fewer than this many total questions, the final uses every question.
+ *
+ * Restructure 2026-05-09: bumped from 15 → 50 to reflect the larger
+ * 75-question pool (5 modules × 15 each).
  */
-export const FINAL_TEST_SIZE = 15;
+export const FINAL_TEST_SIZE = 50;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Answer key — generated from artifacts/qleno/src/lib/training/curriculum.ts.
+// Answer key — mirrors artifacts/qleno/src/lib/training/curriculum.ts.
 // Keep in sync with @workspace/training/answer-key.ts (drift-sync test).
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -113,54 +114,90 @@ export const FINAL_TEST_SIZE = 15;
  * compares lms-curriculum to lib/training.
  */
 export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // welcome (1)
-  "q-scope-oven": 1,
+  // ── Module 1: phes-policies (15) ─────────────────────────────────────────
+  "q-pp-01-w2": 1,
+  "q-pp-02-guarantee": 2,
+  "q-pp-03-scope-oven": 1,
+  "q-pp-04-bodily-fluids": 1,
+  "q-pp-05-tipping": 1,
+  "q-pp-06-running-late": 2,
+  "q-pp-07-grace-window": 2,
+  "q-pp-08-tardy-progression": 2,
+  "q-pp-09-sick-tomorrow": 2,
+  "q-pp-10-pto-request": 1,
+  "q-pp-11-unexcused-fourth": 2,
+  "q-pp-12-uniform-forgot": 2,
+  "q-pp-13-shoe-covers": 2,
+  "q-pp-14-phone-use": 2,
+  "q-pp-15-photos": 2,
 
-  // attendance (4)
-  "q-running-late": 2,
-  "q-sick-tomorrow": 2,
-  "q-pto-request": 1,
-  "q-unexcused-fourth": 2,
+  // ── Module 2: compensation (15) ──────────────────────────────────────────
+  "q-cm-01-training-pay": 1,
+  "q-cm-02-standard-rate": 2,
+  "q-cm-03-deep-clean-rate": 1,
+  "q-cm-04-move-in-rate": 1,
+  "q-cm-05-comm-split-200": 2,
+  "q-cm-06-deep-split-300": 1,
+  "q-cm-07-clock-in-difference": 1,
+  "q-cm-08-hourly-overrun": 1,
+  "q-cm-09-commercial-rate": 2,
+  "q-cm-10-commercial-early": 1,
+  "q-cm-11-fixit": 1,
+  "q-cm-12-quality-probation": 1,
+  "q-cm-13-probation-pay": 1,
+  "q-cm-14-mileage": 2,
+  "q-cm-15-payroll-cycle": 1,
 
-  // dress-code (2)
-  "q-shoe-covers": 2,
-  "q-uniform-forgot": 2,
+  // ── Module 3: cleaning-best-practices (15) ───────────────────────────────
+  "q-cb-01-room-flow": 1,
+  "q-cb-02-room-order": 2,
+  "q-cb-03-direction": 1,
+  "q-cb-04-dwell": 1,
+  "q-cb-05-load-caddy": 1,
+  "q-cb-06-spattern": 2,
+  "q-cb-07-backout-mop": 1,
+  "q-cb-08-standard-not-time": 1,
+  "q-cb-09-vacuum-before-mop": 1,
+  "q-cb-10-team-arrival": 1,
+  "q-cb-11-supplies-left": 1,
+  "q-cb-12-color-cloths": 0,
+  "q-cb-13-two-hand": 1,
+  "q-cb-14-dont-backtrack": 1,
+  "q-cb-15-conflict-worksheet-note": 2,
 
-  // compensation (4)
-  "q-fixit": 2,
-  "q-hourly-overrun": 1,
-  "q-comm-split": 2,
-  "q-commercial-early": 1,
+  // ── Module 4: maidcentral (15) ───────────────────────────────────────────
+  "q-mc-01-clock-vs-check": 1,
+  "q-mc-02-arrive-first-job": 1,
+  "q-mc-03-individual-clocks": 2,
+  "q-mc-04-gps-distance": 1,
+  "q-mc-05-600-feet": 2,
+  "q-mc-06-efficiency": 1,
+  "q-mc-07-efficiency-target": 2,
+  "q-mc-08-forgot-checkout": 2,
+  "q-mc-09-travel-pay": 1,
+  "q-mc-10-commute-not-paid": 1,
+  "q-mc-11-end-of-day": 1,
+  "q-mc-12-conflict-note": 1,
+  "q-mc-13-commercial-finished-early": 1,
+  "q-mc-14-qleno-coming": 1,
+  "q-mc-15-day-clock-running": 1,
 
-  // cleaning-standards (10)
-  "q-room-flow": 1,
-  "q-room-order": 2,
-  "q-supplies-left": 1,
-  "q-team-arrival": 1,
-  "q-sardone-direction": 1,
-  "q-sardone-dwell": 1,
-  "q-sardone-load": 1,
-  "q-sardone-spattern": 2,
-  "q-sardone-backout": 1,
-  "q-sardone-standard": 1,
-
-  // products-tools (4)
-  "q-products-granite": 2,
-  "q-products-mop": 1,
-  "q-products-glass": 2,
-  "q-products-simplegreen": 2,
-
-  // maidcentral (10)
-  "q-clock-vs-check": 1,
-  "q-tier-conflict": 2,
-  "q-gps-checkin": 1,
-  "q-mc-arrive": 1,
-  "q-mc-individual-clocks": 2,
-  "q-mc-gps-distance": 1,
-  "q-mc-efficiency": 1,
-  "q-mc-forgot-checkout": 2,
-  "q-mc-travel-pay": 1,
-  "q-mc-commercial-1of3": 1,
+  // ── Module 5: products-tools (15) ────────────────────────────────────────
+  "q-pt-01-granite": 2,
+  "q-pt-02-mop": 1,
+  "q-pt-03-glass": 2,
+  "q-pt-04-simplegreen": 2,
+  "q-pt-05-zep-bleach": 2,
+  "q-pt-06-zep-fabric": 1,
+  "q-pt-07-magic-eraser-paint": 1,
+  "q-pt-08-magic-eraser-glass": 2,
+  "q-pt-09-pumice-where": 0,
+  "q-pt-10-pumice-wet": 2,
+  "q-pt-11-steel-wool-grade": 3,
+  "q-pt-12-steel-wool-chrome": 1,
+  "q-pt-13-cloth-cross": 1,
+  "q-pt-14-step-stool": 1,
+  "q-pt-15-furniture-stand": 2,
 });
 
 /**
@@ -169,49 +206,40 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
  */
 export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[]>> =
   Object.freeze({
-    welcome: ["q-scope-oven"],
-    attendance: [
-      "q-running-late",
-      "q-sick-tomorrow",
-      "q-pto-request",
-      "q-unexcused-fourth",
+    "phes-policies": [
+      "q-pp-01-w2", "q-pp-02-guarantee", "q-pp-03-scope-oven",
+      "q-pp-04-bodily-fluids", "q-pp-05-tipping", "q-pp-06-running-late",
+      "q-pp-07-grace-window", "q-pp-08-tardy-progression", "q-pp-09-sick-tomorrow",
+      "q-pp-10-pto-request", "q-pp-11-unexcused-fourth", "q-pp-12-uniform-forgot",
+      "q-pp-13-shoe-covers", "q-pp-14-phone-use", "q-pp-15-photos",
     ],
-    "dress-code": ["q-shoe-covers", "q-uniform-forgot"],
     compensation: [
-      "q-fixit",
-      "q-hourly-overrun",
-      "q-comm-split",
-      "q-commercial-early",
+      "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
+      "q-cm-04-move-in-rate", "q-cm-05-comm-split-200", "q-cm-06-deep-split-300",
+      "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun", "q-cm-09-commercial-rate",
+      "q-cm-10-commercial-early", "q-cm-11-fixit", "q-cm-12-quality-probation",
+      "q-cm-13-probation-pay", "q-cm-14-mileage", "q-cm-15-payroll-cycle",
     ],
-    "cleaning-standards": [
-      "q-room-flow",
-      "q-room-order",
-      "q-supplies-left",
-      "q-team-arrival",
-      "q-sardone-direction",
-      "q-sardone-dwell",
-      "q-sardone-load",
-      "q-sardone-spattern",
-      "q-sardone-backout",
-      "q-sardone-standard",
-    ],
-    "products-tools": [
-      "q-products-granite",
-      "q-products-mop",
-      "q-products-glass",
-      "q-products-simplegreen",
+    "cleaning-best-practices": [
+      "q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-03-direction",
+      "q-cb-04-dwell", "q-cb-05-load-caddy", "q-cb-06-spattern",
+      "q-cb-07-backout-mop", "q-cb-08-standard-not-time", "q-cb-09-vacuum-before-mop",
+      "q-cb-10-team-arrival", "q-cb-11-supplies-left", "q-cb-12-color-cloths",
+      "q-cb-13-two-hand", "q-cb-14-dont-backtrack", "q-cb-15-conflict-worksheet-note",
     ],
     maidcentral: [
-      "q-clock-vs-check",
-      "q-tier-conflict",
-      "q-gps-checkin",
-      "q-mc-arrive",
-      "q-mc-individual-clocks",
-      "q-mc-gps-distance",
-      "q-mc-efficiency",
-      "q-mc-forgot-checkout",
-      "q-mc-travel-pay",
-      "q-mc-commercial-1of3",
+      "q-mc-01-clock-vs-check", "q-mc-02-arrive-first-job", "q-mc-03-individual-clocks",
+      "q-mc-04-gps-distance", "q-mc-05-600-feet", "q-mc-06-efficiency",
+      "q-mc-07-efficiency-target", "q-mc-08-forgot-checkout", "q-mc-09-travel-pay",
+      "q-mc-10-commute-not-paid", "q-mc-11-end-of-day", "q-mc-12-conflict-note",
+      "q-mc-13-commercial-finished-early", "q-mc-14-qleno-coming", "q-mc-15-day-clock-running",
+    ],
+    "products-tools": [
+      "q-pt-01-granite", "q-pt-02-mop", "q-pt-03-glass",
+      "q-pt-04-simplegreen", "q-pt-05-zep-bleach", "q-pt-06-zep-fabric",
+      "q-pt-07-magic-eraser-paint", "q-pt-08-magic-eraser-glass", "q-pt-09-pumice-where",
+      "q-pt-10-pumice-wet", "q-pt-11-steel-wool-grade", "q-pt-12-steel-wool-chrome",
+      "q-pt-13-cloth-cross", "q-pt-14-step-stool", "q-pt-15-furniture-stand",
     ],
   });
 
