@@ -2389,10 +2389,11 @@ export default function QuoteBuilderPage() {
                         const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
                         const estHrs = s.hours || s.calc?.base_hours || 0;
                         const techCount = selectedTechId ? 1 : 0;
-                        const cs = calculateCommissionSplit(total, estHrs, techCount);
+                        const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
+                        const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
                         return (
                           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
-                            <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Commission (35%)</div>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Commission ({ratePct}%)</div>
                             <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
                               Pool: ${cs.totalCommission.toFixed(2)}
                             </div>
@@ -2423,7 +2424,16 @@ export default function QuoteBuilderPage() {
               const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
               const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.base_hours || 0), 0);
               const techCount = selectedTechId ? 1 : 0;
+              // [tiered-residential] Per-scope commission so a quote
+              // with mixed Standard + Deep Clean shows the right total
+              // (35% × standard + 32% × deep), not a flat 35%.
+              const perScopeCommission = selectedScopes.reduce((sum, ss) => {
+                const sc = scopes.find(sx => sx.id === ss.scope_id);
+                const t = (ss.calc?.final_total ?? 0) + (ss.adjPlus || 0) - (ss.adjMinus || 0);
+                return sum + t * (sc ? (sc.name ? (/\bdeep\s*clean\b|\bmove[-\s]?(in|out)\b/i.test(sc.name) ? 0.32 : 0.35) : 0.35) : 0.35);
+              }, 0);
               const cs = calculateCommissionSplit(grandTotal, totalHours, techCount);
+              const csTotalCommission = Math.round(perScopeCommission * 100) / 100;
               return (
                 <div>
                   {selectedScopes.map(s => {
@@ -2449,7 +2459,7 @@ export default function QuoteBuilderPage() {
                   {totalHours > 0 && <div style={{ fontSize: 11, color: "#6B6860", textAlign: "right", fontFamily: FF }}>{totalHours} hrs total</div>}
                   {/* Commission */}
                   <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 2, fontFamily: FF }}>Commission (35%): ${cs.totalCommission.toFixed(2)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 2, fontFamily: FF }}>Commission (blended): ${csTotalCommission.toFixed(2)}</div>
                     {cs.mode === "unassigned" && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Will calculate once techs are assigned</div>}
                     {cs.mode === "equal" && cs.perTech.length > 0 && (
                       <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>${cs.perTech[0].commission.toFixed(2)} / tech | {cs.perTech[0].hours} hrs / tech</div>

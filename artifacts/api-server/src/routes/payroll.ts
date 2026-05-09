@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 
 const router = Router();
 
@@ -156,17 +157,30 @@ router.get("/detail", requireAuth, async (req, res) => {
     // [AI.7.5.hotfix] Resilient SELECT — see routes/dispatch.ts for the
     // same pattern. If commercial_* columns are absent (migration hadn't
     // run), fall back to res_tech_pay_pct only and default the rest.
-    let compSettings: any = { res_tech_pay_pct: 0.35, commercial_hourly_rate: 20.00, commercial_comp_mode: "allowed_hours" };
+    let compSettings: any = {
+      res_tech_pay_pct: 0.35,
+      deep_clean_pay_pct: 0.32,
+      move_in_out_pay_pct: 0.32,
+      commercial_hourly_rate: 20.00,
+      commercial_comp_mode: "allowed_hours",
+    };
     try {
-      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
       if (compRows.rows[0]) compSettings = compRows.rows[0];
     } catch {
+      // Tiered columns absent — fall back to legacy SELECT, keep tier defaults
       try {
-        const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
-        if (fallback.rows[0]) compSettings = { ...compSettings, res_tech_pay_pct: (fallback.rows[0] as any).res_tech_pay_pct };
-      } catch { /* keep defaults */ }
+        const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+        if (compRows.rows[0]) compSettings = { ...compSettings, ...(compRows.rows[0] as any) };
+      } catch {
+        try {
+          const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+          if (fallback.rows[0]) compSettings = { ...compSettings, res_tech_pay_pct: (fallback.rows[0] as any).res_tech_pay_pct };
+        } catch { /* keep defaults */ }
+      }
     }
-    const resPct = parseFloat(String(compSettings.res_tech_pay_pct ?? 0.35));
+    const resRates = parseResRatesRow(compSettings);
+    const resPct = resRates.res_tech_pay_pct; // Standard residential — kept for legacy response payload
     const commercialHourlyRate = parseFloat(String(compSettings.commercial_hourly_rate ?? 20));
     const commercialCompMode = String(compSettings.commercial_comp_mode ?? "allowed_hours");
 
@@ -257,9 +271,13 @@ router.get("/detail", requireAuth, async (req, res) => {
         const isCommercialJob = (job as any).account_id != null;
         const commercialHours = commercialCompMode === "actual_hours" && workedHrs > 0
           ? workedHrs : allowedHrs;
+        // [tiered-residential] Deep Clean / Move In-Out pay 32% (Phes
+        // bills client $80/hr on those scopes). All other residential
+        // remains 35%. resolveResidentialPayPct routes by service_type.
+        const jobResPct = resolveResidentialPayPct(job.service_type as any, resRates);
         const calcCommission = isCommercialJob
           ? Math.round(commercialHourlyRate * commercialHours * 100) / 100
-          : Math.round(jobTotal * resPct * 100) / 100;
+          : Math.round(jobTotal * jobResPct * 100) / 100;
         const commission = jtMap.has(job.id) ? jtMap.get(job.id)! : calcCommission;
         const effectiveRate = workedHrs > 0 ? Math.round((commission / workedHrs) * 100) / 100 : null;
         return {

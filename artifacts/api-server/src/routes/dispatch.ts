@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 
 const router = Router();
 
@@ -339,22 +340,36 @@ router.get("/", requireAuth, async (req, res) => {
     // The migration in phes-data-migration.ts now provisions the column,
     // but the fallback stays so a missing column never breaks dispatch
     // again.
-    let resPct = 0.35;
+    let resRates = parseResRatesRow(null);
     let commercialHourlyRate = 20;
     try {
-      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const compRows = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
       const row = (compRows.rows[0] as any);
       if (row) {
-        resPct = parseFloat(String(row.res_tech_pay_pct ?? 0.35));
+        resRates = parseResRatesRow(row);
         commercialHourlyRate = parseFloat(String(row.commercial_hourly_rate ?? 20));
       }
     } catch {
+      // Tiered columns absent — fall back to legacy SELECT, keep tier defaults (0.32 / 0.32)
       try {
-        const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
-        const row = (fallback.rows[0] as any);
-        if (row) resPct = parseFloat(String(row.res_tech_pay_pct ?? 0.35));
-      } catch { /* keep defaults */ }
+        const compRows = await db.execute(sql`SELECT res_tech_pay_pct, commercial_hourly_rate FROM companies WHERE id = ${companyId} LIMIT 1`);
+        const row = (compRows.rows[0] as any);
+        if (row) {
+          resRates = parseResRatesRow(row);
+          commercialHourlyRate = parseFloat(String(row.commercial_hourly_rate ?? 20));
+        }
+      } catch {
+        try {
+          const fallback = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+          const row = (fallback.rows[0] as any);
+          if (row) resRates = parseResRatesRow(row);
+        } catch { /* keep defaults */ }
+      }
     }
+    // Standard residential rate kept for the legacy company_res_pct
+    // payload field consumed by the JobPanel; per-job branching uses
+    // resolveResidentialPayPct(serviceType, resRates) below.
+    const resPct = resRates.res_tech_pay_pct;
 
     type TechRow = {
       user_id: number;
@@ -494,9 +509,17 @@ router.get("/", requireAuth, async (req, res) => {
       const estHoursPerTech = numTechs > 0 ? Math.round((estHoursSource / numTechs) * 10) / 10 : estHoursSource;
       const revenueSharePerTech = numTechs > 0 ? jobTotal / numTechs : jobTotal;
 
+      // [tiered-residential] For commission-type techs on deep_clean /
+      // move_in / move_out jobs, the company tier rate (32%) wins over
+      // the per-tech matrix value. Standard residential keeps the matrix
+      // rate (so per-tech overrides like senior 40% still apply).
+      // Commercial routing is unchanged.
+      const tierResPct = resolveResidentialPayPct(j.service_type as any, resRates);
+      const tierApplies = !isCommercial && tierResPct !== resRates.res_tech_pay_pct;
       const technicians = jobTechs.map(t => {
         const payType = isCommercial ? t.commercial_pay_type : t.residential_pay_type;
-        const payRate = isCommercial ? t.commercial_pay_rate : t.residential_pay_rate;
+        const matrixRate = isCommercial ? t.commercial_pay_rate : t.residential_pay_rate;
+        const payRate = (tierApplies && payType === "commission") ? tierResPct : matrixRate;
         const calcPay = payType === "hourly"
           ? Math.round(estHoursPerTech * payRate * 100) / 100
           : Math.round(revenueSharePerTech * payRate * 100) / 100;
@@ -628,7 +651,10 @@ router.get("/", requireAuth, async (req, res) => {
         technicians,
         est_hours_per_tech: estHoursPerTech,
         est_pay_per_tech: calcPerTech,
-        company_res_pct: resPct,
+        // [tiered-residential] Returns the rate that applies to THIS job
+        // (32% for deep clean / move in-out, else 35%). Frontend renders
+        // "Pool rate: X% of job total" — was always 35% before tiering.
+        company_res_pct: tierResPct,
         // [pay-matrix 2026-04-29] commission_basis now reflects the
         // primary tech's matrix cell, not a hardcoded company-wide
         // value. Surfaces that need richer per-tech data should read
