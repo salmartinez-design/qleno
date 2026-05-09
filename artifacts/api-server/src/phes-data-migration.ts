@@ -604,6 +604,105 @@ async function runBookingSchemaGuard(): Promise<void> {
         WHERE hourly_rate IS NULL
       `,
     },
+
+    // [PR #64] LMS — per-module quiz Learning Management System.
+    // Schema source of truth: lib/db/src/schema/lms.ts. Replicated here
+    // because the production deploy does NOT run drizzle-kit push — the
+    // cold-start hook in this file is the only schema-init mechanism
+    // wired into the Dockerfile. Without these guards, every /api/lms/*
+    // request 500s on prod. Idempotent (CREATE TABLE IF NOT EXISTS +
+    // DO/EXCEPTION blocks for the enums + CREATE INDEX IF NOT EXISTS).
+    { label: "enum enrollment_status",
+      stmt: `
+        DO $$ BEGIN
+          CREATE TYPE enrollment_status AS ENUM ('active', 'completed', 'expired');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      ` },
+    { label: "enum module_status",
+      stmt: `
+        DO $$ BEGIN
+          CREATE TYPE module_status AS ENUM ('not_started', 'in_progress', 'passed', 'failed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      ` },
+    { label: "CREATE lms_enrollments", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_enrollments (
+        id                       SERIAL PRIMARY KEY,
+        company_id               INTEGER NOT NULL REFERENCES companies(id),
+        user_id                  INTEGER NOT NULL REFERENCES users(id),
+        status                   enrollment_status NOT NULL DEFAULT 'active',
+        enrolled_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        deadline_at              TIMESTAMPTZ NOT NULL,
+        completed_at             TIMESTAMPTZ,
+        last_activity_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        locale                   TEXT,
+        acknowledgment_signature TEXT,
+        acknowledgment_at        TIMESTAMPTZ,
+        created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_enrollments_company_user_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_enrollments_company_user_uq ON lms_enrollments(company_id, user_id)` },
+    { label: "lms_enrollments_company_status_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_enrollments_company_status_idx ON lms_enrollments(company_id, status)` },
+    { label: "lms_enrollments_deadline_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_enrollments_deadline_idx ON lms_enrollments(deadline_at)` },
+
+    { label: "CREATE lms_module_progress", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_module_progress (
+        id               SERIAL PRIMARY KEY,
+        company_id       INTEGER NOT NULL REFERENCES companies(id),
+        enrollment_id    INTEGER NOT NULL REFERENCES lms_enrollments(id) ON DELETE CASCADE,
+        module_id        TEXT NOT NULL,
+        status           module_status NOT NULL DEFAULT 'not_started',
+        best_score       INTEGER NOT NULL DEFAULT 0,
+        attempts         INTEGER NOT NULL DEFAULT 0,
+        started_at       TIMESTAMPTZ,
+        passed_at        TIMESTAMPTZ,
+        last_attempt_at  TIMESTAMPTZ,
+        created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_module_progress_enrollment_module_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_module_progress_enrollment_module_uq ON lms_module_progress(enrollment_id, module_id)` },
+    { label: "lms_module_progress_company_status_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_module_progress_company_status_idx ON lms_module_progress(company_id, status)` },
+
+    { label: "CREATE lms_quiz_state", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_quiz_state (
+        id                      SERIAL PRIMARY KEY,
+        company_id              INTEGER NOT NULL REFERENCES companies(id),
+        enrollment_id           INTEGER NOT NULL REFERENCES lms_enrollments(id) ON DELETE CASCADE,
+        module_id               TEXT NOT NULL,
+        current_question_index  INTEGER NOT NULL DEFAULT 0,
+        answers                 JSONB NOT NULL DEFAULT '[]'::jsonb,
+        meta                    JSONB,
+        updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_quiz_state_enrollment_module_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_quiz_state_enrollment_module_uq ON lms_quiz_state(enrollment_id, module_id)` },
+
+    { label: "CREATE lms_quiz_attempts", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_quiz_attempts (
+        id             SERIAL PRIMARY KEY,
+        company_id     INTEGER NOT NULL REFERENCES companies(id),
+        enrollment_id  INTEGER NOT NULL REFERENCES lms_enrollments(id) ON DELETE CASCADE,
+        module_id      TEXT NOT NULL,
+        answers        JSONB NOT NULL,
+        question_ids   JSONB,
+        score          INTEGER NOT NULL,
+        passed         BOOLEAN NOT NULL,
+        attempted_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_quiz_attempts_enrollment_module_attempted_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_quiz_attempts_enrollment_module_attempted_idx ON lms_quiz_attempts(enrollment_id, module_id, attempted_at)` },
+    { label: "lms_quiz_attempts_company_attempted_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_quiz_attempts_company_attempted_idx ON lms_quiz_attempts(company_id, attempted_at)` },
   ];
 
   for (const { label, stmt } of guards) {
