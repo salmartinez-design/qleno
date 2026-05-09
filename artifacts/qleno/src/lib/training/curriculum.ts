@@ -195,8 +195,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "You have a 7-minute grace window after your scheduled clock-in time. Beyond 7 minutes, the visit is recorded as tardy.",
-          es: "Cuenta con un periodo de gracia de 7 minutos después de su hora programada para registrarse. Después de 7 minutos, la visita se registra como tardanza.",
+          en: "You have a 20-minute grace window after your scheduled clock-in time. Beyond 20 minutes, the visit is recorded as tardy.",
+          es: "Cuenta con un periodo de gracia de 20 minutos después de su hora programada para registrarse. Después de 20 minutos, la visita se registra como tardanza.",
         },
       },
       { type: "h", text: { en: "Tardiness Scale", es: "Escala de Tardanzas" } },
@@ -1008,7 +1008,7 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Phes is built on reliability, pride in craft, respect, honesty, and growth — and your employment is at-will.", es: "Phes se basa en confiabilidad, orgullo en el oficio, respeto, honestidad y crecimiento — y su empleo es a voluntad." },
-          { en: "You have a 7-minute grace period; the tardiness scale runs 1–2 recorded, 3rd written, 4th final, 5th termination.", es: "Tiene 7 minutos de gracia; la escala es 1ª–2ª registrada, 3ª escrita, 4ª última, 5ª terminación." },
+          { en: "You have a 20-minute grace period; the tardiness scale runs 1–2 recorded, 3rd written, 4th final, 5th termination.", es: "Tiene 20 minutos de gracia; la escala es 1ª–2ª registrada, 3ª escrita, 4ª última, 5ª terminación." },
           { en: "You accrue up to 40 hours of paid sick leave (PLAWA), and earn 40 hours of PTO at year 1 / 80 hours at year 2.", es: "Acumula hasta 40 horas de licencia por enfermedad (PLAWA), y gana 40 horas de PTO al año 1 / 80 horas al año 2." },
           { en: "Phes observes 6 paid holidays plus your birthday.", es: "Phes observa 6 feriados pagados más su cumpleaños." },
           { en: "Wear the Phes uniform with shoe covers in every home; personal phones stay out of sight during the visit.", es: "Use el uniforme Phes con cubrezapatos en cada hogar; los teléfonos personales se mantienen fuera de la vista durante la visita." },
@@ -1163,12 +1163,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     id: "q-running-late",
     moduleId: "attendance",
     prompt: {
-      en: "You're stuck in traffic and will arrive 15 minutes after your scheduled time. What do you do?",
-      es: "Estás en el tráfico y llegarás 15 minutos después de tu hora programada. ¿Qué haces?",
+      en: "You're stuck in traffic and will arrive 30 minutes after your scheduled time. What do you do?",
+      es: "Estás en el tráfico y llegarás 30 minutos después de tu hora programada. ¿Qué haces?",
     },
     options: [
       { en: "Drive faster to make up time", es: "Manejas más rápido para recuperar el tiempo" },
-      { en: "Don't worry about it — 15 minutes is within the grace period", es: "No te preocupes — 15 minutos están dentro del periodo de gracia" },
+      { en: "Don't worry about it — 30 minutes is within the grace period", es: "No te preocupes — 30 minutos están dentro del periodo de gracia" },
       { en: "Call or text the office immediately so the client can be notified", es: "Llamas o envías mensaje a la oficina inmediatamente para que el cliente sea notificado" },
       { en: "Just show up when you get there — they'll figure it out", es: "Solo llegas cuando puedas — lo entenderán" },
     ],
