@@ -418,10 +418,15 @@ export default function TrainingPage() {
   if (!learner) {
     return (
       <PageShell>
-        <div style={{ padding: 24, color: INK_MUTE }}>
-          {locale === "en"
-            ? "Sign in to access training."
-            : "Inicia sesión para acceder a la capacitación."}
+        <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ alignSelf: "flex-end" }}>
+            <LocaleToggle locale={locale} setLocale={setLocale} />
+          </div>
+          <div style={{ color: INK_MUTE }}>
+            {locale === "en"
+              ? "Sign in to access training."
+              : "Inicia sesión para acceder a la capacitación."}
+          </div>
         </div>
       </PageShell>
     );
@@ -742,28 +747,65 @@ function LocaleToggle({
   locale: Locale;
   setLocale: (l: Locale) => void;
 }) {
+  const activeStyle = {
+    background: NAVY,
+    color: "#fff",
+    fontWeight: 700,
+  } as const;
+  const inactiveStyle = {
+    background: "transparent",
+    color: INK_MUTE,
+    fontWeight: 600,
+  } as const;
   return (
-    <button
-      type="button"
-      onClick={() => setLocale(locale === "en" ? "es" : "en")}
+    <div
+      role="group"
+      aria-label="Language toggle"
       style={{
         display: "inline-flex",
         alignItems: "center",
-        gap: 6,
-        background: "transparent",
+        gap: 0,
+        background: "#fff",
         border: `1px solid ${LINE}`,
-        color: INK_MUTE,
-        padding: "5px 10px",
         borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 700,
-        cursor: "pointer",
+        padding: 2,
         fontFamily: FONT,
       }}
     >
-      <Globe2 size={12} />
-      {locale.toUpperCase()}
-    </button>
+      <Globe2 size={14} style={{ marginLeft: 8, marginRight: 4, color: INK_MUTE }} />
+      <button
+        type="button"
+        onClick={() => setLocale("en")}
+        style={{
+          border: "none",
+          padding: "5px 12px",
+          borderRadius: 999,
+          fontSize: 12,
+          letterSpacing: "0.04em",
+          cursor: "pointer",
+          fontFamily: FONT,
+          ...(locale === "en" ? activeStyle : inactiveStyle),
+        }}
+      >
+        ENGLISH
+      </button>
+      <button
+        type="button"
+        onClick={() => setLocale("es")}
+        style={{
+          border: "none",
+          padding: "5px 12px",
+          borderRadius: 999,
+          fontSize: 12,
+          letterSpacing: "0.04em",
+          cursor: "pointer",
+          fontFamily: FONT,
+          ...(locale === "es" ? activeStyle : inactiveStyle),
+        }}
+      >
+        ESPAÑOL
+      </button>
+    </div>
   );
 }
 
