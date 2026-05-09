@@ -552,7 +552,7 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       }
       questionIds = clientQuestionIds;
     } else if (isQuizModuleId(moduleId)) {
-      questionIds = [...QUESTIONS_BY_MODULE[moduleId as Exclude<ModuleId, "qleno-app" | "acknowledgment">]];
+      questionIds = [...QUESTIONS_BY_MODULE[moduleId as Exclude<ModuleId, "acknowledgment">]];
     } else {
       // Content-only module — submit makes no sense; route them to acknowledge.
       return res.status(400).json({

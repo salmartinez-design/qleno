@@ -8,6 +8,7 @@ import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 
 const router = Router();
 
@@ -3120,16 +3121,30 @@ async function calculateTechPay(jobId: number, companyId: number): Promise<Array
   calc_pay: number; final_pay: number; pay_override: number | null;
 }>> {
   const jobRows = await db.execute(sql`
-    SELECT id, base_fee, billed_amount, estimated_hours, assigned_user_id, commission_pool_rate
+    SELECT id, base_fee, billed_amount, estimated_hours, assigned_user_id, commission_pool_rate, service_type
     FROM jobs WHERE id = ${jobId} AND company_id = ${companyId}
   `);
   if (!jobRows.rows.length) return [];
   const job = jobRows.rows[0] as any;
 
-  const compRows = await db.execute(sql`
-    SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1
-  `);
-  const resPct = parseFloat(String((compRows.rows[0] as any)?.res_tech_pay_pct ?? 0.35));
+  // [tiered-residential] Resolve the per-job pool rate from companies
+  // tiered columns; falls back to legacy single-column SELECT then to
+  // 0.35 default when the cold-start migration hasn't run yet.
+  let resPct = 0.35;
+  try {
+    const compRows = await db.execute(sql`
+      SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1
+    `);
+    if (compRows.rows[0]) {
+      const rates = parseResRatesRow(compRows.rows[0] as any);
+      resPct = resolveResidentialPayPct(job.service_type, rates);
+    }
+  } catch {
+    try {
+      const compRows = await db.execute(sql`SELECT res_tech_pay_pct FROM companies WHERE id = ${companyId} LIMIT 1`);
+      if (compRows.rows[0]) resPct = parseFloat(String((compRows.rows[0] as any).res_tech_pay_pct ?? 0.35));
+    } catch { /* keep default 0.35 */ }
+  }
 
   const techRows = await db.execute(sql`
     SELECT jt.user_id, jt.is_primary, jt.pay_override, u.first_name, u.last_name

@@ -142,8 +142,10 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (dispatch_end_hour !== undefined) patch.dispatch_end_hour = Number(dispatch_end_hour);
     const { arrival_alert_window_minutes } = req.body;
     if (arrival_alert_window_minutes !== undefined) patch.arrival_alert_window_minutes = Number(arrival_alert_window_minutes);
-    const { res_tech_pay_pct, commercial_hourly_rate, commercial_comp_mode } = req.body;
+    const { res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode } = req.body;
     if (res_tech_pay_pct !== undefined) patch.res_tech_pay_pct = String(res_tech_pay_pct);
+    if (deep_clean_pay_pct !== undefined) patch.deep_clean_pay_pct = String(deep_clean_pay_pct);
+    if (move_in_out_pay_pct !== undefined) patch.move_in_out_pay_pct = String(move_in_out_pay_pct);
     if (commercial_hourly_rate !== undefined) patch.commercial_hourly_rate = String(commercial_hourly_rate);
     if (commercial_comp_mode !== undefined) patch.commercial_comp_mode = commercial_comp_mode;
     const { addon_time_method, addon_minimum_minutes, addon_pct_of_base } = req.body;

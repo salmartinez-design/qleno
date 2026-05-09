@@ -2826,6 +2826,15 @@ async function runNotificationTemplateSeed() {
       ["companies.dispatch_start_hour",             sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_start_hour INTEGER NOT NULL DEFAULT 8`],
       ["companies.dispatch_end_hour",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS dispatch_end_hour INTEGER NOT NULL DEFAULT 18`],
       ["companies.res_tech_pay_pct",                sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS res_tech_pay_pct NUMERIC(5,4) NOT NULL DEFAULT 0.35`],
+      // Tiered residential commission. Phes raised pricing on Deep Clean
+      // and Move In/Out to $80/hr to client; tech share drops to 32% on
+      // those two scopes. Standard residential remains 35%
+      // (res_tech_pay_pct above). Resolved per-job by service_type:
+      //   service_type IN ('deep_clean')          → deep_clean_pay_pct
+      //   service_type IN ('move_in','move_out')  → move_in_out_pay_pct
+      //   else                                    → res_tech_pay_pct
+      ["companies.deep_clean_pay_pct",              sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS deep_clean_pay_pct NUMERIC(5,4) NOT NULL DEFAULT 0.32`],
+      ["companies.move_in_out_pay_pct",             sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS move_in_out_pay_pct NUMERIC(5,4) NOT NULL DEFAULT 0.32`],
       // [AI.7.4] Commercial commission base rate + hours-source mode.
       // Without these columns, the dispatch SELECT throws and the whole
       // grid renders empty with a "Could not load schedule" toast.

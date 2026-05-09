@@ -29,29 +29,24 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 9 modules in expected sequence", () => {
+  it("MODULE_ORDER has all 6 modules in expected sequence", () => {
     assert.deepEqual([...MODULE_ORDER], [
-      "welcome",
-      "attendance",
-      "dress-code",
+      "phes-policies",
       "compensation",
-      "cleaning-standards",
-      "products-tools",
+      "cleaning-best-practices",
       "maidcentral",
-      "qleno-app",
+      "products-tools",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 7 quiz modules (no qleno-app, no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 5 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
-      "welcome",
-      "attendance",
-      "dress-code",
+      "phes-policies",
       "compensation",
-      "cleaning-standards",
-      "products-tools",
+      "cleaning-best-practices",
       "maidcentral",
+      "products-tools",
     ]);
   });
 
@@ -72,6 +67,24 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
+  it("FINAL_TEST_SIZE is 50 (per Phes spec, 50 questions sampled from 75-pool)", () => {
+    assert.equal(FINAL_TEST_SIZE, 50);
+  });
+
+  it("each module has exactly 15 questions (per Phes spec)", () => {
+    for (const m of QUIZ_MODULE_IDS) {
+      assert.equal(
+        QUESTIONS_BY_MODULE[m].length,
+        15,
+        `Module ${m} should have 15 questions; has ${QUESTIONS_BY_MODULE[m].length}`,
+      );
+    }
+  });
+
+  it("ALL_QUESTION_IDS is 75 total (5 modules × 15 each)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 75);
+  });
+
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
     assert.deepEqual(
       new Set(Object.keys(ANSWER_KEY)),
@@ -79,7 +92,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
-  it("every question maps to a valid 0/1/2 option index (sanity)", () => {
+  it("every question maps to a valid 0–3 option index (sanity)", () => {
     for (const qid of Object.keys(ANSWER_KEY)) {
       const idx: number = ANSWER_KEY[qid];
       assert.ok(
@@ -136,7 +149,7 @@ describe("scoreQuiz", () => {
   });
 
   it("scores 100% when every answer matches the bank", () => {
-    const qids = ["q-room-flow", "q-room-order"]; // bank says 1, 2
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"]; // bank says 1, 2
     const r = scoreQuiz([1, 2], qids);
     assert.equal(r.score, 100);
     assert.equal(r.passed, true);
@@ -146,7 +159,7 @@ describe("scoreQuiz", () => {
   });
 
   it("scores 0% when every answer is wrong", () => {
-    const qids = ["q-room-flow", "q-room-order"];
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
     const r = scoreQuiz([0, 0], qids);
     assert.equal(r.score, 0);
     assert.equal(r.passed, false);
@@ -154,7 +167,7 @@ describe("scoreQuiz", () => {
   });
 
   it("treats null/undefined answers as incorrect (autosave with unanswered)", () => {
-    const qids = ["q-room-flow", "q-room-order"];
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
     const r = scoreQuiz([null, undefined], qids);
     assert.equal(r.correctCount, 0);
     assert.equal(r.score, 0);
@@ -162,8 +175,8 @@ describe("scoreQuiz", () => {
   });
 
   it("treats unknown question ids as incorrect (defensive against drift)", () => {
-    const r = scoreQuiz([0, 1], ["q-room-flow", "q-does-not-exist"]);
-    // q-room-flow correct=1; got 0 → wrong. q-does-not-exist → unknown → wrong.
+    const r = scoreQuiz([0, 1], ["q-cb-01-room-flow", "q-does-not-exist"]);
+    // q-cb-01-room-flow correct=1; got 0 → wrong. q-does-not-exist → unknown → wrong.
     assert.equal(r.correctCount, 0);
     assert.equal(r.score, 0);
   });
@@ -178,43 +191,40 @@ describe("scoreQuiz", () => {
     assert.equal(r.score, 57);
   });
 
-  it("passes at exactly the 80% boundary on a fixed-size quiz", () => {
-    // 4-question quiz: 4 of 4 = 100, 3 of 4 = 75 (fails — below 80).
-    // So we use the 5-question case: take the first 5 of cleaning-standards,
-    // 4 of 5 correct = 80% which is exactly the threshold.
-    const qids: string[] = [...QUESTIONS_BY_MODULE["cleaning-standards"]].slice(0, 5);
+  it("passes at exactly the 80% boundary on a 15-question quiz (12/15 = 80%)", () => {
+    // 15-question phes-policies quiz: 12 correct = 80% → passes (boundary).
+    const qids: string[] = [...QUESTIONS_BY_MODULE["phes-policies"]];
     const answers: number[] = qids.map((q: string, i: number) =>
-      i < 4 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
+      i < 12 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );
     const r = scoreQuiz(answers, qids);
     assert.equal(r.score, 80);
     assert.equal(r.passed, true);
   });
 
-  it("fails at 79% (one wrong below the boundary)", () => {
-    // 10-question cleaning-standards quiz: 7 correct = 70%, fails. 8 = 80%, passes.
-    // Use 7-of-10 to verify the fail side cleanly.
-    const qids: string[] = [...QUESTIONS_BY_MODULE["cleaning-standards"]];
+  it("fails below 80% (11/15 = 73%)", () => {
+    // 15-question phes-policies quiz: 11 correct = 73% → fails (below 80%).
+    const qids: string[] = [...QUESTIONS_BY_MODULE["phes-policies"]];
     const answers: number[] = qids.map((q: string, i: number) =>
-      i < 7 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
+      i < 11 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );
     const r = scoreQuiz(answers, qids);
-    assert.equal(r.score, 70);
+    assert.equal(r.score, 73);
     assert.equal(r.passed, false);
   });
 
   it("perQuestion array marks correctness positionally", () => {
-    const qids = ["q-room-flow", "q-room-order", "q-supplies-left"];
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-11-supplies-left"];
     // bank: 1, 2, 1 → answer 1, 99, 1
     const r = scoreQuiz([1, 99, 1], qids);
     assert.deepEqual(r.perQuestion, [true, false, true]);
   });
 
   it("respects a custom threshold (lower bar passes more)", () => {
-    const qids: string[] = [...QUESTIONS_BY_MODULE["attendance"]]; // 4 questions
-    // 2 correct of 4 = 50%
+    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]]; // 15 questions
+    // 8 correct of 15 = 53%
     const answers: number[] = qids.map((q: string, i: number) =>
-      i < 2 ? ANSWER_KEY[q] : 99,
+      i < 8 ? ANSWER_KEY[q] : 99,
     );
     const fail = scoreQuiz(answers, qids); // default 0.80
     const pass = scoreQuiz(answers, qids, 0.5); // 50% threshold
@@ -223,7 +233,7 @@ describe("scoreQuiz", () => {
   });
 
   it("clamps when answers array is shorter than questionIds (rest treated as null)", () => {
-    const qids = ["q-room-flow", "q-room-order"];
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
     const r = scoreQuiz([1], qids); // only first answered
     assert.equal(r.correctCount, 1); // first matches bank=1
     assert.equal(r.totalCount, 2);
@@ -232,7 +242,7 @@ describe("scoreQuiz", () => {
   });
 
   it("clamps when answers array is longer than questionIds (extras ignored)", () => {
-    const qids = ["q-room-flow"];
+    const qids = ["q-cb-01-room-flow"];
     const r = scoreQuiz([1, 99, 99], qids);
     assert.equal(r.correctCount, 1);
     assert.equal(r.totalCount, 1);
@@ -254,18 +264,18 @@ describe("scoreQuiz", () => {
 
 describe("isModuleUnlocked", () => {
   it("first module is always unlocked, even with empty completed list", () => {
-    assert.equal(isModuleUnlocked("welcome", []), true);
+    assert.equal(isModuleUnlocked("phes-policies", []), true);
   });
 
   it("second module unlocked iff first is completed", () => {
-    assert.equal(isModuleUnlocked("attendance", []), false);
-    assert.equal(isModuleUnlocked("attendance", ["welcome"]), true);
+    assert.equal(isModuleUnlocked("compensation", []), false);
+    assert.equal(isModuleUnlocked("compensation", ["phes-policies"]), true);
   });
 
   it("third module needs first AND second completed", () => {
-    assert.equal(isModuleUnlocked("dress-code", ["welcome"]), false);
+    assert.equal(isModuleUnlocked("cleaning-best-practices", ["phes-policies"]), false);
     assert.equal(
-      isModuleUnlocked("dress-code", ["welcome", "attendance"]),
+      isModuleUnlocked("cleaning-best-practices", ["phes-policies", "compensation"]),
       true,
     );
   });
@@ -286,14 +296,14 @@ describe("isModuleUnlocked", () => {
 
   it("ignores extra unknown ids in completedModuleIds", () => {
     assert.equal(
-      isModuleUnlocked("attendance", ["welcome", "garbage", "more-garbage"]),
+      isModuleUnlocked("compensation", ["phes-policies", "garbage", "more-garbage"]),
       true,
     );
   });
 
   it("order of completedModuleIds does not matter", () => {
     assert.equal(
-      isModuleUnlocked("dress-code", ["attendance", "welcome"]),
+      isModuleUnlocked("cleaning-best-practices", ["compensation", "phes-policies"]),
       true,
     );
   });
@@ -310,9 +320,9 @@ describe("isFinalUnlocked", () => {
 
   it("locked when one of the prerequisites is missing", () => {
     const allButOne = MODULE_ORDER.filter(
-      (m: string) => m !== "acknowledgment" && m !== "qleno-app",
+      (m: string) => m !== "acknowledgment" && m !== "products-tools",
     );
-    assert.equal(isFinalUnlocked(allButOne), false); // missing qleno-app
+    assert.equal(isFinalUnlocked(allButOne), false); // missing products-tools
   });
 
   it("unlocked when every module-except-acknowledgment is complete", () => {
@@ -348,9 +358,10 @@ describe("sampleFinalQuestionIds", () => {
     };
   }
 
-  it("returns the requested count by default (FINAL_TEST_SIZE)", () => {
+  it("returns the requested count by default (FINAL_TEST_SIZE = 50)", () => {
     const ids = sampleFinalQuestionIds(undefined, seedRng(1));
     assert.equal(ids.length, FINAL_TEST_SIZE);
+    assert.equal(ids.length, 50);
   });
 
   it("never exceeds the pool size when count > pool", () => {
@@ -364,20 +375,20 @@ describe("sampleFinalQuestionIds", () => {
   });
 
   it("returns only ids that exist in the bank", () => {
-    const ids = sampleFinalQuestionIds(15, seedRng(4));
+    const ids = sampleFinalQuestionIds(50, seedRng(4));
     for (const id of ids) {
       assert.ok(id in ANSWER_KEY, `Sampled unknown question id ${id}`);
     }
   });
 
   it("does not contain duplicates", () => {
-    const ids = sampleFinalQuestionIds(15, seedRng(5));
+    const ids = sampleFinalQuestionIds(50, seedRng(5));
     assert.equal(new Set(ids).size, ids.length);
   });
 
   it("is deterministic given the same seed", () => {
-    const a = sampleFinalQuestionIds(15, seedRng(42));
-    const b = sampleFinalQuestionIds(15, seedRng(42));
+    const a = sampleFinalQuestionIds(50, seedRng(42));
+    const b = sampleFinalQuestionIds(50, seedRng(42));
     assert.deepEqual(a, b);
   });
 });
