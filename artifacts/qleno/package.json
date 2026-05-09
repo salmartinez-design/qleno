@@ -43,6 +43,7 @@
     "@radix-ui/react-tooltip": "^1.2.0",
     "@tanstack/react-query": "catalog:",
     "@workspace/api-client-react": "workspace:*",
+    "@workspace/lms-curriculum": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "cmdk": "^1.1.1",

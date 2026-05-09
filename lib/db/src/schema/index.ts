@@ -84,3 +84,7 @@ export * from "./acquisition_sources";
 // per-day add-on scoping
 export * from "./service_types";
 export * from "./recurring_schedule_addons_days";
+// [lms-per-module 2026-05-07] Per-module quiz LMS — replaces the
+// frontend-only single end-of-course quiz with backend-persisted, gated,
+// deadline-bounded per-module flow + final mixed test.
+export * from "./lms";
