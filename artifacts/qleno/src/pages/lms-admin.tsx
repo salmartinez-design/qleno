@@ -313,21 +313,16 @@ function Shell({ children }: { children: React.ReactNode }) {
             gap: 10,
           }}
         >
-          <div
+          <img
+            src="/phes-logo.jpeg"
+            alt="Phes"
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: 6,
-              background: NAVY,
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 12,
-              display: "grid",
-              placeItems: "center",
+              height: 32,
+              width: "auto",
+              display: "block",
+              objectFit: "contain",
             }}
-          >
-            Q
-          </div>
+          />
           <div
             style={{
               fontWeight: 700,

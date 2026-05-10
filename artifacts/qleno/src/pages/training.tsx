@@ -680,22 +680,16 @@ function Header({
 
 function PhesMark() {
   return (
-    <div
+    <img
+      src="/phes-logo.jpeg"
+      alt="Phes"
       style={{
-        width: 28,
-        height: 28,
-        borderRadius: 6,
-        background: NAVY,
-        color: "#fff",
-        display: "grid",
-        placeItems: "center",
-        fontWeight: 800,
-        fontSize: 13,
-        letterSpacing: "0.04em",
+        height: 36,
+        width: "auto",
+        display: "block",
+        objectFit: "contain",
       }}
-    >
-      Q
-    </div>
+    />
   );
 }
 
@@ -1964,6 +1958,17 @@ function DoneView({
           textAlign: "center",
         }}
       >
+        <img
+          src="/phes-logo.jpeg"
+          alt={tenantName}
+          style={{
+            height: 64,
+            width: "auto",
+            display: "block",
+            margin: "0 auto 12px",
+            objectFit: "contain",
+          }}
+        />
         <Award size={42} style={{ color: SUCCESS }} />
         <div style={{ fontWeight: 800, fontSize: 22, marginTop: 8, color: INK }}>
           {tr("doneTitle", locale)}
