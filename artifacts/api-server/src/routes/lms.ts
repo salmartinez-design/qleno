@@ -1375,4 +1375,138 @@ router.post(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /admin/learners/:userId/attempts — Owner+Admin only
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Returns the full quiz-attempt history for one learner in the caller's
+// tenant. Per spec, admins use this to spot comprehension gaps ("Carlos
+// failed compensation 3× — which question keeps tripping him?") and to
+// resolve disputes ("I passed!" / "I never took that").
+//
+// Response shape:
+//   {
+//     learner: { user_id, tech_name, enrollment_id },
+//     attempts: [
+//       {
+//         attempt_id, module_id, score, passed, attempted_at,
+//         answers: (number | null)[],       // parallel to question_ids
+//         question_ids: string[],            // for per-module = the fixed
+//                                            //   list; for __final = the
+//                                            //   random sample served
+//         correct_indexes: number[],         // server-authoritative
+//         per_question_correct: boolean[],   // convenience for the UI
+//       },
+//       ...
+//     ]
+//   }
+//
+// Tenant-gated. Sorted attempted_at DESC so newest is first.
+
+router.get(
+  "/admin/learners/:userId/attempts",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetUserId = Number(req.params.userId);
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Invalid userId" });
+      }
+
+      // Tenant gate + locate the enrollment.
+      const enrollmentRow = await db
+        .select({
+          id: lmsEnrollmentsTable.id,
+          user_id: lmsEnrollmentsTable.user_id,
+          first_name: usersTable.first_name,
+          last_name: usersTable.last_name,
+        })
+        .from(lmsEnrollmentsTable)
+        .innerJoin(usersTable, eq(usersTable.id, lmsEnrollmentsTable.user_id))
+        .where(
+          and(
+            eq(lmsEnrollmentsTable.company_id, companyId),
+            eq(lmsEnrollmentsTable.user_id, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!enrollmentRow[0]) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "Enrollment not found in tenant" });
+      }
+      const enrollment = enrollmentRow[0];
+
+      const rows = await db
+        .select()
+        .from(lmsQuizAttemptsTable)
+        .where(eq(lmsQuizAttemptsTable.enrollment_id, enrollment.id))
+        .orderBy(desc(lmsQuizAttemptsTable.attempted_at));
+
+      const attempts = rows.map((r) => {
+        // For per-module quizzes the question_ids column is null because
+        // the set is fixed; resolve it from QUESTIONS_BY_MODULE. For the
+        // final mixed test, the column carries the random sample served.
+        const isFinal = r.module_id === FINAL_MODULE_ID;
+        const questionIds: string[] = isFinal
+          ? Array.isArray(r.question_ids)
+            ? (r.question_ids as string[])
+            : []
+          : [
+              ...((QUESTIONS_BY_MODULE as Record<string, readonly string[]>)[
+                r.module_id
+              ] ?? []),
+            ];
+        const correctIndexes = questionIds.map(
+          (qid) => SERVER_ANSWER_KEY[qid] ?? -1,
+        );
+        const answers = Array.isArray(r.answers) ? (r.answers as (number | null)[]) : [];
+        const perQuestionCorrect = questionIds.map((_qid, i) => {
+          const exp = correctIndexes[i];
+          const got = answers[i];
+          return exp !== -1 && got === exp;
+        });
+        return {
+          attempt_id: r.id,
+          module_id: r.module_id,
+          score: r.score,
+          passed: r.passed,
+          attempted_at: r.attempted_at,
+          answers,
+          question_ids: questionIds,
+          correct_indexes: correctIndexes,
+          per_question_correct: perQuestionCorrect,
+        };
+      });
+
+      return res.json({
+        data: {
+          learner: {
+            user_id: enrollment.user_id,
+            tech_name:
+              `${enrollment.first_name ?? ""} ${enrollment.last_name ?? ""}`.trim() ||
+              `User #${enrollment.user_id}`,
+            enrollment_id: enrollment.id,
+          },
+          attempts,
+        },
+      });
+    } catch (err) {
+      console.error("[lms] /admin/learners/:userId/attempts error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to load attempt history" });
+    }
+  },
+);
+
 export default router;

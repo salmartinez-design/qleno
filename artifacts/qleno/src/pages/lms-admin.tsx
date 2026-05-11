@@ -18,6 +18,7 @@ import {
   FINAL_MODULE_ID,
   maxAttemptsFor,
 } from "@workspace/lms-curriculum";
+import { getCurriculum, type QuizQuestion } from "@/lib/training/curriculum";
 import {
   CalendarClock,
   Loader2,
@@ -28,6 +29,7 @@ import {
   ChevronDown,
   FastForward,
   RotateCcw,
+  History,
 } from "lucide-react";
 
 const NAVY = "#0A2342";
@@ -50,6 +52,7 @@ const MOBILE_BREAKPOINT = 768;
 type AuthPayload = {
   role?: string;
   first_name?: string;
+  companyId?: number | null;
 };
 
 type ModuleStat = {
@@ -132,6 +135,7 @@ export default function LmsAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
   const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
+  const [historyOpen, setHistoryOpen] = useState<RosterRow | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   function toggleExpand(enrollmentId: number) {
@@ -304,6 +308,7 @@ export default function LmsAdminPage() {
             onToggleExpand={toggleExpand}
             onExtend={setExtendOpen}
             onReset={setResetOpen}
+            onHistory={setHistoryOpen}
             onBypass={bypassFor}
           />
         ) : (
@@ -313,6 +318,7 @@ export default function LmsAdminPage() {
             onToggleExpand={toggleExpand}
             onExtend={setExtendOpen}
             onReset={setResetOpen}
+            onHistory={setHistoryOpen}
             onBypass={bypassFor}
           />
         )}
@@ -339,6 +345,14 @@ export default function LmsAdminPage() {
             setResetOpen(null);
             await refresh();
           }}
+        />
+      )}
+
+      {historyOpen && (
+        <AttemptHistoryDialog
+          row={historyOpen}
+          token={token}
+          onClose={() => setHistoryOpen(null)}
         />
       )}
 
@@ -409,6 +423,7 @@ function RosterTable({
   onToggleExpand,
   onExtend,
   onReset,
+  onHistory,
   onBypass,
 }: {
   rows: RosterRow[];
@@ -416,6 +431,7 @@ function RosterTable({
   onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
   onReset: (r: RosterRow) => void;
+  onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
@@ -525,7 +541,29 @@ function RosterTable({
                   </span>
                 </Td>
                 <Td>
-                  <div style={{ display: "inline-flex", gap: 6 }}>
+                  <div style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      onClick={() => onHistory(r)}
+                      title="View attempt history"
+                      style={{
+                        background: "transparent",
+                        color: NAVY,
+                        border: `1px solid ${LINE}`,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                        whiteSpace: "nowrap",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <History size={11} /> History
+                    </button>
                     <button
                       type="button"
                       onClick={() => onExtend(r)}
@@ -707,6 +745,7 @@ function RosterCards({
   onToggleExpand,
   onExtend,
   onReset,
+  onHistory,
   onBypass,
 }: {
   rows: RosterRow[];
@@ -714,6 +753,7 @@ function RosterCards({
   onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
   onReset: (r: RosterRow) => void;
+  onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
@@ -815,7 +855,27 @@ function RosterCards({
                 </>
               )}
             </button>
-            <div style={{ display: "inline-flex", gap: 6 }}>
+            <div style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => onHistory(r)}
+                style={{
+                  background: "transparent",
+                  color: NAVY,
+                  border: `1px solid ${LINE}`,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <History size={11} /> History
+              </button>
               <button
                 type="button"
                 onClick={() => onReset(r)}
@@ -1426,6 +1486,492 @@ function ResetEnrollmentDialog({
             )}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attempt history dialog
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Surfaces every per-module + final quiz attempt for one learner. Used by the
+// owner to spot comprehension gaps ("Carlos failed compensation 3× — which
+// question keeps tripping him?") and resolve disputes.
+//
+// Backend returns answers + question_ids + correct_indexes (server-
+// authoritative). Prompt text + option labels are looked up locally from the
+// frontend curriculum bundle keyed by company_id.
+
+type Locale = "en" | "es";
+
+type AttemptRow = {
+  attempt_id: number;
+  module_id: string;
+  score: number;
+  passed: boolean;
+  attempted_at: string;
+  answers: (number | null)[];
+  question_ids: string[];
+  correct_indexes: number[];
+  per_question_correct: boolean[];
+};
+
+function humanModuleLabel(id: string): string {
+  if (id === "__final") return "Final mixed test";
+  return id
+    .split("-")
+    .map((w) => w[0]?.toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function AttemptHistoryDialog({
+  row,
+  token,
+  onClose,
+}: {
+  row: RosterRow;
+  token: string | null;
+  onClose: () => void;
+}) {
+  const auth = useMemo(() => readRoleFromToken(token), [token]);
+  const companyId = auth?.companyId ?? null;
+  const curriculum = useMemo(
+    () => getCurriculum(companyId),
+    [companyId],
+  );
+  const questionLookup = useMemo<Map<string, QuizQuestion>>(() => {
+    const map = new Map<string, QuizQuestion>();
+    for (const q of curriculum.quiz) map.set(q.id, q);
+    return map;
+  }, [curriculum]);
+
+  const [attempts, setAttempts] = useState<AttemptRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedAttempt, setExpandedAttempt] = useState<number | null>(null);
+  const [locale, setLocale] = useState<Locale>("en");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api<{ learner: unknown; attempts: AttemptRow[] }>(
+          "GET",
+          `/lms/admin/learners/${row.user_id}/attempts`,
+          token,
+        );
+        if (!cancelled) setAttempts(data.attempts);
+      } catch (e) {
+        if (!cancelled) setError(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.user_id, token]);
+
+  // Group attempts by module_id, preserving newest-first order from server.
+  const byModule = useMemo(() => {
+    const map = new Map<string, AttemptRow[]>();
+    for (const a of attempts ?? []) {
+      const arr = map.get(a.module_id) ?? [];
+      arr.push(a);
+      map.set(a.module_id, arr);
+    }
+    return map;
+  }, [attempts]);
+
+  const moduleIds: string[] = [...MODULE_ORDER, FINAL_MODULE_ID];
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Attempt history"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 820,
+          width: "100%",
+          maxHeight: "90vh",
+          overflow: "auto",
+          padding: 22,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            marginBottom: 4,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 16,
+              fontWeight: 800,
+              color: INK,
+            }}
+          >
+            <History size={16} /> Attempt history — {row.tech_name}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div
+              role="group"
+              aria-label="Language toggle"
+              style={{
+                display: "inline-flex",
+                background: LINE_SOFT,
+                borderRadius: 999,
+                padding: 2,
+                fontSize: 11,
+                fontWeight: 700,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setLocale("en")}
+                style={{
+                  border: 0,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  background: locale === "en" ? NAVY : "transparent",
+                  color: locale === "en" ? "#fff" : INK_MUTE,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => setLocale("es")}
+                style={{
+                  border: 0,
+                  borderRadius: 999,
+                  padding: "3px 10px",
+                  background: locale === "es" ? NAVY : "transparent",
+                  color: locale === "es" ? "#fff" : INK_MUTE,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                ES
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: "transparent",
+                border: `1px solid ${LINE}`,
+                borderRadius: 6,
+                padding: 4,
+                cursor: "pointer",
+                color: INK_MUTE,
+                display: "inline-flex",
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+        <div style={{ fontSize: 12, color: INK_MUTE, marginBottom: 14 }}>
+          Every per-module quiz and final-mixed-test submission, newest first.
+          Click an attempt to see each question and the answer they picked.
+        </div>
+
+        {error && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: `1px solid #FECACA`,
+              color: DANGER,
+              padding: 10,
+              borderRadius: 8,
+              fontSize: 12,
+              marginBottom: 10,
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {attempts == null && !error ? (
+          <div style={{ padding: 40, textAlign: "center", color: INK_MUTE }}>
+            <Loader2 size={18} className="qleno-admin-spin" />
+          </div>
+        ) : attempts && attempts.length === 0 ? (
+          <div
+            style={{
+              padding: 24,
+              background: LINE_SOFT,
+              borderRadius: 8,
+              textAlign: "center",
+              fontSize: 13,
+              color: INK_MUTE,
+            }}
+          >
+            No quiz attempts yet — this learner hasn't submitted any quiz.
+          </div>
+        ) : (
+          <div style={{ display: "grid", gap: 12 }}>
+            {moduleIds.map((moduleId) => {
+              const moduleAttempts = byModule.get(moduleId) ?? [];
+              if (moduleAttempts.length === 0) return null;
+              return (
+                <div
+                  key={moduleId}
+                  style={{
+                    background: SURFACE,
+                    border: `1px solid ${LINE}`,
+                    borderRadius: 8,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: "10px 12px",
+                      background: LINE_SOFT,
+                      fontWeight: 800,
+                      fontSize: 12,
+                      color: INK,
+                      letterSpacing: "0.04em",
+                      textTransform: "uppercase",
+                      display: "flex",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    <span>{humanModuleLabel(moduleId)}</span>
+                    <span style={{ color: INK_MUTE, fontWeight: 700 }}>
+                      {moduleAttempts.length}{" "}
+                      {moduleAttempts.length === 1 ? "attempt" : "attempts"}
+                    </span>
+                  </div>
+                  {moduleAttempts.map((a, idx) => {
+                    const open = expandedAttempt === a.attempt_id;
+                    const ordinal = moduleAttempts.length - idx;
+                    return (
+                      <div
+                        key={a.attempt_id}
+                        style={{
+                          borderTop: `1px solid ${LINE_SOFT}`,
+                        }}
+                      >
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setExpandedAttempt(open ? null : a.attempt_id)
+                          }
+                          style={{
+                            width: "100%",
+                            background: "transparent",
+                            border: 0,
+                            padding: "10px 12px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            cursor: "pointer",
+                            fontFamily: FONT,
+                            fontSize: 13,
+                            color: INK,
+                            textAlign: "left",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            {open ? (
+                              <ChevronDown size={14} />
+                            ) : (
+                              <ChevronRight size={14} />
+                            )}
+                            <span style={{ fontWeight: 700 }}>
+                              Attempt {ordinal}
+                            </span>
+                            <span style={{ color: INK_MUTE, fontSize: 12 }}>
+                              {humanDateTime(a.attempted_at)}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span
+                              style={{
+                                fontVariantNumeric: "tabular-nums",
+                                fontWeight: 800,
+                                color: a.passed ? SUCCESS : DANGER,
+                              }}
+                            >
+                              {a.score}%
+                            </span>
+                            <span
+                              style={{
+                                background: a.passed ? "#ECFDF5" : "#FEF2F2",
+                                color: a.passed ? SUCCESS : DANGER,
+                                border: `1px solid ${a.passed ? "#A7F3D0" : "#FECACA"}`,
+                                padding: "2px 8px",
+                                borderRadius: 999,
+                                fontSize: 11,
+                                fontWeight: 800,
+                              }}
+                            >
+                              {a.passed ? "Passed" : "Failed"}
+                            </span>
+                          </div>
+                        </button>
+                        {open ? (
+                          <div
+                            style={{
+                              padding: "0 12px 12px",
+                              display: "grid",
+                              gap: 8,
+                            }}
+                          >
+                            {a.question_ids.length === 0 ? (
+                              <div style={{ color: INK_MUTE, fontSize: 12 }}>
+                                Question text not available (curriculum may have
+                                changed since this attempt).
+                              </div>
+                            ) : (
+                              a.question_ids.map((qid, i) => {
+                                const q = questionLookup.get(qid);
+                                const picked = a.answers[i];
+                                const correctIdx = a.correct_indexes[i];
+                                const ok = a.per_question_correct[i];
+                                return (
+                                  <div
+                                    key={qid + "-" + i}
+                                    style={{
+                                      background: ok ? "#F0FDF4" : "#FEF2F2",
+                                      border: `1px solid ${ok ? "#BBF7D0" : "#FECACA"}`,
+                                      borderLeft: `3px solid ${ok ? SUCCESS : DANGER}`,
+                                      borderRadius: 6,
+                                      padding: "8px 10px",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        fontWeight: 800,
+                                        color: INK,
+                                        marginBottom: 4,
+                                      }}
+                                    >
+                                      {i + 1}.{" "}
+                                      {q?.prompt[locale] ?? `(Question ${qid} not found)`}
+                                    </div>
+                                    {q ? (
+                                      <div style={{ display: "grid", gap: 3 }}>
+                                        {q.options.map((opt, optIdx) => {
+                                          const isPicked = picked === optIdx;
+                                          const isCorrect = correctIdx === optIdx;
+                                          const tone = isCorrect
+                                            ? SUCCESS
+                                            : isPicked
+                                            ? DANGER
+                                            : INK_MUTE;
+                                          return (
+                                            <div
+                                              key={optIdx}
+                                              style={{
+                                                display: "flex",
+                                                gap: 6,
+                                                alignItems: "flex-start",
+                                                color: tone,
+                                                fontWeight:
+                                                  isPicked || isCorrect ? 700 : 500,
+                                              }}
+                                            >
+                                              <span
+                                                style={{
+                                                  display: "inline-flex",
+                                                  width: 14,
+                                                  flexShrink: 0,
+                                                  marginTop: 2,
+                                                }}
+                                              >
+                                                {isCorrect ? (
+                                                  <CircleCheck size={12} />
+                                                ) : isPicked ? (
+                                                  <X size={12} />
+                                                ) : null}
+                                              </span>
+                                              <span>{opt[locale]}</span>
+                                              {isPicked && !isCorrect ? (
+                                                <span
+                                                  style={{
+                                                    marginLeft: 4,
+                                                    fontSize: 10,
+                                                    color: DANGER,
+                                                    fontWeight: 800,
+                                                    textTransform: "uppercase",
+                                                  }}
+                                                >
+                                                  picked
+                                                </span>
+                                              ) : null}
+                                              {isCorrect ? (
+                                                <span
+                                                  style={{
+                                                    marginLeft: 4,
+                                                    fontSize: 10,
+                                                    color: SUCCESS,
+                                                    fontWeight: 800,
+                                                    textTransform: "uppercase",
+                                                  }}
+                                                >
+                                                  correct
+                                                </span>
+                                              ) : null}
+                                            </div>
+                                          );
+                                        })}
+                                        {picked == null ? (
+                                          <div
+                                            style={{
+                                              color: WARN,
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              marginTop: 2,
+                                            }}
+                                          >
+                                            Left unanswered
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
