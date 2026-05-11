@@ -128,9 +128,12 @@ export const FINAL_TEST_SIZE = 50;
  * compares lms-curriculum to lib/training.
  */
 export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // ── Module 1: phes-policies (26) ─────────────────────────────────────────
+  // ── Module 1: phes-policies (34) ─────────────────────────────────────────
   // 15 original + 8 (handbook reconciliation 2026-05-11) + 2 sick-time
-  // deep dive + 1 unpaid personal days (Named Time Off) policy.
+  // deep dive + 1 unpaid personal days + 8 (four-bucket policy 2026-05-12:
+  // PLAWA → PTO → Unpaid Personal Leave → Unpaid Absence Allowance with
+  // the two-condition unexcused rule, PLAWA denial / default / discipline
+  // protection, and notice requirements per bucket).
   "q-pp-01-w2": 1,
   "q-pp-02-guarantee": 2,
   "q-pp-03-scope-oven": 1,
@@ -139,7 +142,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-06-running-late": 2,
   "q-pp-07-grace-window": 2,
   "q-pp-08-tardy-progression": 2,
-  "q-pp-09-sick-tomorrow": 2,
+  "q-pp-09-sick-tomorrow": 1,
   "q-pp-10-pto-request": 1,
   "q-pp-11-unexcused-fourth": 2,
   "q-pp-12-uniform-forgot": 2,
@@ -155,8 +158,16 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-22-separation-payout": 1,
   "q-pp-23-holiday-90day": 1,
   "q-pp-24-sick-doc": 1,
-  "q-pp-25-sick-no-balance": 1,
+  "q-pp-25-sick-no-balance": 0,
   "q-pp-26-unpaid-personal": 1,
+  "q-pp-27-bucket-order": 1,
+  "q-pp-28-unexcused-definition": 1,
+  "q-pp-29-plawa-denial": 1,
+  "q-pp-30-plawa-no-discipline": 0,
+  "q-pp-31-plawa-default": 1,
+  "q-pp-32-notice-by-bucket": 1,
+  "q-pp-33-plawa-reason": 1,
+  "q-pp-34-unpaid-absence-allowance": 1,
 
   // ── Module 2: compensation (15) ──────────────────────────────────────────
   "q-cm-01-training-pay": 1,
@@ -244,6 +255,11 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-22-separation-payout", "q-pp-23-holiday-90day",
       "q-pp-24-sick-doc", "q-pp-25-sick-no-balance",
       "q-pp-26-unpaid-personal",
+      // Four-bucket policy (2026-05-12)
+      "q-pp-27-bucket-order", "q-pp-28-unexcused-definition", "q-pp-29-plawa-denial",
+      "q-pp-30-plawa-no-discipline", "q-pp-31-plawa-default",
+      "q-pp-32-notice-by-bucket", "q-pp-33-plawa-reason",
+      "q-pp-34-unpaid-absence-allowance",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
