@@ -979,7 +979,14 @@ router.get(
 
       const rows = enrollments.map((e) => {
         const progress = progressByEnrollment.get(e.id) ?? [];
-        const passedCount = progress.filter((p) => p.status === "passed").length;
+        // Count only modules in MODULE_ORDER toward the percentage — the
+        // final mixed test is a SEPARATE gate. Without this filter a learner
+        // who passed all 6 modules + the final test reported 7/6 = 117%.
+        const passedCount = progress.filter(
+          (p) =>
+            p.status === "passed" &&
+            (MODULE_ORDER as readonly string[]).includes(p.module_id),
+        ).length;
         const passedRatio = totalModules > 0 ? passedCount / totalModules : 0;
         const completed = progress
           .filter((p) => p.status === "passed")
@@ -1244,6 +1251,126 @@ router.post(
       return res
         .status(500)
         .json({ error: "Internal Server Error", message: "Failed to bypass module" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reset — Owner+Admin only
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Body: { userId, mode?: 'progress' | 'full' }
+//
+// `progress` (default): wipes every module_progress row, quiz_state row, and
+//   quiz_attempts row for the learner. Resets the enrollment to status='active',
+//   bumps deadline_at to now+7d, clears completed_at + acknowledgment fields.
+//   The learner keeps their enrollment row id but starts fresh on every module.
+//
+// `full`: deletes the enrollment outright (cascades via FK ON DELETE CASCADE,
+//   so progress/state/attempts go with it). The learner's next visit to
+//   /training lazy-creates a brand-new enrollment with a fresh 7-day deadline.
+//
+// Either mode also writes an audit log row.
+
+router.post(
+  "/admin/reset",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetUserId = Number(req.body?.userId);
+      const mode: "progress" | "full" =
+        req.body?.mode === "full" ? "full" : "progress";
+
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "userId is required" });
+      }
+
+      // Tenant gate — caller can only reset users in their own tenant.
+      const targetUser = await db
+        .select({ company_id: usersTable.company_id })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetUserId))
+        .limit(1);
+      if (!targetUser[0] || targetUser[0].company_id !== companyId) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "User not found in tenant" });
+      }
+
+      const existing = await db
+        .select()
+        .from(lmsEnrollmentsTable)
+        .where(
+          and(
+            eq(lmsEnrollmentsTable.company_id, companyId),
+            eq(lmsEnrollmentsTable.user_id, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!existing[0]) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "No enrollment to reset" });
+      }
+      const enrollmentId = existing[0].id;
+      const now = new Date();
+
+      if (mode === "full") {
+        // FK ON DELETE CASCADE wipes progress, state, and attempts.
+        await db
+          .delete(lmsEnrollmentsTable)
+          .where(eq(lmsEnrollmentsTable.id, enrollmentId));
+      } else {
+        // Progress-only reset: clear children, keep the enrollment row but
+        // reset all its lifecycle fields so the learner sees a clean slate.
+        await db
+          .delete(lmsModuleProgressTable)
+          .where(eq(lmsModuleProgressTable.enrollment_id, enrollmentId));
+        await db
+          .delete(lmsQuizStateTable)
+          .where(eq(lmsQuizStateTable.enrollment_id, enrollmentId));
+        await db
+          .delete(lmsQuizAttemptsTable)
+          .where(eq(lmsQuizAttemptsTable.enrollment_id, enrollmentId));
+        await db
+          .update(lmsEnrollmentsTable)
+          .set({
+            status: "active",
+            enrolled_at: now,
+            deadline_at: addDays(now, DEFAULT_DEADLINE_DAYS),
+            completed_at: null,
+            acknowledgment_signature: null,
+            acknowledgment_at: null,
+            last_activity_at: now,
+            updated_at: now,
+          })
+          .where(eq(lmsEnrollmentsTable.id, enrollmentId));
+      }
+
+      await logAudit(
+        req,
+        mode === "full" ? "lms.admin.reset.full" : "lms.admin.reset.progress",
+        "lms_enrollment",
+        enrollmentId,
+        { previous_status: existing[0].status },
+        { target_user_id: targetUserId, mode },
+      );
+
+      return res.json({ data: { ok: true, mode } });
+    } catch (err) {
+      console.error("[lms] /admin/reset error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to reset enrollment" });
     }
   },
 );

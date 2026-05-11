@@ -27,6 +27,7 @@ import {
   ChevronRight,
   ChevronDown,
   FastForward,
+  RotateCcw,
 } from "lucide-react";
 
 const NAVY = "#0A2342";
@@ -130,6 +131,7 @@ export default function LmsAdminPage() {
   const [rows, setRows] = useState<RosterRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
+  const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
   function toggleExpand(enrollmentId: number) {
@@ -301,6 +303,7 @@ export default function LmsAdminPage() {
             expanded={expanded}
             onToggleExpand={toggleExpand}
             onExtend={setExtendOpen}
+            onReset={setResetOpen}
             onBypass={bypassFor}
           />
         ) : (
@@ -309,6 +312,7 @@ export default function LmsAdminPage() {
             expanded={expanded}
             onToggleExpand={toggleExpand}
             onExtend={setExtendOpen}
+            onReset={setResetOpen}
             onBypass={bypassFor}
           />
         )}
@@ -321,6 +325,18 @@ export default function LmsAdminPage() {
           onClose={() => setExtendOpen(null)}
           onSaved={async () => {
             setExtendOpen(null);
+            await refresh();
+          }}
+        />
+      )}
+
+      {resetOpen && (
+        <ResetEnrollmentDialog
+          row={resetOpen}
+          token={token}
+          onClose={() => setResetOpen(null)}
+          onSaved={async () => {
+            setResetOpen(null);
             await refresh();
           }}
         />
@@ -392,12 +408,14 @@ function RosterTable({
   expanded,
   onToggleExpand,
   onExtend,
+  onReset,
   onBypass,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
   onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
+  onReset: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
@@ -507,24 +525,48 @@ function RosterTable({
                   </span>
                 </Td>
                 <Td>
-                  <button
-                    type="button"
-                    onClick={() => onExtend(r)}
-                    style={{
-                      background: "transparent",
-                      color: NAVY,
-                      border: `1px solid ${LINE}`,
-                      padding: "5px 10px",
-                      borderRadius: 6,
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      fontFamily: FONT,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Extend
-                  </button>
+                  <div style={{ display: "inline-flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => onExtend(r)}
+                      style={{
+                        background: "transparent",
+                        color: NAVY,
+                        border: `1px solid ${LINE}`,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      Extend
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onReset(r)}
+                      title="Reset enrollment"
+                      style={{
+                        background: "transparent",
+                        color: DANGER,
+                        border: `1px solid ${LINE}`,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                        whiteSpace: "nowrap",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <RotateCcw size={11} /> Reset
+                    </button>
+                  </div>
                 </Td>
               </tr>
               {expanded.has(r.enrollment_id) ? (
@@ -664,12 +706,14 @@ function RosterCards({
   expanded,
   onToggleExpand,
   onExtend,
+  onReset,
   onBypass,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
   onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
+  onReset: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
@@ -771,23 +815,45 @@ function RosterCards({
                 </>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => onExtend(r)}
-              style={{
-                background: "transparent",
-                color: NAVY,
-                border: `1px solid ${LINE}`,
-                padding: "6px 12px",
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: "pointer",
-                fontFamily: FONT,
-              }}
-            >
-              Extend deadline <ChevronRight size={12} />
-            </button>
+            <div style={{ display: "inline-flex", gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => onReset(r)}
+                style={{
+                  background: "transparent",
+                  color: DANGER,
+                  border: `1px solid ${LINE}`,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <RotateCcw size={11} /> Reset
+              </button>
+              <button
+                type="button"
+                onClick={() => onExtend(r)}
+                style={{
+                  background: "transparent",
+                  color: NAVY,
+                  border: `1px solid ${LINE}`,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Extend deadline <ChevronRight size={12} />
+              </button>
+            </div>
           </div>
           {expanded.has(r.enrollment_id) ? (
             <div style={{ marginTop: 6 }}>
@@ -1117,6 +1183,247 @@ function ExtendDeadlineDialog({
             }}
           >
             {busy ? <Loader2 size={13} className="qleno-admin-spin" /> : "Extend"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Reset enrollment dialog
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResetEnrollmentDialog({
+  row,
+  token,
+  onClose,
+  onSaved,
+}: {
+  row: RosterRow;
+  token: string | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [mode, setMode] = useState<"progress" | "full">("progress");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const expectedConfirm = "RESET";
+  const valid = confirm.trim().toUpperCase() === expectedConfirm;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reset enrollment"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 460,
+          width: "100%",
+          padding: 22,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 16,
+            fontWeight: 800,
+            color: INK,
+          }}
+        >
+          <AlertTriangle size={18} style={{ color: DANGER }} /> Reset enrollment —{" "}
+          {row.tech_name}
+        </div>
+        <div style={{ fontSize: 12, color: INK_MUTE, marginTop: 4, lineHeight: 1.55 }}>
+          This wipes the learner's LMS data. They start over from module 1
+          with a fresh 7-day deadline. Their next visit to /training will look
+          like a brand-new enrollment.
+        </div>
+
+        <div
+          style={{
+            marginTop: 14,
+            display: "grid",
+            gap: 8,
+          }}
+        >
+          <label
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              padding: 10,
+              border: `1px solid ${mode === "progress" ? NAVY : LINE}`,
+              borderRadius: 8,
+              cursor: "pointer",
+              background: mode === "progress" ? "#EEF2F8" : "transparent",
+            }}
+          >
+            <input
+              type="radio"
+              name="reset-mode"
+              checked={mode === "progress"}
+              onChange={() => setMode("progress")}
+              style={{ marginTop: 2 }}
+            />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: INK }}>
+                Reset progress (recommended)
+              </div>
+              <div style={{ fontSize: 12, color: INK_MUTE, marginTop: 2 }}>
+                Deletes all module progress, quiz attempts, and autosave. Keeps
+                the enrollment row, resets deadline to today + 7 days.
+              </div>
+            </div>
+          </label>
+          <label
+            style={{
+              display: "flex",
+              gap: 8,
+              alignItems: "flex-start",
+              padding: 10,
+              border: `1px solid ${mode === "full" ? DANGER : LINE}`,
+              borderRadius: 8,
+              cursor: "pointer",
+              background: mode === "full" ? "#FEF2F2" : "transparent",
+            }}
+          >
+            <input
+              type="radio"
+              name="reset-mode"
+              checked={mode === "full"}
+              onChange={() => setMode("full")}
+              style={{ marginTop: 2 }}
+            />
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 13, color: INK }}>
+                Delete enrollment fully
+              </div>
+              <div style={{ fontSize: 12, color: INK_MUTE, marginTop: 2 }}>
+                Removes the enrollment record entirely. A fresh one is
+                lazy-created on the learner's next /training visit. Use only
+                if the row is corrupted.
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <label
+          style={{
+            display: "block",
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Type RESET to confirm
+        </label>
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="RESET"
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            border: `1px solid ${LINE}`,
+            borderRadius: 8,
+            fontSize: 14,
+            fontFamily: FONT,
+          }}
+        />
+        {err && (
+          <div style={{ color: DANGER, fontSize: 12, marginTop: 8 }}>{err}</div>
+        )}
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              color: INK_MUTE,
+              border: `1px solid ${LINE}`,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: FONT,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await api("POST", "/lms/admin/reset", token, {
+                  userId: row.user_id,
+                  mode,
+                });
+                await onSaved();
+              } catch (e) {
+                setErr(String((e as Error).message));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              background: !valid || busy ? INK_LIGHT : DANGER,
+              color: "#fff",
+              border: 0,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: FONT,
+              cursor: !valid || busy ? "default" : "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            {busy ? (
+              <Loader2 size={13} className="qleno-admin-spin" />
+            ) : (
+              <>
+                <RotateCcw size={12} /> Reset
+              </>
+            )}
           </button>
         </div>
       </div>
