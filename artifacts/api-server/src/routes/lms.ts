@@ -298,6 +298,14 @@ router.get("/me", requireAuth, async (req, res) => {
     for (const m of MODULE_ORDER) limits[m] = MAX_MODULE_ATTEMPTS;
     limits[FINAL_MODULE_ID] = MAX_FINAL_ATTEMPTS;
 
+    // Bypass capability: owners, admins, and office staff (Maribel, Francisco
+    // for Phes) can skip modules. This `is_owner` field is kept for the
+    // existing frontend prop name; semantically it now means "can_bypass".
+    const canBypass =
+      req.auth!.role === "owner" ||
+      req.auth!.role === "admin" ||
+      req.auth!.role === "office";
+
     return res.json({
       data: {
         enrollment,
@@ -305,7 +313,8 @@ router.get("/me", requireAuth, async (req, res) => {
         unlocked,
         days_remaining: daysUntil(enrollment.deadline_at, now),
         limits,
-        is_owner: req.auth!.role === "owner",
+        is_owner: canBypass,
+        can_bypass: canBypass,
       },
     });
   } catch (err) {
@@ -591,15 +600,18 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       });
     }
 
-    // Attempts gate: 3 per module, 4 for the final. Owners are exempt — they
-    // can still submit but the cap doesn't apply to them. Already-passed
-    // modules are also exempt (re-takes for review).
-    const isOwner = req.auth!.role === "owner";
+    // Attempts gate: 3 per module, 4 for the final. Owners / admins / office
+    // staff are exempt — they can still submit but the cap doesn't apply to
+    // them. Already-passed modules are also exempt (re-takes for review).
+    const canBypassCap =
+      req.auth!.role === "owner" ||
+      req.auth!.role === "admin" ||
+      req.auth!.role === "office";
     const existing = progress.find((p) => p.module_id === moduleId);
     const attemptsSoFar = existing?.attempts ?? 0;
     const alreadyPassed = existing?.status === "passed";
     const maxAttempts = maxAttemptsFor(moduleId);
-    if (!isOwner && !alreadyPassed && attemptsSoFar >= maxAttempts) {
+    if (!canBypassCap && !alreadyPassed && attemptsSoFar >= maxAttempts) {
       return res.status(403).json({
         error: "Forbidden",
         message:
@@ -920,7 +932,7 @@ router.post("/grandfather", requireAuth, async (req, res) => {
 router.get(
   "/admin/learners",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1059,7 +1071,7 @@ router.get(
 router.post(
   "/admin/extend",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1159,7 +1171,7 @@ router.post(
 router.post(
   "/admin/bypass-module",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1275,7 +1287,7 @@ router.post(
 router.post(
   "/admin/reset",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1406,7 +1418,7 @@ router.post(
 router.get(
   "/admin/learners/:userId/attempts",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;

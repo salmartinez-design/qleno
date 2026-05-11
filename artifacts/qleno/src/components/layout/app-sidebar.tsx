@@ -89,7 +89,7 @@ const NAV_SECTIONS = [
       { title: "Settings",        url: "/company",         icon: Settings, roles: ["owner", "admin"] },
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
       { title: "Training",        url: "/training",        icon: GraduationCap },
-      { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin"] },
+      { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
     ],
   },
 ];
