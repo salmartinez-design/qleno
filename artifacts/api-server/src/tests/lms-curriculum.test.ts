@@ -74,8 +74,17 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 50);
   });
 
-  it("each module has exactly 15 questions (per Phes spec)", () => {
+  it("phes-policies has 23 questions (handbook reconciliation 2026-05-11)", () => {
+    assert.equal(
+      QUESTIONS_BY_MODULE["phes-policies"].length,
+      23,
+      `phes-policies should have 23 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+    );
+  });
+
+  it("each non-policies module has exactly 15 questions (per Phes spec)", () => {
     for (const m of QUIZ_MODULE_IDS) {
+      if (m === "phes-policies") continue;
       assert.equal(
         QUESTIONS_BY_MODULE[m].length,
         15,
@@ -84,8 +93,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 75 total (5 modules × 15 each)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 75);
+  it("ALL_QUESTION_IDS is 83 total (4 modules × 15 + phes-policies × 23)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 83);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
@@ -195,8 +204,9 @@ describe("scoreQuiz", () => {
   });
 
   it("passes at exactly the 80% boundary on a 15-question quiz (12/15 = 80%)", () => {
-    // 15-question phes-policies quiz: 12 correct = 80% → passes (boundary).
-    const qids: string[] = [...QUESTIONS_BY_MODULE["phes-policies"]];
+    // Use compensation (15) — phes-policies is now 23 after the 2026-05-11
+    // handbook reconciliation, so it no longer hits the 12/15 boundary.
+    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]];
     const answers: number[] = qids.map((q: string, i: number) =>
       i < 12 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );
@@ -206,8 +216,7 @@ describe("scoreQuiz", () => {
   });
 
   it("fails below 80% (11/15 = 73%)", () => {
-    // 15-question phes-policies quiz: 11 correct = 73% → fails (below 80%).
-    const qids: string[] = [...QUESTIONS_BY_MODULE["phes-policies"]];
+    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]];
     const answers: number[] = qids.map((q: string, i: number) =>
       i < 11 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );
