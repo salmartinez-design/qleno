@@ -27,7 +27,7 @@
  * order of keys — it compares the maps as sets of (key, value) pairs.
  */
 export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // ── Module 1: phes-policies ──────────────────────────────────────────────
+  // ── Module 1: phes-policies (23, handbook reconciliation 2026-05-11) ──────
   "q-pp-01-w2": 1,
   "q-pp-02-guarantee": 2,
   "q-pp-03-scope-oven": 1,
@@ -43,6 +43,14 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-13-shoe-covers": 2,
   "q-pp-14-phone-use": 2,
   "q-pp-15-photos": 2,
+  "q-pp-16-dishes-beds": 1,
+  "q-pp-17-office-exception": 1,
+  "q-pp-18-bereavement": 1,
+  "q-pp-19-jury-duty": 1,
+  "q-pp-20-lactation": 1,
+  "q-pp-21-pto-cap": 1,
+  "q-pp-22-separation-payout": 1,
+  "q-pp-23-holiday-90day": 1,
 
   // ── Module 2: compensation ───────────────────────────────────────────────
   "q-cm-01-training-pay": 1,

@@ -112,7 +112,19 @@ const BASE_MODULES: Module[] = [
           { en: "Pet waste, including litter boxes (we clean around them, not into them).", es: "Desechos de mascotas, incluyendo cajas de arena (limpiamos alrededor, no dentro)." },
           { en: "Cash transactions on site — all payment goes through the office.", es: "Transacciones en efectivo en el sitio — todo pago pasa por la oficina." },
           { en: "Climbing higher than the company-issued step stool — we do not stand on furniture.", es: "Subir más alto que el banquito de la compañía — no nos paramos sobre muebles." },
+          { en: "Wash dishes.", es: "Lavar platos." },
+          { en: "Make beds.", es: "Tender camas." },
+          { en: "Move heavy furniture (we clean around it, never lift or relocate).", es: "Mover muebles pesados (limpiamos alrededor, nunca levantamos ni movemos)." },
+          { en: "Clean window tracks.", es: "Limpiar rieles de ventanas." },
         ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "These are STANDARD guidelines. The office may grant exceptions — for a slower week, a loyal client, or a company partner — and will communicate them via app notes or a direct message. If you see an exception note in the app, follow it. If a client asks you to do something on this list and there's NO note, decline politely and tell them you'll let the office know — never improvise outside scope.",
+          es: "Estas son guías ESTÁNDAR. La oficina puede otorgar excepciones — para una semana más lenta, un cliente leal o un socio de la compañía — y las comunicará por notas en la aplicación o un mensaje directo. Si ve una nota de excepción en la aplicación, sígala. Si un cliente le pide hacer algo de esta lista y NO hay nota, rechace cortésmente y dígale que le informará a la oficina — nunca improvise fuera del alcance.",
+        },
       },
       { type: "h", text: { en: "Tipping", es: "Propinas" } },
       {
@@ -164,9 +176,27 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "After 1 year: 40 hours PTO per year.", es: "Después de 1 año: 40 horas de PTO por año." },
-          { en: "After 2 years: 80 hours PTO per year.", es: "Después de 2 años: 80 horas de PTO por año." },
-          { en: "Requested in advance and approved by office.", es: "Se solicita con anticipación y debe ser aprobado por la oficina." },
+          { en: "After 1 year (first work anniversary): 40 hours PTO per year.", es: "Después de 1 año (primer aniversario): 40 horas de PTO por año." },
+          { en: "After 2 years and beyond: bank is topped up to 80 hours each anniversary.", es: "Después de 2 años en adelante: el banco se rellena hasta 80 horas en cada aniversario." },
+          { en: "Hard cap: PTO does NOT exceed 80 hours total at any time. Unused PTO does NOT stack — we top up to the cap, we do not add on top.", es: "Tope estricto: el PTO NUNCA excede 80 horas totales. El PTO no usado NO se acumula — rellenamos hasta el tope, no agregamos encima." },
+          { en: "Request through the app in advance; approval depends on staffing.", es: "Se solicita con anticipación por la aplicación; la aprobación depende del personal disponible." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Example: in your first PTO year you used only 20 of your 40 hours. At your 2-year anniversary, the office tops your bank up to 80 hours — NOT 20 carried over plus 80 = 100. The maximum balance is always 80.",
+          es: "Ejemplo: en su primer año de PTO usó solo 20 de sus 40 horas. En su aniversario de 2 años, la oficina rellena su banco hasta 80 horas — NO 20 acumuladas + 80 = 100. El balance máximo siempre es 80.",
+        },
+      },
+      { type: "h", text: { en: "What Gets Paid Out When You Leave", es: "Qué Se Paga al Salir" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "PTO (vacation): any unused PTO IS paid out at separation, per Illinois Wage Payment & Collection Act.", es: "PTO (vacaciones): el PTO no usado SÍ se paga al separarse, conforme a la Ley de Pago y Cobranza de Salarios de Illinois." },
+          { en: "PLAWA (paid sick leave): NOT paid out at separation. PLAWA has no cash value.", es: "PLAWA (licencia por enfermedad pagada): NO se paga al separarse. PLAWA no tiene valor en efectivo." },
+          { en: "Holidays: not banked — only paid for the holiday itself, see eligibility below.", es: "Feriados: no se acumulan — solo se pagan en el día del feriado, vea la elegibilidad abajo." },
         ],
       },
       { type: "h", text: { en: "Time-Off Requests Go Through the System", es: "Solicitudes de Tiempo Libre — Por el Sistema" } },
@@ -195,6 +225,47 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Phes observes 6 paid holidays plus your birthday: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas Day, and your birthday (taken any day that month).",
           es: "Phes observa 6 feriados pagados más su cumpleaños: Año Nuevo, Memorial Day, Día de la Independencia, Día del Trabajo, Acción de Gracias, Navidad, y su cumpleaños (cualquier día de ese mes).",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Eligibility: holiday pay starts AFTER 90 days of employment. Any holiday that falls in your first 90 days is unpaid for you, even if it's an observed Phes holiday.",
+          es: "Elegibilidad: el pago por feriados comienza DESPUÉS de 90 días de empleo. Cualquier feriado que caiga en sus primeros 90 días es no pagado para usted, incluso si es un feriado observado por Phes.",
+        },
+      },
+      // ── Other Leave Types ──────────────────────────────────────────────────
+      { type: "h", text: { en: "Bereavement Leave", es: "Licencia por Duelo" } },
+      {
+        type: "p",
+        text: {
+          en: "If an immediate family member passes away — spouse, child, parent, or sibling — Phes provides up to 3 paid days at your regular rate. Notify the office as soon as practicable. Extended family (grandparent, in-law, aunt/uncle) is handled case-by-case as unpaid time off; ask the office.",
+          es: "Si un familiar inmediato fallece — cónyuge, hijo/a, padre/madre o hermano/a — Phes ofrece hasta 3 días pagados a su tarifa regular. Notifique a la oficina lo antes posible. Familiares extendidos (abuelo/a, suegros, tíos) se manejan caso por caso como tiempo libre no pagado; pregunte a la oficina.",
+        },
+      },
+      { type: "h", text: { en: "Jury Duty", es: "Servicio de Jurado" } },
+      {
+        type: "p",
+        text: {
+          en: "Jury service is unpaid by Phes. Your job is protected — you cannot be disciplined or terminated for attending — and you keep any juror compensation the court provides. Bring your summons or proof of service to the office before the date and notify your dispatcher.",
+          es: "El servicio de jurado no es pagado por Phes. Su empleo está protegido — no puede ser disciplinado ni despedido por asistir — y se queda con la compensación del tribunal. Traiga la citación o comprobante a la oficina antes de la fecha y notifique al despachador.",
+        },
+      },
+      { type: "h", text: { en: "Lactation Breaks", es: "Pausas de Lactancia" } },
+      {
+        type: "p",
+        text: {
+          en: "Reasonable lactation breaks are PAID at your regular rate and do NOT deduct from PLAWA or PTO. The office will work with you on timing and a private location at the office or between jobs. This is mandatory under Illinois law and the Phes handbook.",
+          es: "Las pausas de lactancia razonables se PAGAN a su tarifa regular y NO se descuentan de PLAWA ni PTO. La oficina coordinará con usted el tiempo y un lugar privado en la oficina o entre trabajos. Es obligatorio bajo la ley de Illinois y el manual de Phes.",
+        },
+      },
+      { type: "h", text: { en: "Pregnancy Accommodation", es: "Acomodación por Embarazo" } },
+      {
+        type: "p",
+        text: {
+          en: "Illinois requires Phes to provide reasonable accommodations during pregnancy — examples: lighter duties, more frequent breaks, adjusted lifting limits, modified schedule, or temporary reassignment. Ask the office; we'll work out an accommodation that keeps you safely working as long as you choose to.",
+          es: "Illinois requiere que Phes brinde acomodaciones razonables durante el embarazo — ejemplos: tareas más ligeras, pausas más frecuentes, límites ajustados de carga, horario modificado o reasignación temporal. Pregunte a la oficina; coordinaremos una acomodación que la mantenga trabajando con seguridad mientras usted decida hacerlo.",
         },
       },
 
@@ -986,6 +1057,126 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes if you only photograph the surface, not the family", es: "Sí si solo fotografía la superficie, no a la familia" },
     ],
     correctIndex: 2,
+  },
+  {
+    id: "q-pp-16-dishes-beds",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Mid-clean, the client asks if you can wash the dishes in the sink and make the kids' beds before you leave. There's no note in the app authorizing extra work. What do you do?",
+      es: "Durante la limpieza, el cliente le pide lavar los platos y tender las camas de los niños antes de irse. No hay nota en la app que autorice trabajo extra. ¿Qué hace?",
+    },
+    options: [
+      { en: "Do it as a courtesy — it'll only take 10 minutes.", es: "Hágalo por cortesía — solo toma 10 minutos." },
+      { en: "Decline politely; dishes and beds are not standard Phes scope. Tell the client you'll let the office know.", es: "Rechace cortésmente; lavar platos y tender camas no es parte del alcance estándar. Dígale al cliente que informará a la oficina." },
+      { en: "Charge the client cash for the extra work.", es: "Cobre al cliente en efectivo por el trabajo extra." },
+      { en: "Make the beds (it's quick) but skip the dishes.", es: "Tienda las camas (es rápido) pero no lave los platos." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-17-office-exception",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You open today's job in the app and see a note from the office: 'Mrs. Johnson is a loyal client — please make the master bed today as a one-time courtesy.' Are you allowed to make the bed?",
+      es: "Abre el trabajo de hoy en la app y ve una nota de la oficina: 'La Sra. Johnson es cliente leal — por favor tienda la cama principal hoy como cortesía única.' ¿Puede tender la cama?",
+    },
+    options: [
+      { en: "No — standard guidelines never bend.", es: "No — las guías estándar nunca cambian." },
+      { en: "Yes — the office grants exceptions, and they communicate them via app notes or a direct message. Follow the note.", es: "Sí — la oficina otorga excepciones, y las comunica por notas en la app o mensaje directo. Siga la nota." },
+      { en: "Only if Mrs. Johnson asks me personally.", es: "Solo si la Sra. Johnson me pide en persona." },
+      { en: "Yes, but only if I call the office first to double-check.", es: "Sí, pero solo si llamo a la oficina primero para confirmar." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-18-bereavement",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Your father passes away. What's the Phes bereavement policy?",
+      es: "Su padre fallece. ¿Cuál es la política de duelo de Phes?",
+    },
+    options: [
+      { en: "Up to 3 unpaid days off — use PLAWA to get paid.", es: "Hasta 3 días no pagados — use PLAWA para recibir pago." },
+      { en: "Up to 3 paid days at your regular rate (immediate family: spouse, child, parent, sibling).", es: "Hasta 3 días pagados a su tarifa regular (familia inmediata: cónyuge, hijo/a, padre/madre, hermano/a)." },
+      { en: "Up to 5 paid days plus travel time.", es: "Hasta 5 días pagados más tiempo de viaje." },
+      { en: "Phes does not offer bereavement leave.", es: "Phes no ofrece licencia por duelo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-19-jury-duty",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You receive a jury summons for next Wednesday. How does Phes handle the time and pay?",
+      es: "Recibe una citación de jurado para el próximo miércoles. ¿Cómo maneja Phes el tiempo y el pago?",
+    },
+    options: [
+      { en: "Phes pays your regular wage for jury days.", es: "Phes paga su salario regular en días de jurado." },
+      { en: "Jury leave is UNPAID by Phes, your job is protected, and you keep any juror compensation the court provides. Bring the summons to the office and notify dispatch.", es: "La licencia de jurado NO es pagada por Phes, su empleo está protegido, y se queda con la compensación del tribunal. Lleve la citación a la oficina y avise a despacho." },
+      { en: "You must use PTO to cover it.", es: "Debe usar PTO para cubrirlo." },
+      { en: "Ignore the summons — Phes will write a letter excusing you.", es: "Ignore la citación — Phes le escribirá una carta de excusa." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-20-lactation",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Returning from maternity leave, you ask about pumping breaks during the workday. What's the policy?",
+      es: "Al regresar de licencia maternal, pregunta sobre pausas para extraer leche durante el día. ¿Cuál es la política?",
+    },
+    options: [
+      { en: "Use PLAWA hours.", es: "Use horas de PLAWA." },
+      { en: "Reasonable lactation breaks are PAID at your regular rate and do NOT deduct from PLAWA or PTO. The office coordinates timing and a private location.", es: "Las pausas de lactancia razonables se PAGAN a su tarifa regular y NO se descuentan de PLAWA ni PTO. La oficina coordina el horario y un lugar privado." },
+      { en: "Unpaid 15-minute breaks only.", es: "Solo pausas no pagadas de 15 minutos." },
+      { en: "Lactation breaks are not allowed during scheduled jobs.", es: "Las pausas de lactancia no se permiten durante trabajos programados." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-21-pto-cap",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "In your first PTO year you used only 20 of your 40 hours. Tomorrow is your 2-year anniversary. How many PTO hours will be in your bank?",
+      es: "En su primer año de PTO usó solo 20 de sus 40 horas. Mañana es su aniversario de 2 años. ¿Cuántas horas de PTO tendrá en su banco?",
+    },
+    options: [
+      { en: "100 hours — 20 carried over plus the new 80.", es: "100 horas — las 20 acumuladas más las 80 nuevas." },
+      { en: "80 hours — Phes tops up your bank to the 80-hour cap. PTO never exceeds 80 hours.", es: "80 horas — Phes rellena su banco hasta el tope de 80 horas. El PTO nunca excede 80 horas." },
+      { en: "60 hours — your remaining 20 plus 40 more.", es: "60 horas — sus 20 restantes más 40 más." },
+      { en: "40 hours — second-year accrual only.", es: "40 horas — solo la acumulación del segundo año." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-22-separation-payout",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You give your 2-week notice. You have 20 unused PTO hours and 15 unused PLAWA (sick) hours. What gets paid out at separation?",
+      es: "Da su aviso de 2 semanas. Tiene 20 horas de PTO sin usar y 15 horas de PLAWA (enfermedad) sin usar. ¿Qué se paga al separarse?",
+    },
+    options: [
+      { en: "Both — all unused leave is cashed out.", es: "Ambas — toda la licencia sin usar se paga." },
+      { en: "PTO only (20 hours). PLAWA has no cash value and is not paid out.", es: "Solo PTO (20 horas). PLAWA no tiene valor en efectivo y no se paga." },
+      { en: "PLAWA only — PTO is forfeited at separation.", es: "Solo PLAWA — el PTO se pierde al separarse." },
+      { en: "Neither — Phes does not pay out unused leave.", es: "Ninguna — Phes no paga licencia sin usar." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-23-holiday-90day",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You were hired on November 1 and Thanksgiving falls 3 weeks later. Do you receive paid holiday pay for Thanksgiving?",
+      es: "Fue contratado el 1 de noviembre y Acción de Gracias cae 3 semanas después. ¿Recibe pago por feriado en Acción de Gracias?",
+    },
+    options: [
+      { en: "Yes — Phes observes Thanksgiving as a paid holiday.", es: "Sí — Phes observa Acción de Gracias como feriado pagado." },
+      { en: "No — holiday pay eligibility begins AFTER 90 days of employment. Holidays in your first 90 days are unpaid.", es: "No — la elegibilidad para pago por feriado comienza DESPUÉS de 90 días de empleo. Los feriados en sus primeros 90 días no son pagados." },
+      { en: "Yes — but only at half rate during the first 90 days.", es: "Sí — pero solo a media tarifa durante los primeros 90 días." },
+      { en: "Only if the client cancels and you would have worked that day.", es: "Solo si el cliente cancela y habría trabajado ese día." },
+    ],
+    correctIndex: 1,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════

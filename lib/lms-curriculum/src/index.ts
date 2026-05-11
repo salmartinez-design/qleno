@@ -128,7 +128,10 @@ export const FINAL_TEST_SIZE = 50;
  * compares lms-curriculum to lib/training.
  */
 export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // ── Module 1: phes-policies (15) ─────────────────────────────────────────
+  // ── Module 1: phes-policies (23) ─────────────────────────────────────────
+  // 15 original + 8 added 2026-05-11 (handbook reconciliation: expanded
+  // "what we don't do", bereavement/jury/lactation/pregnancy, PTO cap +
+  // top-up, separation payout rules, 90-day holiday eligibility).
   "q-pp-01-w2": 1,
   "q-pp-02-guarantee": 2,
   "q-pp-03-scope-oven": 1,
@@ -144,6 +147,14 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-13-shoe-covers": 2,
   "q-pp-14-phone-use": 2,
   "q-pp-15-photos": 2,
+  "q-pp-16-dishes-beds": 1,
+  "q-pp-17-office-exception": 1,
+  "q-pp-18-bereavement": 1,
+  "q-pp-19-jury-duty": 1,
+  "q-pp-20-lactation": 1,
+  "q-pp-21-pto-cap": 1,
+  "q-pp-22-separation-payout": 1,
+  "q-pp-23-holiday-90day": 1,
 
   // ── Module 2: compensation (15) ──────────────────────────────────────────
   "q-cm-01-training-pay": 1,
@@ -226,6 +237,9 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-07-grace-window", "q-pp-08-tardy-progression", "q-pp-09-sick-tomorrow",
       "q-pp-10-pto-request", "q-pp-11-unexcused-fourth", "q-pp-12-uniform-forgot",
       "q-pp-13-shoe-covers", "q-pp-14-phone-use", "q-pp-15-photos",
+      "q-pp-16-dishes-beds", "q-pp-17-office-exception", "q-pp-18-bereavement",
+      "q-pp-19-jury-duty", "q-pp-20-lactation", "q-pp-21-pto-cap",
+      "q-pp-22-separation-payout", "q-pp-23-holiday-90day",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
