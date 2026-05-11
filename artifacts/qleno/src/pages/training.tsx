@@ -1163,7 +1163,7 @@ function ModuleRow({
           {m.estimatedMinutes} min
           {isQuizModule ? ` · ${tr("pass80", locale)}` : ""}
           {status === "passed" && bestScore > 0 ? ` · ${bestScore}%` : ""}
-          {isQuizModule && status !== "passed" ? (
+          {isQuizModule && status !== "passed" && !isOwner ? (
             <span
               style={{
                 marginLeft: 6,
@@ -1335,7 +1335,7 @@ function FinalStepCard({
         >
           {tr("finalIntro", locale)}
         </div>
-        {!passed ? (
+        {!passed && !isOwner ? (
           <div
             style={{
               fontSize: 11,
@@ -1347,7 +1347,7 @@ function FinalStepCard({
           >
             {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
             {attempts === 1 ? "" : "s"}
-            {atCap && !isOwner ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
+            {atCap ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
           </div>
         ) : null}
       </button>
