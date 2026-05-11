@@ -647,6 +647,27 @@ export default function TrainingPage() {
 // Page shell + header + locale + countdown
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Viewport-based mobile flag. Used to swap dense 3-column module layouts for
+ * a vertically-stacked single-column variant under 640px (Phes mobile audit
+ * 2026-05-12). Same pattern as lms-admin.tsx's useViewportIsMobile.
+ */
+const LMS_MOBILE_BREAKPOINT = 640;
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.innerWidth < LMS_MOBILE_BREAKPOINT,
+  );
+  useEffect(() => {
+    const onResize = () =>
+      setIsMobile(window.innerWidth < LMS_MOBILE_BREAKPOINT);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return isMobile;
+}
+
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
     <div
@@ -675,37 +696,40 @@ function Header({
   daysRemaining: number | null;
   isOwner?: boolean;
 }) {
+  const isMobile = useIsMobile();
   return (
     <header
       style={{
         background: SURFACE,
         borderBottom: `1px solid ${LINE}`,
-        padding: "14px 18px",
+        padding: isMobile ? "12px 14px" : "14px 18px",
         display: "flex",
+        flexDirection: isMobile ? "column" : "row",
         justifyContent: "space-between",
-        alignItems: "center",
-        gap: 12,
+        alignItems: isMobile ? "stretch" : "center",
+        gap: isMobile ? 10 : 12,
       }}
     >
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
+          gap: isMobile ? 8 : 12,
           minWidth: 0,
         }}
       >
-        <QlenoLogo size="md" theme="light" layout="horizontal" />
+        <QlenoLogo size={isMobile ? "sm" : "md"} theme="light" layout="horizontal" />
         <div
           style={{
-            height: 24,
+            height: isMobile ? 20 : 24,
             width: 1,
             background: LINE,
             margin: "0 2px",
+            flexShrink: 0,
           }}
           aria-hidden
         />
-        <div style={{ minWidth: 0 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
               fontWeight: 700,
@@ -719,22 +743,32 @@ function Header({
           </div>
           <div
             style={{
-              fontSize: 11,
+              fontSize: 10,
               color: INK_LIGHT,
               fontWeight: 600,
               textTransform: "uppercase",
-              letterSpacing: "0.08em",
+              letterSpacing: "0.06em",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
             }}
           >
             {tr("title", locale)}
           </div>
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: isMobile ? 8 : 12,
+          justifyContent: isMobile ? "flex-end" : "flex-start",
+        }}
+      >
         {daysRemaining != null && !isOwner && (
           <DeadlineBadge days={daysRemaining} locale={locale} />
         )}
-        <LocaleToggle locale={locale} setLocale={setLocale} />
+        <LocaleToggle locale={locale} setLocale={setLocale} compact={isMobile} />
       </div>
     </header>
   );
@@ -784,9 +818,12 @@ function DeadlineBadge({ days, locale }: { days: number; locale: Locale }) {
 function LocaleToggle({
   locale,
   setLocale,
+  compact = false,
 }: {
   locale: Locale;
   setLocale: (l: Locale) => void;
+  /** Compact mode renders 'EN' / 'ES' instead of 'ENGLISH' / 'ESPAÑOL'. Used on mobile. */
+  compact?: boolean;
 }) {
   const activeStyle = {
     background: NAVY,
@@ -798,6 +835,9 @@ function LocaleToggle({
     color: INK_MUTE,
     fontWeight: 600,
   } as const;
+  const labelEn = compact ? "EN" : "ENGLISH";
+  const labelEs = compact ? "ES" : "ESPAÑOL";
+  const pad = compact ? "5px 10px" : "5px 12px";
   return (
     <div
       role="group"
@@ -811,15 +851,24 @@ function LocaleToggle({
         borderRadius: 999,
         padding: 2,
         fontFamily: FONT,
+        flexShrink: 0,
       }}
     >
-      <Globe2 size={14} style={{ marginLeft: 8, marginRight: 4, color: INK_MUTE }} />
+      <Globe2
+        size={14}
+        style={{
+          marginLeft: compact ? 6 : 8,
+          marginRight: compact ? 2 : 4,
+          color: INK_MUTE,
+        }}
+      />
       <button
         type="button"
         onClick={() => setLocale("en")}
+        aria-label="English"
         style={{
           border: "none",
-          padding: "5px 12px",
+          padding: pad,
           borderRadius: 999,
           fontSize: 12,
           letterSpacing: "0.04em",
@@ -828,14 +877,15 @@ function LocaleToggle({
           ...(locale === "en" ? activeStyle : inactiveStyle),
         }}
       >
-        ENGLISH
+        {labelEn}
       </button>
       <button
         type="button"
         onClick={() => setLocale("es")}
+        aria-label="Español"
         style={{
           border: "none",
-          padding: "5px 12px",
+          padding: pad,
           borderRadius: 999,
           fontSize: 12,
           letterSpacing: "0.04em",
@@ -844,7 +894,7 @@ function LocaleToggle({
           ...(locale === "es" ? activeStyle : inactiveStyle),
         }}
       >
-        ESPAÑOL
+        {labelEs}
       </button>
     </div>
   );
@@ -1074,6 +1124,7 @@ function ModuleRow({
   onClick?: () => void;
   onBypass?: () => void;
 }) {
+  const isMobile = useIsMobile();
   const atCap = isQuizModule && status !== "passed" && attempts >= maxAttempts;
   const cta =
     status === "passed"
@@ -1090,17 +1141,210 @@ function ModuleRow({
     status === "passed" ? SUCCESS : isAck ? NAVY : unlocked ? TEAL : LINE;
   const effectiveOnClick = atCap && !isOwner ? undefined : onClick;
 
+  // ── Header row (icon + title + subtitle + meta) — same content for both
+  // mobile and desktop, just different parent layout. ──
+  const titleBlock = (
+    <button
+      type="button"
+      onClick={effectiveOnClick}
+      disabled={!unlocked || !effectiveOnClick}
+      style={{
+        minWidth: 0,
+        background: "transparent",
+        border: 0,
+        padding: 0,
+        margin: 0,
+        textAlign: "left",
+        cursor: unlocked && effectiveOnClick ? "pointer" : "default",
+        fontFamily: FONT,
+        flex: 1,
+      }}
+    >
+      <div
+        style={{
+          fontWeight: 700,
+          fontSize: 14,
+          color: INK,
+          letterSpacing: "-0.005em",
+          lineHeight: 1.25,
+        }}
+      >
+        {m.title[locale]}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: INK_MUTE,
+          marginTop: 2,
+          lineHeight: 1.4,
+          // [mobile-audit 2026-05-12] Allow subtitle to wrap on mobile.
+          // Desktop keeps the single-line ellipsis behavior.
+          ...(isMobile
+            ? {}
+            : { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }),
+        }}
+      >
+        {m.subtitle[locale]}
+      </div>
+      <div
+        style={{
+          fontSize: 11,
+          color: INK_LIGHT,
+          marginTop: 4,
+          fontWeight: 700,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          // Keep the metadata on one wrapping line — no per-word linebreaks.
+          whiteSpace: "normal",
+          wordSpacing: "normal",
+        }}
+      >
+        {m.estimatedMinutes} min
+        {isQuizModule ? ` · ${tr("pass80", locale)}` : ""}
+        {status === "passed" && bestScore > 0 ? ` · ${bestScore}%` : ""}
+        {isQuizModule && status !== "passed" && !isOwner ? (
+          <span
+            style={{
+              marginLeft: 6,
+              color: atCap ? DANGER : INK_LIGHT,
+            }}
+          >
+            · {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
+            {attempts === 1 ? "" : "s"}
+          </span>
+        ) : null}
+      </div>
+      {atCap && !isOwner ? (
+        <div
+          style={{
+            fontSize: 11,
+            color: DANGER,
+            marginTop: 4,
+            fontWeight: 700,
+          }}
+        >
+          {tr("noAttemptsLeft", locale)}
+        </div>
+      ) : null}
+    </button>
+  );
+
+  // ── Action area (status badge / CTA + optional Skip-Owner button) ──
+  const ctaButton =
+    status === "passed" ? (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          color: SUCCESS,
+          fontSize: 12,
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <CircleCheck size={14} />
+        {tr("passed", locale)}
+      </span>
+    ) : !unlocked && !isOwner ? (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          color: INK_LIGHT,
+          fontSize: 12,
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Lock size={14} />
+        {tr("locked", locale)}
+      </span>
+    ) : atCap && !isOwner ? (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          color: INK_LIGHT,
+          fontSize: 12,
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Lock size={14} />
+        {tr("locked", locale)}
+      </span>
+    ) : (
+      <button
+        type="button"
+        onClick={effectiveOnClick}
+        disabled={!effectiveOnClick}
+        style={{
+          background: isMobile ? NAVY : "transparent",
+          border: isMobile ? `1px solid ${NAVY}` : 0,
+          color: isMobile ? "#fff" : NAVY,
+          cursor: effectiveOnClick ? "pointer" : "default",
+          fontWeight: 700,
+          fontSize: 13,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 4,
+          fontFamily: FONT,
+          padding: isMobile ? "10px 14px" : 0,
+          borderRadius: isMobile ? 8 : 0,
+          width: isMobile ? "100%" : "auto",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {cta} <ChevronRight size={14} />
+      </button>
+    );
+  const bypassButton = onBypass ? (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onBypass();
+      }}
+      title={tr("bypassOwner", locale)}
+      style={{
+        marginLeft: isMobile ? 0 : 8,
+        background: "#EEF2F8",
+        color: NAVY,
+        border: `1px solid ${LINE}`,
+        padding: isMobile ? "8px 10px" : "5px 10px",
+        borderRadius: isMobile ? 8 : 6,
+        fontSize: isMobile ? 12 : 11,
+        fontWeight: 800,
+        cursor: "pointer",
+        fontFamily: FONT,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 4,
+        whiteSpace: "nowrap",
+        flex: isMobile ? "0 0 auto" : "initial",
+      }}
+    >
+      <FastForward size={11} /> {tr("bypassOwner", locale)}
+    </button>
+  ) : null;
+
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        alignItems: "center",
-        gap: 14,
+        display: isMobile ? "flex" : "grid",
+        flexDirection: isMobile ? "column" : undefined,
+        gridTemplateColumns: isMobile ? undefined : "auto 1fr auto",
+        alignItems: isMobile ? "stretch" : "center",
+        gap: isMobile ? 12 : 14,
         background: SURFACE,
         border: `1px solid ${atCap && !isOwner ? "#FECACA" : LINE}`,
         borderRadius: RADIUS,
-        padding: "14px 16px",
+        padding: isMobile ? "14px 14px 14px 18px" : "14px 16px",
         textAlign: "left",
         opacity: (unlocked || isOwner) ? 1 : 0.5,
         fontFamily: FONT,
@@ -1118,161 +1362,55 @@ function ModuleRow({
           background: stripeColor,
         }}
       />
-      <div style={{ paddingLeft: 4 }}>
-        <ModuleIcon kind={m.iconKind} size={44} />
-      </div>
-      <button
-        type="button"
-        onClick={effectiveOnClick}
-        disabled={!unlocked || !effectiveOnClick}
-        style={{
-          minWidth: 0,
-          background: "transparent",
-          border: 0,
-          padding: 0,
-          margin: 0,
-          textAlign: "left",
-          cursor: unlocked && effectiveOnClick ? "pointer" : "default",
-          fontFamily: FONT,
-        }}
-      >
-        <div
-          style={{
-            fontWeight: 700,
-            fontSize: 14,
-            color: INK,
-            letterSpacing: "-0.005em",
-          }}
-        >
-          {m.title[locale]}
-        </div>
-        <div
-          style={{
-            fontSize: 12,
-            color: INK_MUTE,
-            marginTop: 2,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {m.subtitle[locale]}
-        </div>
-        <div
-          style={{
-            fontSize: 11,
-            color: INK_LIGHT,
-            marginTop: 4,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-          }}
-        >
-          {m.estimatedMinutes} min
-          {isQuizModule ? ` · ${tr("pass80", locale)}` : ""}
-          {status === "passed" && bestScore > 0 ? ` · ${bestScore}%` : ""}
-          {isQuizModule && status !== "passed" && !isOwner ? (
-            <span
-              style={{
-                marginLeft: 6,
-                color: atCap ? DANGER : INK_LIGHT,
-              }}
-            >
-              · {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
-              {attempts === 1 ? "" : "s"}
-            </span>
-          ) : null}
-        </div>
-        {atCap && !isOwner ? (
+      {isMobile ? (
+        <>
+          {/* Mobile: stacked layout — icon + title row, then full-width actions */}
           <div
             style={{
-              fontSize: 11,
-              color: DANGER,
-              marginTop: 4,
-              fontWeight: 700,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 12,
+              minWidth: 0,
             }}
           >
-            {tr("noAttemptsLeft", locale)}
+            <ModuleIcon kind={m.iconKind} size={40} />
+            {titleBlock}
           </div>
-        ) : null}
-      </button>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          color: status === "passed" ? SUCCESS : unlocked ? NAVY : INK_LIGHT,
-          fontSize: 12,
-          fontWeight: 700,
-          whiteSpace: "nowrap",
-        }}
-      >
-        {status === "passed" ? (
-          <>
-            <CircleCheck size={14} />
-            {tr("passed", locale)}
-          </>
-        ) : !unlocked && !isOwner ? (
-          <>
-            <Lock size={14} />
-            {tr("locked", locale)}
-          </>
-        ) : atCap && !isOwner ? (
-          <>
-            <Lock size={14} />
-            {tr("locked", locale)}
-          </>
-        ) : (
-          <button
-            type="button"
-            onClick={effectiveOnClick}
-            disabled={!effectiveOnClick}
+          <div
             style={{
-              background: "transparent",
-              border: 0,
-              color: NAVY,
-              cursor: effectiveOnClick ? "pointer" : "default",
-              fontWeight: 700,
-              fontSize: 12,
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-              fontFamily: FONT,
-              padding: 0,
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              width: "100%",
             }}
           >
-            {cta} <ChevronRight size={14} />
-          </button>
-        )}
-        {onBypass ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onBypass();
-            }}
-            title={tr("bypassOwner", locale)}
+            {ctaButton}
+            {bypassButton}
+          </div>
+        </>
+      ) : (
+        <>
+          {/* Desktop: 3-column grid — icon | content | actions */}
+          <div style={{ paddingLeft: 4 }}>
+            <ModuleIcon kind={m.iconKind} size={44} />
+          </div>
+          {titleBlock}
+          <div
             style={{
-              marginLeft: 8,
-              background: "#EEF2F8",
-              color: NAVY,
-              border: `1px solid ${LINE}`,
-              padding: "5px 10px",
-              borderRadius: 6,
-              fontSize: 11,
-              fontWeight: 800,
-              cursor: "pointer",
-              fontFamily: FONT,
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
-              gap: 4,
+              gap: 6,
+              color: status === "passed" ? SUCCESS : unlocked ? NAVY : INK_LIGHT,
+              fontSize: 12,
+              fontWeight: 700,
               whiteSpace: "nowrap",
             }}
           >
-            <FastForward size={11} /> {tr("bypassOwner", locale)}
-          </button>
-        ) : null}
-      </div>
+            {ctaButton}
+            {bypassButton}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1296,108 +1434,174 @@ function FinalStepCard({
   onClick?: () => void;
   onBypass?: () => void;
 }) {
+  const isMobile = useIsMobile();
   const atCap = !passed && attempts >= maxAttempts;
   const effectiveOnClick = atCap && !isOwner ? undefined : onClick;
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "auto 1fr auto",
-        alignItems: "center",
-        gap: 14,
+        display: isMobile ? "flex" : "grid",
+        flexDirection: isMobile ? "column" : undefined,
+        gridTemplateColumns: isMobile ? undefined : "auto 1fr auto",
+        alignItems: isMobile ? "stretch" : "center",
+        gap: isMobile ? 12 : 14,
         background: passed ? "#ECFDF5" : NAVY,
         color: passed ? SUCCESS : "#fff",
         border: `1px solid ${passed ? SUCCESS : NAVY}`,
         borderRadius: RADIUS,
-        padding: "16px 18px",
+        padding: isMobile ? "16px 16px" : "16px 18px",
         textAlign: "left",
         opacity: unlocked ? 1 : 0.55,
         fontFamily: FONT,
       }}
     >
-      <Award size={28} />
-      <button
-        type="button"
-        onClick={effectiveOnClick}
-        disabled={!unlocked || passed || !effectiveOnClick}
-        style={{
-          background: "transparent",
-          color: "inherit",
-          border: 0,
-          padding: 0,
-          margin: 0,
-          textAlign: "left",
-          cursor: unlocked && !passed && effectiveOnClick ? "pointer" : "default",
-          fontFamily: FONT,
-        }}
-      >
-        <div style={{ fontWeight: 800, fontSize: 14 }}>
-          {tr("finalTest", locale)}
+      {isMobile ? (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <Award size={28} style={{ flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>
+              {tr("finalTest", locale)}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 3, lineHeight: 1.4 }}>
+              {tr("finalIntro", locale)}
+            </div>
+            {!passed && !isOwner ? (
+              <div
+                style={{
+                  fontSize: 11,
+                  marginTop: 6,
+                  fontWeight: 700,
+                  opacity: 0.9,
+                  color: atCap ? "#FCA5A5" : "inherit",
+                }}
+              >
+                {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
+                {attempts === 1 ? "" : "s"}
+                {atCap ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
+              </div>
+            ) : null}
+          </div>
         </div>
-        <div
-          style={{
-            fontSize: 12,
-            opacity: 0.85,
-            marginTop: 3,
-          }}
-        >
-          {tr("finalIntro", locale)}
-        </div>
-        {!passed && !isOwner ? (
-          <div
+      ) : null}
+      {!isMobile && (
+        <>
+          <Award size={28} />
+          <button
+            type="button"
+            onClick={effectiveOnClick}
+            disabled={!unlocked || passed || !effectiveOnClick}
             style={{
-              fontSize: 11,
-              marginTop: 6,
-              fontWeight: 700,
-              opacity: 0.9,
-              color: atCap ? "#FCA5A5" : "inherit",
+              background: "transparent",
+              color: "inherit",
+              border: 0,
+              padding: 0,
+              margin: 0,
+              textAlign: "left",
+              cursor: unlocked && !passed && effectiveOnClick ? "pointer" : "default",
+              fontFamily: FONT,
             }}
           >
-            {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
-            {attempts === 1 ? "" : "s"}
-            {atCap ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
-          </div>
-        ) : null}
-      </button>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>
+              {tr("finalTest", locale)}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                opacity: 0.85,
+                marginTop: 3,
+              }}
+            >
+              {tr("finalIntro", locale)}
+            </div>
+            {!passed && !isOwner ? (
+              <div
+                style={{
+                  fontSize: 11,
+                  marginTop: 6,
+                  fontWeight: 700,
+                  opacity: 0.9,
+                  color: atCap ? "#FCA5A5" : "inherit",
+                }}
+              >
+                {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
+                {attempts === 1 ? "" : "s"}
+                {atCap ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
+              </div>
+            ) : null}
+          </button>
+        </>
+      )}
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
           gap: 8,
           fontWeight: 800,
           fontSize: 12,
-          whiteSpace: "nowrap",
+          whiteSpace: isMobile ? "normal" : "nowrap",
+          marginTop: isMobile ? 4 : 0,
         }}
       >
         {passed ? (
-          <>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: isMobile ? "10px 14px" : 0,
+              justifyContent: isMobile ? "center" : "flex-start",
+            }}
+          >
             <CircleCheck size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("passed", locale)}
-          </>
+          </span>
         ) : !unlocked && !isOwner ? (
-          <>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: isMobile ? "10px 14px" : 0,
+              justifyContent: isMobile ? "center" : "flex-start",
+            }}
+          >
             <Lock size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("locked", locale)}
-          </>
+          </span>
         ) : atCap && !isOwner ? (
-          <>
+          <span
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: isMobile ? "10px 14px" : 0,
+              justifyContent: isMobile ? "center" : "flex-start",
+            }}
+          >
             <Lock size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("locked", locale)}
-          </>
+          </span>
         ) : (
           <button
             type="button"
             onClick={effectiveOnClick}
             disabled={!effectiveOnClick}
             style={{
-              background: "transparent",
+              background: isMobile ? "rgba(255,255,255,0.15)" : "transparent",
               color: "#fff",
-              border: 0,
+              border: isMobile ? `1px solid rgba(255,255,255,0.3)` : 0,
               cursor: effectiveOnClick ? "pointer" : "default",
               fontWeight: 800,
-              fontSize: 12,
-              padding: 0,
+              fontSize: isMobile ? 13 : 12,
+              padding: isMobile ? "10px 14px" : 0,
+              borderRadius: isMobile ? 8 : 0,
               fontFamily: FONT,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 4,
+              width: isMobile ? "100%" : "auto",
             }}
           >
             {tr("start", locale)}{" "}
@@ -1415,15 +1619,17 @@ function FinalStepCard({
               background: "rgba(255,255,255,0.15)",
               color: "#fff",
               border: `1px solid rgba(255,255,255,0.3)`,
-              padding: "5px 10px",
-              borderRadius: 6,
-              fontSize: 11,
+              padding: isMobile ? "8px 12px" : "5px 10px",
+              borderRadius: isMobile ? 8 : 6,
+              fontSize: isMobile ? 12 : 11,
               fontWeight: 800,
               cursor: "pointer",
               fontFamily: FONT,
               display: "inline-flex",
               alignItems: "center",
+              justifyContent: "center",
               gap: 4,
+              width: isMobile ? "100%" : "auto",
             }}
           >
             <FastForward size={11} /> {tr("bypassOwner", locale)}
