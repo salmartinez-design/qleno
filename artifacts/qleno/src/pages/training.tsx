@@ -948,12 +948,14 @@ function Home({
           const isAck = moduleId === "acknowledgment";
           const isContent = !QUIZ_MODULE_IDS.includes(moduleId as never) && !isAck;
 
-          // The acknowledgment card has its own gating + handler
+          // The acknowledgment card has its own gating + handler.
+          // Owners and admins can open any module to preview the content,
+          // regardless of the sequential gate — they're not learners.
           const handler = isAck
-            ? ackUnlocked
+            ? (ackUnlocked || isOwner)
               ? onOpenAck
               : undefined
-            : unlocked
+            : (unlocked || isOwner)
             ? () => onOpenModule(moduleId)
             : undefined;
 
@@ -1094,7 +1096,7 @@ function ModuleRow({
         borderRadius: RADIUS,
         padding: "14px 16px",
         textAlign: "left",
-        opacity: unlocked ? 1 : 0.5,
+        opacity: (unlocked || isOwner) ? 1 : 0.5,
         fontFamily: FONT,
         position: "relative",
         overflow: "hidden",
@@ -1204,7 +1206,7 @@ function ModuleRow({
             <CircleCheck size={14} />
             {tr("passed", locale)}
           </>
-        ) : !unlocked ? (
+        ) : !unlocked && !isOwner ? (
           <>
             <Lock size={14} />
             {tr("locked", locale)}
@@ -1366,7 +1368,7 @@ function FinalStepCard({
             <CircleCheck size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("passed", locale)}
           </>
-        ) : !unlocked ? (
+        ) : !unlocked && !isOwner ? (
           <>
             <Lock size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("locked", locale)}
