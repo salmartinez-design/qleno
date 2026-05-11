@@ -74,11 +74,11 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 50);
   });
 
-  it("phes-policies has 23 questions (handbook reconciliation 2026-05-11)", () => {
+  it("phes-policies has 26 questions (Q&A polish + sick time + unpaid personal days 2026-05-11)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      23,
-      `phes-policies should have 23 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      26,
+      `phes-policies should have 26 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
@@ -93,8 +93,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 83 total (4 modules × 15 + phes-policies × 23)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 83);
+  it("ALL_QUESTION_IDS is 86 total (4 modules × 15 + phes-policies × 26)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 86);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

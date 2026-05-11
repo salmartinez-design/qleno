@@ -51,6 +51,9 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-21-pto-cap": 1,
   "q-pp-22-separation-payout": 1,
   "q-pp-23-holiday-90day": 1,
+  "q-pp-24-sick-doc": 1,
+  "q-pp-25-sick-no-balance": 1,
+  "q-pp-26-unpaid-personal": 1,
 
   // ── Module 2: compensation ───────────────────────────────────────────────
   "q-cm-01-training-pay": 1,

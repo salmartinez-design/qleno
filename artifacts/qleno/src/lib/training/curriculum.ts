@@ -108,7 +108,7 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Bodily fluids — blood, vomit, urine, feces. Decline politely; the office can refer a biohazard service.", es: "Fluidos corporales — sangre, vómito, orina, heces. Rechace cortésmente; la oficina puede referir un servicio de biohazard." },
-          { en: "Inside the oven, refrigerator, or freezer (unless it's an explicit add-on on the Worksheet).", es: "Dentro del horno, refrigerador o congelador (a menos que sea un add-on explícito en la Hoja de Trabajo)." },
+          { en: "Inside the oven, refrigerator, or freezer — NOT in default scope. If a client asks mid-job, call the office; we can often add it same-day with pricing.", es: "Dentro del horno, refrigerador o congelador — NO está en el alcance estándar. Si un cliente lo pide a mitad del trabajo, llame a la oficina; muchas veces lo agregamos el mismo día con precio." },
           { en: "Pet waste, including litter boxes (we clean around them, not into them).", es: "Desechos de mascotas, incluyendo cajas de arena (limpiamos alrededor, no dentro)." },
           { en: "Cash transactions on site — all payment goes through the office.", es: "Transacciones en efectivo en el sitio — todo pago pasa por la oficina." },
           { en: "Climbing higher than the company-issued step stool — we do not stand on furniture.", es: "Subir más alto que el banquito de la compañía — no nos paramos sobre muebles." },
@@ -164,12 +164,46 @@ const BASE_MODULES: Module[] = [
           es: "No llamar / no presentarse se trata con más seriedad que las tardanzas y puede resultar en una última advertencia inmediata o terminación.",
         },
       },
-      { type: "h", text: { en: "Paid Sick Leave (PLAWA)", es: "Licencia por Enfermedad Pagada (PLAWA)" } },
+      { type: "h", text: { en: "Paid Sick Leave (PLAWA) — What You Need to Know", es: "Licencia por Enfermedad Pagada (PLAWA) — Lo Que Debe Saber" } },
       {
-        type: "p",
+        type: "bullets",
+        items: [
+          { en: "40 paid hours per Benefit Year, front-loaded after 90 days of employment.", es: "40 horas pagadas por Año de Beneficios, otorgadas por adelantado después de 90 días de empleo." },
+          { en: "Use it for ANY reason — your illness, a family member's illness, mental health day, medical appointment, vacation, personal time. You never have to give a reason.", es: "Úselo por CUALQUIER razón — su enfermedad, enfermedad de un familiar, salud mental, cita médica, vacaciones, asuntos personales. Nunca tiene que dar una razón." },
+          { en: "No doctor's note is required for absences of 3 consecutive days or less. The office may ask for documentation only beyond 3 days.", es: "No se requiere nota del médico para ausencias de 3 días consecutivos o menos. La oficina puede pedir documentación solo más allá de 3 días." },
+          { en: "Minimum block: 2 hours. Notice: at least 24 hours ahead when you can plan it (PTO-style); 'as soon as you can' for sudden illness or emergencies.", es: "Bloque mínimo: 2 horas. Aviso: al menos 24 horas antes cuando pueda planearlo (tipo PTO); 'lo antes posible' para enfermedad súbita o emergencias." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
         text: {
-          en: "Under the Illinois Paid Leave for All Workers Act, you accrue up to 40 hours of paid leave per benefit year that may be used for any reason. Eligibility begins 90 days from your hire date.",
-          es: "Bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois, acumula hasta 40 horas de licencia pagada por año de beneficios que puede usar por cualquier razón. La elegibilidad comienza 90 días después de su fecha de contratación.",
+          en: "Sick time is NOT PTO. They are SEPARATE buckets. PLAWA is gone at the end of your Benefit Year and is NOT paid out when you leave Phes (PTO is). Using your sick hours does not reduce your PTO bank, and vice versa. Sick-time requests follow the same two-step process: submit through MaidCentral / Qleno AND contact Maribel or Francisco at the office.",
+          es: "El tiempo por enfermedad NO es PTO. Son cubetas SEPARADAS. PLAWA se pierde al final de su Año de Beneficios y NO se paga cuando deja Phes (el PTO sí). Usar sus horas por enfermedad no reduce su banco de PTO, ni al revés. Las solicitudes de tiempo por enfermedad siguen el mismo proceso de dos pasos: envíe por MaidCentral / Qleno Y contacte a Maribel o Francisco en la oficina.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Out of PLAWA hours? Calling off sick without available leave counts as an unexcused absence and goes toward the 5-per-Benefit-Year discipline scale unless covered by other protected leave (jury duty, bereavement, pregnancy accommodation, etc.). Plan your sick time the same way you plan PTO.",
+          es: "¿Sin horas de PLAWA? Llamar enfermo sin licencia disponible cuenta como ausencia injustificada y va hacia la escala de disciplina de 5 por Año de Beneficios, a menos que esté cubierto por otra licencia protegida (jurado, duelo, embarazo, etc.). Planee su tiempo por enfermedad como planearía el PTO.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Dispatched into City of Chicago? Chicago has its own ordinance with TWO separate leave buckets (Paid Leave + Paid Sick & Safe Leave). If you regularly work jobs inside city limits, talk to the office — your accruals may stack differently. Standard Phes PLAWA still applies in the suburbs (Cook County mirrors state law).",
+          es: "¿Despachado dentro de la Ciudad de Chicago? Chicago tiene su propia ordenanza con DOS cubetas separadas (Licencia Pagada + Licencia Pagada por Enfermedad y Seguridad). Si trabaja regularmente dentro de los límites de la ciudad, hable con la oficina — sus acumulaciones pueden apilarse diferente. El PLAWA estándar de Phes sigue aplicando en los suburbios (Cook County refleja la ley estatal).",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "NO retaliation. By law, Phes cannot discipline, demote, fire, or penalize you for lawfully using PLAWA. If you ever feel pressure for taking a sick day, tell the office immediately.",
+          es: "SIN represalias. Por ley, Phes no puede disciplinar, degradar, despedir o penalizarlo por usar PLAWA legalmente. Si alguna vez siente presión por tomar un día por enfermedad, dígale a la oficina de inmediato.",
         },
       },
       { type: "h", text: { en: "Paid Time Off (PTO)", es: "Tiempo Libre Pagado (PTO)" } },
@@ -179,7 +213,7 @@ const BASE_MODULES: Module[] = [
           { en: "After 1 year (first work anniversary): 40 hours PTO per year.", es: "Después de 1 año (primer aniversario): 40 horas de PTO por año." },
           { en: "After 2 years and beyond: bank is topped up to 80 hours each anniversary.", es: "Después de 2 años en adelante: el banco se rellena hasta 80 horas en cada aniversario." },
           { en: "Hard cap: PTO does NOT exceed 80 hours total at any time. Unused PTO does NOT stack — we top up to the cap, we do not add on top.", es: "Tope estricto: el PTO NUNCA excede 80 horas totales. El PTO no usado NO se acumula — rellenamos hasta el tope, no agregamos encima." },
-          { en: "Request through the app in advance; approval depends on staffing.", es: "Se solicita con anticipación por la aplicación; la aprobación depende del personal disponible." },
+          { en: "Request through the app in advance AND contact Maribel or Francisco at the office to confirm — same two-step process as sick time.", es: "Solicite por la app con anticipación Y contacte a Maribel o Francisco en la oficina para confirmar — el mismo proceso de dos pasos del tiempo por enfermedad." },
         ],
       },
       {
@@ -188,6 +222,42 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Example: in your first PTO year you used only 20 of your 40 hours. At your 2-year anniversary, the office tops your bank up to 80 hours — NOT 20 carried over plus 80 = 100. The maximum balance is always 80.",
           es: "Ejemplo: en su primer año de PTO usó solo 20 de sus 40 horas. En su aniversario de 2 años, la oficina rellena su banco hasta 80 horas — NO 20 acumuladas + 80 = 100. El balance máximo siempre es 80.",
+        },
+      },
+      { type: "h", text: { en: "PTO Approval Rules — Read This Before You Request", es: "Reglas de Aprobación de PTO — Lea Esto Antes de Solicitar" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "FIRST COME, FIRST SERVE. Earlier requests for a given date win — submit early, especially for popular dates (holidays, school breaks, summer Fridays).", es: "PRIMERO EN LLEGAR, PRIMERO EN SER ATENDIDO. Las solicitudes más tempranas para una fecha ganan — envíe temprano, sobre todo para fechas populares (feriados, vacaciones escolares, viernes de verano)." },
+          { en: "MAXIMUM 2 CLEANERS OFF on the same day. If two techs already have an approved day, additional requests for that date will be declined.", es: "MÁXIMO 2 CLEANERS LIBRES el mismo día. Si dos técnicos ya tienen el día aprobado, las solicitudes adicionales para esa fecha serán rechazadas." },
+          { en: "BUSINESS NEEDS COME FIRST. Even within the 2-per-day cap, the office may decline a request if it leaves a route uncovered or a key client unstaffed. Approval is never guaranteed.", es: "LAS NECESIDADES DE LA EMPRESA VAN PRIMERO. Incluso dentro del tope de 2 por día, la oficina puede rechazar una solicitud si deja una ruta descubierta o un cliente clave sin personal. La aprobación nunca está garantizada." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Do NOT assume your request is approved until Maribel or Francisco confirms it. Buying a flight or booking travel before approval is your own risk — if the date is already filled by two earlier requests, or if business needs override, your request will be denied.",
+          es: "NO asuma que su solicitud está aprobada hasta que Maribel o Francisco lo confirmen. Comprar un vuelo o reservar viajes antes de la aprobación es su propio riesgo — si la fecha ya está llena con dos solicitudes anteriores, o si las necesidades del negocio anulan, su solicitud será rechazada.",
+        },
+      },
+      { type: "h", text: { en: "Unpaid Personal Days (Named Time Off)", es: "Días Personales No Pagados (Tiempo Libre Nombrado)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Up to 5 unpaid personal days per year = 40 hours of unpaid time off.", es: "Hasta 5 días personales no pagados por año = 40 horas de tiempo libre no pagado." },
+          { en: "Logged in MaidCentral as 'Named Time Off' days.", es: "Registrados en MaidCentral como días de 'Named Time Off' (Tiempo Libre Nombrado)." },
+          { en: "Same two-step request as PTO and sick time — submit in the system AND contact Maribel or Francisco.", es: "Misma solicitud de dos pasos que el PTO y enfermedad — envíe por el sistema Y contacte a Maribel o Francisco." },
+          { en: "Approval is at management discretion. The same first-come-first-serve, max-2-cleaners-off, business-needs-first rules apply.", es: "La aprobación es a discreción de la gerencia. Aplican las mismas reglas de primero-en-llegar, máximo-2-cleaners-libres, necesidades-del-negocio-primero." },
+          { en: "Do not carry over to next year. Not paid out at separation.", es: "No se acumulan al año siguiente. No se pagan al separarse." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Use unpaid personal days when you've exhausted PLAWA + PTO and you still need a planned day off — kid's school event, out-of-town wedding, etc. They're a SAFETY VALVE, not a routine option. Plan ahead.",
+          es: "Use días personales no pagados cuando haya agotado PLAWA + PTO y aún necesite un día libre planeado — evento escolar de un hijo, boda fuera de la ciudad, etc. Son una VÁLVULA DE SEGURIDAD, no una opción rutinaria. Planifique con anticipación.",
         },
       },
       { type: "h", text: { en: "What Gets Paid Out When You Leave", es: "Qué Se Paga al Salir" } },
@@ -199,12 +269,27 @@ const BASE_MODULES: Module[] = [
           { en: "Holidays: not banked — only paid for the holiday itself, see eligibility below.", es: "Feriados: no se acumulan — solo se pagan en el día del feriado, vea la elegibilidad abajo." },
         ],
       },
-      { type: "h", text: { en: "Time-Off Requests Go Through the System", es: "Solicitudes de Tiempo Libre — Por el Sistema" } },
+      { type: "h", text: { en: "Time-Off Requests — Two-Step Process", es: "Solicitudes de Tiempo Libre — Proceso de Dos Pasos" } },
       {
         type: "p",
         text: {
-          en: "Every time-off request — PTO, sick day, schedule change — must be submitted through MaidCentral (and Qleno once we cut over). Texting or calling a manager directly does not start the schedule update; the dispatcher won't see it; clients won't be notified.",
-          es: "Toda solicitud de tiempo libre — PTO, día por enfermedad, cambio de horario — debe enviarse a través de MaidCentral (y Qleno una vez que hagamos el cambio). Mensajes o llamadas directas a un gerente no inician la actualización del horario; el despachador no lo verá; los clientes no serán notificados.",
+          en: "Every time-off request — PTO, sick day, schedule change — requires BOTH steps so the schedule gets updated AND the office knows directly.",
+          es: "Toda solicitud de tiempo libre — PTO, día por enfermedad, cambio de horario — requiere AMBOS pasos para que el horario se actualice Y la oficina sepa directamente.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "STEP 1 — Submit the request through MaidCentral (and Qleno once we cut over). This is what dispatch sees and what triggers client notifications.", es: "PASO 1 — Envíe la solicitud por MaidCentral (y Qleno una vez que cambiemos). Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
+          { en: "STEP 2 — Contact Maribel or Francisco at the office directly (text or call) to confirm they've seen it. The system request alone is not enough.", es: "PASO 2 — Contacte a Maribel o Francisco en la oficina directamente (mensaje o llamada) para confirmar que la vieron. La solicitud por el sistema sola no es suficiente." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "If you only text Maribel or Francisco without the system request, dispatch won't see it and the client won't get notified. If you only submit in the system without contacting them, the office might not see it in time. Both are required, every time.",
+          es: "Si solo envía mensaje a Maribel o Francisco sin la solicitud por el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía por el sistema sin contactarlos, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
         },
       },
       { type: "h", text: { en: "Unexcused Absences", es: "Ausencias Injustificadas" } },
@@ -905,12 +990,15 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-03-scope-oven",
     moduleId: "phes-policies",
-    prompt: { en: "Mid-clean, the client asks if you can clean inside the oven. The Worksheet does not include oven cleaning. What do you do?", es: "Durante la limpieza, el cliente le pide limpiar por dentro del horno. La Hoja de Trabajo no lo incluye. ¿Qué hace?" },
+    prompt: {
+      en: "Mid-clean, the client asks if you can clean inside the oven. The Worksheet doesn't include it. What's the right move?",
+      es: "Durante la limpieza, el cliente le pide limpiar por dentro del horno. La Hoja de Trabajo no lo incluye. ¿Qué hace?",
+    },
     options: [
-      { en: "Clean it — the customer is always right", es: "Lo limpia — el cliente siempre tiene la razón" },
-      { en: "Politely explain it's not in today's scope and direct them to office to add it for next time", es: "Explica cortésmente que no está en el alcance de hoy y los dirige a la oficina para agregarlo la próxima vez" },
-      { en: "Clean it but charge them in cash directly", es: "Lo limpia pero cobra en efectivo" },
-      { en: "Refuse and walk out", es: "Se niega y se va" },
+      { en: "Clean it — the customer is always right.", es: "Lo limpia — el cliente siempre tiene la razón." },
+      { en: "Call the office to confirm pricing and add it to today's job. If you're tight on time before the next job, decline politely and offer to add it on the next visit instead.", es: "Llame a la oficina para confirmar el precio y agregarlo al trabajo de hoy. Si tiene poco tiempo antes del siguiente trabajo, decline cortésmente y ofrezca agregarlo en la próxima visita." },
+      { en: "Clean it but charge them in cash directly.", es: "Lo limpia pero cobra en efectivo directamente." },
+      { en: "Refuse and walk out — it's not on the Worksheet.", es: "Se niega y se va — no está en la Hoja de Trabajo." },
     ],
     correctIndex: 1,
   },
@@ -979,10 +1067,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "phes-policies",
     prompt: { en: "You're feeling sick tonight and won't work tomorrow. How do you report it?", es: "Se siente mal esta noche y no trabajará mañana. ¿Cómo lo reporta?" },
     options: [
-      { en: "Text your manager", es: "Mensaje al gerente" },
-      { en: "Call the office in the morning when you should be at work", es: "Llamar a la oficina en la mañana cuando debería estar trabajando" },
-      { en: "Submit a sick request through MaidCentral / Qleno — through the system", es: "Enviar solicitud de enfermedad a través de MaidCentral / Qleno — por el sistema" },
-      { en: "Just don't show up — they'll figure it out", es: "Simplemente no presentarse — ya lo entenderán" },
+      { en: "Text a co-worker so they can tell the office.", es: "Mensaje a un compañero para que avise a la oficina." },
+      { en: "Call the office in the morning when you should be at work.", es: "Llamar a la oficina en la mañana cuando debería estar trabajando." },
+      { en: "Submit a sick request through MaidCentral / Qleno AND contact Maribel or Francisco at the office directly (text or call) to confirm they've seen it.", es: "Envíe una solicitud por MaidCentral / Qleno Y contacte a Maribel o Francisco en la oficina directamente (mensaje o llamada) para confirmar que la vieron." },
+      { en: "Just don't show up — they'll figure it out.", es: "Simplemente no presentarse — ya lo entenderán." },
     ],
     correctIndex: 2,
   },
@@ -1049,12 +1137,15 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-15-photos",
     moduleId: "phes-policies",
-    prompt: { en: "You see a beautiful kitchen and want to take a photo to show your sister. Is that OK?", es: "Ve una cocina hermosa y quiere tomar foto para mostrársela a su hermana. ¿Está bien?" },
+    prompt: {
+      en: "You finish a deep clean and want to post a before/after on your personal Instagram to show off your work. Is that OK?",
+      es: "Termina una limpieza profunda y quiere publicar un antes/después en su Instagram personal para mostrar su trabajo. ¿Está bien?",
+    },
     options: [
-      { en: "Yes — as long as you don't post it on social media", es: "Sí — mientras no la publique en redes sociales" },
-      { en: "Yes if you ask the client first", es: "Sí si pregunta al cliente primero" },
-      { en: "No — photos or videos of client homes are strictly forbidden, except inside the company app for documenting work", es: "No — fotos o videos de hogares de clientes están estrictamente prohibidos, excepto dentro de la app de la compañía para documentar trabajo" },
-      { en: "Yes if you only photograph the surface, not the family", es: "Sí si solo fotografía la superficie, no a la familia" },
+      { en: "Yes, post anything you want on your personal account.", es: "Sí, publique lo que quiera en su cuenta personal." },
+      { en: "Yes, as long as the client's face isn't visible.", es: "Sí, mientras no se vea la cara del cliente." },
+      { en: "No — client homes are private. The ONLY photos allowed are inside the company app for documenting work (before/after, damage, etc.). To share Phes work publicly, ask the office.", es: "No — los hogares de los clientes son privados. Las ÚNICAS fotos permitidas son dentro de la app de la compañía para documentar trabajo (antes/después, daños, etc.). Para compartir trabajo de Phes públicamente, pida a la oficina." },
+      { en: "Yes, but blur the location and don't tag where you are.", es: "Sí, pero difumine la ubicación y no etiquete dónde está." },
     ],
     correctIndex: 2,
   },
@@ -1175,6 +1266,51 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "No — holiday pay eligibility begins AFTER 90 days of employment. Holidays in your first 90 days are unpaid.", es: "No — la elegibilidad para pago por feriado comienza DESPUÉS de 90 días de empleo. Los feriados en sus primeros 90 días no son pagados." },
       { en: "Yes — but only at half rate during the first 90 days.", es: "Sí — pero solo a media tarifa durante los primeros 90 días." },
       { en: "Only if the client cancels and you would have worked that day.", es: "Solo si el cliente cancela y habría trabajado ese día." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-24-sick-doc",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You're out with the flu for 2 consecutive workdays and use PLAWA. The office texts asking for a doctor's note. Is that allowed?",
+      es: "Está fuera con gripe por 2 días laborales consecutivos y usa PLAWA. La oficina le envía mensaje pidiendo nota del médico. ¿Es permitido?",
+    },
+    options: [
+      { en: "Yes — Phes can require documentation for any sick day.", es: "Sí — Phes puede exigir documentación para cualquier día por enfermedad." },
+      { en: "No — Illinois law prohibits requiring documentation for absences of 3 consecutive days or less. The office may only ask for a note if you're out MORE than 3 days.", es: "No — la ley de Illinois prohíbe exigir documentación para ausencias de 3 días consecutivos o menos. La oficina solo puede pedir nota si está fuera MÁS de 3 días." },
+      { en: "Only if the client complained about your absence.", es: "Solo si el cliente se quejó de su ausencia." },
+      { en: "Yes, but only for flu specifically.", es: "Sí, pero solo específicamente para la gripe." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-25-sick-no-balance",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You've used all 40 hours of your PLAWA this Benefit Year. You wake up sick and call off. How is this absence classified?",
+      es: "Ha usado las 40 horas de su PLAWA en este Año de Beneficios. Despierta enfermo y llama para faltar. ¿Cómo se clasifica esta ausencia?",
+    },
+    options: [
+      { en: "Still protected — sick is always excused.", es: "Aún protegida — la enfermedad siempre se excusa." },
+      { en: "Unexcused absence — counts toward the 5-per-Benefit-Year discipline scale, unless covered by other protected leave (bereavement, jury duty, pregnancy accommodation, etc.).", es: "Ausencia injustificada — cuenta hacia la escala de disciplina de 5 por Año de Beneficios, a menos que esté cubierta por otra licencia protegida (duelo, jurado, embarazo, etc.)." },
+      { en: "PTO is automatically deducted to cover it.", es: "Se descuenta PTO automáticamente para cubrirlo." },
+      { en: "Phes terminates immediately for going over.", es: "Phes termina inmediatamente por exceder." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-26-unpaid-personal",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You've used all your PTO and PLAWA but need a planned day off for your kid's school event. What option does Phes give you?",
+      es: "Ha usado todo su PTO y PLAWA pero necesita un día libre planeado para un evento escolar de su hijo. ¿Qué opción le da Phes?",
+    },
+    options: [
+      { en: "None — you're out of leave, the day will be unexcused.", es: "Ninguna — está sin licencia, el día será injustificado." },
+      { en: "Up to 5 unpaid personal days per year (40 hours, tracked as 'Named Time Off' in MaidCentral) — request through the system AND contact Maribel or Francisco. Approval at management discretion, subject to first-come-first-serve and the 2-cleaners-off cap.", es: "Hasta 5 días personales no pagados por año (40 horas, registrados como 'Named Time Off' en MaidCentral) — solicite por el sistema Y contacte a Maribel o Francisco. Aprobación a discreción de la gerencia, sujeto a primero-en-llegar y el tope de 2 cleaners libres." },
+      { en: "Borrow PTO from a coworker.", es: "Pídale prestado PTO a un compañero." },
+      { en: "Auto-promotion to overtime hours to cover the missed time.", es: "Promoción automática a horas extra para cubrir el tiempo perdido." },
     ],
     correctIndex: 1,
   },
