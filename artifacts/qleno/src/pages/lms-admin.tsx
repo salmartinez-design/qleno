@@ -129,7 +129,11 @@ function useViewportIsMobile(): boolean {
 export default function LmsAdminPage() {
   const token = useAuthStore((s) => s.token);
   const auth = useMemo(() => readRoleFromToken(token), [token]);
-  const isAuthorized = auth?.role === "owner" || auth?.role === "admin" || auth?.role === "super_admin";
+  const isAuthorized =
+    auth?.role === "owner" ||
+    auth?.role === "admin" ||
+    auth?.role === "super_admin" ||
+    auth?.role === "office";
   const isMobile = useViewportIsMobile();
   const [rows, setRows] = useState<RosterRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
