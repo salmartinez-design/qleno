@@ -128,10 +128,9 @@ export const FINAL_TEST_SIZE = 50;
  * compares lms-curriculum to lib/training.
  */
 export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // ── Module 1: phes-policies (23) ─────────────────────────────────────────
-  // 15 original + 8 added 2026-05-11 (handbook reconciliation: expanded
-  // "what we don't do", bereavement/jury/lactation/pregnancy, PTO cap +
-  // top-up, separation payout rules, 90-day holiday eligibility).
+  // ── Module 1: phes-policies (26) ─────────────────────────────────────────
+  // 15 original + 8 (handbook reconciliation 2026-05-11) + 2 sick-time
+  // deep dive + 1 unpaid personal days (Named Time Off) policy.
   "q-pp-01-w2": 1,
   "q-pp-02-guarantee": 2,
   "q-pp-03-scope-oven": 1,
@@ -155,6 +154,9 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-21-pto-cap": 1,
   "q-pp-22-separation-payout": 1,
   "q-pp-23-holiday-90day": 1,
+  "q-pp-24-sick-doc": 1,
+  "q-pp-25-sick-no-balance": 1,
+  "q-pp-26-unpaid-personal": 1,
 
   // ── Module 2: compensation (15) ──────────────────────────────────────────
   "q-cm-01-training-pay": 1,
@@ -240,6 +242,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-16-dishes-beds", "q-pp-17-office-exception", "q-pp-18-bereavement",
       "q-pp-19-jury-duty", "q-pp-20-lactation", "q-pp-21-pto-cap",
       "q-pp-22-separation-payout", "q-pp-23-holiday-90day",
+      "q-pp-24-sick-doc", "q-pp-25-sick-no-balance",
+      "q-pp-26-unpaid-personal",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
