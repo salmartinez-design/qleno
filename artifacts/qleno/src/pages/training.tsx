@@ -471,6 +471,7 @@ export default function TrainingPage() {
           locale={locale}
           setLocale={setLocale}
           daysRemaining={state?.days_remaining ?? null}
+          isOwner={!!state?.is_owner}
         />
         <div
           style={{
@@ -526,6 +527,7 @@ export default function TrainingPage() {
         locale={locale}
         setLocale={setLocale}
         daysRemaining={state.days_remaining}
+        isOwner={!!state.is_owner}
       />
       {view.kind === "home" && (
         <Home
@@ -665,11 +667,13 @@ function Header({
   locale,
   setLocale,
   daysRemaining,
+  isOwner = false,
 }: {
   tenantName: string;
   locale: Locale;
   setLocale: (l: Locale) => void;
   daysRemaining: number | null;
+  isOwner?: boolean;
 }) {
   return (
     <header
@@ -727,7 +731,9 @@ function Header({
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        {daysRemaining != null && <DeadlineBadge days={daysRemaining} locale={locale} />}
+        {daysRemaining != null && !isOwner && (
+          <DeadlineBadge days={daysRemaining} locale={locale} />
+        )}
         <LocaleToggle locale={locale} setLocale={setLocale} />
       </div>
     </header>
