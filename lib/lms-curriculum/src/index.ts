@@ -90,6 +90,20 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
 export const QUIZ_PASS_THRESHOLD = 0.8;
 
 /**
+ * Maximum attempts a learner gets before a module locks. Spec (phes 2026-05-11):
+ * three shots at each module quiz, four at the final mixed test. Owners are
+ * exempt from this gate via `/lms/admin/bypass-module`. Admins can also
+ * extend the deadline or bypass on behalf of a learner from /lms/admin.
+ */
+export const MAX_MODULE_ATTEMPTS = 3;
+export const MAX_FINAL_ATTEMPTS = 4;
+
+/** Max attempts allowed for a given module id (module or `__final`). */
+export function maxAttemptsFor(moduleId: string): number {
+  return moduleId === FINAL_MODULE_ID ? MAX_FINAL_ATTEMPTS : MAX_MODULE_ATTEMPTS;
+}
+
+/**
  * Number of questions sampled for the final mixed test. Drawn at random
  * (without replacement) across every QUIZ_MODULE_IDS. If the curriculum has
  * fewer than this many total questions, the final uses every question.

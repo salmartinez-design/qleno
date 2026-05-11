@@ -50,6 +50,9 @@ import {
   FINAL_MODULE_ID,
   FINAL_TEST_SIZE,
   QUIZ_PASS_THRESHOLD,
+  MAX_MODULE_ATTEMPTS,
+  MAX_FINAL_ATTEMPTS,
+  maxAttemptsFor,
   isModuleUnlocked,
   isFinalUnlocked,
   sampleFinalQuestionIds,
@@ -291,12 +294,18 @@ router.get("/me", requireAuth, async (req, res) => {
     }
     unlocked[FINAL_MODULE_ID] = isFinalUnlocked(completed);
 
+    const limits: Record<string, number> = {};
+    for (const m of MODULE_ORDER) limits[m] = MAX_MODULE_ATTEMPTS;
+    limits[FINAL_MODULE_ID] = MAX_FINAL_ATTEMPTS;
+
     return res.json({
       data: {
         enrollment,
         progress,
         unlocked,
         days_remaining: daysUntil(enrollment.deadline_at, now),
+        limits,
+        is_owner: req.auth!.role === "owner",
       },
     });
   } catch (err) {
@@ -582,6 +591,26 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       });
     }
 
+    // Attempts gate: 3 per module, 4 for the final. Owners are exempt — they
+    // can still submit but the cap doesn't apply to them. Already-passed
+    // modules are also exempt (re-takes for review).
+    const isOwner = req.auth!.role === "owner";
+    const existing = progress.find((p) => p.module_id === moduleId);
+    const attemptsSoFar = existing?.attempts ?? 0;
+    const alreadyPassed = existing?.status === "passed";
+    const maxAttempts = maxAttemptsFor(moduleId);
+    if (!isOwner && !alreadyPassed && attemptsSoFar >= maxAttempts) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message:
+          moduleId === FINAL_MODULE_ID
+            ? `You've used all ${maxAttempts} final-exam attempts. Ask your admin to extend or bypass.`
+            : `You've used all ${maxAttempts} attempts on this module. Ask your admin to extend or bypass.`,
+        attempts_used: attemptsSoFar,
+        max_attempts: maxAttempts,
+      });
+    }
+
     // Server-authoritative scoring.
     const result = scoreQuiz(answers, questionIds, QUIZ_PASS_THRESHOLD, SERVER_ANSWER_KEY);
 
@@ -614,17 +643,19 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       now,
     });
 
-    // Clear autosave state on a passing submission so the resume slate is fresh.
-    if (passedNow) {
-      await db
-        .delete(lmsQuizStateTable)
-        .where(
-          and(
-            eq(lmsQuizStateTable.enrollment_id, enrollment.id),
-            eq(lmsQuizStateTable.module_id, moduleId),
-          ),
-        );
-    }
+    // Clear autosave state after every submit — pass or fail — so the next
+    // entry to the module starts from a blank slate. Without this, a failed
+    // attempt's answers reload on the next visit (and on a different device)
+    // and the learner ends up re-submitting the same wrong answers without
+    // realizing it. (Bug surfaced by Dispatch 2026-05-11.)
+    await db
+      .delete(lmsQuizStateTable)
+      .where(
+        and(
+          eq(lmsQuizStateTable.enrollment_id, enrollment.id),
+          eq(lmsQuizStateTable.module_id, moduleId),
+        ),
+      );
     await touchEnrollment(enrollment.id, now);
 
     // Webhook fire — do this AFTER all DB writes commit, but before the
@@ -665,6 +696,7 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       { module_id: moduleId, score: result.score },
     );
 
+    const attemptsAfter = attemptsSoFar + 1;
     return res.json({
       data: {
         score: result.score,
@@ -675,6 +707,9 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         // sees them per spec. For per-module, it's already in the bundle so
         // there's no secret to keep.
         perQuestion: moduleId === FINAL_MODULE_ID ? undefined : result.perQuestion,
+        attempts_used: attemptsAfter,
+        max_attempts: maxAttempts,
+        attempts_remaining: Math.max(0, maxAttempts - attemptsAfter),
       },
     });
   } catch (err) {
@@ -961,6 +996,22 @@ router.get(
           currentModule = FINAL_MODULE_ID;
         }
 
+        // Per-module attempt + status snapshot keyed by module_id so the
+        // admin UI can render "2/3 attempts" or "passed" without an extra
+        // round trip. Includes `__final` if the learner has touched it.
+        const modules: Record<
+          string,
+          { status: string; best_score: number; attempts: number; max_attempts: number }
+        > = {};
+        for (const p of progress) {
+          modules[p.module_id] = {
+            status: p.status,
+            best_score: p.best_score,
+            attempts: p.attempts,
+            max_attempts: maxAttemptsFor(p.module_id),
+          };
+        }
+
         return {
           enrollment_id: e.id,
           user_id: e.user_id,
@@ -976,6 +1027,7 @@ router.get(
           completed_at: e.completed_at,
           last_activity_at: e.last_activity_at,
           enrolled_at: e.enrolled_at,
+          modules,
         };
       });
 
@@ -1075,6 +1127,123 @@ router.post(
       return res
         .status(500)
         .json({ error: "Internal Server Error", message: "Failed to extend deadline" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/bypass-module — Owner+Admin only
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Body: { moduleId, userId? }
+//
+// Marks the given module as passed (score 100) for the target user. Used by:
+//   - The business owner skipping their own training modules from /training.
+//     (They call this without `userId` — bypass applies to themselves.)
+//   - Admins unblocking a learner who hit the attempts cap or has a
+//     legitimate exemption (e.g. credentialed hire).
+//
+// If `userId` is omitted, the caller bypasses for themselves. Otherwise the
+// target user must belong to the caller's tenant.
+//
+// For the final mixed test, bypassing it also marks the enrollment as
+// `completed` (and stamps `completed_at`) — matching the natural pass path.
+
+router.post(
+  "/admin/bypass-module",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const moduleId: string | undefined = req.body?.moduleId;
+      if (typeof moduleId !== "string" || !KNOWN_MODULE_IDS.has(moduleId)) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Unknown moduleId" });
+      }
+      const targetUserId =
+        req.body?.userId != null ? Number(req.body.userId) : req.auth!.userId;
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Invalid userId" });
+      }
+
+      // Tenant gate when the target is someone else — caller can only bypass
+      // for users in their own company.
+      if (targetUserId !== req.auth!.userId) {
+        const targetUser = await db
+          .select({ company_id: usersTable.company_id })
+          .from(usersTable)
+          .where(eq(usersTable.id, targetUserId))
+          .limit(1);
+        if (!targetUser[0] || targetUser[0].company_id !== companyId) {
+          return res
+            .status(404)
+            .json({ error: "Not Found", message: "User not found in tenant" });
+        }
+      }
+
+      const now = new Date();
+      const enrollment = await getOrCreateEnrollment(companyId, targetUserId, now);
+
+      await upsertModuleProgress({
+        companyId,
+        enrollmentId: enrollment.id,
+        moduleId,
+        patch: {
+          status: "passed",
+          best_score: 100,
+          passed_at: now,
+        },
+        now,
+      });
+
+      // Bypassing the final mixed test completes the enrollment, matching the
+      // natural pass path so the learner doesn't get stranded.
+      if (moduleId === FINAL_MODULE_ID) {
+        await db
+          .update(lmsEnrollmentsTable)
+          .set({ status: "completed", completed_at: now, updated_at: now })
+          .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+      }
+
+      // Clear any in-flight autosave for this module so a re-open shows clean.
+      await db
+        .delete(lmsQuizStateTable)
+        .where(
+          and(
+            eq(lmsQuizStateTable.enrollment_id, enrollment.id),
+            eq(lmsQuizStateTable.module_id, moduleId),
+          ),
+        );
+
+      await touchEnrollment(enrollment.id, now);
+      await logAudit(
+        req,
+        "lms.admin.bypass",
+        "lms_enrollment",
+        enrollment.id,
+        null,
+        {
+          module_id: moduleId,
+          target_user_id: targetUserId,
+          self: targetUserId === req.auth!.userId,
+        },
+      );
+
+      return res.json({ data: { ok: true, enrollment_id: enrollment.id } });
+    } catch (err) {
+      console.error("[lms] /admin/bypass-module error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to bypass module" });
     }
   },
 );

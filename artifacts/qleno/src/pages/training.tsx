@@ -42,10 +42,14 @@ import {
   QUIZ_MODULE_IDS,
   QUESTIONS_BY_MODULE,
   FINAL_MODULE_ID,
+  MAX_MODULE_ATTEMPTS,
+  MAX_FINAL_ATTEMPTS,
+  maxAttemptsFor,
   isModuleUnlocked,
   isFinalUnlocked,
   type ModuleId,
 } from "@workspace/lms-curriculum";
+import { QlenoLogo } from "@/components/brand/QlenoLogo";
 import {
   ChevronRight,
   ChevronLeft,
@@ -60,6 +64,7 @@ import {
   Award,
   Loader2,
   CalendarClock,
+  FastForward,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -124,6 +129,8 @@ type LmsState = {
   progress: ModuleProgressRow[];
   unlocked: Record<string, boolean>;
   days_remaining: number;
+  limits?: Record<string, number>;
+  is_owner?: boolean;
 };
 
 type QuizStateRow = {
@@ -139,6 +146,9 @@ type SubmitResult = {
   correctCount: number;
   totalCount: number;
   perQuestion?: boolean[];
+  attempts_used?: number;
+  max_attempts?: number;
+  attempts_remaining?: number;
 };
 
 type View =
@@ -237,6 +247,13 @@ const lmsApi = {
       token,
       payload,
     ),
+  bypassModule: (token: string | null, moduleId: string) =>
+    api<{ ok: true; enrollment_id: number }>(
+      "POST",
+      "/lms/admin/bypass-module",
+      token,
+      { moduleId },
+    ),
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -307,6 +324,20 @@ const T = {
     es: "Gracias — tu supervisor ha sido notificado.",
   },
   start_first: { en: "Start your training", es: "Comenzar capacitación" },
+  attempt: { en: "Attempt", es: "Intento" },
+  of: { en: "of", es: "de" },
+  attemptsUsed: { en: "attempts used", es: "intentos usados" },
+  attemptsRemaining: { en: "attempts remaining", es: "intentos restantes" },
+  noAttemptsLeft: {
+    en: "No attempts remaining. Ask your admin to extend or bypass.",
+    es: "No quedan intentos. Pide al administrador que extienda o exente.",
+  },
+  bypassOwner: { en: "Skip (Owner)", es: "Saltar (Propietario)" },
+  bypassed: { en: "Bypassed by owner", es: "Exento por el propietario" },
+  resume_quiz: { en: "Resume quiz", es: "Continuar examen" },
+  retry_quiz: { en: "Try again", es: "Intentar de nuevo" },
+  start_quiz: { en: "Start quiz", es: "Comenzar examen" },
+  review_quiz: { en: "Review", es: "Revisar" },
 } as const;
 
 function tr(key: keyof typeof T, locale: Locale): string {
@@ -507,6 +538,10 @@ export default function TrainingPage() {
           onOpenModule={(moduleId) => setView({ kind: "module", moduleId })}
           onOpenFinal={() => setView({ kind: "final-intro" })}
           onOpenAck={() => setView({ kind: "ack" })}
+          onBypass={async (moduleId) => {
+            await lmsApi.bypassModule(token, moduleId);
+            await refresh();
+          }}
         />
       )}
       {view.kind === "module" && (
@@ -520,10 +555,16 @@ export default function TrainingPage() {
             QUIZ_MODULE_IDS.includes(view.moduleId as never)
           }
           progress={state.progress.find((p) => p.module_id === view.moduleId) ?? null}
+          isOwner={!!state.is_owner}
           onBack={() => setView({ kind: "home" })}
           onTakeQuiz={() => setView({ kind: "quiz", moduleId: view.moduleId })}
           onAcknowledge={async () => {
             await lmsApi.acknowledge(token, view.moduleId);
+            await refresh();
+            setView({ kind: "home" });
+          }}
+          onBypass={async () => {
+            await lmsApi.bypassModule(token, view.moduleId);
             await refresh();
             setView({ kind: "home" });
           }}
@@ -542,6 +583,9 @@ export default function TrainingPage() {
           moduleId={view.moduleId}
           locale={locale}
           token={token}
+          priorAttempts={
+            state.progress.find((p) => p.module_id === view.moduleId)?.attempts ?? 0
+          }
           onCancel={() => setView({ kind: "module", moduleId: view.moduleId })}
           onPassed={async () => {
             await refresh();
@@ -562,6 +606,9 @@ export default function TrainingPage() {
           moduleId={FINAL_MODULE_ID}
           locale={locale}
           token={token}
+          priorAttempts={
+            state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
+          }
           onCancel={() => setView({ kind: "home" })}
           onPassed={async () => {
             await refresh();
@@ -640,11 +687,20 @@ function Header({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
+          gap: 12,
           minWidth: 0,
         }}
       >
-        <PhesMark />
+        <QlenoLogo size="md" theme="light" layout="horizontal" />
+        <div
+          style={{
+            height: 24,
+            width: 1,
+            background: LINE,
+            margin: "0 2px",
+          }}
+          aria-hidden
+        />
         <div style={{ minWidth: 0 }}>
           <div
             style={{
@@ -675,27 +731,6 @@ function Header({
         <LocaleToggle locale={locale} setLocale={setLocale} />
       </div>
     </header>
-  );
-}
-
-function PhesMark() {
-  return (
-    <div
-      style={{
-        width: 28,
-        height: 28,
-        borderRadius: 6,
-        background: NAVY,
-        color: "#fff",
-        display: "grid",
-        placeItems: "center",
-        fontWeight: 800,
-        fontSize: 13,
-        letterSpacing: "0.04em",
-      }}
-    >
-      Q
-    </div>
   );
 }
 
@@ -823,6 +858,7 @@ function Home({
   onOpenModule,
   onOpenFinal,
   onOpenAck,
+  onBypass,
 }: {
   curriculum: Curriculum;
   state: LmsState;
@@ -833,7 +869,9 @@ function Home({
   onOpenModule: (id: string) => void;
   onOpenFinal: () => void;
   onOpenAck: () => void;
+  onBypass: (moduleId: string) => Promise<void>;
 }) {
+  const isOwner = !!state.is_owner;
   const completed = state.progress
     .filter((p) => p.status === "passed")
     .map((p) => p.module_id);
@@ -926,10 +964,18 @@ function Home({
               locale={locale}
               status={progress?.status ?? "not_started"}
               bestScore={progress?.best_score ?? 0}
+              attempts={progress?.attempts ?? 0}
+              maxAttempts={MAX_MODULE_ATTEMPTS}
               unlocked={isAck ? ackUnlocked : !!unlocked}
               isQuizModule={!isContent && !isAck}
               isAck={isAck}
+              isOwner={isOwner}
               onClick={handler}
+              onBypass={
+                !isAck && isOwner && progress?.status !== "passed"
+                  ? () => onBypass(moduleId)
+                  : undefined
+              }
             />
           );
         })}
@@ -941,7 +987,15 @@ function Home({
           locale={locale}
           unlocked={finalUnlocked}
           passed={finalPassed}
+          attempts={
+            state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
+          }
+          maxAttempts={MAX_FINAL_ATTEMPTS}
+          isOwner={isOwner}
           onClick={finalUnlocked && !finalPassed ? onOpenFinal : undefined}
+          onBypass={
+            isOwner && !finalPassed ? () => onBypass(FINAL_MODULE_ID) : undefined
+          }
         />
       </div>
     </div>
@@ -990,46 +1044,56 @@ function ModuleRow({
   locale,
   status,
   bestScore,
+  attempts,
+  maxAttempts,
   unlocked,
   isQuizModule,
   isAck,
+  isOwner,
   onClick,
+  onBypass,
 }: {
   module: Module;
   locale: Locale;
   status: ModuleProgressRow["status"];
   bestScore: number;
+  attempts: number;
+  maxAttempts: number;
   unlocked: boolean;
   isQuizModule: boolean;
   isAck: boolean;
+  isOwner: boolean;
   onClick?: () => void;
+  onBypass?: () => void;
 }) {
+  const atCap = isQuizModule && status !== "passed" && attempts >= maxAttempts;
   const cta =
     status === "passed"
-      ? tr("review", locale)
-      : status === "in_progress" || status === "failed"
-      ? tr("resume", locale)
+      ? tr("review_quiz", locale)
+      : status === "failed"
+      ? tr("retry_quiz", locale)
+      : status === "in_progress"
+      ? tr("resume_quiz", locale)
+      : isQuizModule
+      ? tr("start_quiz", locale)
       : tr("start", locale);
 
   const stripeColor =
     status === "passed" ? SUCCESS : isAck ? NAVY : unlocked ? TEAL : LINE;
+  const effectiveOnClick = atCap && !isOwner ? undefined : onClick;
 
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!unlocked || !onClick}
+    <div
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr auto",
         alignItems: "center",
         gap: 14,
         background: SURFACE,
-        border: `1px solid ${LINE}`,
+        border: `1px solid ${atCap && !isOwner ? "#FECACA" : LINE}`,
         borderRadius: RADIUS,
         padding: "14px 16px",
         textAlign: "left",
-        cursor: unlocked && onClick ? "pointer" : "default",
         opacity: unlocked ? 1 : 0.5,
         fontFamily: FONT,
         position: "relative",
@@ -1049,7 +1113,21 @@ function ModuleRow({
       <div style={{ paddingLeft: 4 }}>
         <ModuleIcon kind={m.iconKind} size={44} />
       </div>
-      <div style={{ minWidth: 0 }}>
+      <button
+        type="button"
+        onClick={effectiveOnClick}
+        disabled={!unlocked || !effectiveOnClick}
+        style={{
+          minWidth: 0,
+          background: "transparent",
+          border: 0,
+          padding: 0,
+          margin: 0,
+          textAlign: "left",
+          cursor: unlocked && effectiveOnClick ? "pointer" : "default",
+          fontFamily: FONT,
+        }}
+      >
         <div
           style={{
             fontWeight: 700,
@@ -1085,8 +1163,31 @@ function ModuleRow({
           {m.estimatedMinutes} min
           {isQuizModule ? ` · ${tr("pass80", locale)}` : ""}
           {status === "passed" && bestScore > 0 ? ` · ${bestScore}%` : ""}
+          {isQuizModule && status !== "passed" ? (
+            <span
+              style={{
+                marginLeft: 6,
+                color: atCap ? DANGER : INK_LIGHT,
+              }}
+            >
+              · {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
+              {attempts === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
-      </div>
+        {atCap && !isOwner ? (
+          <div
+            style={{
+              fontSize: 11,
+              color: DANGER,
+              marginTop: 4,
+              fontWeight: 700,
+            }}
+          >
+            {tr("noAttemptsLeft", locale)}
+          </div>
+        ) : null}
+      </button>
       <div
         style={{
           display: "flex",
@@ -1108,13 +1209,63 @@ function ModuleRow({
             <Lock size={14} />
             {tr("locked", locale)}
           </>
-        ) : (
+        ) : atCap && !isOwner ? (
           <>
-            {cta} <ChevronRight size={14} />
+            <Lock size={14} />
+            {tr("locked", locale)}
           </>
+        ) : (
+          <button
+            type="button"
+            onClick={effectiveOnClick}
+            disabled={!effectiveOnClick}
+            style={{
+              background: "transparent",
+              border: 0,
+              color: NAVY,
+              cursor: effectiveOnClick ? "pointer" : "default",
+              fontWeight: 700,
+              fontSize: 12,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              fontFamily: FONT,
+              padding: 0,
+            }}
+          >
+            {cta} <ChevronRight size={14} />
+          </button>
         )}
+        {onBypass ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onBypass();
+            }}
+            title={tr("bypassOwner", locale)}
+            style={{
+              marginLeft: 8,
+              background: "#EEF2F8",
+              color: NAVY,
+              border: `1px solid ${LINE}`,
+              padding: "5px 10px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: "pointer",
+              fontFamily: FONT,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              whiteSpace: "nowrap",
+            }}
+          >
+            <FastForward size={11} /> {tr("bypassOwner", locale)}
+          </button>
+        ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -1122,18 +1273,25 @@ function FinalStepCard({
   locale,
   unlocked,
   passed,
+  attempts,
+  maxAttempts,
+  isOwner,
   onClick,
+  onBypass,
 }: {
   locale: Locale;
   unlocked: boolean;
   passed: boolean;
+  attempts: number;
+  maxAttempts: number;
+  isOwner: boolean;
   onClick?: () => void;
+  onBypass?: () => void;
 }) {
+  const atCap = !passed && attempts >= maxAttempts;
+  const effectiveOnClick = atCap && !isOwner ? undefined : onClick;
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!unlocked || passed || !onClick}
+    <div
       style={{
         display: "grid",
         gridTemplateColumns: "auto 1fr auto",
@@ -1145,13 +1303,26 @@ function FinalStepCard({
         borderRadius: RADIUS,
         padding: "16px 18px",
         textAlign: "left",
-        cursor: unlocked && !passed && onClick ? "pointer" : "default",
         opacity: unlocked ? 1 : 0.55,
         fontFamily: FONT,
       }}
     >
       <Award size={28} />
-      <div>
+      <button
+        type="button"
+        onClick={effectiveOnClick}
+        disabled={!unlocked || passed || !effectiveOnClick}
+        style={{
+          background: "transparent",
+          color: "inherit",
+          border: 0,
+          padding: 0,
+          margin: 0,
+          textAlign: "left",
+          cursor: unlocked && !passed && effectiveOnClick ? "pointer" : "default",
+          fontFamily: FONT,
+        }}
+      >
         <div style={{ fontWeight: 800, fontSize: 14 }}>
           {tr("finalTest", locale)}
         </div>
@@ -1164,8 +1335,32 @@ function FinalStepCard({
         >
           {tr("finalIntro", locale)}
         </div>
-      </div>
-      <div style={{ fontWeight: 800, fontSize: 12, whiteSpace: "nowrap" }}>
+        {!passed ? (
+          <div
+            style={{
+              fontSize: 11,
+              marginTop: 6,
+              fontWeight: 700,
+              opacity: 0.9,
+              color: atCap ? "#FCA5A5" : "inherit",
+            }}
+          >
+            {attempts}/{maxAttempts} {tr("attempt", locale).toLowerCase()}
+            {attempts === 1 ? "" : "s"}
+            {atCap && !isOwner ? ` · ${tr("noAttemptsLeft", locale)}` : ""}
+          </div>
+        ) : null}
+      </button>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          fontWeight: 800,
+          fontSize: 12,
+          whiteSpace: "nowrap",
+        }}
+      >
         {passed ? (
           <>
             <CircleCheck size={14} style={{ verticalAlign: "middle" }} />{" "}
@@ -1176,14 +1371,58 @@ function FinalStepCard({
             <Lock size={14} style={{ verticalAlign: "middle" }} />{" "}
             {tr("locked", locale)}
           </>
-        ) : (
+        ) : atCap && !isOwner ? (
           <>
+            <Lock size={14} style={{ verticalAlign: "middle" }} />{" "}
+            {tr("locked", locale)}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={effectiveOnClick}
+            disabled={!effectiveOnClick}
+            style={{
+              background: "transparent",
+              color: "#fff",
+              border: 0,
+              cursor: effectiveOnClick ? "pointer" : "default",
+              fontWeight: 800,
+              fontSize: 12,
+              padding: 0,
+              fontFamily: FONT,
+            }}
+          >
             {tr("start", locale)}{" "}
             <ChevronRight size={14} style={{ verticalAlign: "middle" }} />
-          </>
+          </button>
         )}
+        {onBypass ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onBypass();
+            }}
+            style={{
+              background: "rgba(255,255,255,0.15)",
+              color: "#fff",
+              border: `1px solid rgba(255,255,255,0.3)`,
+              padding: "5px 10px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 800,
+              cursor: "pointer",
+              fontFamily: FONT,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <FastForward size={11} /> {tr("bypassOwner", locale)}
+          </button>
+        ) : null}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -1196,20 +1435,36 @@ function ModuleView({
   locale,
   isQuizModule,
   progress,
+  isOwner,
   onBack,
   onTakeQuiz,
   onAcknowledge,
+  onBypass,
   onStart,
 }: {
   module: Module;
   locale: Locale;
   isQuizModule: boolean;
   progress: ModuleProgressRow | null;
+  isOwner: boolean;
   onBack: () => void;
   onTakeQuiz: () => void;
   onAcknowledge: () => void;
+  onBypass: () => void;
   onStart: () => void;
 }) {
+  const attempts = progress?.attempts ?? 0;
+  const maxAttempts = MAX_MODULE_ATTEMPTS;
+  const status = progress?.status ?? "not_started";
+  const atCap = isQuizModule && status !== "passed" && attempts >= maxAttempts;
+  const quizCta =
+    status === "passed"
+      ? tr("review_quiz", locale)
+      : status === "failed"
+      ? tr("retry_quiz", locale)
+      : status === "in_progress"
+      ? tr("resume_quiz", locale)
+      : tr("start_quiz", locale);
   useEffect(() => {
     onStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1248,6 +1503,37 @@ function ModuleView({
         {m.blocks.map((b, i) => (
           <Block key={i} block={b} locale={locale} />
         ))}
+        {isQuizModule ? (
+          <div
+            style={{
+              marginTop: 18,
+              padding: "10px 12px",
+              background: atCap && !isOwner ? "#FEF2F2" : LINE_SOFT,
+              border: `1px solid ${atCap && !isOwner ? "#FECACA" : LINE}`,
+              borderRadius: 8,
+              fontSize: 12,
+              color: atCap && !isOwner ? DANGER : INK_MUTE,
+              fontWeight: 700,
+              display: "flex",
+              justifyContent: "space-between",
+              gap: 10,
+              flexWrap: "wrap",
+            }}
+          >
+            <span>
+              {tr("attempt", locale)} {Math.min(attempts + 1, maxAttempts)}{" "}
+              {tr("of", locale)} {maxAttempts}
+              {progress?.best_score
+                ? ` · ${locale === "en" ? "best" : "mejor"}: ${progress.best_score}%`
+                : ""}
+            </span>
+            <span>
+              {atCap && !isOwner
+                ? tr("noAttemptsLeft", locale)
+                : `${Math.max(0, maxAttempts - attempts)} ${tr("attemptsRemaining", locale)}`}
+            </span>
+          </div>
+        ) : null}
         <div
           style={{
             marginTop: 22,
@@ -1257,11 +1543,17 @@ function ModuleView({
             flexWrap: "wrap",
           }}
         >
+          {isOwner && status !== "passed" ? (
+            <SecondaryButton onClick={onBypass}>
+              <FastForward size={14} /> {tr("bypassOwner", locale)}
+            </SecondaryButton>
+          ) : null}
           {isQuizModule ? (
-            <PrimaryButton onClick={onTakeQuiz}>
-              {progress?.status === "passed"
-                ? tr("review", locale)
-                : tr("start", locale) + " quiz"}
+            <PrimaryButton
+              onClick={onTakeQuiz}
+              disabled={atCap && !isOwner}
+            >
+              {quizCta}
               <ChevronRight size={14} style={{ marginLeft: 4 }} />
             </PrimaryButton>
           ) : (
@@ -1448,6 +1740,7 @@ function QuizView({
   moduleId,
   locale,
   token,
+  priorAttempts,
   onCancel,
   onPassed,
 }: {
@@ -1455,10 +1748,12 @@ function QuizView({
   moduleId: string;
   locale: Locale;
   token: string | null;
+  priorAttempts: number;
   onCancel: () => void;
   onPassed: () => Promise<void>;
 }) {
   const isFinal = moduleId === FINAL_MODULE_ID;
+  const maxAttempts = maxAttemptsFor(moduleId);
   const [questionIds, setQuestionIds] = useState<string[]>([]);
   const [answers, setAnswers] = useState<(number | null)[]>([]);
   const [cursor, setCursor] = useState(0);
@@ -1551,19 +1846,29 @@ function QuizView({
     );
   }
   if (result) {
+    const attemptsRemaining =
+      result.attempts_remaining ??
+      Math.max(0, maxAttempts - (result.attempts_used ?? priorAttempts + 1));
     return (
       <ResultView
         locale={locale}
         result={result}
+        attemptsRemaining={attemptsRemaining}
+        maxAttempts={result.max_attempts ?? maxAttempts}
         passThreshold={PASS_THRESHOLD_PCT}
         onContinue={async () => {
           if (result.passed) {
             await onPassed();
-          } else {
-            // Reset for retry
+          } else if (attemptsRemaining > 0) {
+            // Reset for retry — also clear server state so cross-device
+            // resume starts from a blank slate (server already deletes the
+            // row after every submit; this is belt-and-suspenders).
             setAnswers(new Array(questionIds.length).fill(null));
             setCursor(0);
             setResult(null);
+          } else {
+            // No retries left — bounce back home.
+            onCancel();
           }
         }}
       />
@@ -1590,25 +1895,50 @@ function QuizView({
 
   const allAnswered = answers.length === total && answers.every((a) => a != null);
 
+  const currentAttempt = Math.min(priorAttempts + 1, maxAttempts);
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 18px" }}>
       <BackLink label={tr("back", locale)} onClick={onCancel} />
       <div style={{ marginTop: 14 }}>
         <div
           style={{
-            fontSize: 11,
-            color: INK_LIGHT,
-            fontWeight: 800,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
           }}
         >
-          {isFinal
-            ? tr("finalTest", locale)
-            : curriculum.modules.find((m) => m.id === moduleId)?.title[locale] ??
-              moduleId}
-          {" · "}
-          {cursor + 1} / {total}
+          <div
+            style={{
+              fontSize: 11,
+              color: INK_LIGHT,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+            }}
+          >
+            {isFinal
+              ? tr("finalTest", locale)
+              : curriculum.modules.find((m) => m.id === moduleId)?.title[locale] ??
+                moduleId}
+            {" · "}
+            {cursor + 1} / {total}
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: INK_MUTE,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              background: LINE_SOFT,
+              padding: "3px 8px",
+              borderRadius: 999,
+            }}
+          >
+            {tr("attempt", locale)} {currentAttempt} {tr("of", locale)} {maxAttempts}
+          </div>
         </div>
         <div
           style={{
@@ -1751,15 +2081,20 @@ function sampleClient(pool: string[], n: number): string[] {
 function ResultView({
   locale,
   result,
+  attemptsRemaining,
+  maxAttempts,
   passThreshold,
   onContinue,
 }: {
   locale: Locale;
   result: SubmitResult;
+  attemptsRemaining: number;
+  maxAttempts: number;
   passThreshold: number;
   onContinue: () => void;
 }) {
   const { passed, score } = result;
+  const noMoreRetries = !passed && attemptsRemaining <= 0;
   return (
     <div style={{ maxWidth: 480, margin: "60px auto", padding: 18 }}>
       <div
@@ -1782,9 +2117,29 @@ function ResultView({
         <div style={{ marginTop: 8, fontSize: 13, color: INK_MUTE }}>
           {score}% · {passThreshold}% {locale === "en" ? "to pass" : "para aprobar"}
         </div>
+        {!passed ? (
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 12,
+              fontWeight: 700,
+              color: noMoreRetries ? DANGER : INK_MUTE,
+            }}
+          >
+            {noMoreRetries
+              ? tr("noAttemptsLeft", locale)
+              : `${attemptsRemaining} ${tr("attemptsRemaining", locale)} (${
+                  maxAttempts - attemptsRemaining
+                }/${maxAttempts} ${tr("attemptsUsed", locale)})`}
+          </div>
+        ) : null}
         <div style={{ marginTop: 18 }}>
           <PrimaryButton onClick={onContinue}>
-            {passed ? tr("next", locale) : tr("retry", locale)}
+            {passed
+              ? tr("next", locale)
+              : noMoreRetries
+              ? tr("back", locale)
+              : tr("retry", locale)}
           </PrimaryButton>
         </div>
       </div>

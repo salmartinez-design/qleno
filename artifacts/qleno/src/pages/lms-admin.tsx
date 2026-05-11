@@ -10,8 +10,14 @@
  *
  * Visual style matches training.tsx (Plus Jakarta Sans, NAVY/TEAL palette).
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuthStore } from "@/lib/auth";
+import { QlenoLogo } from "@/components/brand/QlenoLogo";
+import {
+  MODULE_ORDER,
+  FINAL_MODULE_ID,
+  maxAttemptsFor,
+} from "@workspace/lms-curriculum";
 import {
   CalendarClock,
   Loader2,
@@ -19,6 +25,8 @@ import {
   AlertTriangle,
   X,
   ChevronRight,
+  ChevronDown,
+  FastForward,
 } from "lucide-react";
 
 const NAVY = "#0A2342";
@@ -43,6 +51,13 @@ type AuthPayload = {
   first_name?: string;
 };
 
+type ModuleStat = {
+  status: string;
+  best_score: number;
+  attempts: number;
+  max_attempts: number;
+};
+
 type RosterRow = {
   enrollment_id: number;
   user_id: number;
@@ -58,6 +73,7 @@ type RosterRow = {
   completed_at: string | null;
   last_activity_at: string;
   enrolled_at: string;
+  modules?: Record<string, ModuleStat>;
 };
 
 const API_BASE = (import.meta.env.BASE_URL || "/").replace(/\/$/, "") + "/api";
@@ -114,12 +130,31 @@ export default function LmsAdminPage() {
   const [rows, setRows] = useState<RosterRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  function toggleExpand(enrollmentId: number) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(enrollmentId)) next.delete(enrollmentId);
+      else next.add(enrollmentId);
+      return next;
+    });
+  }
 
   async function refresh() {
     try {
       const data = await api<RosterRow[]>("GET", "/lms/admin/learners", token);
       setRows(data);
       setError(null);
+    } catch (e) {
+      setError(String((e as Error).message));
+    }
+  }
+
+  async function bypassFor(userId: number, moduleId: string) {
+    try {
+      await api("POST", "/lms/admin/bypass-module", token, { userId, moduleId });
+      await refresh();
     } catch (e) {
       setError(String((e as Error).message));
     }
@@ -261,9 +296,21 @@ export default function LmsAdminPage() {
             up here automatically.
           </div>
         ) : isMobile ? (
-          <RosterCards rows={rows} onExtend={setExtendOpen} />
+          <RosterCards
+            rows={rows}
+            expanded={expanded}
+            onToggleExpand={toggleExpand}
+            onExtend={setExtendOpen}
+            onBypass={bypassFor}
+          />
         ) : (
-          <RosterTable rows={rows} onExtend={setExtendOpen} />
+          <RosterTable
+            rows={rows}
+            expanded={expanded}
+            onToggleExpand={toggleExpand}
+            onExtend={setExtendOpen}
+            onBypass={bypassFor}
+          />
         )}
       </div>
 
@@ -310,33 +357,28 @@ function Shell({ children }: { children: React.ReactNode }) {
             margin: "0 auto",
             display: "flex",
             alignItems: "center",
-            gap: 10,
+            gap: 12,
           }}
         >
+          <QlenoLogo size="md" theme="light" layout="horizontal" />
           <div
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: 6,
-              background: NAVY,
-              color: "#fff",
-              fontWeight: 800,
-              fontSize: 12,
-              display: "grid",
-              placeItems: "center",
+              height: 22,
+              width: 1,
+              background: LINE,
             }}
-          >
-            Q
-          </div>
+            aria-hidden
+          />
           <div
             style={{
               fontWeight: 700,
-              fontSize: 14,
-              color: INK,
-              letterSpacing: "-0.01em",
+              fontSize: 13,
+              color: INK_MUTE,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
             }}
           >
-            Qleno · Admin
+            LMS Admin
           </div>
         </div>
       </header>
@@ -347,10 +389,16 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function RosterTable({
   rows,
+  expanded,
+  onToggleExpand,
   onExtend,
+  onBypass,
 }: {
   rows: RosterRow[];
+  expanded: Set<number>;
+  onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
+  onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
     <div
@@ -372,6 +420,7 @@ function RosterTable({
         >
           <thead style={{ background: LINE_SOFT }}>
             <tr>
+              <Th></Th>
               <Th>Tech</Th>
               <Th>Status</Th>
               <Th>Progress</Th>
@@ -383,7 +432,30 @@ function RosterTable({
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.enrollment_id}>
+              <Fragment key={r.enrollment_id}>
+              <tr>
+                <Td>
+                  <button
+                    type="button"
+                    onClick={() => onToggleExpand(r.enrollment_id)}
+                    aria-label={expanded.has(r.enrollment_id) ? "Collapse" : "Expand"}
+                    style={{
+                      background: "transparent",
+                      border: `1px solid ${LINE}`,
+                      borderRadius: 6,
+                      padding: 4,
+                      cursor: "pointer",
+                      color: INK_MUTE,
+                      display: "inline-flex",
+                    }}
+                  >
+                    {expanded.has(r.enrollment_id) ? (
+                      <ChevronDown size={14} />
+                    ) : (
+                      <ChevronRight size={14} />
+                    )}
+                  </button>
+                </Td>
                 <Td>
                   <div style={{ fontWeight: 700, color: INK }}>
                     {r.tech_name}
@@ -455,6 +527,21 @@ function RosterTable({
                   </button>
                 </Td>
               </tr>
+              {expanded.has(r.enrollment_id) ? (
+                <tr>
+                  <td
+                    colSpan={8}
+                    style={{
+                      background: LINE_SOFT,
+                      padding: "12px 18px",
+                      borderBottom: `1px solid ${LINE_SOFT}`,
+                    }}
+                  >
+                    <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+                  </td>
+                </tr>
+              ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -463,12 +550,127 @@ function RosterTable({
   );
 }
 
+function ModuleAttemptsGrid({
+  row,
+  onBypass,
+}: {
+  row: RosterRow;
+  onBypass: (userId: number, moduleId: string) => Promise<void>;
+}) {
+  const allIds: string[] = [...MODULE_ORDER, FINAL_MODULE_ID];
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+        }}
+      >
+        Module attempts · Bypass any module
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {allIds.map((moduleId) => {
+          const stat = row.modules?.[moduleId];
+          const max = stat?.max_attempts ?? maxAttemptsFor(moduleId);
+          const attempts = stat?.attempts ?? 0;
+          const status = stat?.status ?? "not_started";
+          const atCap = status !== "passed" && attempts >= max;
+          const passed = status === "passed";
+          return (
+            <div
+              key={moduleId}
+              style={{
+                background: SURFACE,
+                border: `1px solid ${passed ? "#A7F3D0" : atCap ? "#FECACA" : LINE}`,
+                borderRadius: 8,
+                padding: "8px 10px",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 800,
+                    color: INK,
+                    fontSize: 12,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {humanModule(moduleId)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: passed ? SUCCESS : atCap ? DANGER : INK_MUTE,
+                    fontWeight: 700,
+                    marginTop: 2,
+                  }}
+                >
+                  {passed
+                    ? `Passed · ${stat?.best_score ?? 100}%`
+                    : `${attempts}/${max} attempts${atCap ? " · at cap" : ""}`}
+                </div>
+              </div>
+              {!passed ? (
+                <button
+                  type="button"
+                  onClick={() => onBypass(row.user_id, moduleId)}
+                  title="Bypass — mark as passed"
+                  style={{
+                    background: NAVY,
+                    color: "#fff",
+                    border: 0,
+                    padding: "5px 8px",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  <FastForward size={11} /> Bypass
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function RosterCards({
   rows,
+  expanded,
+  onToggleExpand,
   onExtend,
+  onBypass,
 }: {
   rows: RosterRow[];
+  expanded: Set<number>;
+  onToggleExpand: (id: number) => void;
   onExtend: (r: RosterRow) => void;
+  onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }} data-testid="roster-cards">
@@ -540,7 +742,35 @@ function RosterCards({
           <div style={{ fontSize: 12, color: INK_MUTE }}>
             {humanModule(r.current_module)} · {humanDateTime(r.last_activity_at)}
           </div>
-          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => onToggleExpand(r.enrollment_id)}
+              style={{
+                background: "transparent",
+                color: INK_MUTE,
+                border: `1px solid ${LINE}`,
+                padding: "6px 12px",
+                borderRadius: 6,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+              }}
+            >
+              {expanded.has(r.enrollment_id) ? (
+                <>
+                  Hide modules <ChevronDown size={12} />
+                </>
+              ) : (
+                <>
+                  Show modules <ChevronRight size={12} />
+                </>
+              )}
+            </button>
             <button
               type="button"
               onClick={() => onExtend(r)}
@@ -559,13 +789,18 @@ function RosterCards({
               Extend deadline <ChevronRight size={12} />
             </button>
           </div>
+          {expanded.has(r.enrollment_id) ? (
+            <div style={{ marginTop: 6 }}>
+              <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+            </div>
+          ) : null}
         </article>
       ))}
     </div>
   );
 }
 
-function Th({ children }: { children: React.ReactNode }) {
+function Th({ children }: { children?: React.ReactNode }) {
   return (
     <th
       style={{

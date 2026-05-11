@@ -13,6 +13,8 @@ import {
   ANSWER_KEY,
   FINAL_MODULE_ID,
   FINAL_TEST_SIZE,
+  MAX_FINAL_ATTEMPTS,
+  MAX_MODULE_ATTEMPTS,
   MODULE_BY_QUESTION,
   MODULE_ORDER,
   QUESTIONS_BY_MODULE,
@@ -20,6 +22,7 @@ import {
   QUIZ_PASS_THRESHOLD,
   isFinalUnlocked,
   isModuleUnlocked,
+  maxAttemptsFor,
   sampleFinalQuestionIds,
   scoreQuiz,
 } from "@workspace/lms-curriculum";
@@ -390,5 +393,38 @@ describe("sampleFinalQuestionIds", () => {
     const a = sampleFinalQuestionIds(50, seedRng(42));
     const b = sampleFinalQuestionIds(50, seedRng(42));
     assert.deepEqual(a, b);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attempt limits (phes-lifecycle 2026-05-11): three per module, four for the
+// final exam. These constants are shared by server and client so the UI can
+// render "Attempt X of N" without an extra round trip.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("max attempt constants", () => {
+  it("MAX_MODULE_ATTEMPTS is 3 per spec (phes 2026-05-11)", () => {
+    assert.equal(MAX_MODULE_ATTEMPTS, 3);
+  });
+
+  it("MAX_FINAL_ATTEMPTS is 4 per spec (phes 2026-05-11)", () => {
+    assert.equal(MAX_FINAL_ATTEMPTS, 4);
+  });
+
+  it("maxAttemptsFor returns 3 for every per-module quiz id", () => {
+    for (const m of QUIZ_MODULE_IDS) {
+      assert.equal(maxAttemptsFor(m), 3, `expected 3 for ${m}`);
+    }
+  });
+
+  it("maxAttemptsFor returns 4 for the final mixed test", () => {
+    assert.equal(maxAttemptsFor(FINAL_MODULE_ID), 4);
+  });
+
+  it("maxAttemptsFor returns 3 for the acknowledgment module (no quiz, but symmetric)", () => {
+    // Acknowledgment is content-only; cap doesn't apply in /quiz/submit
+    // (different endpoint), but the helper still classifies it under the
+    // default 3-attempt bucket.
+    assert.equal(maxAttemptsFor("acknowledgment"), 3);
   });
 });

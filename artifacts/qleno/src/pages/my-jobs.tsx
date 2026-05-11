@@ -2,10 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Car, X, Check, Eye, Navigation, Phone } from "lucide-react";
+import { Car, X, Check, Eye, Navigation, Phone, GraduationCap } from "lucide-react";
+import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress } from "@/lib/format-address";
+import { QlenoMark } from "@/components/brand/QlenoMark";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -766,16 +768,26 @@ export default function MyJobsPage() {
         <div style={{
           position: "sticky", top: 0, zIndex: 10,
           backgroundColor: "#FFFFFF", borderBottom: "1px solid #E5E2DC",
-          padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         }}>
-          <div style={{ width: 28, height: 28, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>
-            {initials}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <QlenoMark size={24} />
+            <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
           </div>
-          <span style={{ fontSize: 15, fontWeight: 600, color: "#1A1917" }}>My Jobs</span>
-          <button onClick={() => setShowMileage(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-            <Car size={13}/> Mileage
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Link href="/training">
+              <a style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
+                <GraduationCap size={13}/> Training
+              </a>
+            </Link>
+            <button onClick={() => setShowMileage(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Car size={13}/> Mileage
+            </button>
+            <div title={initials} style={{ width: 28, height: 28, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+              {initials}
+            </div>
+          </div>
         </div>
 
         {employeeView && (
