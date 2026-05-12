@@ -60,6 +60,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Video & Photo Release",
     es: "Autorización de Video y Foto",
   },
+  "non-solicitation": {
+    en: "Non-Solicitation Agreement",
+    es: "Acuerdo de No Solicitación",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",

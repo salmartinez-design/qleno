@@ -50,6 +50,7 @@ export type ModuleId =
   | "drug-alcohol"
   | "code-of-conduct"
   | "video-photo-release"
+  | "non-solicitation"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -78,6 +79,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "drug-alcohol",
   "code-of-conduct",
   "video-photo-release",
+  "non-solicitation",
   "acknowledgment",
 ] as const;
 
@@ -111,6 +113,15 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * withdrawal clause, and courtesy preview language. Co-signed by the
  * tenant Phes representative (default-resolved by
  * getTenantOwnerForSignature).
+ *
+ * non-solicitation (Phase 6, PR #7) is also CO-SIGNED. 10-question
+ * comprehension quiz + separate signed agreement at document_type
+ * 'non_solicitation'. References the Illinois Freedom to Work Act
+ * (820 ILCS 90) reasonableness + consideration constraints. Spanish
+ * version is one of the FOUR FLAGGED docs for professional translator
+ * review (pendingTranslationReview: true). 12-month post-separation
+ * limit on soliciting Phes clients; coworkers explicitly carved out
+ * of the agreement; general advertising not deemed solicitation.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -122,6 +133,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "drug-alcohol",
   "code-of-conduct",
   "video-photo-release",
+  "non-solicitation",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -377,6 +389,25 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-vpr-07-co-signature": 1,
   "q-vpr-08-courtesy-preview": 1,
   "q-vpr-09-active-distribution": 1,
+
+  // ── Module 10: non-solicitation (10, Phase 6 PR #7) ─────────────────────
+  // Phes Non-Solicitation Agreement. Co-signed by the Phes representative.
+  // Constrained by the Illinois Freedom to Work Act (820 ILCS 90): the
+  // restriction must be reasonable, supported by adequate consideration,
+  // and tailored to a legitimate business interest. The agreement only
+  // restricts soliciting Phes CLIENTS (not coworkers, not the general
+  // labor market) for 12 months post-separation. Spanish version is one
+  // of the FOUR FLAGGED docs for professional translator review.
+  "q-ns-01-clients-not-coworkers": 1,
+  "q-ns-02-12-month-duration": 1,
+  "q-ns-03-what-counts-as-solicit": 1,
+  "q-ns-04-general-advertising-ok": 1,
+  "q-ns-05-il-freedom-to-work": 1,
+  "q-ns-06-during-employment-too": 1,
+  "q-ns-07-consideration": 1,
+  "q-ns-08-remedy-injunctive": 1,
+  "q-ns-09-co-signature": 1,
+  "q-ns-10-inbound-clients-exception": 1,
 });
 
 /**
@@ -461,6 +492,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-vpr-05-third-party-limits", "q-vpr-06-il-right-of-publicity",
       "q-vpr-07-co-signature", "q-vpr-08-courtesy-preview",
       "q-vpr-09-active-distribution",
+    ],
+    "non-solicitation": [
+      "q-ns-01-clients-not-coworkers", "q-ns-02-12-month-duration",
+      "q-ns-03-what-counts-as-solicit", "q-ns-04-general-advertising-ok",
+      "q-ns-05-il-freedom-to-work", "q-ns-06-during-employment-too",
+      "q-ns-07-consideration", "q-ns-08-remedy-injunctive",
+      "q-ns-09-co-signature", "q-ns-10-inbound-clients-exception",
     ],
   });
 

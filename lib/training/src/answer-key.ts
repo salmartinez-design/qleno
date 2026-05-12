@@ -188,6 +188,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-vpr-07-co-signature": 1,
   "q-vpr-08-courtesy-preview": 1,
   "q-vpr-09-active-distribution": 1,
+
+  // ── Module 10: non-solicitation (10, Phase 6 PR #7) ────────────────────
+  "q-ns-01-clients-not-coworkers": 1,
+  "q-ns-02-12-month-duration": 1,
+  "q-ns-03-what-counts-as-solicit": 1,
+  "q-ns-04-general-advertising-ok": 1,
+  "q-ns-05-il-freedom-to-work": 1,
+  "q-ns-06-during-employment-too": 1,
+  "q-ns-07-consideration": 1,
+  "q-ns-08-remedy-injunctive": 1,
+  "q-ns-09-co-signature": 1,
+  "q-ns-10-inbound-clients-exception": 1,
 });
 
 /**
