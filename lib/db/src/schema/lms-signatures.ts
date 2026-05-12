@@ -91,19 +91,23 @@ export const signatureEventTypeEnum = pgEnum("signature_event_type", [
 // lms_document_versions — content version registry
 // ─────────────────────────────────────────────────────────────────────────────
 //
-// One row per (document_type, locale, version_hash). Multiple locales
-// of the same document have different rows (different hashes). When the
-// office edits handbook content, a new version row is created and the
-// previous version stays around so we can reproduce exactly what was
-// signed by historical employees.
+// One row per (company_id, document_type, locale, version_hash). Each
+// tenant maintains its own version chain — Phes's handbook content is
+// hashed separately from any future tenant's, even if two tenants
+// happened to author identical text. This keeps the audit chain
+// tenant-isolated: deleting tenant A's history cannot touch tenant B's
+// signed contracts.
 //
-// `is_material` triggers forced re-acknowledgment for all employees who
-// signed earlier versions (see lms_pending_re_ack).
+// `is_material` triggers forced re-acknowledgment for all employees in
+// THAT TENANT who signed earlier versions (see lms_pending_re_ack).
 
 export const lmsDocumentVersionsTable = pgTable(
   "lms_document_versions",
   {
     id: serial("id").primaryKey(),
+    company_id: integer("company_id")
+      .notNull()
+      .references(() => companiesTable.id),
     document_type: text("document_type").notNull(),
     locale: text("locale").notNull(), // 'en' | 'es'
     version_hash: text("version_hash").notNull(), // SHA-256 of canonical content
@@ -127,13 +131,12 @@ export const lmsDocumentVersionsTable = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    uq_type_locale_hash: uniqueIndex(
-      "lms_document_versions_type_locale_hash_uq",
-    ).on(t.document_type, t.locale, t.version_hash),
-    idx_type_locale: index("lms_document_versions_type_locale_idx").on(
-      t.document_type,
-      t.locale,
-    ),
+    uq_company_type_locale_hash: uniqueIndex(
+      "lms_document_versions_company_type_locale_hash_uq",
+    ).on(t.company_id, t.document_type, t.locale, t.version_hash),
+    idx_company_type_locale: index(
+      "lms_document_versions_company_type_locale_idx",
+    ).on(t.company_id, t.document_type, t.locale),
   }),
 );
 
