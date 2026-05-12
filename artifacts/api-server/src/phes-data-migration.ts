@@ -11,6 +11,7 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 import { geocodeWithComponents } from "./lib/geocode";
 
 const PHES = 1; // company_id
@@ -48,6 +49,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.residential_pay_rate", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "users.commercial_pay_type",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_type  TEXT DEFAULT 'hourly'" },
     { label: "users.commercial_pay_rate",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    // [phes-chicago23 2026-05-12] One-shot password reset gate. NULL means
+    // this user has not yet had their password set to Chicago23 by the
+    // cold-start runPhesPasswordResetChicago23() function below. After that
+    // function runs once per user, the timestamp is set and the user is
+    // never auto-reset again — even on subsequent deploys.
+    { label: "users.password_reset_to_chicago23_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_to_chicago23_at TIMESTAMPTZ" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
@@ -1204,8 +1211,53 @@ async function runDaysOfWeekBackfill(): Promise<void> {
   }
 }
 
+/**
+ * [phes-chicago23 2026-05-12] One-shot password reset for every Phes
+ * technician + office user. The user wanted every tech (Jose Ardila and
+ * the rest) to be able to log in with `Chicago23` while we figure out
+ * per-user invitations. Owners are excluded — sal's password stays
+ * whatever he set it to.
+ *
+ * Gating: the migration only fires for a user where
+ * `password_reset_to_chicago23_at IS NULL`. Once it runs, the timestamp
+ * is set and the user is NEVER auto-reset again — so future deploys
+ * leave a tech who has rotated their password alone, and the bulk-reset
+ * admin tool is the way to push a new password later if needed.
+ *
+ * Why not just put the bcrypt hash in a SQL string? Bcrypt is salted —
+ * we need the JS lib to generate the hash. Hence the JS function here
+ * rather than another sql.raw entry.
+ */
+async function runPhesPasswordResetChicago23(): Promise<void> {
+  const targets = await db.execute(sql`
+    SELECT id FROM users
+    WHERE company_id = ${PHES}
+      AND role IN ('technician', 'office')
+      AND password_reset_to_chicago23_at IS NULL
+  `);
+  const ids = (targets.rows as any[]).map((r) => r.id as number);
+  if (ids.length === 0) {
+    return; // Already reset every eligible user.
+  }
+  const hash = await bcrypt.hash("Chicago23", 10);
+  await db.execute(sql`
+    UPDATE users
+    SET password_hash = ${hash}, password_reset_to_chicago23_at = NOW()
+    WHERE id = ANY(${ids}::int[])
+  `);
+  console.log(
+    `[phes-migration] chicago23-password-reset: ${ids.length} user(s) set (ids: ${ids.join(", ")})`,
+  );
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
+
+  try {
+    await runPhesPasswordResetChicago23();
+  } catch (err: any) {
+    console.warn("[phes-migration] chicago23-password-reset — non-fatal:", err?.message ?? err);
+  }
 
   try {
     await runPayMatrixBackfill();

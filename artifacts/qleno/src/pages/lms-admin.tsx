@@ -141,6 +141,7 @@ export default function LmsAdminPage() {
   const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
   const [historyOpen, setHistoryOpen] = useState<RosterRow | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [bulkPwOpen, setBulkPwOpen] = useState(false);
 
   function toggleExpand(enrollmentId: number) {
     setExpanded((prev) => {
@@ -244,23 +245,42 @@ export default function LmsAdminPage() {
               needed.
             </div>
           </div>
-          <button
-            type="button"
-            onClick={refresh}
-            style={{
-              background: "transparent",
-              color: NAVY,
-              border: `1px solid ${LINE}`,
-              padding: "8px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: "pointer",
-              fontFamily: FONT,
-            }}
-          >
-            Refresh
-          </button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setBulkPwOpen(true)}
+              style={{
+                background: NAVY,
+                color: "#fff",
+                border: `1px solid ${NAVY}`,
+                padding: "8px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              Bulk reset password
+            </button>
+            <button
+              type="button"
+              onClick={refresh}
+              style={{
+                background: "transparent",
+                color: NAVY,
+                border: `1px solid ${LINE}`,
+                padding: "8px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -357,6 +377,15 @@ export default function LmsAdminPage() {
           row={historyOpen}
           token={token}
           onClose={() => setHistoryOpen(null)}
+        />
+      )}
+
+      {bulkPwOpen && rows && (
+        <BulkPasswordDialog
+          rows={rows}
+          token={token}
+          onClose={() => setBulkPwOpen(false)}
+          onSaved={() => setBulkPwOpen(false)}
         />
       )}
 
@@ -1975,6 +2004,296 @@ function AttemptHistoryDialog({
               );
             })}
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bulk password reset dialog — owner-only tool to push a new password to a
+// subset of users in one call. Calls POST /api/users/bulk-reset-password.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BulkPasswordDialog({
+  rows,
+  token,
+  onClose,
+  onSaved,
+}: {
+  rows: RosterRow[];
+  token: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(rows.map((r) => r.user_id)),
+  );
+  const [newPassword, setNewPassword] = useState("Chicago23");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [doneCount, setDoneCount] = useState<number | null>(null);
+
+  const allChecked = selected.size === rows.length;
+  function toggleAll() {
+    if (allChecked) setSelected(new Set());
+    else setSelected(new Set(rows.map((r) => r.user_id)));
+  }
+  function toggleOne(userId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+  }
+
+  async function onSubmit() {
+    setErr(null);
+    if (selected.size === 0) {
+      setErr("Select at least one user.");
+      return;
+    }
+    if (newPassword.length < 6) {
+      setErr("Password must be at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${API_BASE}/users/bulk-reset-password`, {
+        method: "POST",
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          userIds: Array.from(selected),
+          newPassword,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      const json = await res.json();
+      setDoneCount(json?.data?.updated_count ?? selected.size);
+      setTimeout(() => onSaved(), 1500);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderRadius: RADIUS,
+          padding: 22,
+          maxWidth: 520,
+          width: "100%",
+          maxHeight: "85vh",
+          overflow: "auto",
+          fontFamily: FONT,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+          <div style={{ fontWeight: 800, fontSize: 18, color: INK }}>
+            Bulk reset password
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{ background: "transparent", border: 0, cursor: "pointer", color: INK_MUTE }}
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ fontSize: 13, color: INK_MUTE, marginTop: 4 }}>
+          Sets the password for every selected user to the new password. Owners aren't affected unless explicitly selected.
+        </div>
+
+        {doneCount != null ? (
+          <div
+            style={{
+              marginTop: 18,
+              padding: "10px 12px",
+              background: "#ECFDF5",
+              border: `1px solid ${SUCCESS}`,
+              borderRadius: 8,
+              color: SUCCESS,
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            Reset {doneCount} {doneCount === 1 ? "user" : "users"}.
+          </div>
+        ) : (
+          <>
+            <div style={{ marginTop: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: INK_MUTE, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                New password
+              </label>
+              <input
+                type="text"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                disabled={busy}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 6,
+                  padding: "8px 10px",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 6,
+                  fontSize: 14,
+                  fontFamily: FONT,
+                }}
+              />
+              <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 4 }}>
+                Default: <code>Chicago23</code>. Change for any single user later via the per-user reset.
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: INK_MUTE, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Users ({selected.size} / {rows.length})
+              </label>
+              <button
+                type="button"
+                onClick={toggleAll}
+                disabled={busy}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                  color: NAVY,
+                }}
+              >
+                {allChecked ? "Clear all" : "Select all"}
+              </button>
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                maxHeight: 260,
+                overflow: "auto",
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+              }}
+            >
+              {rows.map((r) => {
+                const checked = selected.has(r.user_id);
+                return (
+                  <label
+                    key={r.user_id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "8px 12px",
+                      borderBottom: `1px solid ${LINE_SOFT}`,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={busy}
+                      onChange={() => toggleOne(r.user_id)}
+                    />
+                    <span style={{ fontSize: 13, color: INK, fontWeight: 600 }}>
+                      {r.tech_name}
+                    </span>
+                    <span style={{ fontSize: 11, color: INK_LIGHT, marginLeft: "auto" }}>
+                      {r.role ?? "—"}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {err && (
+              <div
+                style={{
+                  marginTop: 14,
+                  padding: "8px 10px",
+                  background: "#FEF2F2",
+                  border: `1px solid #FECACA`,
+                  color: DANGER,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {err}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  background: "transparent",
+                  color: INK_MUTE,
+                  border: `1px solid ${LINE}`,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={busy || selected.size === 0 || newPassword.length < 6}
+                style={{
+                  background: NAVY,
+                  color: "#fff",
+                  border: `1px solid ${NAVY}`,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: busy ? "default" : "pointer",
+                  fontFamily: FONT,
+                  opacity: busy || selected.size === 0 || newPassword.length < 6 ? 0.6 : 1,
+                }}
+              >
+                {busy ? "Resetting…" : `Reset ${selected.size} ${selected.size === 1 ? "user" : "users"}`}
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>

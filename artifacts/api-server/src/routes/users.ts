@@ -138,6 +138,70 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
   }
 });
 
+/**
+ * Bulk-reset password for multiple users at once. Owner / admin only.
+ *
+ * Body: { userIds: number[], newPassword: string }
+ *
+ * Tenant-scoped: every userId must belong to the caller's company_id, or
+ * the call returns 403 with the offending id. New password must be at
+ * least 6 chars (matches /auth/reset-password).
+ *
+ * Returns the count of users updated. Skips users whose id isn't found
+ * or belongs to a different company (defensive — no partial reset across
+ * tenants).
+ */
+router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { userIds, newPassword } = req.body as {
+      userIds?: unknown;
+      newPassword?: unknown;
+    };
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      return res.status(400).json({ error: "Bad Request", message: "userIds must be a non-empty array" });
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 6) {
+      return res.status(400).json({ error: "Bad Request", message: "newPassword must be a string of 6+ chars" });
+    }
+    const ids = userIds.filter((v): v is number => typeof v === "number" && Number.isInteger(v));
+    if (ids.length === 0) {
+      return res.status(400).json({ error: "Bad Request", message: "userIds contained no valid integer ids" });
+    }
+
+    // Tenant guard: confirm every id belongs to the caller's company.
+    const tenantRows = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`));
+    const ownedIds = new Set(tenantRows.map((r) => r.id));
+    const foreign = ids.filter((id) => !ownedIds.has(id));
+    if (foreign.length > 0) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: `User(s) ${foreign.join(", ")} are not in your company`,
+      });
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    const updated = await db
+      .update(usersTable)
+      .set({ password_hash: hash } as any)
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`))
+      .returning({ id: usersTable.id });
+
+    await logAudit(req, "bulk_password_reset", "user", null, {
+      user_ids: updated.map((u) => u.id),
+      count: updated.length,
+    });
+
+    return res.json({ data: { updated_count: updated.length, updated_ids: updated.map((u) => u.id) } });
+  } catch (err) {
+    console.error("Bulk password reset error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to bulk-reset passwords" });
+  }
+});
+
 router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const { email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone } = req.body;
