@@ -25,6 +25,7 @@ import {
   maxAttemptsFor,
   sampleFinalQuestionIds,
   scoreQuiz,
+  shouldShowLearnerGating,
 } from "@workspace/lms-curriculum";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -435,5 +436,32 @@ describe("max attempt constants", () => {
     // (different endpoint), but the helper still classifies it under the
     // default 3-attempt bucket.
     assert.equal(maxAttemptsFor("acknowledgment"), 3);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// shouldShowLearnerGating — the "hide learner-only UI from owners" predicate
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("shouldShowLearnerGating", () => {
+  it("returns true for a regular learner (isOwner=false)", () => {
+    // Techs see the attempt counter, attempts-remaining text, deadline
+    // badge, and lockout messages. Default LMS behavior.
+    assert.equal(shouldShowLearnerGating(false), true);
+  });
+
+  it("returns false for an owner (isOwner=true)", () => {
+    // Owners are exempt from the cap on the server (canBypassCap in
+    // routes/lms.ts), so the gating UI must not render for them either.
+    assert.equal(shouldShowLearnerGating(true), false);
+  });
+
+  it("is the single inversion of isOwner — used as the named UI predicate", () => {
+    // Documents the intended call sites: anywhere a `!isOwner` check
+    // appears in a `&&` chain guarding learner-only gating UI, swap in
+    // shouldShowLearnerGating(isOwner) so the predicate is the greppable
+    // surface for future "hide this from owners" requests.
+    assert.equal(shouldShowLearnerGating(false), !false);
+    assert.equal(shouldShowLearnerGating(true), !true);
   });
 });
