@@ -197,6 +197,12 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-32-notice-by-bucket": 1,
   "q-pp-33-plawa-reason": 1,
   "q-pp-34-unpaid-absence-allowance": 1,
+  "q-pp-35-deep-clean-includes": 1,
+  "q-pp-36-deep-clean-excludes": 1,
+  "q-pp-37-deep-clean-windows": 0,
+  "q-pp-38-heavy-furniture-25lb": 1,
+  "q-pp-39-trash-bag-limit": 1,
+  "q-pp-40-no-price-discussion": 1,
 
   // ── Module 2: compensation (15) ──────────────────────────────────────────
   "q-cm-01-training-pay": 1,
@@ -310,6 +316,10 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-30-plawa-no-discipline", "q-pp-31-plawa-default",
       "q-pp-32-notice-by-bucket", "q-pp-33-plawa-reason",
       "q-pp-34-unpaid-absence-allowance",
+      // Cleaning checklist + Deep Clean scope (2026-05-12)
+      "q-pp-35-deep-clean-includes", "q-pp-36-deep-clean-excludes",
+      "q-pp-37-deep-clean-windows", "q-pp-38-heavy-furniture-25lb",
+      "q-pp-39-trash-bag-limit", "q-pp-40-no-price-discussion",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",

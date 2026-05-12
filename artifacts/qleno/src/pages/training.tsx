@@ -715,26 +715,26 @@ function Header({
       style={{
         background: SURFACE,
         borderBottom: `1px solid ${LINE}`,
-        padding: isMobile ? "12px 14px" : "14px 18px",
+        padding: isMobile ? "14px 16px" : "18px 22px",
         display: "flex",
         flexDirection: isMobile ? "column" : "row",
         justifyContent: "space-between",
         alignItems: isMobile ? "stretch" : "center",
-        gap: isMobile ? 10 : 12,
+        gap: isMobile ? 10 : 14,
       }}
     >
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: isMobile ? 8 : 12,
+          gap: isMobile ? 10 : 14,
           minWidth: 0,
         }}
       >
-        <QlenoLogo size={isMobile ? "sm" : "md"} theme="light" layout="horizontal" />
+        <QlenoLogo size={isMobile ? "md" : "lg"} theme="light" layout="horizontal" />
         <div
           style={{
-            height: isMobile ? 20 : 24,
+            height: isMobile ? 26 : 36,
             width: 1,
             background: LINE,
             margin: "0 2px",
@@ -747,12 +747,12 @@ function Header({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              fontWeight: 700,
-              fontSize: 14,
-              letterSpacing: "-0.01em",
+              gap: 10,
+              fontWeight: 800,
+              fontSize: isMobile ? 16 : 20,
+              letterSpacing: "-0.02em",
               color: INK,
-              lineHeight: 1.2,
+              lineHeight: 1.1,
             }}
           >
             <span>{tenantName}</span>
@@ -761,7 +761,7 @@ function Header({
                 src={tenantLogoUrl}
                 alt={tenantName}
                 style={{
-                  height: isMobile ? 22 : 26,
+                  height: isMobile ? 36 : 48,
                   width: "auto",
                   objectFit: "contain",
                   flexShrink: 0,
@@ -771,11 +771,11 @@ function Header({
           </div>
           <div
             style={{
-              fontSize: 10,
+              fontSize: 11,
               color: INK_LIGHT,
-              fontWeight: 600,
+              fontWeight: 700,
               textTransform: "uppercase",
-              letterSpacing: "0.06em",
+              letterSpacing: "0.08em",
               whiteSpace: "nowrap",
               overflow: "hidden",
               textOverflow: "ellipsis",
