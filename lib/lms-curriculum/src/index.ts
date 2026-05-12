@@ -48,6 +48,7 @@ export type ModuleId =
   | "products-tools"
   | "il-sexual-harassment"
   | "drug-alcohol"
+  | "code-of-conduct"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -74,6 +75,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "products-tools",
   "il-sexual-harassment",
   "drug-alcohol",
+  "code-of-conduct",
   "acknowledgment",
 ] as const;
 
@@ -91,6 +93,13 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * comprehension, followed by a SEPARATE signed acknowledgment (legally
  * binding e-signature) handled by lms_signed_documents — the quiz pass
  * does NOT supersede the signed ack requirement.
+ *
+ * code-of-conduct (Phase 4, PR #5) follows the same shape: 10-question
+ * comprehension quiz + separate signed acknowledgment at document_type
+ * 'code_of_conduct'. Covers honesty, confidentiality, anti-theft,
+ * anti-harassment, anti-discrimination (IL Human Rights Act protected
+ * classes), anti-retaliation, reporting channels, conflict of interest,
+ * and key / property handling.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -100,6 +109,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "products-tools",
   "il-sexual-harassment",
   "drug-alcohol",
+  "code-of-conduct",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -317,6 +327,26 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-da-08-discipline-scale": 1,
   "q-da-09-dui-reporting-window": 1,
   "q-da-10-license-suspension-disclosure": 1,
+
+  // ── Module 8: code-of-conduct (10, Phase 4 PR #5) ───────────────────────
+  // Phes Code of Conduct. Quiz verifies comprehension; the binding signed
+  // acknowledgment lives in lms_signed_documents (document_type
+  // 'code_of_conduct'). Covers honesty / integrity, client-home
+  // confidentiality, zero-tolerance theft, anti-harassment + anti-
+  // discrimination (Illinois Human Rights Act protected classes),
+  // anti-retaliation good-faith reporting, conflict of interest /
+  // outside cleaning work for Phes clients, key + property handling,
+  // and cooperation with internal investigations.
+  "q-coc-01-honesty": 1,
+  "q-coc-02-confidentiality": 1,
+  "q-coc-03-theft-zero-tolerance": 1,
+  "q-coc-04-harassment-reporting": 1,
+  "q-coc-05-protected-classes": 1,
+  "q-coc-06-retaliation-good-faith": 1,
+  "q-coc-07-conflict-of-interest": 1,
+  "q-coc-08-key-handling": 1,
+  "q-coc-09-cooperation-investigation": 1,
+  "q-coc-10-reporting-channels": 1,
 });
 
 /**
@@ -387,6 +417,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-da-05-post-accident-threshold", "q-da-06-prescription-meds",
       "q-da-07-refusal-to-test", "q-da-08-discipline-scale",
       "q-da-09-dui-reporting-window", "q-da-10-license-suspension-disclosure",
+    ],
+    "code-of-conduct": [
+      "q-coc-01-honesty", "q-coc-02-confidentiality",
+      "q-coc-03-theft-zero-tolerance", "q-coc-04-harassment-reporting",
+      "q-coc-05-protected-classes", "q-coc-06-retaliation-good-faith",
+      "q-coc-07-conflict-of-interest", "q-coc-08-key-handling",
+      "q-coc-09-cooperation-investigation", "q-coc-10-reporting-channels",
     ],
   });
 

@@ -52,6 +52,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Drug & Alcohol Policy",
     es: "Política de Drogas y Alcohol",
   },
+  "code-of-conduct": {
+    en: "Code of Conduct",
+    es: "Código de Conducta",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",
