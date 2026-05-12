@@ -46,6 +46,7 @@ export type ModuleId =
   | "cleaning-best-practices"
   | "maidcentral"
   | "products-tools"
+  | "il-sexual-harassment"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -70,6 +71,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "cleaning-best-practices",
   "maidcentral",
   "products-tools",
+  "il-sexual-harassment",
   "acknowledgment",
 ] as const;
 
@@ -77,6 +79,11 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * Modules with graded quizzes. Modules in MODULE_ORDER but NOT in this list
  * are content-only — they advance via POST /lms/module/acknowledge instead of
  * POST /lms/quiz/submit.
+ *
+ * il-sexual-harassment is included here because IL Workplace Transparency Act
+ * (820 ILCS 96) requires comprehension verification, not just attestation.
+ * Phes also re-runs this module annually — content is updated each January
+ * and the office uses the admin Reset action to re-enroll the team.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -84,6 +91,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "cleaning-best-practices",
   "maidcentral",
   "products-tools",
+  "il-sexual-harassment",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -257,6 +265,27 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pt-13-cloth-cross": 1,
   "q-pt-14-step-stool": 1,
   "q-pt-15-furniture-stand": 2,
+
+  // ── Module 6: il-sexual-harassment (15, IL Workplace Transparency Act) ────
+  // Added 2026-05-12 to satisfy the 820 ILCS 96 annual training requirement.
+  // Content reflects IDHR model training: definition, two-form distinction,
+  // examples, employer responsibility, reporting channels (Maribel /
+  // Francisco / IDHR / EEOC), retaliation prohibition, bystander duty.
+  "q-il-01-definition": 1,
+  "q-il-02-quid-pro-quo": 1,
+  "q-il-03-hostile-environment": 1,
+  "q-il-04-not-limited-by-sex": 1,
+  "q-il-05-third-party": 1,
+  "q-il-06-reporting-channels": 1,
+  "q-il-07-retaliation": 1,
+  "q-il-08-bystander-duty": 1,
+  "q-il-09-idhr-deadline": 2,
+  "q-il-10-eeoc-deadline": 2,
+  "q-il-11-annual-retraining": 1,
+  "q-il-12-severe-or-pervasive": 1,
+  "q-il-13-consent-withdrawn": 1,
+  "q-il-14-investigation-rights": 1,
+  "q-il-15-good-faith-protection": 1,
 });
 
 /**
@@ -309,6 +338,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pt-07-magic-eraser-paint", "q-pt-08-magic-eraser-glass", "q-pt-09-pumice-where",
       "q-pt-10-pumice-wet", "q-pt-11-steel-wool-grade", "q-pt-12-steel-wool-chrome",
       "q-pt-13-cloth-cross", "q-pt-14-step-stool", "q-pt-15-furniture-stand",
+    ],
+    "il-sexual-harassment": [
+      "q-il-01-definition", "q-il-02-quid-pro-quo", "q-il-03-hostile-environment",
+      "q-il-04-not-limited-by-sex", "q-il-05-third-party", "q-il-06-reporting-channels",
+      "q-il-07-retaliation", "q-il-08-bystander-duty", "q-il-09-idhr-deadline",
+      "q-il-10-eeoc-deadline", "q-il-11-annual-retraining", "q-il-12-severe-or-pervasive",
+      "q-il-13-consent-withdrawn", "q-il-14-investigation-rights", "q-il-15-good-faith-protection",
     ],
   });
 

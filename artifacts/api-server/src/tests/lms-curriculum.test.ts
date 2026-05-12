@@ -33,24 +33,26 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 6 modules in expected sequence", () => {
+  it("MODULE_ORDER has all 7 modules in expected sequence (il-sexual-harassment added 2026-05-12)", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
       "cleaning-best-practices",
       "maidcentral",
       "products-tools",
+      "il-sexual-harassment",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 5 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 6 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
       "cleaning-best-practices",
       "maidcentral",
       "products-tools",
+      "il-sexual-harassment",
     ]);
   });
 
@@ -94,8 +96,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 94 total (4 modules × 15 + phes-policies × 34)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 94);
+  it("ALL_QUESTION_IDS is 109 total (5 modules × 15 + phes-policies × 34)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 109);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
