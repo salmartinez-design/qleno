@@ -133,6 +133,12 @@ type LmsState = {
   days_remaining: number;
   limits?: Record<string, number>;
   is_owner?: boolean;
+  /**
+   * PR #4 policy: standalone signed acknowledgments that the learner
+   * still owes before the final mixed test unlocks. Drives the locked
+   * state + "sign these first" hint on the FinalStepCard.
+   */
+  missing_required_signed_docs?: string[];
 };
 
 type QuizStateRow = {
@@ -1331,25 +1337,95 @@ function Home({
         );
       })()}
 
-      {/* Final mixed test card */}
-      <div style={{ marginTop: 22 }}>
-        <FinalStepCard
-          locale={locale}
-          unlocked={finalUnlocked}
-          passed={finalPassed}
-          attempts={
-            state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
-          }
-          maxAttempts={MAX_FINAL_ATTEMPTS}
-          isOwner={isOwner}
-          onClick={finalUnlocked && !finalPassed ? onOpenFinal : undefined}
-          onBypass={
-            isOwner && !finalPassed ? () => onBypass(FINAL_MODULE_ID) : undefined
-          }
-        />
-      </div>
+      {/* Final mixed test card. PR #4: also gated on standalone signed
+          acknowledgments being in place. When modules are passed but
+          required signed docs are missing, the card stays locked with
+          a "sign these first" hint. */}
+      {(() => {
+        const missingSignedDocs = state.missing_required_signed_docs ?? [];
+        const fullyUnlocked =
+          finalUnlocked && (isOwner || missingSignedDocs.length === 0);
+        return (
+          <div style={{ marginTop: 22 }}>
+            <FinalStepCard
+              locale={locale}
+              unlocked={fullyUnlocked}
+              passed={finalPassed}
+              attempts={
+                state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
+              }
+              maxAttempts={MAX_FINAL_ATTEMPTS}
+              isOwner={isOwner}
+              onClick={fullyUnlocked && !finalPassed ? onOpenFinal : undefined}
+              onBypass={
+                isOwner && !finalPassed ? () => onBypass(FINAL_MODULE_ID) : undefined
+              }
+            />
+            {/* When modules are done but signed docs are pending,
+                tell the learner exactly what to sign. Owners bypass
+                this hint because the gate doesn't apply to them. */}
+            {!isOwner &&
+            finalUnlocked &&
+            missingSignedDocs.length > 0 &&
+            !finalPassed ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "10px 14px",
+                  background: "#FFFBEB",
+                  border: `1px solid #FDE68A`,
+                  borderLeft: `3px solid ${WARN}`,
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  color: INK,
+                  lineHeight: 1.55,
+                }}
+              >
+                <strong>
+                  {locale === "es"
+                    ? "El examen final se desbloquea cuando firme:"
+                    : "Final exam unlocks once you sign:"}
+                </strong>
+                <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                  {missingSignedDocs.map((dt) => (
+                    <li key={dt}>{humanSignedDocType(dt, locale)}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        );
+      })()}
     </div>
   );
+}
+
+/** Friendly localized name for a signed-document type slug. */
+function humanSignedDocType(documentType: string, locale: Locale): string {
+  const titles: Record<string, { en: string; es: string }> = {
+    drug_alcohol: {
+      en: "Drug & Alcohol Policy",
+      es: "Política de Drogas y Alcohol",
+    },
+    code_of_conduct: { en: "Code of Conduct", es: "Código de Conducta" },
+    video_photo_release: {
+      en: "Video / Photo Release",
+      es: "Autorización de Video / Foto",
+    },
+    non_solicitation: {
+      en: "Non-Solicitation Agreement",
+      es: "Acuerdo de No Solicitación",
+    },
+    social_media: {
+      en: "Social Media Policy",
+      es: "Política de Redes Sociales",
+    },
+    supply_kit: {
+      en: "Supply Kit Responsibility",
+      es: "Responsabilidad del Kit de Suministros",
+    },
+  };
+  return titles[documentType]?.[locale] ?? documentType;
 }
 
 function ProgressBar({ pct }: { pct: number }) {

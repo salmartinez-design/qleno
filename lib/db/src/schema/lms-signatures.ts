@@ -495,3 +495,30 @@ export const ANNUAL_DOCUMENT_TYPES = [
 ] as const;
 
 export type AnnualDocumentType = (typeof ANNUAL_DOCUMENT_TYPES)[number];
+
+/**
+ * Standalone legal acknowledgments that an employee must sign BEFORE
+ * the final mixed test unlocks. Per phes-2026-policy (PR #4 review):
+ * the final exam triggers the comprehensive handbook PDF flow and is
+ * not reachable until every legally binding standalone document is
+ * captured.
+ *
+ * `handbook` is NOT in this list — it is signed AFTER the final exam
+ * as part of the comprehensive PDF (PR #13).
+ *
+ * Each successive standalone-signed-document PR (#5 code_of_conduct,
+ * #6 video_photo_release, #7 non_solicitation, #8 social_media,
+ * #10 supply_kit) appends its slug to this array. Server gating reads
+ * directly from it.
+ */
+export const REQUIRED_PRE_FINAL_SIGNED_DOCS = [
+  "drug_alcohol",
+  // PR #5 will add: "code_of_conduct"
+  // PR #6 will add: "video_photo_release"
+  // PR #7 will add: "non_solicitation"
+  // PR #8 will add: "social_media"
+  // PR #10 will add: "supply_kit"
+] as const;
+
+export type RequiredPreFinalSignedDoc =
+  (typeof REQUIRED_PRE_FINAL_SIGNED_DOCS)[number];
