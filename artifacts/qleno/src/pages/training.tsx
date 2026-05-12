@@ -158,6 +158,7 @@ type View =
   | { kind: "home" }
   | { kind: "module"; moduleId: string }
   | { kind: "quiz"; moduleId: string }
+  | { kind: "sign-document"; documentType: string }
   | { kind: "final-intro" }
   | { kind: "final-quiz" }
   | { kind: "ack" }
@@ -259,6 +260,57 @@ const lmsApi = {
     ),
   listMyCertificates: (token: string | null) =>
     api<CertificateRow[]>("GET", "/lms/certificates/me", token),
+  getSignedDocumentContent: (
+    token: string | null,
+    documentType: string,
+    locale: Locale,
+  ) =>
+    api<SignedDocumentContent>(
+      "GET",
+      `/lms/signatures/content?documentType=${encodeURIComponent(
+        documentType,
+      )}&locale=${locale}`,
+      token,
+    ),
+  signDocument: (
+    token: string | null,
+    args: {
+      documentType: string;
+      locale: Locale;
+      signatureMethod: "drawn" | "typed";
+      signature: string;
+    },
+  ) =>
+    api<{
+      id: number;
+      document_type: string;
+      locale: Locale;
+      version_hash: string;
+      signed_at: string;
+      requires_co_sign: boolean;
+    }>("POST", "/lms/signatures/sign", token, {
+      ...args,
+      affirmation: true,
+    }),
+  listMySignedDocuments: (token: string | null) =>
+    api<SignedDocumentRow[]>("GET", "/lms/signatures/me", token),
+};
+
+type SignedDocumentContent = {
+  documentType: string;
+  locale: Locale;
+  title: string;
+  contentHtml: string;
+  pendingTranslationReview: boolean;
+};
+
+type SignedDocumentRow = {
+  id: number;
+  document_type: string;
+  locale: string;
+  signed_at: string;
+  status: "active" | "superseded" | "revoked";
+  version_hash: string;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -444,6 +496,7 @@ export default function TrainingPage() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>({ kind: "home" });
   const [certificates, setCertificates] = useState<CertificateRow[]>([]);
+  const [signedDocs, setSignedDocs] = useState<SignedDocumentRow[]>([]);
 
   const curriculum = useMemo<Curriculum>(
     () => getCurriculum(learner?.companyId ?? null),
@@ -462,14 +515,28 @@ export default function TrainingPage() {
     return map;
   }, [certificates]);
 
+  /** document_type → most recent ACTIVE signed_document id. */
+  const signedDocByType = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {};
+    for (const d of signedDocs) {
+      if (d.status !== "active") continue;
+      if (!(d.document_type in map)) map[d.document_type] = d.id;
+    }
+    return map;
+  }, [signedDocs]);
+
   const refresh = useCallback(async () => {
     try {
-      const [next, certs] = await Promise.all([
+      const [next, certs, docs] = await Promise.all([
         lmsApi.me(token),
         lmsApi.listMyCertificates(token).catch(() => [] as CertificateRow[]),
+        lmsApi
+          .listMySignedDocuments(token)
+          .catch(() => [] as SignedDocumentRow[]),
       ]);
       setState(next);
       setCertificates(certs);
+      setSignedDocs(docs);
       // Sync locale from server if present
       if (next.enrollment.locale === "en" || next.enrollment.locale === "es") {
         setLocale(next.enrollment.locale);
@@ -607,9 +674,13 @@ export default function TrainingPage() {
           finalPassed={finalPassed}
           ackUnlocked={ackUnlocked}
           certByModule={certByModule}
+          signedDocByType={signedDocByType}
           onOpenModule={(moduleId) => setView({ kind: "module", moduleId })}
           onOpenFinal={() => setView({ kind: "final-intro" })}
           onOpenAck={() => setView({ kind: "ack" })}
+          onOpenSign={(documentType) =>
+            setView({ kind: "sign-document", documentType })
+          }
           onBypass={async (moduleId) => {
             await lmsApi.bypassModule(token, moduleId);
             await refresh();
@@ -709,6 +780,20 @@ export default function TrainingPage() {
           locale={locale}
           tenantName={curriculum.tenantName}
           onReturnHome={() => setLocation("/")}
+        />
+      )}
+      {view.kind === "sign-document" && (
+        <SignDocumentView
+          documentType={view.documentType}
+          locale={locale}
+          setLocale={setLocale}
+          learner={learner}
+          token={token}
+          onCancel={() => setView({ kind: "home" })}
+          onSigned={async () => {
+            await refresh();
+            setView({ kind: "home" });
+          }}
         />
       )}
       <ResponsiveStyles />
@@ -1006,9 +1091,11 @@ function Home({
   finalPassed,
   ackUnlocked,
   certByModule,
+  signedDocByType,
   onOpenModule,
   onOpenFinal,
   onOpenAck,
+  onOpenSign,
   onBypass,
   onDownloadCert,
 }: {
@@ -1019,9 +1106,11 @@ function Home({
   finalPassed: boolean;
   ackUnlocked: boolean;
   certByModule: Record<string, number>;
+  signedDocByType: Record<string, number>;
   onOpenModule: (id: string) => void;
   onOpenFinal: () => void;
   onOpenAck: () => void;
+  onOpenSign: (documentType: string) => void;
   onBypass: (moduleId: string) => Promise<void>;
   onDownloadCert: (certId: number) => Promise<void>;
 }) {
@@ -1139,6 +1228,108 @@ function Home({
           );
         })}
       </div>
+
+      {/* Required signed acknowledgments. One tile per quiz module that
+          has a registered signed-document type the learner still owes.
+          Phase 3 PR #4 ships the first: drug-alcohol. PRs #5+ extend. */}
+      {(() => {
+        const passedModuleIds = new Set(completed);
+        const tiles: Array<{
+          moduleId: string;
+          documentType: string;
+          title: { en: string; es: string };
+        }> = [
+          {
+            moduleId: "drug-alcohol",
+            documentType: "drug_alcohol",
+            title: {
+              en: "Drug & Alcohol Policy",
+              es: "Política de Drogas y Alcohol",
+            },
+          },
+        ];
+        const pending = tiles.filter(
+          (t) =>
+            passedModuleIds.has(t.moduleId) &&
+            !(t.documentType in signedDocByType),
+        );
+        if (pending.length === 0) return null;
+        return (
+          <div style={{ marginTop: 22 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: INK_MUTE,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                marginBottom: 8,
+              }}
+            >
+              {locale === "es"
+                ? "Reconocimientos firmados requeridos"
+                : "Required Signed Acknowledgments"}
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {pending.map((t) => (
+                <button
+                  key={t.documentType}
+                  type="button"
+                  onClick={() => onOpenSign(t.documentType)}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto 1fr auto",
+                    alignItems: "center",
+                    gap: 14,
+                    background: "#FFFBEB",
+                    border: `1px solid #FDE68A`,
+                    borderLeft: `4px solid ${WARN}`,
+                    borderRadius: RADIUS,
+                    padding: "14px 16px",
+                    textAlign: "left",
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                  }}
+                >
+                  <AlertTriangle size={20} style={{ color: WARN }} />
+                  <div>
+                    <div
+                      style={{
+                        fontWeight: 800,
+                        fontSize: 14,
+                        color: INK,
+                      }}
+                    >
+                      {t.title[locale]}
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: INK_MUTE,
+                        marginTop: 2,
+                      }}
+                    >
+                      {locale === "es"
+                        ? "Firme el reconocimiento legal para registrar su consentimiento."
+                        : "Sign the legal acknowledgment to record your consent."}
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      fontWeight: 800,
+                      fontSize: 12,
+                      color: WARN,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {locale === "es" ? "Firmar →" : "Sign →"}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Final mixed test card */}
       <div style={{ marginTop: 22 }}>
@@ -2556,6 +2747,253 @@ function FinalIntroView({
             {tr("start", locale)} <ChevronRight size={14} />
           </PrimaryButton>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SignDocumentView — generic signed-acknowledgment flow (Phase 3+ PR #4)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Used for Drug & Alcohol (PR #4), Code of Conduct (PR #5), Video / Photo
+// Release (PR #6), Non-Solicit (PR #7), Social Media (PR #8), Supply Kit
+// (PR #10). The component is document-type-agnostic. It fetches the
+// canonical content from the server, renders an affirmation gate + typed
+// signature input, and POSTs to /api/lms/signatures/sign.
+
+function SignDocumentView({
+  documentType,
+  locale,
+  setLocale,
+  learner,
+  token,
+  onCancel,
+  onSigned,
+}: {
+  documentType: string;
+  locale: Locale;
+  setLocale: (l: Locale) => void;
+  learner: Learner | null;
+  token: string | null;
+  onCancel: () => void;
+  onSigned: () => Promise<void>;
+}) {
+  const [content, setContent] = useState<SignedDocumentContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const suggested = learner
+    ? `${learner.firstName} ${learner.lastName}`.trim()
+    : "";
+  const [name, setName] = useState(suggested);
+  const [affirmed, setAffirmed] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContent(null);
+    setError(null);
+    (async () => {
+      try {
+        const data = await lmsApi.getSignedDocumentContent(
+          token,
+          documentType,
+          locale,
+        );
+        if (!cancelled) setContent(data);
+      } catch (e) {
+        if (!cancelled) setError(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documentType, locale, token]);
+
+  const canSubmit =
+    !busy && affirmed && name.trim().length >= 2 && content !== null;
+
+  return (
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "20px 18px" }}>
+      <BackLink label={tr("back", locale)} onClick={onCancel} />
+      <div
+        style={{
+          marginTop: 14,
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderRadius: RADIUS,
+          padding: 24,
+        }}
+      >
+        {error ? (
+          <div style={{ color: DANGER, fontSize: 13 }}>{error}</div>
+        ) : !content ? (
+          <div
+            style={{ padding: 40, textAlign: "center", color: INK_MUTE }}
+          >
+            <Loader2 className="qleno-spin" size={20} />
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+                marginBottom: 10,
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 20, color: INK }}>
+                {content.title}
+              </div>
+              <LocaleToggle locale={locale} setLocale={setLocale} />
+            </div>
+
+            {content.pendingTranslationReview ? (
+              <div
+                style={{
+                  background: "#FFFBEB",
+                  border: `1px solid #FDE68A`,
+                  borderLeft: `3px solid ${WARN}`,
+                  padding: 12,
+                  borderRadius: 6,
+                  marginBottom: 14,
+                  display: "flex",
+                  gap: 10,
+                }}
+              >
+                <AlertTriangle
+                  size={16}
+                  style={{ color: WARN, flexShrink: 0, marginTop: 2 }}
+                />
+                <div style={{ fontSize: 12.5, color: INK, lineHeight: 1.55 }}>
+                  {locale === "es"
+                    ? "Esta traducción al español está bajo revisión profesional. La versión en inglés es vinculante hasta que la traducción final sea aprobada por la gerencia."
+                    : "This Spanish translation is under professional review. The English version is binding until the final translation is approved by management."}
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                background: PAGE_BG,
+                border: `1px solid ${LINE_SOFT}`,
+                borderRadius: 8,
+                padding: "18px 20px",
+                maxHeight: 380,
+                overflowY: "auto",
+                fontSize: 13,
+                color: INK,
+                lineHeight: 1.6,
+                whiteSpace: "pre-wrap",
+                fontFamily: FONT,
+              }}
+            >
+              {content.contentHtml}
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start",
+                marginTop: 18,
+                fontSize: 13,
+                color: INK,
+                lineHeight: 1.55,
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={affirmed}
+                onChange={(e) => setAffirmed(e.target.checked)}
+                style={{ marginTop: 4, flexShrink: 0 }}
+              />
+              <span>
+                {locale === "es"
+                  ? `He leído y entendido la ${content.title}. Acepto sus términos y entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita (UETA / E-SIGN).`
+                  : `I have read and understand the ${content.title}. I accept its terms and understand that my electronic signature has the same legal effect as a handwritten signature (UETA / E-SIGN).`}
+              </span>
+            </label>
+
+            <div
+              style={{
+                marginTop: 14,
+                fontSize: 12,
+                fontWeight: 700,
+                color: INK_MUTE,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {locale === "es"
+                ? "Escriba su nombre legal completo"
+                : "Type your full legal name"}
+            </div>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                locale === "es" ? "Su nombre completo" : "Your full name"
+              }
+              style={{
+                width: "100%",
+                marginTop: 6,
+                padding: "10px 12px",
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+                fontSize: 16,
+                fontFamily: FONT,
+                color: INK,
+                fontStyle: "italic",
+              }}
+            />
+
+            <div
+              style={{
+                marginTop: 16,
+                display: "flex",
+                gap: 10,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <SecondaryButton onClick={onCancel}>
+                {tr("back", locale)}
+              </SecondaryButton>
+              <PrimaryButton
+                disabled={!canSubmit}
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await lmsApi.signDocument(token, {
+                      documentType,
+                      locale,
+                      signatureMethod: "typed",
+                      signature: name.trim(),
+                    });
+                    await onSigned();
+                  } catch (e) {
+                    setError(String((e as Error).message));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? (
+                  <Loader2 size={14} className="qleno-spin" />
+                ) : locale === "es" ? (
+                  "Firmar y enviar"
+                ) : (
+                  "Sign and submit"
+                )}
+              </PrimaryButton>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

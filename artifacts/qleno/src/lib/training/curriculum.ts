@@ -1685,6 +1685,212 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 7. DRUG & ALCOHOL POLICY (Phase 3, PR #4)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Required by Illinois Cannabis Regulation & Tax Act (410 ILCS 705) and
+  // the Illinois Right to Privacy in the Workplace Act (820 ILCS 55).
+  // Quiz verifies comprehension; the legally binding signed acknowledgment
+  // is captured via the separate lms_signed_documents flow at document_type
+  // 'drug_alcohol' (PR #4 of 16).
+  {
+    id: "drug-alcohol",
+    number: 7,
+    iconKind: "shield",
+    title: {
+      en: "Drug & Alcohol Policy",
+      es: "Política de Drogas y Alcohol",
+    },
+    subtitle: {
+      en: "What we test for and when. Cannabis is legal off-duty in Illinois. Impairment at work never is.",
+      es: "Qué probamos y cuándo. El cannabis es legal fuera del trabajo en Illinois. La intoxicación en el trabajo nunca lo es.",
+    },
+    estimatedMinutes: 12,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Cleaning involves driving company routes, handling chemicals around clients' children and pets, climbing ladders, and entering homes you've been trusted to enter. Impairment in any of those situations puts people in danger. This policy explains what counts as impairment, when Phes may test you, what your rights are if you take prescription medication, and what happens if you refuse a test. You will sign a separate acknowledgment after the quiz that records your consent to this policy.",
+          es: "Por qué importa este módulo. La limpieza implica conducir rutas de la compañía, manejar productos químicos cerca de niños y mascotas de los clientes, subir escaleras y entrar a hogares en los que se le ha confiado. La intoxicación en cualquiera de esas situaciones pone a personas en peligro. Esta política explica qué cuenta como intoxicación, cuándo Phes puede examinarlo, cuáles son sus derechos si toma medicamentos recetados y qué ocurre si se rehúsa a una prueba. Firmará un reconocimiento separado después del examen que registra su consentimiento a esta política.",
+        },
+      },
+
+      { type: "h", text: { en: "No Pre-Employment Testing", es: "Sin Pruebas Antes del Empleo" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes does NOT require pre-employment drug testing. You will not be asked to submit to a drug test as a condition of being hired. This is Phes policy. It is stricter than the law requires.",
+          es: "Phes NO exige pruebas de drogas antes del empleo. No se le pedirá someterse a una prueba de drogas como condición para ser contratado. Esta es la política de Phes. Es más estricta de lo que la ley requiere.",
+        },
+      },
+
+      { type: "h", text: { en: "What You Cannot Do at Work", es: "Lo Que No Puede Hacer en el Trabajo" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Work while impaired by alcohol.", es: "Trabajar bajo los efectos del alcohol." },
+          { en: "Work while impaired by illegal drugs.", es: "Trabajar bajo los efectos de drogas ilegales." },
+          { en: "Work while impaired by cannabis (regardless of whether you obtained it legally off-duty).", es: "Trabajar bajo los efectos del cannabis (sin importar si lo obtuvo legalmente fuera del trabajo)." },
+          { en: "Work while impaired by ANY other substance that affects your ability to perform safely (over-the-counter sleep aids that make you drowsy, prescription medications with sedating side effects, etc.).", es: "Trabajar bajo los efectos de CUALQUIER otra sustancia que afecte su capacidad de desempeñarse con seguridad (medicamentos de venta libre para dormir que causan somnolencia, recetas con efectos sedantes, etc.)." },
+          { en: "Possess open alcohol containers, illegal drugs, or any controlled substance not legally prescribed to YOU on Phes premises, in Phes vehicles, or on client property.", es: "Poseer envases abiertos de alcohol, drogas ilegales o cualquier sustancia controlada que no le haya sido recetada legalmente a USTED en las instalaciones de Phes, en vehículos de Phes o en la propiedad del cliente." },
+        ],
+      },
+
+      { type: "h", text: { en: "Cannabis Specifically (Illinois Law)", es: "Cannabis Específicamente (Ley de Illinois)" } },
+      {
+        type: "p",
+        text: {
+          en: "Cannabis is legal for adults 21 and over in Illinois. Phes does NOT discipline you for using cannabis legally on your own time. You have the same right to lawful off-duty cannabis use that you have for alcohol or any other legal off-duty activity.",
+          es: "El cannabis es legal para adultos mayores de 21 años en Illinois. Phes NO disciplina por usar cannabis legalmente en su tiempo libre. Tiene el mismo derecho al uso legal fuera del trabajo de cannabis que tiene para el alcohol o cualquier otra actividad legal fuera del trabajo.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "But: impairment AT WORK is different from off-duty use. If you arrive at work or show up to a client home showing observable signs of impairment, the policy applies regardless of when or where you consumed. This is true for cannabis, alcohol, prescription sedatives, and any other substance.",
+          es: "Pero: la intoxicación EN EL TRABAJO es distinta del uso fuera del trabajo. Si llega al trabajo o se presenta en un hogar de un cliente mostrando signos observables de intoxicación, la política aplica sin importar cuándo o dónde consumió. Esto es cierto para cannabis, alcohol, sedantes recetados y cualquier otra sustancia.",
+        },
+      },
+
+      { type: "h", text: { en: "Observable Signs of Impairment", es: "Signos Observables de Intoxicación" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes only acts on OBSERVABLE signs of impairment. We do not guess; we do not assume; we document what we see. Signs that may indicate impairment include:",
+          es: "Phes solo actúa sobre signos OBSERVABLES de intoxicación. No suponemos; no asumimos; documentamos lo que vemos. Los signos que pueden indicar intoxicación incluyen:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Bloodshot or glassy eyes.", es: "Ojos rojos o vidriosos." },
+          { en: "Slurred speech or unusually rapid or pressured speech.", es: "Habla arrastrada o anormalmente rápida o presionada." },
+          { en: "Smell of alcohol or cannabis on breath or clothes.", es: "Olor a alcohol o cannabis en aliento o ropa." },
+          { en: "Unsteady walking, swaying, stumbling.", es: "Caminar inestable, balancearse, tropezarse." },
+          { en: "Slowed reaction time, inability to follow simple instructions, difficulty maintaining a conversation.", es: "Tiempo de reacción lento, incapacidad para seguir instrucciones simples, dificultad para mantener una conversación." },
+          { en: "Dilated or constricted pupils unrelated to the lighting in the room.", es: "Pupilas dilatadas o contraídas no relacionadas con la iluminación del lugar." },
+          { en: "Inability to perform routine work tasks the employee normally performs without difficulty.", es: "Incapacidad para realizar tareas laborales rutinarias que el empleado normalmente realiza sin dificultad." },
+          { en: "Falling asleep or appearing to nod off on the job.", es: "Quedarse dormido o aparentar cabecear en el trabajo." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "What is NOT a sign of impairment, by itself: a positive cannabis drug test alone (THC remains detectable in urine days or weeks after use). Phes does not act on a drug test alone. We act on observable behavior in the moment, documented by a supervisor.",
+          es: "Lo que NO es un signo de intoxicación, por sí mismo: una prueba de cannabis positiva sola (el THC sigue siendo detectable en orina días o semanas después del uso). Phes no actúa solo con base en una prueba de drogas. Actuamos sobre la conducta observable en el momento, documentada por un supervisor.",
+        },
+      },
+
+      { type: "h", text: { en: "Reasonable Suspicion Testing", es: "Pruebas por Sospecha Razonable" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "If a supervisor observes the signs above, they DOCUMENT what they saw, the date and time, and who else was present.", es: "Si un supervisor observa los signos anteriores, DOCUMENTA lo que vio, la fecha y hora, y quién más estaba presente." },
+          { en: "The decision to send the employee for testing is made by the OFFICE (not by coworkers, not by clients).", es: "La decisión de enviar al empleado a una prueba la toma la OFICINA (no los compañeros de trabajo, no los clientes)." },
+          { en: "The employee is removed from the job site immediately and sent for testing (urine, saliva, or breath, depending on the substance suspected).", es: "El empleado es retirado del lugar de trabajo inmediatamente y enviado a hacerse la prueba (orina, saliva o aliento, dependiendo de la sustancia sospechada)." },
+          { en: "Phes pays for the test and pays the employee's regular wages for the time spent being tested.", es: "Phes paga la prueba y paga el salario regular del empleado por el tiempo dedicado a la prueba." },
+          { en: "If the test is positive AND observable signs were documented at the time, the discipline scale below applies.", es: "Si la prueba es positiva Y se documentaron signos observables en el momento, aplica la escala de disciplina a continuación." },
+          { en: "If the test is negative, no record of the incident appears in the employee's personnel file other than the time worked and paid.", es: "Si la prueba es negativa, no aparece registro del incidente en el archivo del empleado más allá del tiempo trabajado y pagado." },
+        ],
+      },
+
+      { type: "h", text: { en: "Post-Accident Testing", es: "Pruebas Después de un Accidente" } },
+      {
+        type: "p",
+        text: {
+          en: "After any workplace accident that results in (a) physical injury to anyone (employee, client, third party) OR (b) property damage of $500 or more, the involved employee is required to submit to a drug and alcohol test. This is a routine workplace safety measure and is not a presumption of fault. Phes pays for the test and pays the employee's regular wages for the time spent.",
+          es: "Después de cualquier accidente laboral que resulte en (a) lesión física a alguien (empleado, cliente, tercero) O (b) daño a propiedad de $500 o más, el empleado involucrado debe someterse a una prueba de drogas y alcohol. Esta es una medida rutinaria de seguridad laboral y no es una presunción de culpa. Phes paga la prueba y paga el salario regular del empleado por el tiempo dedicado.",
+        },
+      },
+
+      { type: "h", text: { en: "Prescription Medication Accommodation", es: "Acomodación de Medicamentos Recetados" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Employees may take any LEGALLY PRESCRIBED medication. Phes does not ask you to disclose what the medication is or what condition you're treating.", es: "Los empleados pueden tomar cualquier medicamento RECETADO LEGALMENTE. Phes no le pide divulgar cuál es el medicamento ni qué condición está tratando." },
+          { en: "If a prescription medication you take has side effects that may impair your ability to perform safely (drowsiness, slowed reaction, etc.), inform the office BEFORE starting the medication so we can discuss accommodation.", es: "Si un medicamento recetado que toma tiene efectos secundarios que pueden afectar su capacidad de desempeñarse con seguridad (somnolencia, reacción lenta, etc.), informe a la oficina ANTES de empezar el medicamento para que podamos discutir acomodación." },
+          { en: "You are NOT required to disclose the diagnosis or the medication name. You only need to identify whether you can perform the essential functions of your role safely.", es: "NO está obligado a divulgar el diagnóstico ni el nombre del medicamento. Solo necesita identificar si puede realizar las funciones esenciales de su rol con seguridad." },
+          { en: "Reasonable accommodation may include schedule changes, modified duties, or short-term reassignment.", es: "La acomodación razonable puede incluir cambios de horario, tareas modificadas o reasignación a corto plazo." },
+        ],
+      },
+
+      { type: "h", text: { en: "Refusal to Test", es: "Negarse a la Prueba" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "REFUSAL TO TEST when properly requested by the office (reasonable suspicion or post-accident) is grounds for IMMEDIATE TERMINATION. There is no negotiation. The refusal itself is treated the same as a positive test result, regardless of whether you would have actually tested positive.",
+          es: "NEGARSE A LA PRUEBA cuando la oficina la solicita apropiadamente (sospecha razonable o post-accidente) es motivo de TERMINACIÓN INMEDIATA. No hay negociación. La negativa en sí se trata igual que un resultado positivo, sin importar si efectivamente habría dado positivo.",
+        },
+      },
+
+      { type: "h", text: { en: "Discipline Scale", es: "Escala de Disciplina" } },
+      {
+        type: "table",
+        head: { en: ["Incident", "Action"], es: ["Incidente", "Acción"] },
+        rows: [
+          { en: ["1st positive test (observable signs documented)", "Final written warning. Last-chance agreement signed. EAP referral offered."],
+            es: ["1ª prueba positiva (con signos documentados)", "Advertencia final por escrito. Acuerdo de última oportunidad firmado. Referencia a EAP ofrecida."] },
+          { en: ["2nd positive test in any 12-month period", "Termination."],
+            es: ["2ª prueba positiva en cualquier periodo de 12 meses", "Terminación."] },
+          { en: ["Refusal to test", "Immediate termination."],
+            es: ["Negarse a la prueba", "Terminación inmediata."] },
+          { en: ["Possession of alcohol or illegal drugs on Phes property or in a Phes vehicle", "Immediate termination."],
+            es: ["Posesión de alcohol o drogas ilegales en propiedad de Phes o en vehículo de Phes", "Terminación inmediata."] },
+          { en: ["Driving a Phes-related route while impaired", "Immediate termination plus law-enforcement referral when applicable."],
+            es: ["Conducir una ruta relacionada con Phes bajo intoxicación", "Terminación inmediata más referencia a las autoridades cuando corresponda."] },
+        ],
+      },
+
+      { type: "h", text: { en: "Driving Violations Reporting (Personal Vehicles)", es: "Reporte de Infracciones de Conducir (Vehículos Personales)" } },
+      {
+        type: "p",
+        text: {
+          en: "If you use your PERSONAL vehicle for any Phes work (driving between client jobs, transporting Phes supplies, picking up a teammate), you MUST report the following to the office WITHIN 72 HOURS:",
+          es: "Si usa su vehículo PERSONAL para cualquier trabajo de Phes (manejar entre trabajos de clientes, transportar suministros de Phes, recoger a un compañero), DEBE reportar lo siguiente a la oficina DENTRO DE 72 HORAS:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Any DUI conviction (Driving Under the Influence).", es: "Cualquier condena por DUI (Conducir Bajo los Efectos)." },
+          { en: "Any driver's license suspension or revocation.", es: "Cualquier suspensión o revocación de la licencia de conducir." },
+          { en: "Any major moving violation (reckless driving, leaving the scene of an accident, driving without insurance, driving with a suspended license).", es: "Cualquier infracción mayor de tránsito (conducción imprudente, abandonar el lugar de un accidente, conducir sin seguro, conducir con licencia suspendida)." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Failure to disclose any of the above within 72 hours of the conviction, suspension, or citation may result in immediate termination. This is a safety policy. Phes carries non-owned auto insurance that depends on your status as a lawfully-licensed driver.",
+          es: "No divulgar cualquiera de lo anterior dentro de 72 horas de la condena, suspensión o citación puede resultar en terminación inmediata. Esta es una política de seguridad. Phes tiene seguro automotor no propio que depende de su estado como conductor legalmente licenciado.",
+        },
+      },
+
+      { type: "h", text: { en: "Employee Assistance Program (EAP)", es: "Programa de Asistencia al Empleado (EAP)" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes participates in an Employee Assistance Program that provides confidential support for substance use, mental health, and other personal concerns. The office will give you the contact information for the EAP when you join. Using the EAP is voluntary, confidential, and does NOT trigger any discipline. We encourage you to use it BEFORE a workplace incident, not after.",
+          es: "Phes participa en un Programa de Asistencia al Empleado que provee apoyo confidencial para uso de sustancias, salud mental y otras preocupaciones personales. La oficina le dará la información de contacto del EAP cuando se incorpore. Usar el EAP es voluntario, confidencial y NO activa ninguna disciplina. Le animamos a usarlo ANTES de un incidente laboral, no después.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Drug & Alcohol Policy Acknowledgment that records your consent. The signed acknowledgment is a separate legal document tied to your employment, captured with your IP, device, and a hash of the exact policy text. You can re-download the signed PDF anytime from your training page.",
+          es: "Después de este examen: firmará un Reconocimiento de la Política de Drogas y Alcohol por separado que registra su consentimiento. El reconocimiento firmado es un documento legal separado vinculado a su empleo, capturado con su IP, dispositivo y un hash del texto exacto de la política. Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3219,6 +3425,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes — GOOD FAITH means you believed your report was true at the time you made it. The act of reporting in good faith is protected regardless of the outcome.", es: "Sí — BUENA FE significa que creyó que su reporte era verdadero al momento de hacerlo. El acto de reportar de buena fe está protegido sin importar el resultado." },
       { en: "Only if you reported in writing.", es: "Solo si reportó por escrito." },
       { en: "Only if the accused agrees you reported in good faith.", es: "Solo si el acusado acepta que reportó de buena fe." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 7: DRUG & ALCOHOL (10 questions, Phase 3 PR #4)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-da-01-no-pre-employment-test",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "Does Phes require pre-employment drug testing?",
+      es: "¿Phes exige una prueba de drogas antes del empleo?",
+    },
+    options: [
+      { en: "Yes. Every new hire is drug-tested before their first day.", es: "Sí. A cada nuevo empleado se le hace prueba de drogas antes de su primer día." },
+      { en: "No. Phes does not require pre-employment drug testing. This is Phes policy and is stricter than what the law requires.", es: "No. Phes no exige prueba de drogas antes del empleo. Esta es la política de Phes y es más estricta de lo que exige la ley." },
+      { en: "Only for techs over 25.", es: "Solo para técnicos mayores de 25 años." },
+      { en: "Only if the role involves driving.", es: "Solo si el rol implica conducir." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-02-impairment-not-cannabis-use",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "You used cannabis legally at home on Saturday. You arrive at a Monday job with no observable signs of impairment. Are you in violation of policy?",
+      es: "Usó cannabis legalmente en casa el sábado. Llega a un trabajo el lunes sin signos observables de intoxicación. ¿Está en violación de la política?",
+    },
+    options: [
+      { en: "Yes. Any cannabis use is a policy violation.", es: "Sí. Cualquier uso de cannabis es una violación de la política." },
+      { en: "No. Phes does not discipline legal off-duty cannabis use. The policy applies only to OBSERVABLE impairment at work, regardless of when or where you consumed.", es: "No. Phes no disciplina el uso legal de cannabis fuera del trabajo. La política aplica solo a la intoxicación OBSERVABLE en el trabajo, sin importar cuándo o dónde consumió." },
+      { en: "Yes if you tested positive at random.", es: "Sí si dio positivo en una prueba al azar." },
+      { en: "Only if the client smelled it.", es: "Solo si el cliente lo olió." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-03-impairment-signs",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "Which of the following is NOT, by itself, a sign of impairment Phes can act on?",
+      es: "¿Cuál de los siguientes NO es, por sí solo, un signo de intoxicación sobre el que Phes puede actuar?",
+    },
+    options: [
+      { en: "Slurred speech and unsteady walking.", es: "Habla arrastrada y caminar inestable." },
+      { en: "Bloodshot eyes plus smell of cannabis on breath.", es: "Ojos rojos más olor a cannabis en aliento." },
+      { en: "A positive drug test alone (THC stays detectable for days or weeks).", es: "Una prueba positiva sola (el THC se detecta por días o semanas)." },
+      { en: "Falling asleep on the job.", es: "Quedarse dormido en el trabajo." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-da-04-reasonable-suspicion-process",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "A coworker tells you they think another tech is impaired. What does Phes policy say about how the decision to test is made?",
+      es: "Un compañero le dice que cree que otro técnico está intoxicado. ¿Qué dice la política de Phes sobre cómo se toma la decisión de hacer la prueba?",
+    },
+    options: [
+      { en: "Coworkers can request a test on each other.", es: "Los compañeros pueden solicitar una prueba entre sí." },
+      { en: "A supervisor documents observable signs and the decision to test is made by the OFFICE, not by coworkers or clients.", es: "Un supervisor documenta signos observables y la decisión de hacer la prueba la toma la OFICINA, no compañeros ni clientes." },
+      { en: "The client decides whether the tech should be tested.", es: "El cliente decide si se debe hacer la prueba al técnico." },
+      { en: "Whoever is in charge at the moment decides without documentation.", es: "Quien esté a cargo en el momento decide sin documentación." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-05-post-accident-threshold",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "There's a small workplace accident — minor scratch on a client's wall, no one is hurt, repair would cost about $30. Are you required to take a drug and alcohol test?",
+      es: "Hay un pequeño accidente en el trabajo: un rasguño menor en la pared del cliente, nadie está lastimado, la reparación costaría unos $30. ¿Debe hacerse una prueba de drogas y alcohol?",
+    },
+    options: [
+      { en: "Yes — any property damage triggers a test.", es: "Sí — cualquier daño a la propiedad activa una prueba." },
+      { en: "No — post-accident testing is triggered by (a) physical injury to anyone OR (b) property damage of $500 or more. A $30 scratch with no injury does not meet the threshold.", es: "No — la prueba post-accidente se activa por (a) lesión física a alguien O (b) daño a propiedad de $500 o más. Un rasguño de $30 sin lesiones no cumple el umbral." },
+      { en: "Only if a supervisor saw the accident happen.", es: "Solo si un supervisor vio ocurrir el accidente." },
+      { en: "Only if the client asks for it.", es: "Solo si el cliente lo pide." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-06-prescription-meds",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "Your doctor prescribes a new medication that may cause drowsiness as a side effect. What does Phes policy say you should do?",
+      es: "Su doctor le receta un nuevo medicamento que puede causar somnolencia como efecto secundario. ¿Qué dice la política de Phes que debe hacer?",
+    },
+    options: [
+      { en: "Tell the office your full diagnosis and the medication name before starting it.", es: "Decir a la oficina su diagnóstico completo y el nombre del medicamento antes de empezar." },
+      { en: "Inform the office BEFORE starting the medication that a prescribed medication may impair your ability to perform safely. You do NOT have to disclose the diagnosis or medication name. The office discusses accommodation (schedule changes, modified duties, etc.).", es: "Informar a la oficina ANTES de empezar el medicamento que una medicina recetada puede afectar su capacidad de desempeñarse con seguridad. NO tiene que divulgar el diagnóstico ni el nombre del medicamento. La oficina discute acomodación (cambios de horario, tareas modificadas, etc.)." },
+      { en: "Stop taking the medication while you work.", es: "Dejar de tomar el medicamento mientras trabaja." },
+      { en: "Nothing — prescription meds are your private business.", es: "Nada — los medicamentos recetados son su asunto privado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-07-refusal-to-test",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "The office sends you for a reasonable-suspicion drug test based on documented observable signs. You refuse. What is the consequence under Phes policy?",
+      es: "La oficina lo envía a una prueba de drogas por sospecha razonable basada en signos observables documentados. Usted se rehúsa. ¿Cuál es la consecuencia bajo la política de Phes?",
+    },
+    options: [
+      { en: "A written warning and you keep working.", es: "Una advertencia por escrito y sigue trabajando." },
+      { en: "Immediate termination. Refusal is treated the same as a positive test, regardless of whether you would have actually tested positive.", es: "Terminación inmediata. La negativa se trata igual que un resultado positivo, sin importar si efectivamente habría dado positivo." },
+      { en: "You may take the test the next day instead.", es: "Puede hacer la prueba al día siguiente." },
+      { en: "Nothing — refusing a test is your right.", es: "Nada — rehusarse a una prueba es su derecho." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-08-discipline-scale",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "You test positive after an incident with documented observable signs. It is your FIRST positive. What happens under the Phes discipline scale?",
+      es: "Da positivo después de un incidente con signos observables documentados. Es su PRIMERA positiva. ¿Qué ocurre bajo la escala de disciplina de Phes?",
+    },
+    options: [
+      { en: "Immediate termination.", es: "Terminación inmediata." },
+      { en: "Final written warning plus a last-chance agreement signed plus an EAP (Employee Assistance Program) referral offered.", es: "Advertencia final por escrito, firmar acuerdo de última oportunidad y referencia ofrecida al EAP (Programa de Asistencia al Empleado)." },
+      { en: "Nothing because it's a first offense.", es: "Nada porque es la primera infracción." },
+      { en: "Verbal warning only.", es: "Solo advertencia verbal." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-09-dui-reporting-window",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "You use your personal vehicle to drive between client jobs. On Saturday night you get a DUI conviction. By when must you report it to the office?",
+      es: "Usa su vehículo personal para conducir entre trabajos de clientes. El sábado por la noche recibe una condena por DUI. ¿Para cuándo debe reportarlo a la oficina?",
+    },
+    options: [
+      { en: "At your next quarterly review.", es: "En su próxima evaluación trimestral." },
+      { en: "Within 72 hours of the conviction. Failure to disclose may result in immediate termination because Phes carries non-owned auto insurance that depends on your status as a lawfully-licensed driver.", es: "Dentro de 72 horas de la condena. No divulgarlo puede resultar en terminación inmediata porque Phes lleva seguro automotor no propio que depende de su estado como conductor legalmente licenciado." },
+      { en: "Only if a client complains about your driving.", es: "Solo si un cliente se queja sobre su conducción." },
+      { en: "Never — DUIs in personal vehicles are private.", es: "Nunca — los DUIs en vehículos personales son privados." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-da-10-license-suspension-disclosure",
+    moduleId: "drug-alcohol",
+    prompt: {
+      en: "Your driver's license gets suspended because of unpaid tickets. You drive your personal vehicle between client jobs. Do you have to tell the office?",
+      es: "Su licencia de conducir es suspendida por multas impagas. Usa su vehículo personal entre trabajos de clientes. ¿Debe avisar a la oficina?",
+    },
+    options: [
+      { en: "No, because the suspension is for tickets, not a DUI.", es: "No, porque la suspensión es por multas, no por DUI." },
+      { en: "Yes. ANY license suspension or revocation must be reported within 72 hours. So must any major moving violation (reckless driving, leaving the scene, driving without insurance, driving with a suspended license).", es: "Sí. CUALQUIER suspensión o revocación de la licencia debe reportarse dentro de 72 horas. También cualquier infracción mayor (conducción imprudente, abandonar el lugar, conducir sin seguro, conducir con licencia suspendida)." },
+      { en: "Only if the office asks first.", es: "Solo si la oficina pregunta primero." },
+      { en: "Only if a client sees the suspension notice.", es: "Solo si un cliente ve el aviso de suspensión." },
     ],
     correctIndex: 1,
   },

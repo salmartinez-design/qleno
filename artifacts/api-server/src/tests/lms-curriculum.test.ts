@@ -33,7 +33,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 7 modules in expected sequence (il-sexual-harassment added 2026-05-12)", () => {
+  it("MODULE_ORDER has all 8 modules in expected sequence (drug-alcohol added 2026-05-12 Phase 3)", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
@@ -41,11 +41,12 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "maidcentral",
       "products-tools",
       "il-sexual-harassment",
+      "drug-alcohol",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 6 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 7 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
@@ -53,6 +54,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "maidcentral",
       "products-tools",
       "il-sexual-harassment",
+      "drug-alcohol",
     ]);
   });
 
@@ -85,19 +87,30 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
-  it("each non-policies module has exactly 15 questions (per Phes spec)", () => {
+  it("each non-policies module has its specified question count", () => {
+    // phes-policies: 40 (full handbook coverage)
+    // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
+    // all others: 15 (per original Phes spec)
+    const expected: Record<string, number> = {
+      "phes-policies": 40,
+      "drug-alcohol": 10,
+      compensation: 15,
+      "cleaning-best-practices": 15,
+      maidcentral: 15,
+      "products-tools": 15,
+      "il-sexual-harassment": 15,
+    };
     for (const m of QUIZ_MODULE_IDS) {
-      if (m === "phes-policies") continue;
       assert.equal(
         QUESTIONS_BY_MODULE[m].length,
-        15,
-        `Module ${m} should have 15 questions; has ${QUESTIONS_BY_MODULE[m].length}`,
+        expected[m],
+        `Module ${m} should have ${expected[m]} questions; has ${QUESTIONS_BY_MODULE[m].length}`,
       );
     }
   });
 
-  it("ALL_QUESTION_IDS is 115 total (5 modules × 15 + phes-policies × 40)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 115);
+  it("ALL_QUESTION_IDS is 125 total (40 + 15*5 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 125);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

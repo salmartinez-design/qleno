@@ -153,6 +153,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-il-13-consent-withdrawn": 1,
   "q-il-14-investigation-rights": 1,
   "q-il-15-good-faith-protection": 1,
+
+  // ── Module 7: drug-alcohol (10, Phase 3 PR #4) ─────────────────────────
+  "q-da-01-no-pre-employment-test": 1,
+  "q-da-02-impairment-not-cannabis-use": 1,
+  "q-da-03-impairment-signs": 1,
+  "q-da-04-reasonable-suspicion-process": 1,
+  "q-da-05-post-accident-threshold": 1,
+  "q-da-06-prescription-meds": 1,
+  "q-da-07-refusal-to-test": 1,
+  "q-da-08-discipline-scale": 1,
+  "q-da-09-dui-reporting-window": 1,
+  "q-da-10-license-suspension-disclosure": 1,
 });
 
 /**

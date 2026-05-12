@@ -30,6 +30,7 @@ import {
   FastForward,
   Download,
   Award,
+  FileSignature,
   RotateCcw,
   History,
 } from "lucide-react";
@@ -654,6 +655,7 @@ function RosterTable({
                   >
                     <ModuleAttemptsGrid row={r} onBypass={onBypass} />
                     <LearnerCertificatesPanel row={r} />
+                    <LearnerSignedDocumentsPanel row={r} />
                   </td>
                 </tr>
               ) : null}
@@ -955,6 +957,7 @@ function RosterCards({
             <div style={{ marginTop: 6 }}>
               <ModuleAttemptsGrid row={r} onBypass={onBypass} />
               <LearnerCertificatesPanel row={r} />
+              <LearnerSignedDocumentsPanel row={r} />
             </div>
           ) : null}
         </article>
@@ -2499,6 +2502,253 @@ function LearnerCertificatesPanel({ row }: { row: RosterRow }) {
                   type="button"
                   onClick={() => handleDownload(c.id)}
                   title="Download certificate PDF"
+                  style={{
+                    background: NAVY,
+                    color: "#fff",
+                    border: 0,
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Download size={11} /> PDF
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LearnerSignedDocumentsPanel — Phase 3+ PR #4+: signed legal docs
+// (Drug & Alcohol first; PR #5+ extend). Renders alongside the
+// LearnerCertificatesPanel in the admin expand row.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type SignedDocumentRow = {
+  id: number;
+  document_type: string;
+  locale: string;
+  signed_at: string;
+  status: "active" | "superseded" | "revoked";
+  version_hash: string;
+  representative_user_id: number | null;
+  representative_signed_at: string | null;
+};
+
+function humanDocumentType(documentType: string): string {
+  const titles: Record<string, string> = {
+    drug_alcohol: "Drug & Alcohol Policy",
+    code_of_conduct: "Code of Conduct",
+    video_photo_release: "Video / Photo Release",
+    non_solicitation: "Non-Solicitation Agreement",
+    supply_kit: "Supply Kit Responsibility",
+    social_media: "Social Media Policy",
+    handbook: "Employee Handbook",
+  };
+  return (
+    titles[documentType] ??
+    documentType
+      .split(/[-_]/)
+      .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+      .join(" ")
+  );
+}
+
+function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
+  const token = useAuthStore((s) => s.token);
+  const [docs, setDocs] = useState<SignedDocumentRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api<SignedDocumentRow[]>(
+          "GET",
+          `/lms/signatures/admin/learner/${row.user_id}`,
+          token,
+        );
+        if (!cancelled) setDocs(data);
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.user_id, token]);
+
+  async function handleDownload(docId: number) {
+    try {
+      const url = `${API_BASE}/lms/signatures/${docId}/pdf`;
+      const res = await fetch(url, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const m = /filename="([^"]+)"/.exec(disposition);
+      const filename = m?.[1] ?? `phes-signed-${docId}.pdf`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      console.error("[lms-admin] download signed doc failed:", e);
+    }
+  }
+
+  if (err) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: "#FEF2F2",
+          border: `1px solid #FECACA`,
+          color: DANGER,
+          borderRadius: 8,
+          fontSize: 12,
+        }}
+      >
+        Failed to load signed documents: {err}
+      </div>
+    );
+  }
+
+  if (docs == null) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          fontSize: 12,
+          color: INK_MUTE,
+          fontStyle: "italic",
+        }}
+      >
+        Loading signed documents...
+      </div>
+    );
+  }
+
+  if (docs.length === 0) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: LINE_SOFT,
+          borderRadius: 8,
+          fontSize: 12,
+          color: INK_MUTE,
+        }}
+      >
+        No legal acknowledgments signed yet. Phes-controlled signed
+        documents appear here as each is signed.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <FileSignature size={12} /> Signed Acknowledgments ({docs.length})
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {docs.map((d) => {
+          const isActive = d.status === "active";
+          const isRevoked = d.status === "revoked";
+          const tone = isRevoked
+            ? DANGER
+            : isActive
+            ? SUCCESS
+            : INK_LIGHT;
+          return (
+            <div
+              key={d.id}
+              style={{
+                background: SURFACE,
+                border: `1px solid ${isRevoked ? "#FECACA" : LINE}`,
+                borderLeft: `3px solid ${tone}`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, color: INK, fontSize: 12 }}>
+                  {humanDocumentType(d.document_type)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: INK_MUTE,
+                    marginTop: 2,
+                    fontWeight: 600,
+                  }}
+                >
+                  {d.locale.toUpperCase()} · {humanDateTime(d.signed_at)} ·{" "}
+                  {d.status === "active"
+                    ? "Active"
+                    : d.status === "superseded"
+                    ? "Superseded"
+                    : "Revoked"}
+                </div>
+                {d.representative_signed_at ? (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: SUCCESS,
+                      fontWeight: 700,
+                      marginTop: 2,
+                    }}
+                  >
+                    Co-signed by Phes representative
+                  </div>
+                ) : null}
+              </div>
+              {!isRevoked ? (
+                <button
+                  type="button"
+                  onClick={() => handleDownload(d.id)}
+                  title="Download signed PDF"
                   style={{
                     background: NAVY,
                     color: "#fff",
