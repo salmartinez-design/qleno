@@ -63,6 +63,11 @@ import { SERVER_ANSWER_KEY } from "@workspace/training";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { addDays, daysUntil, fireLmsWebhook } from "../lib/lms-helpers.js";
+import {
+  captureRequestMetadata,
+  parseMinimalDeviceInfo,
+} from "../lib/lms-signatures.js";
+import { issueCertificate } from "../lib/lms-certificates.js";
 
 const router = Router();
 // Re-export so existing callers (and any future module that wants the
@@ -627,16 +632,20 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     const result = scoreQuiz(answers, questionIds, QUIZ_PASS_THRESHOLD, SERVER_ANSWER_KEY);
 
     // Always insert the immutable attempt row first.
-    await db.insert(lmsQuizAttemptsTable).values({
-      company_id: companyId,
-      enrollment_id: enrollment.id,
-      module_id: moduleId,
-      answers,
-      question_ids: moduleId === FINAL_MODULE_ID ? questionIds : null,
-      score: result.score,
-      passed: result.passed,
-      attempted_at: now,
-    });
+    const attemptInsert = await db
+      .insert(lmsQuizAttemptsTable)
+      .values({
+        company_id: companyId,
+        enrollment_id: enrollment.id,
+        module_id: moduleId,
+        answers,
+        question_ids: moduleId === FINAL_MODULE_ID ? questionIds : null,
+        score: result.score,
+        passed: result.passed,
+        attempted_at: now,
+      })
+      .returning({ id: lmsQuizAttemptsTable.id });
+    const quizAttemptId = attemptInsert[0]?.id ?? null;
 
     // Update module_progress: bump attempts, update best_score, set passed_at
     // if this attempt cleared the bar (and the module wasn't already passed).
@@ -669,6 +678,32 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         ),
       );
     await touchEnrollment(enrollment.id, now);
+
+    // Phase 12: issue a completion certificate on every successful pass.
+    // Historical rows stay (no auto-revoke); the most recent active row
+    // is the "current" cert. PDF is rendered on download, not stored
+    // here. Tenant-scoped by company_id at the row level.
+    let issuedCertId: number | null = null;
+    if (passedNow) {
+      try {
+        const meta = captureRequestMetadata(req);
+        const cert = await issueCertificate({
+          companyId,
+          userId,
+          moduleId,
+          score: result.score,
+          passed: true,
+          locale: enrollment.locale === "es" ? "es" : "en",
+          ipAddress: meta.ip_address,
+          deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
+          quizAttemptId,
+        });
+        issuedCertId = cert.id;
+      } catch (err) {
+        // A cert-issue failure must not block the user's pass response.
+        console.error("[lms] cert issuance failed (non-fatal):", err);
+      }
+    }
 
     // Webhook fire — do this AFTER all DB writes commit, but before the
     // response so we can still surface a logged failure. Fire-and-forget so
@@ -722,6 +757,7 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         attempts_used: attemptsAfter,
         max_attempts: maxAttempts,
         attempts_remaining: Math.max(0, maxAttempts - attemptsAfter),
+        certificate_id: issuedCertId,
       },
     });
   } catch (err) {
@@ -809,6 +845,28 @@ router.post("/module/acknowledge", requireAuth, async (req, res) => {
     }
 
     await touchEnrollment(enrollment.id, now);
+
+    // Phase 12: issue a completion certificate for content-only modules
+    // (e.g. qleno-app, acknowledgment). No score because there's no quiz.
+    let issuedCertId: number | null = null;
+    try {
+      const meta = captureRequestMetadata(req);
+      const cert = await issueCertificate({
+        companyId,
+        userId,
+        moduleId,
+        score: null,
+        passed: true,
+        locale: enrollment.locale === "es" ? "es" : "en",
+        ipAddress: meta.ip_address,
+        deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
+        quizAttemptId: null,
+      });
+      issuedCertId = cert.id;
+    } catch (err) {
+      console.error("[lms] cert issuance failed on acknowledge (non-fatal):", err);
+    }
+
     await logAudit(
       req,
       "lms.module.acknowledge",
@@ -818,7 +876,7 @@ router.post("/module/acknowledge", requireAuth, async (req, res) => {
       { module_id: moduleId },
     );
 
-    return res.json({ data: { ok: true } });
+    return res.json({ data: { ok: true, certificate_id: issuedCertId } });
   } catch (err) {
     console.error("[lms] /module/acknowledge error:", err);
     return res
@@ -1244,6 +1302,31 @@ router.post(
         );
 
       await touchEnrollment(enrollment.id, now);
+
+      // Phase 12: issue a completion certificate for the bypassed module.
+      // The cert is for the TARGET learner (when admin/office bypasses on
+      // their behalf) or the caller themselves (when an owner bypasses
+      // their own training). score=100 because bypass is treated as a
+      // perfect-completion attestation by the granting admin.
+      let bypassCertId: number | null = null;
+      try {
+        const meta = captureRequestMetadata(req);
+        const cert = await issueCertificate({
+          companyId,
+          userId: targetUserId,
+          moduleId,
+          score: 100,
+          passed: true,
+          locale: enrollment.locale === "es" ? "es" : "en",
+          ipAddress: meta.ip_address,
+          deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
+          quizAttemptId: null,
+        });
+        bypassCertId = cert.id;
+      } catch (err) {
+        console.error("[lms] cert issuance failed on bypass (non-fatal):", err);
+      }
+
       await logAudit(
         req,
         "lms.admin.bypass",
@@ -1254,10 +1337,13 @@ router.post(
           module_id: moduleId,
           target_user_id: targetUserId,
           self: targetUserId === req.auth!.userId,
+          certificate_id: bypassCertId,
         },
       );
 
-      return res.json({ data: { ok: true, enrollment_id: enrollment.id } });
+      return res.json({
+        data: { ok: true, enrollment_id: enrollment.id, certificate_id: bypassCertId },
+      });
     } catch (err) {
       console.error("[lms] /admin/bypass-module error:", err);
       return res
