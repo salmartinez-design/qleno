@@ -469,6 +469,7 @@ export default function TrainingPage() {
       <PageShell>
         <Header
           tenantName={curriculum.tenantName}
+          tenantLogoUrl={curriculum.tenantLogoUrl}
           locale={locale}
           setLocale={setLocale}
           daysRemaining={state?.days_remaining ?? null}
@@ -525,6 +526,7 @@ export default function TrainingPage() {
     <PageShell>
       <Header
         tenantName={curriculum.tenantName}
+        tenantLogoUrl={curriculum.tenantLogoUrl}
         locale={locale}
         setLocale={setLocale}
         daysRemaining={state.days_remaining}
@@ -625,6 +627,7 @@ export default function TrainingPage() {
         <AckView
           locale={locale}
           tenantName={curriculum.tenantName}
+          tenantLogoUrl={curriculum.tenantLogoUrl}
           learner={learner}
           onCancel={() => setView({ kind: "home" })}
           onSubmit={async (signature) => {
@@ -638,6 +641,7 @@ export default function TrainingPage() {
         <DoneView
           locale={locale}
           tenantName={curriculum.tenantName}
+          tenantLogoUrl={curriculum.tenantLogoUrl}
           onReturnHome={() => setLocation("/")}
         />
       )}
@@ -692,12 +696,14 @@ function PageShell({ children }: { children: React.ReactNode }) {
 
 function Header({
   tenantName,
+  tenantLogoUrl,
   locale,
   setLocale,
   daysRemaining,
   isOwner = false,
 }: {
   tenantName: string;
+  tenantLogoUrl?: string;
   locale: Locale;
   setLocale: (l: Locale) => void;
   daysRemaining: number | null;
@@ -739,6 +745,9 @@ function Header({
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
               fontWeight: 700,
               fontSize: 14,
               letterSpacing: "-0.01em",
@@ -746,7 +755,19 @@ function Header({
               lineHeight: 1.2,
             }}
           >
-            {tenantName}
+            <span>{tenantName}</span>
+            {tenantLogoUrl ? (
+              <img
+                src={tenantLogoUrl}
+                alt={tenantName}
+                style={{
+                  height: isMobile ? 22 : 26,
+                  width: "auto",
+                  objectFit: "contain",
+                  flexShrink: 0,
+                }}
+              />
+            ) : null}
           </div>
           <div
             style={{

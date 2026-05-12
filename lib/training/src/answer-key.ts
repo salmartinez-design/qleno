@@ -130,6 +130,23 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pt-13-cloth-cross": 1,
   "q-pt-14-step-stool": 1,
   "q-pt-15-furniture-stand": 2,
+
+  // ── Module 6: il-sexual-harassment (15, IL 820 ILCS 96 annual training) ───
+  "q-il-01-definition": 1,
+  "q-il-02-quid-pro-quo": 1,
+  "q-il-03-hostile-environment": 1,
+  "q-il-04-not-limited-by-sex": 1,
+  "q-il-05-third-party": 1,
+  "q-il-06-reporting-channels": 1,
+  "q-il-07-retaliation": 1,
+  "q-il-08-bystander-duty": 1,
+  "q-il-09-idhr-deadline": 2,
+  "q-il-10-eeoc-deadline": 2,
+  "q-il-11-annual-retraining": 1,
+  "q-il-12-severe-or-pervasive": 1,
+  "q-il-13-consent-withdrawn": 1,
+  "q-il-14-investigation-rights": 1,
+  "q-il-15-good-faith-protection": 1,
 });
 
 /**

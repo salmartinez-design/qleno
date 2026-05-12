@@ -63,6 +63,13 @@ export interface QuizQuestion {
 
 export interface Curriculum {
   tenantName: string;
+  /**
+   * Optional URL to a tenant brand mark rendered next to the tenant name in
+   * the training header. Public path or absolute URL. Per-tenant via
+   * TENANT_OVERRIDES below; once tenants upload via Company settings this
+   * should switch to reading `companies.logo_url` instead.
+   */
+  tenantLogoUrl?: string;
   modules: Module[];
   quiz: QuizQuestion[];
 }
@@ -1013,6 +1020,153 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Never stand on a chair, table, counter, or any furniture in the client's home. Never stand on the top step of any ladder or stool. If you can't reach the surface safely from the company step stool, leave a note for the office and skip the surface — never improvise.",
           es: "Nunca se pare sobre una silla, mesa, mostrador, o cualquier mueble en el hogar. Nunca se pare en el escalón superior de una escalera o banquito. Si no puede alcanzar una superficie con seguridad desde el banquito, deje una nota para la oficina y omita la superficie — nunca improvise.",
+        },
+      },
+    ],
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 6. ILLINOIS SEXUAL HARASSMENT PREVENTION (annual, IL 820 ILCS 96)
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    id: "il-sexual-harassment",
+    number: 6,
+    iconKind: "shield",
+    title: {
+      en: "Sexual Harassment Prevention (Illinois)",
+      es: "Prevención del Acoso Sexual (Illinois)",
+    },
+    subtitle: {
+      en: "Mandatory annual training under the Illinois Workplace Transparency Act. Definitions, examples, reporting, and your protected rights.",
+      es: "Capacitación anual obligatoria bajo la Ley de Transparencia Laboral de Illinois. Definiciones, ejemplos, reportes y sus derechos protegidos.",
+    },
+    estimatedMinutes: 20,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this matters: Illinois law (820 ILCS 96, Workplace Transparency Act) requires EVERY employer to provide sexual harassment prevention training to ALL employees once per calendar year. Phes runs this module in the LMS to meet that requirement and to keep our team safe. Take it seriously — this isn't a check-the-box exercise.",
+          es: "Por qué importa: la ley de Illinois (820 ILCS 96, Ley de Transparencia Laboral) requiere que TODO empleador brinde capacitación de prevención del acoso sexual a TODOS los empleados una vez por año calendario. Phes ejecuta este módulo en el LMS para cumplir con ese requisito y mantener seguro a nuestro equipo. Tómelo en serio — no es solo marcar una casilla.",
+        },
+      },
+
+      // ── What is sexual harassment ─────────────────────────────────────────
+      { type: "h", text: { en: "What Is Sexual Harassment?", es: "¿Qué Es el Acoso Sexual?" } },
+      {
+        type: "p",
+        text: {
+          en: "The Illinois Human Rights Act defines sexual harassment as: any unwelcome sexual advance, request for sexual favor, or other verbal or physical conduct of a sexual nature when (1) submission is made an explicit or implicit condition of employment, (2) submission or rejection is used as the basis for an employment decision, OR (3) the conduct has the purpose or effect of substantially interfering with a person's work or creating an intimidating, hostile, or offensive working environment.",
+          es: "La Ley de Derechos Humanos de Illinois define el acoso sexual como: cualquier insinuación sexual no deseada, solicitud de favores sexuales, u otra conducta verbal o física de naturaleza sexual cuando (1) la sumisión se convierte en condición explícita o implícita del empleo, (2) la sumisión o el rechazo se usan como base para una decisión laboral, O (3) la conducta tiene el propósito o efecto de interferir sustancialmente con el trabajo de una persona o crear un ambiente de trabajo intimidante, hostil u ofensivo.",
+        },
+      },
+
+      { type: "h", text: { en: "Two Forms Recognized by Law", es: "Dos Formas Reconocidas por la Ley" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "QUID PRO QUO ('this for that'): a supervisor or anyone with authority over your schedule, pay, or job conditions makes a sexual advance or request a condition of any employment decision — hire, fire, promotion, route assignment, pay raise, schedule change.", es: "QUID PRO QUO ('esto por aquello'): un supervisor o cualquier persona con autoridad sobre su horario, pago o condiciones laborales hace una insinuación o solicitud sexual como condición para una decisión laboral — contratar, despedir, promover, asignar ruta, aumento, cambio de horario." },
+          { en: "HOSTILE WORK ENVIRONMENT: unwelcome conduct of a sexual nature is severe or pervasive enough that a reasonable person would find the workplace intimidating, hostile, or offensive. Can be by ANYONE — supervisor, coworker, client, vendor — and Phes is still responsible for stopping it.", es: "AMBIENTE LABORAL HOSTIL: conducta sexual no deseada lo suficientemente severa o generalizada como para que una persona razonable consideraría el lugar de trabajo intimidante, hostil u ofensivo. Puede ser por CUALQUIERA — supervisor, compañero, cliente, vendedor — y Phes sigue siendo responsable de detenerlo." },
+        ],
+      },
+
+      // ── Examples ──────────────────────────────────────────────────────────
+      { type: "h", text: { en: "Examples of Unlawful Conduct", es: "Ejemplos de Conducta Ilegal" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Unwelcome touching, hugging, kissing, brushing up against someone, or blocking their path.", es: "Tocamiento, abrazo, beso, rozarse o bloquear el paso de alguien sin su consentimiento." },
+          { en: "Sexual jokes, comments, slurs, or gestures — including 'just kidding' framing.", es: "Bromas, comentarios, insultos o gestos sexuales — incluyendo cuando se enmarca como 'solo broma'." },
+          { en: "Comments about a coworker's body, clothing, or sexual orientation.", es: "Comentarios sobre el cuerpo, la ropa o la orientación sexual de un compañero." },
+          { en: "Sharing or displaying sexual images, memes, videos, GIFs (including via text or WhatsApp work threads).", es: "Compartir o mostrar imágenes, memes, videos o GIFs sexuales (incluyendo por mensaje de texto o hilos de WhatsApp del trabajo)." },
+          { en: "Repeated requests for dates after a clear 'no'.", es: "Solicitudes repetidas para salir después de un 'no' claro." },
+          { en: "Spreading sexual rumors about a coworker or client.", es: "Difundir rumores sexuales sobre un compañero o cliente." },
+          { en: "Quid-pro-quo offers ('better routes if you go out with me').", es: "Ofertas de quid pro quo ('mejores rutas si sales conmigo')." },
+          { en: "Stalking — at work, online, or off-hours related to work.", es: "Acoso persistente — en el trabajo, en línea o fuera de horario laboral relacionado con el trabajo." },
+        ],
+      },
+
+      { type: "h", text: { en: "Important — Not Limited to Opposite-Sex Conduct", es: "Importante — No Está Limitado a Conducta Entre Sexos Opuestos" } },
+      {
+        type: "p",
+        text: {
+          en: "Sexual harassment can happen between any combination of people: man-to-woman, woman-to-man, same-sex, between non-binary and binary people, etc. It is also unlawful to harass someone because of their gender identity, gender expression, or sexual orientation. Illinois law protects all of these categories.",
+          es: "El acoso sexual puede ocurrir entre cualquier combinación de personas: hombre a mujer, mujer a hombre, del mismo sexo, entre personas no binarias y binarias, etc. También es ilegal acosar a alguien por su identidad de género, expresión de género u orientación sexual. La ley de Illinois protege todas estas categorías.",
+        },
+      },
+
+      // ── Third parties (clients, vendors) ──────────────────────────────────
+      { type: "h", text: { en: "Clients and Third Parties Count Too", es: "Los Clientes y Terceros También Cuentan" } },
+      {
+        type: "p",
+        text: {
+          en: "If a client, contractor, or vendor harasses you while you're working — at a home, on a route, in our shop — that is still sexual harassment, and Phes is required by law to investigate and act. You are NEVER expected to tolerate harassment because 'the client is important.' Leave the property if you feel unsafe, then call Maribel or Francisco immediately.",
+          es: "Si un cliente, contratista o vendedor lo acosa mientras trabaja — en una casa, en una ruta, en nuestra oficina — eso sigue siendo acoso sexual, y Phes está obligado por ley a investigar y actuar. NUNCA se espera que tolere acoso porque 'el cliente es importante.' Salga de la propiedad si se siente inseguro, luego llame a Maribel o Francisco inmediatamente.",
+        },
+      },
+
+      // ── How to report ─────────────────────────────────────────────────────
+      { type: "h", text: { en: "How To Report — Multiple Channels", es: "Cómo Reportar — Múltiples Canales" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "INTERNAL — Tell Maribel or Francisco at the office directly (text, call, or in person). They will document the report and start an investigation within a reasonable timeframe.", es: "INTERNO — Hable directamente con Maribel o Francisco en la oficina (mensaje, llamada o en persona). Documentarán el reporte e iniciarán una investigación en un plazo razonable." },
+          { en: "INTERNAL ALTERNATIVE — If your concern involves Maribel or Francisco, report directly to Sal Martinez (owner). Use any channel: email, text, in person. No retaliation.", es: "ALTERNATIVA INTERNA — Si su preocupación involucra a Maribel o Francisco, reporte directamente a Sal Martinez (propietario). Use cualquier canal: correo, mensaje, en persona. Sin represalias." },
+          { en: "EXTERNAL — Illinois Department of Human Rights (IDHR). 300 days from the incident to file a charge under Illinois law. Web: dhr.illinois.gov.", es: "EXTERNO — Departamento de Derechos Humanos de Illinois (IDHR). 300 días desde el incidente para presentar un cargo bajo la ley de Illinois. Web: dhr.illinois.gov." },
+          { en: "EXTERNAL — U.S. Equal Employment Opportunity Commission (EEOC). 300 days from the incident in Illinois (Illinois is a deferral state). Web: eeoc.gov.", es: "EXTERNO — Comisión de Igualdad de Oportunidades en el Empleo de EE.UU. (EEOC). 300 días desde el incidente en Illinois (Illinois es un estado con derechos diferidos). Web: eeoc.gov." },
+        ],
+      },
+
+      // ── Retaliation prohibition ───────────────────────────────────────────
+      { type: "h", text: { en: "Retaliation Is Illegal", es: "Las Represalias Son Ilegales" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Federal and Illinois law strictly prohibit retaliation against anyone who reports sexual harassment in good faith, participates in an investigation, or refuses to engage in conduct they believe is unlawful. Retaliation includes firing, demotion, route changes, pay cuts, exclusion from team activities, hostile treatment, or threats. If you experience retaliation, that is itself an additional violation you can report.",
+          es: "La ley federal y de Illinois prohíben estrictamente las represalias contra cualquier persona que reporte acoso sexual de buena fe, participe en una investigación o se niegue a participar en conducta que crea ilegal. Las represalias incluyen despido, descenso, cambios de ruta, recortes de pago, exclusión de actividades del equipo, trato hostil o amenazas. Si experimenta represalias, eso es en sí mismo otra violación que puede reportar.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "GOOD FAITH means you believed your report was true at the time you made it. If after investigation the conduct is not substantiated, you are STILL protected — the act of reporting in good faith is protected, regardless of the outcome.",
+          es: "BUENA FE significa que creyó que su reporte era verdadero al momento de hacerlo. Si después de la investigación la conducta no se comprueba, USTED SIGUE protegido — el acto de reportar de buena fe está protegido, sin importar el resultado.",
+        },
+      },
+
+      // ── Bystander expectations ────────────────────────────────────────────
+      { type: "h", text: { en: "If You See or Hear Something", es: "Si Ve o Escucha Algo" } },
+      {
+        type: "p",
+        text: {
+          en: "You don't have to be the target to report. If you see or hear another tech, the office, a client, or anyone behaving in a way that fits the descriptions above, you can — and should — report it to Maribel, Francisco, or Sal. Bystander reports are taken just as seriously as direct reports, and the same retaliation protections apply.",
+          es: "No tiene que ser el objetivo para reportar. Si ve o escucha a otro técnico, a la oficina, a un cliente, o a cualquier persona comportándose de manera que coincida con las descripciones anteriores, puede — y debe — reportarlo a Maribel, Francisco o Sal. Los reportes de testigos se toman con la misma seriedad que los reportes directos, y aplican las mismas protecciones contra represalias.",
+        },
+      },
+
+      // ── Investigation process ─────────────────────────────────────────────
+      { type: "h", text: { en: "What Happens After You Report", es: "Qué Sucede Después de Reportar" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "The office documents your report and timeline immediately.", es: "La oficina documenta su reporte y cronología inmediatamente." },
+          { en: "An investigation begins promptly — typically within 1–2 business days.", es: "Una investigación comienza rápidamente — típicamente dentro de 1–2 días laborales." },
+          { en: "We talk to relevant parties separately. We do not put you in a room with the person you reported.", es: "Hablamos con las partes relevantes por separado. No lo ponemos en una sala con la persona que reportó." },
+          { en: "Confidentiality is preserved as much as legally possible. We only share information with people who must know to investigate or fix the problem.", es: "Se mantiene confidencialidad tanto como sea legalmente posible. Solo compartimos información con personas que deben saber para investigar o resolver el problema." },
+          { en: "If the conduct is substantiated, Phes takes corrective action — up to and including termination of the harasser. Schedules, routes, or other conditions may be adjusted to keep you safe during the investigation, never as a penalty to you.", es: "Si la conducta se comprueba, Phes toma medidas correctivas — hasta e incluyendo el despido del acosador. Los horarios, rutas u otras condiciones pueden ajustarse para mantenerlo seguro durante la investigación, nunca como penalidad contra usted." },
+          { en: "You are notified of the outcome. You can escalate to IDHR or EEOC if you disagree with how Phes handled it.", es: "Se le notifica el resultado. Puede escalar a IDHR o EEOC si no está de acuerdo con cómo Phes lo manejó." },
+        ],
+      },
+
+      // ── Annual training ───────────────────────────────────────────────────
+      { type: "h", text: { en: "Annual Training Requirement", es: "Requisito de Capacitación Anual" } },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Illinois law requires every employee to complete sexual harassment prevention training every CALENDAR YEAR. Phes refreshes this module each January and the office will re-enroll you so you can complete it. You'll see a fresh quiz; reading the content again is required so the policy stays current in your head. We document completion as part of compliance recordkeeping.",
+          es: "La ley de Illinois requiere que cada empleado complete capacitación de prevención del acoso sexual cada AÑO CALENDARIO. Phes actualiza este módulo cada enero y la oficina lo re-inscribirá para que pueda completarlo. Verá un examen nuevo; leer el contenido nuevamente es obligatorio para que la política se mantenga fresca en su memoria. Documentamos la completación como parte del registro de cumplimiento.",
         },
       },
     ],
@@ -2235,6 +2389,235 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 2,
   },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 6: IL SEXUAL HARASSMENT PREVENTION (15 questions, IL 820 ILCS 96)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-il-01-definition",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Under the Illinois Human Rights Act, which of the following IS sexual harassment?",
+      es: "Bajo la Ley de Derechos Humanos de Illinois, ¿cuál de los siguientes ES acoso sexual?",
+    },
+    options: [
+      { en: "Only a supervisor making physical contact.", es: "Solo un supervisor haciendo contacto físico." },
+      { en: "Any unwelcome sexual advance, request for sexual favor, or sexual conduct that makes the workplace intimidating, hostile, or offensive — OR is tied to an employment decision.", es: "Cualquier insinuación sexual no deseada, solicitud de favor sexual, o conducta sexual que haga el lugar de trabajo intimidante, hostil u ofensivo — O que esté ligada a una decisión laboral." },
+      { en: "Only conduct that happens during work hours.", es: "Solo conducta que ocurre durante horas laborales." },
+      { en: "Only behavior the target verbally objects to at the time.", es: "Solo conducta que el objetivo objete verbalmente en el momento." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-02-quid-pro-quo",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Which of these is an example of QUID PRO QUO sexual harassment?",
+      es: "¿Cuál de estos es un ejemplo de acoso sexual QUID PRO QUO?",
+    },
+    options: [
+      { en: "A coworker tells off-color jokes in the break room.", es: "Un compañero cuenta chistes subidos de tono en el descanso." },
+      { en: "A supervisor tells you that you'll get better routes if you go on a date with them.", es: "Un supervisor le dice que recibirá mejores rutas si sale con él/ella." },
+      { en: "A client compliments your hair.", es: "Un cliente le elogia el cabello." },
+      { en: "A coworker repeatedly asks you out and you've said yes.", es: "Un compañero le pide salir varias veces y usted ha dicho que sí." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-03-hostile-environment",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Which is an example of a HOSTILE WORK ENVIRONMENT?",
+      es: "¿Cuál es un ejemplo de un AMBIENTE LABORAL HOSTIL?",
+    },
+    options: [
+      { en: "One-time inappropriate comment that was immediately corrected and never repeated.", es: "Un comentario inapropiado único que se corrigió inmediatamente y nunca se repitió." },
+      { en: "A coworker repeatedly shares sexual memes in the WhatsApp work thread despite people asking them to stop.", es: "Un compañero comparte memes sexuales repetidamente en el hilo de WhatsApp del trabajo a pesar de que la gente le pide que pare." },
+      { en: "A supervisor disagrees with your cleaning method.", es: "Un supervisor no está de acuerdo con su método de limpieza." },
+      { en: "A client doesn't tip well.", es: "Un cliente no da buena propina." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-04-not-limited-by-sex",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Can sexual harassment occur between people of the same sex, or be based on gender identity / sexual orientation?",
+      es: "¿Puede ocurrir acoso sexual entre personas del mismo sexo, o basarse en identidad de género / orientación sexual?",
+    },
+    options: [
+      { en: "No — sexual harassment is only between opposite sexes.", es: "No — el acoso sexual es solo entre sexos opuestos." },
+      { en: "Yes — Illinois law protects against sexual harassment regardless of the sex, gender identity, gender expression, or sexual orientation of either party.", es: "Sí — la ley de Illinois protege contra el acoso sexual sin importar el sexo, identidad de género, expresión de género u orientación sexual de ninguna de las partes." },
+      { en: "Only if both parties identify as LGBTQ.", es: "Solo si ambas partes se identifican como LGBTQ." },
+      { en: "Only in private workplaces.", es: "Solo en lugares de trabajo privados." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-05-third-party",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "A client makes unwelcome sexual comments to you while you're cleaning their home. Is Phes responsible for doing anything about it?",
+      es: "Un cliente le hace comentarios sexuales no deseados mientras limpia su casa. ¿Phes es responsable de hacer algo al respecto?",
+    },
+    options: [
+      { en: "No — clients are not Phes employees, so there's nothing Phes can do.", es: "No — los clientes no son empleados de Phes, así que no hay nada que Phes pueda hacer." },
+      { en: "Yes — Phes is legally required to investigate and act on harassment by clients or third parties just as if it were a coworker. Leave the property if you feel unsafe and call Maribel or Francisco immediately.", es: "Sí — Phes está legalmente obligado a investigar y actuar sobre el acoso de clientes o terceros igual que si fuera un compañero. Salga de la propiedad si se siente inseguro y llame a Maribel o Francisco inmediatamente." },
+      { en: "Only if the client is also a supervisor.", es: "Solo si el cliente también es supervisor." },
+      { en: "Only if the comment is in writing.", es: "Solo si el comentario está por escrito." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-06-reporting-channels",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Where can you report sexual harassment at Phes?",
+      es: "¿Dónde puede reportar acoso sexual en Phes?",
+    },
+    options: [
+      { en: "Only directly to Sal — and only in person.", es: "Solo directamente con Sal — y solo en persona." },
+      { en: "Internally: Maribel or Francisco at the office; if it involves them, Sal directly. Externally: Illinois Department of Human Rights (IDHR) or the U.S. EEOC.", es: "Internamente: Maribel o Francisco en la oficina; si los involucra a ellos, Sal directamente. Externamente: Departamento de Derechos Humanos de Illinois (IDHR) o EEOC de EE.UU." },
+      { en: "You must use the company app — verbal reports are not accepted.", es: "Debe usar la aplicación de la compañía — los reportes verbales no se aceptan." },
+      { en: "Only an attorney can file a report.", es: "Solo un abogado puede presentar un reporte." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-07-retaliation",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "You report sexual harassment in good faith. Later, your supervisor cuts your hours and gives you only the worst routes. Is this legal?",
+      es: "Reporta acoso sexual de buena fe. Después, su supervisor le recorta las horas y le da solo las peores rutas. ¿Es legal?",
+    },
+    options: [
+      { en: "Yes — schedules and routes are at management discretion.", es: "Sí — los horarios y rutas son a discreción de la gerencia." },
+      { en: "No — federal and Illinois law strictly prohibit retaliation against anyone who reports in good faith. Reduced hours, demotion, route changes, pay cuts, or hostile treatment in response to a report are themselves additional unlawful acts you can report.", es: "No — la ley federal y de Illinois prohíben estrictamente las represalias contra cualquier persona que reporte de buena fe. Horas reducidas, descenso, cambios de ruta, recortes de pago o trato hostil en respuesta a un reporte son en sí mismos actos ilegales adicionales que puede reportar." },
+      { en: "Only if the supervisor admits it's retaliation.", es: "Solo si el supervisor admite que es represalia." },
+      { en: "Only if you mentioned the supervisor by name in the report.", es: "Solo si mencionó al supervisor por nombre en el reporte." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-08-bystander-duty",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "You overhear a teammate making unwelcome sexual comments to another tech. You are not the target. Can you report it?",
+      es: "Escucha por casualidad a un compañero haciendo comentarios sexuales no deseados a otro técnico. Usted no es el objetivo. ¿Puede reportarlo?",
+    },
+    options: [
+      { en: "No — only the person targeted can make a report.", es: "No — solo la persona objetivo puede hacer un reporte." },
+      { en: "Yes — bystanders can and should report what they see or hear. Bystander reports are taken just as seriously as direct reports, and the same retaliation protections apply.", es: "Sí — los testigos pueden y deben reportar lo que ven o escuchan. Los reportes de testigos se toman con la misma seriedad que los directos, y aplican las mismas protecciones contra represalias." },
+      { en: "Only if you record the conversation.", es: "Solo si graba la conversación." },
+      { en: "Only if the target asks you to.", es: "Solo si el objetivo se lo pide." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-09-idhr-deadline",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "How long do you have to file a charge with the Illinois Department of Human Rights (IDHR) after the harassment occurred?",
+      es: "¿Cuánto tiempo tiene para presentar un cargo ante el Departamento de Derechos Humanos de Illinois (IDHR) después de que ocurrió el acoso?",
+    },
+    options: [
+      { en: "30 days.", es: "30 días." },
+      { en: "180 days.", es: "180 días." },
+      { en: "300 days.", es: "300 días." },
+      { en: "5 years.", es: "5 años." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-il-10-eeoc-deadline",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "How long do you have to file a charge with the U.S. EEOC after the harassment occurred (in Illinois)?",
+      es: "¿Cuánto tiempo tiene para presentar un cargo ante la EEOC de EE.UU. después de que ocurrió el acoso (en Illinois)?",
+    },
+    options: [
+      { en: "30 days.", es: "30 días." },
+      { en: "180 days.", es: "180 días." },
+      { en: "300 days (Illinois is a deferral state, so the federal deadline extends from 180 to 300 days).", es: "300 días (Illinois es un estado con derechos diferidos, así que el plazo federal se extiende de 180 a 300 días)." },
+      { en: "No deadline.", es: "Sin plazo." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-il-11-annual-retraining",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "How often does Illinois law require employees to complete sexual harassment prevention training?",
+      es: "¿Con qué frecuencia requiere la ley de Illinois que los empleados completen capacitación de prevención del acoso sexual?",
+    },
+    options: [
+      { en: "Once at hire, never again.", es: "Una vez al contratar, nunca más." },
+      { en: "Every calendar year — every employee, every January (Phes refreshes this module each January).", es: "Cada año calendario — cada empleado, cada enero (Phes actualiza este módulo cada enero)." },
+      { en: "Every 5 years.", es: "Cada 5 años." },
+      { en: "Only when there's a reported incident.", es: "Solo cuando hay un incidente reportado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-12-severe-or-pervasive",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "Does conduct have to happen multiple times before it can be sexual harassment?",
+      es: "¿La conducta tiene que ocurrir varias veces antes de poder ser acoso sexual?",
+    },
+    options: [
+      { en: "Yes — a single incident is never harassment.", es: "Sí — un solo incidente nunca es acoso." },
+      { en: "No — a single severe incident (e.g., a physical assault, a serious threat) is enough. Otherwise, conduct must be severe or pervasive to a reasonable person.", es: "No — un solo incidente severo (por ejemplo, una agresión física, una amenaza seria) es suficiente. De lo contrario, la conducta debe ser severa o generalizada para una persona razonable." },
+      { en: "Only after three documented incidents.", es: "Solo después de tres incidentes documentados." },
+      { en: "Only if it happens during paid hours.", es: "Solo si ocurre durante horas pagadas." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-13-consent-withdrawn",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "You and a coworker dated previously. You ended the relationship months ago. The coworker keeps making sexual advances at work. Is this harassment?",
+      es: "Usted y un compañero salieron antes. Terminó la relación hace meses. El compañero sigue haciendo insinuaciones sexuales en el trabajo. ¿Es acoso?",
+    },
+    options: [
+      { en: "No — once you've been intimate, you can't claim harassment from the same person.", es: "No — una vez que ha tenido intimidad, no puede reclamar acoso de la misma persona." },
+      { en: "Yes — past or even current consensual conduct does not waive your right to refuse new advances. Continued unwelcome sexual conduct after consent is withdrawn is harassment.", es: "Sí — la conducta consensuada pasada o incluso actual no le quita el derecho de rechazar nuevas insinuaciones. La conducta sexual no deseada continua después de retirar el consentimiento es acoso." },
+      { en: "Only if you signed a no-fraternization policy.", es: "Solo si firmó una política de no-confraternización." },
+      { en: "Only if the coworker reports to you.", es: "Solo si el compañero le reporta a usted." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-14-investigation-rights",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "After you report harassment, what should you expect from Phes?",
+      es: "Después de reportar acoso, ¿qué debe esperar de Phes?",
+    },
+    options: [
+      { en: "Nothing — Phes is not obligated to act.", es: "Nada — Phes no está obligado a actuar." },
+      { en: "Prompt documented investigation (typically within 1–2 business days), confidentiality preserved as much as legally possible, no requirement to face the accused, and notification of the outcome. Schedule adjustments to keep you safe — never as a penalty.", es: "Investigación documentada rápida (típicamente dentro de 1–2 días laborales), confidencialidad mantenida tanto como sea legalmente posible, sin requerimiento de enfrentar al acusado, y notificación del resultado. Ajustes de horario para mantenerlo seguro — nunca como penalidad." },
+      { en: "A public meeting with the harasser.", es: "Una reunión pública con el acosador." },
+      { en: "An immediate decision the same day with no investigation.", es: "Una decisión inmediata el mismo día sin investigación." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-il-15-good-faith-protection",
+    moduleId: "il-sexual-harassment",
+    prompt: {
+      en: "You file a good-faith report. After investigation, the conduct turns out NOT to be substantiated. Are you still protected from retaliation?",
+      es: "Presenta un reporte de buena fe. Después de la investigación, la conducta NO se comprueba. ¿Sigue protegido contra represalias?",
+    },
+    options: [
+      { en: "No — only successful reports are protected.", es: "No — solo los reportes exitosos están protegidos." },
+      { en: "Yes — GOOD FAITH means you believed your report was true at the time you made it. The act of reporting in good faith is protected regardless of the outcome.", es: "Sí — BUENA FE significa que creyó que su reporte era verdadero al momento de hacerlo. El acto de reportar de buena fe está protegido sin importar el resultado." },
+      { en: "Only if you reported in writing.", es: "Solo si reportó por escrito." },
+      { en: "Only if the accused agrees you reported in good faith.", es: "Solo si el acusado acepta que reportó de buena fe." },
+    ],
+    correctIndex: 1,
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2247,8 +2630,16 @@ const BASE_QUIZ: QuizQuestion[] = [
  *
  * Phes (id 1) is the originator — no overrides yet.
  */
-const TENANT_OVERRIDES: Record<number, { extraModules?: Module[]; extraQuiz?: QuizQuestion[]; tenantName?: string }> = {
-  1: { tenantName: "Phes" },
+const TENANT_OVERRIDES: Record<
+  number,
+  {
+    extraModules?: Module[];
+    extraQuiz?: QuizQuestion[];
+    tenantName?: string;
+    tenantLogoUrl?: string;
+  }
+> = {
+  1: { tenantName: "Phes", tenantLogoUrl: "/phes-logo.jpeg" },
 };
 
 export function getCurriculum(companyId: number | null | undefined): Curriculum {
@@ -2256,6 +2647,7 @@ export function getCurriculum(companyId: number | null | undefined): Curriculum 
   const override = TENANT_OVERRIDES[cid] || {};
   return {
     tenantName: override.tenantName ?? "Phes",
+    tenantLogoUrl: override.tenantLogoUrl,
     modules: [...BASE_MODULES, ...(override.extraModules ?? [])],
     quiz: [...BASE_QUIZ, ...(override.extraQuiz ?? [])],
   };
