@@ -88,95 +88,552 @@ const BASE_MODULES: Module[] = [
     iconKind: "house",
     title: { en: "Phes Policies & Procedures", es: "Políticas y Procedimientos de Phes" },
     subtitle: {
-      en: "Mission, what we do (and don't), attendance, dress code, and conduct.",
-      es: "Misión, qué hacemos (y qué no), asistencia, código de vestimenta y conducta.",
+      en: "Consolidated 2026 Phes Employee Handbook. Read every section. You will sign that you understood it.",
+      es: "Manual del Empleado de Phes 2026 consolidado. Lea cada sección. Usted firmará que la entendió.",
     },
-    estimatedMinutes: 12,
+    estimatedMinutes: 35,
     blocks: [
-      // ── Welcome ────────────────────────────────────────────────────────────
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 1 — INTRODUCTION & AT-WILL STATUS
+      // ═══════════════════════════════════════════════════════════════════════
+      {
+        type: "h",
+        text: { en: "SECTION 1. Introduction and At-Will Status", es: "SECCIÓN 1. Introducción y Empleo a Voluntad" },
+      },
       { type: "h", text: { en: "Welcome to Phes", es: "Bienvenido a Phes" } },
       {
         type: "p",
         text: {
-          en: "Phes Cleaning Service is a residential and light-commercial cleaning company serving the Chicago southwest suburbs and northwest suburbs. You are joining a W-2 team — not a contractor pool — with steady scheduled work, real benefits, and a clear path from training to full commission.",
-          es: "Phes Cleaning Service es una compañía de limpieza residencial y comercial ligera que sirve a los suburbios del suroeste y noroeste de Chicago. Está uniéndose a un equipo W-2 — no un grupo de contratistas — con trabajo programado constante, beneficios reales y un camino claro del entrenamiento a la comisión completa.",
+          en: "Phes Cleaning Service is a residential and light-commercial cleaning company serving the Chicago southwest and northwest suburbs. You are joining a W-2 team. You are not a contractor. You will have steady scheduled work, real benefits, and a clear path from training to full commission. This handbook outlines the policies, expectations, and benefits that govern employment in 2026.",
+          es: "Phes Cleaning Service es una compañía de limpieza residencial y comercial ligera que sirve a los suburbios del suroeste y noroeste de Chicago. Se está uniendo a un equipo W-2. Usted no es contratista. Tendrá trabajo programado constante, beneficios reales y un camino claro del entrenamiento a la comisión completa. Este manual describe las políticas, expectativas y beneficios que rigen el empleo en 2026.",
         },
       },
-      { type: "h", text: { en: "Our 24-Hour Satisfaction Guarantee", es: "Garantía de Satisfacción de 24 Horas" } },
+      { type: "h", text: { en: "Employment At-Will (Critical Legal Disclaimer)", es: "Empleo a Voluntad (Aviso Legal Crítico)" } },
       {
         type: "p",
         text: {
-          en: "Every Phes cleaning is backed by a 24-hour guarantee — if a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. This is the Fix-It Rule. The returning team is paid normally. We never refuse a guarantee call.",
-          es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas — si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Esto es la Regla de Corrección. El equipo que regresa recibe pago normal. Nunca rechazamos una llamada de garantía.",
+          en: "Employment with Phes Cleaning Services is AT-WILL, meaning either the employee or the Company may terminate the employment relationship at any time, with or without cause or notice, for any lawful reason. Nothing in this handbook, nor any oral statement by a supervisor or manager, creates a contract of employment or guarantees continued employment. This handbook is NOT a contract and is provided for informational purposes only.",
+          es: "El empleo con Phes Cleaning Services es A VOLUNTAD, lo que significa que el empleado o la Compañía pueden terminar la relación laboral en cualquier momento, con o sin causa, con o sin aviso, por cualquier razón legal. Nada en este manual, ni ninguna declaración oral por parte de un supervisor o gerente, crea un contrato de empleo ni garantiza el empleo continuo. Este manual NO es un contrato y se proporciona solo con fines informativos.",
         },
       },
-      { type: "h", text: { en: "What Phes Does NOT Do", es: "Lo que Phes NO Hace" } },
+      {
+        type: "p",
+        text: {
+          en: "All employees must be legally authorized to work in the United States and must complete required employment eligibility verification. Phes uses ADP for federal and state tax forms (I-9, W-4, IL-W-4). You will receive separate ADP access to complete those forms. Bring valid ID documents to the office on your first day for in-person I-9 verification.",
+          es: "Todos los empleados deben estar legalmente autorizados para trabajar en los Estados Unidos y deben completar la verificación de elegibilidad para el empleo. Phes usa ADP para los formularios fiscales federales y estatales (I-9, W-4, IL-W-4). Recibirá acceso por separado a ADP para completar esos formularios. Traiga documentos de identificación válidos a la oficina en su primer día para la verificación en persona del I-9.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 2 — COMPENSATION STRUCTURE
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 2. Compensation Structure", es: "SECCIÓN 2. Estructura de Compensación" } },
+
+      { type: "h", text: { en: "Training Pay", es: "Pago de Entrenamiento" } },
+      {
+        type: "p",
+        text: {
+          en: "New hires complete a mandatory three-week training period paid at $20.00 per hour. After training, eligible employees move to the commission structure described below.",
+          es: "Los nuevos empleados completan un periodo obligatorio de entrenamiento de tres semanas pagado a $20.00 por hora. Después del entrenamiento, los empleados elegibles pasan a la estructura de comisión descrita a continuación.",
+        },
+      },
+
+      { type: "h", text: { en: "Commission Rates", es: "Tasas de Comisión" } },
       {
         type: "bullets",
         items: [
-          { en: "Bodily fluids — blood, vomit, urine, feces. Decline politely; the office can refer a biohazard service.", es: "Fluidos corporales — sangre, vómito, orina, heces. Rechace cortésmente; la oficina puede referir un servicio de biohazard." },
-          { en: "Inside the oven, refrigerator, or freezer — NOT in default scope. If a client asks mid-job, call the office; we can often add it same-day with pricing.", es: "Dentro del horno, refrigerador o congelador — NO está en el alcance estándar. Si un cliente lo pide a mitad del trabajo, llame a la oficina; muchas veces lo agregamos el mismo día con precio." },
-          { en: "Pet waste, including litter boxes (we clean around them, not into them).", es: "Desechos de mascotas, incluyendo cajas de arena (limpiamos alrededor, no dentro)." },
-          { en: "Cash transactions on site — all payment goes through the office.", es: "Transacciones en efectivo en el sitio — todo pago pasa por la oficina." },
-          { en: "Climbing higher than the company-issued step stool — we do not stand on furniture.", es: "Subir más alto que el banquito de la compañía — no nos paramos sobre muebles." },
-          { en: "Wash dishes.", es: "Lavar platos." },
-          { en: "Make beds.", es: "Tender camas." },
-          { en: "Move heavy furniture (we clean around it, never lift or relocate).", es: "Mover muebles pesados (limpiamos alrededor, nunca levantamos ni movemos)." },
-          { en: "Clean window tracks.", es: "Limpiar rieles de ventanas." },
+          { en: "35% commission on STANDARD residential cleanings.", es: "35% de comisión en limpiezas residenciales ESTÁNDAR." },
+          { en: "32% commission on DEEP CLEANS and MOVE-IN / MOVE-OUT cleanings (whether hourly or flat rate).", es: "32% de comisión en LIMPIEZAS PROFUNDAS y MUDANZAS (ya sea por hora o tarifa fija)." },
+          { en: "$20.00 per hour for all COMMERCIAL cleaning jobs, up to the allotted hours for that job.", es: "$20.00 por hora para todos los trabajos de limpieza COMERCIAL, hasta las horas asignadas para ese trabajo." },
+        ],
+      },
+
+      { type: "h", text: { en: "Quality Verification (When Commission Is Earned)", es: "Verificación de Calidad (Cuándo Se Gana la Comisión)" } },
+      {
+        type: "p",
+        text: {
+          en: "Commission is EARNED upon Quality Verification, which occurs at the earlier of: (a) 24 hours after job completion with no client complaint, or (b) the client's affirmative confirmation of satisfaction. Before Quality Verification, commission is contingent.",
+          es: "La comisión se GANA al completarse la Verificación de Calidad, que ocurre en el momento más temprano entre: (a) 24 horas después de completarse el trabajo sin queja del cliente, o (b) la confirmación afirmativa de satisfacción del cliente. Antes de la Verificación de Calidad, la comisión es contingente.",
+        },
+      },
+
+      { type: "h", text: { en: "Fix-It Rule (Re-Clean Obligation)", es: "Regla de Corrección (Obligación de Re-Limpieza)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Every Phes cleaning is backed by a 24-hour guarantee. If a client calls within 24 hours unhappy with anything in their home, the original technician(s) return to correct it within that 24-hour window.", es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas. Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa, los técnicos originales regresan a corregirlo dentro de esa ventana de 24 horas." },
+          { en: "If the original tech completes the re-clean: full commission is EARNED. The re-clean visit is part of the original commission, no additional pay.", es: "Si el técnico original completa la re-limpieza: se GANA la comisión completa. La visita de re-limpieza es parte de la comisión original, sin pago adicional." },
+          { en: "If the original tech refuses the re-clean without a lawful or protected reason: that job converts to $18.00 per hour for on-site time. Quality Verification failed, so the commission was never fully earned. This is NOT a retroactive penalty.", es: "Si el técnico original se niega a la re-limpieza sin razón legal o protegida: ese trabajo se convierte a $18.00 por hora por el tiempo en sitio. La Verificación de Calidad falló, por lo que la comisión nunca se ganó completamente. Esto NO es una penalidad retroactiva." },
+          { en: "If the original tech cannot return: Phes may dispatch a recovery technician at $20.00 per hour with a 3-hour minimum (paid 3 hours even if the job takes less time).", es: "Si el técnico original no puede regresar: Phes puede despachar un técnico de recuperación a $20.00 por hora con un mínimo de 3 horas (se pagan 3 horas aunque el trabajo tome menos tiempo)." },
+          { en: "Refusing a valid re-clean is INSUBORDINATION and may result in discipline up to and including immediate termination.", es: "Negarse a una re-limpieza válida es INSUBORDINACIÓN y puede resultar en disciplina hasta e incluyendo la terminación inmediata." },
+        ],
+      },
+
+      { type: "h", text: { en: "Three-Hour Minimum", es: "Mínimo de Tres Horas" } },
+      {
+        type: "p",
+        text: {
+          en: "A three-hour pay minimum is guaranteed for any dispatched job, provided the employee remains on-site and working for the duration of the service, unless sent home early by management.",
+          es: "Se garantiza un mínimo de pago de tres horas para cualquier trabajo despachado, siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano.",
+        },
+      },
+
+      { type: "h", text: { en: "Commercial Job Standards", es: "Estándares de Trabajo Comercial" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "$20.00 per hour for the allotted hours of each commercial job, based on documented historical performance data.", es: "$20.00 por hora por las horas asignadas para cada trabajo comercial, basado en datos históricos documentados de desempeño." },
+          { en: "Each commercial job has an EXPECTED duration based on past Phes team completion times.", es: "Cada trabajo comercial tiene una duración ESPERADA basada en los tiempos previos de los equipos de Phes." },
+          { en: "Exceeding allotted hours requires advance approval from the office. Consistent overruns without justification may affect future assignments and pay.", es: "Exceder las horas asignadas requiere aprobación previa de la oficina. Sobrepasos constantes sin justificación pueden afectar las asignaciones y el pago futuros." },
+          { en: "Quality is NON-NEGOTIABLE. Speed should never compromise quality.", es: "La calidad NO ES NEGOCIABLE. La rapidez nunca debe comprometer la calidad." },
+        ],
+      },
+
+      { type: "h", text: { en: "Quality Probation", es: "Probatoria de Calidad" } },
+      {
+        type: "p",
+        text: {
+          en: "Two (2) valid quality complaints within a rolling thirty-day period result in QUALITY PROBATION for thirty (30) days. During probation, compensation is paid at a flat $20.00 per hour. Return to commission eligibility requires thirty (30) consecutive days with zero valid quality complaints.",
+          es: "Dos (2) quejas válidas de calidad dentro de un periodo móvil de treinta días resultan en PROBATORIA DE CALIDAD por treinta (30) días. Durante la probatoria, la compensación se paga a $20.00 por hora fija. El regreso a la elegibilidad de comisión requiere treinta (30) días consecutivos con cero quejas válidas de calidad.",
+        },
+      },
+
+      { type: "h", text: { en: "Minimum Wage Floor and Overtime", es: "Piso de Salario Mínimo y Horas Extra" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Under NO circumstances will weekly gross pay fall below the applicable minimum wage required by federal, Illinois state, or Chicago law (whichever is highest at the work location).", es: "Bajo NINGUNA circunstancia el pago bruto semanal caerá por debajo del salario mínimo requerido por la ley federal, estatal de Illinois o de Chicago (el más alto en el lugar de trabajo)." },
+          { en: "Overtime, when applicable, is paid in accordance with federal, state, and local law based on the employee's regular rate of pay.", es: "Las horas extra, cuando aplican, se pagan conforme a la ley federal, estatal y local basadas en la tarifa regular del empleado." },
+        ],
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 3 — ATTENDANCE POLICY
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 3. Attendance Policy", es: "SECCIÓN 3. Política de Asistencia" } },
+
+      { type: "h", text: { en: "Benefit Year (Individualized)", es: "Año de Beneficios (Individualizado)" } },
+      {
+        type: "p",
+        text: {
+          en: "Attendance tracking, leave balances, and disciplinary thresholds reset annually on the employee's Work Anniversary (hire date). This twelve-month period is your Benefit Year. Different employees have different Benefit Year start dates because they were hired on different dates.",
+          es: "El seguimiento de asistencia, los saldos de licencia y los umbrales disciplinarios se restablecen anualmente en el Aniversario Laboral (fecha de contratación) del empleado. Este periodo de doce meses es su Año de Beneficios. Distintos empleados tienen fechas de inicio de Año de Beneficios diferentes porque fueron contratados en fechas distintas.",
+        },
+      },
+
+      { type: "h", text: { en: "Grace Period (20 Minutes)", es: "Periodo de Gracia (20 Minutos)" } },
+      {
+        type: "p",
+        text: {
+          en: "You have a 20-minute grace window after your scheduled clock-in time. Arrival within the window is permitted. Always call the office BEFORE the 20-minute mark if you will be late, even within the grace window. Beyond 20 minutes, the visit is recorded as TARDY. Communication closes the gap. Silence triggers the dispatch board's late chip.",
+          es: "Tiene una ventana de gracia de 20 minutos después de su hora programada para registrar entrada. Se permite la llegada dentro de la ventana. Siempre llame a la oficina ANTES del minuto 20 si llegará tarde, incluso dentro de la ventana de gracia. Más allá de 20 minutos, la visita se registra como TARDANZA. La comunicación cierra la brecha. El silencio activa el indicador de retraso en el tablero de despacho.",
+        },
+      },
+
+      { type: "h", text: { en: "Tardiness Scale (Per Benefit Year)", es: "Escala de Tardanzas (Por Año de Beneficios)" } },
+      {
+        type: "table",
+        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
+        rows: [
+          { en: ["1st", "Recorded. Coaching conversation."], es: ["1ª", "Registrada. Conversación de orientación."] },
+          { en: ["2nd", "Recorded. Coaching conversation."], es: ["2ª", "Registrada. Conversación de orientación."] },
+          { en: ["3rd", "Written warning."], es: ["3ª", "Advertencia por escrito."] },
+          { en: ["4th", "Final warning."], es: ["4ª", "Advertencia final."] },
+          { en: ["5th", "Termination."], es: ["5ª", "Terminación."] },
         ],
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "These are STANDARD guidelines. The office may grant exceptions — for a slower week, a loyal client, or a company partner — and will communicate them via app notes or a direct message. If you see an exception note in the app, follow it. If a client asks you to do something on this list and there's NO note, decline politely and tell them you'll let the office know — never improvise outside scope.",
-          es: "Estas son guías ESTÁNDAR. La oficina puede otorgar excepciones — para una semana más lenta, un cliente leal o un socio de la compañía — y las comunicará por notas en la aplicación o un mensaje directo. Si ve una nota de excepción en la aplicación, sígala. Si un cliente le pide hacer algo de esta lista y NO hay nota, rechace cortésmente y dígale que le informará a la oficina — nunca improvise fuera del alcance.",
-        },
-      },
-      { type: "h", text: { en: "Tipping", es: "Propinas" } },
-      {
-        type: "p",
-        text: {
-          en: "Tips are appreciated and 100% yours. The office never holds a tip. Cash tips: keep them. Tips left through the booking system: paid out on your next paycheck. You do not owe a kickback to anyone — your pay matrix is your pay.",
-          es: "Las propinas se agradecen y son 100% suyas. La oficina nunca retiene una propina. Propinas en efectivo: quédeselas. Propinas a través del sistema de reservas: se pagan en su próximo cheque. No le debe ningún porcentaje a nadie — su matriz de pago es su pago.",
+          en: "Tardies or absences related to legally protected leave or approved reasonable accommodation do NOT count toward disciplinary thresholds. See Section 4 for the full list of protected categories.",
+          es: "Las tardanzas o ausencias relacionadas con licencia legalmente protegida o acomodación razonable aprobada NO cuentan hacia los umbrales disciplinarios. Vea la Sección 4 para la lista completa de categorías protegidas.",
         },
       },
 
-      // ── Scope of Service: Standard vs Deep Clean vs Add-Ons ────────────────
-      { type: "h", text: { en: "Scope of Service — Standard Clean", es: "Alcance del Servicio — Limpieza Estándar" } },
+      { type: "h", text: { en: "Unexcused Absence. Definition", es: "Ausencia Injustificada. Definición" } },
       {
-        type: "p",
+        type: "callout",
+        tone: "warning",
         text: {
-          en: "Every visit, regardless of frequency, includes the Standard Clean across all serviced rooms. Memorize this — it's what every client expects every time.",
-          es: "Cada visita, sin importar la frecuencia, incluye la Limpieza Estándar en todas las habitaciones servidas. Memorícela — es lo que cada cliente espera cada vez.",
+          en: "An absence is unexcused ONLY when (a) it is a no-call / no-show, OR (b) all three leave buckets are exhausted AND no advance approval for unpaid time AND not protected by law. As long as you have a leave bucket available and give the right notice, the absence is excused and does NOT count toward the discipline scale.",
+          es: "Una ausencia es injustificada SOLO cuando (a) es un no llamó / no se presentó, O (b) las tres cubetas de licencia están agotadas Y no hay aprobación previa para tiempo no pagado Y no está protegida por la ley. Mientras tenga una cubeta de licencia disponible y dé el aviso correcto, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
         },
       },
+
+      { type: "h", text: { en: "Unexcused Absence Scale (Per Benefit Year)", es: "Escala de Ausencia Injustificada (Por Año de Beneficios)" } },
       {
-        type: "bullets",
-        items: [
-          { en: "Kitchen: cobwebs, countertops + backsplash sanitized, cabinet exteriors wiped, microwave inside/out, stovetop + control panel + drip pans, refrigerator exterior (top/sides if accessible), sinks + faucets, trash emptied (client provides bag), floors vacuum/sweep/mop.", es: "Cocina: telarañas, mostradores y backsplash desinfectados, exteriores de gabinetes, microondas dentro/fuera, estufa + panel + bandejas, exterior del refrigerador, fregaderos + grifos, basura (cliente provee bolsa), pisos." },
-          { en: "Bathrooms: cobwebs, tub/shower/doors/toilet disinfected (inside + out), countertops + cabinet exteriors + sinks + faucets, mirrors + light fixtures, window sills + towel bars dusted, trash + liner, floors.", es: "Baños: telarañas, tina/ducha/puertas/inodoro desinfectados (dentro + fuera), mostradores + gabinetes exteriores + fregaderos + grifos, espejos + luces, alféizares + toalleros, basura + bolsa, pisos." },
-          { en: "Bedrooms: cobwebs, dust furniture / lamps / window sills / picture frames, mirrors + glass, vacuum + mop floors.", es: "Dormitorios: telarañas, polvo en muebles / lámparas / alféizares / cuadros, espejos + vidrios, aspirar + trapear pisos." },
-          { en: "Living / Family Room: cobwebs, dust furniture / lamps / window sills / picture frames, dust upholstery, mirrors + glass, trash + liner, floors.", es: "Sala / Familia: telarañas, polvo en muebles / lámparas / alféizares / cuadros, polvo en tapicería, espejos + vidrios, basura + bolsa, pisos." },
-          { en: "Laundry Room: cobwebs, wipe washer + dryer exterior, utility sink + countertops, dust + wipe shelves, sweep + mop.", es: "Cuarto de Lavado: telarañas, exterior de lavadora + secadora, fregadero + mostradores, polvo en estantes, barrer + trapear." },
+        type: "table",
+        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
+        rows: [
+          { en: ["1st", "Recorded."], es: ["1ª", "Registrada."] },
+          { en: ["2nd", "Recorded."], es: ["2ª", "Registrada."] },
+          { en: ["3rd", "Written warning."], es: ["3ª", "Advertencia por escrito."] },
+          { en: ["4th", "Final warning."], es: ["4ª", "Advertencia final."] },
+          { en: ["5th", "Termination."], es: ["5ª", "Terminación."] },
         ],
       },
 
-      { type: "h", text: { en: "Deep Clean & Move-In/Out — What's ADDED", es: "Limpieza Profunda y Mudanza — Lo que se AGREGA" } },
+      { type: "h", text: { en: "Job Abandonment", es: "Abandono del Empleo" } },
       {
         type: "p",
         text: {
-          en: "A Deep Clean (or Move-In / Move-Out) includes EVERYTHING in the Standard Clean PLUS five extras. These five extras are what makes it a Deep Clean — not just 'cleaning harder'.",
-          es: "Una Limpieza Profunda (o Mudanza) incluye TODO lo de la Limpieza Estándar MÁS cinco extras. Estos cinco extras son lo que la hace Profunda — no solo 'limpiar más fuerte'.",
+          en: "Failure to contact the office BEFORE the end of the 20-minute grace window on a scheduled shift, AND failure to make contact within 24 hours after the missed shift, constitutes JOB ABANDONMENT and results in immediate termination effective the date of the missed shift. The 24-hour post-shift contact window provides the employee an opportunity to explain genuine incapacity (medical emergency, accident, hospitalization). Documentation of genuine incapacity may result in reinstatement at office discretion.",
+          es: "No contactar a la oficina ANTES del fin de la ventana de gracia de 20 minutos en un turno programado, Y no establecer contacto dentro de las 24 horas posteriores al turno perdido, constituye ABANDONO DEL EMPLEO y resulta en terminación inmediata efectiva en la fecha del turno perdido. La ventana de contacto de 24 horas después del turno brinda al empleado una oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización). La documentación de una incapacidad genuina puede resultar en reincorporación a discreción de la oficina.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 4 — LEAVE POLICIES (Three Buckets)
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 4. Leave Policies", es: "SECCIÓN 4. Políticas de Licencia" } },
+
+      { type: "h", text: { en: "The Three Leave Buckets and Order of Use", es: "Las Tres Cubetas de Licencia y el Orden de Uso" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes uses three leave buckets to cover absences. They are used IN ORDER. As long as a bucket is available and you give the right notice, the absence is excused and does NOT count toward the discipline scale.",
+          es: "Phes utiliza tres cubetas de licencia para cubrir ausencias. Se usan EN ORDEN. Mientras una cubeta esté disponible y dé el aviso correcto, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
+        },
+      },
+      {
+        type: "table",
+        head: {
+          en: ["#", "Bucket", "Hours", "Eligible", "Notice", "Can be denied?", "Paid out?"],
+          es: ["#", "Cubeta", "Horas", "Elegible", "Aviso", "¿Puede negarse?", "¿Se paga al salir?"],
+        },
+        rows: [
+          { en: ["1", "Any Reason Leave (PLAWA)", "40 / year", "After 90 days", "Grace call only", "No. Protected.", "No"],
+            es: ["1", "Licencia por Cualquier Razón (PLAWA)", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No. Protegida.", "No"] },
+          { en: ["2", "PTO", "40 to 80 / year", "After 1 year", "7 days advance", "Yes. Business needs.", "Yes"],
+            es: ["2", "PTO", "40 a 80 / año", "Después de 1 año", "7 días anticipados", "Sí. Necesidades del negocio.", "Sí"] },
+          { en: ["3", "Unpaid Personal Leave", "40 / year (5 days)", "Day one", "7 days advance", "Yes. Business needs.", "No"],
+            es: ["3", "Licencia Personal No Pagada", "40 / año (5 días)", "Primer día", "7 días anticipados", "Sí. Necesidades del negocio.", "No"] },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Order of use: PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and the absence is not otherwise protected).",
+          es: "Orden de uso: PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma).",
+        },
+      },
+
+      { type: "h", text: { en: "Any Reason Leave (PLAWA)", es: "Licencia por Cualquier Razón (PLAWA)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "40 paid hours per Benefit Year, front-loaded after 90 days of employment.", es: "40 horas pagadas por Año de Beneficios, otorgadas por adelantado después de 90 días de empleo." },
+          { en: "Use it for ANY reason. Examples: your illness, family illness, mental health day, medical appointment, flat tire, or no reason given. The law does not require you to explain.", es: "Úsela por CUALQUIER razón. Ejemplos: su enfermedad, enfermedad familiar, día de salud mental, cita médica, llanta ponchada o sin razón dada. La ley no exige que explique." },
+          { en: "Phes NEVER requires documentation, regardless of absence length. This is Phes's policy choice and is stricter than what the law requires.", es: "Phes NUNCA exige documentación, sin importar la duración de la ausencia. Esta es la política de Phes y es más estricta que lo que exige la ley." },
+          { en: "Notice: the 20-minute grace call only. No advance approval required.", es: "Aviso: solo la llamada de gracia de 20 minutos. No se requiere aprobación previa." },
+          { en: "Cannot be denied for business needs. PLAWA is protected leave.", es: "No se puede negar por necesidades del negocio. PLAWA es licencia protegida." },
+          { en: "PLAWA is AUTOMATIC when you have hours and give the grace call. You do not need to specifically request 'sick time' or give a reason. PLAWA covers you by default.", es: "PLAWA es AUTOMÁTICA cuando tiene horas y da la llamada de gracia. No necesita solicitar específicamente 'tiempo por enfermedad' ni dar una razón. PLAWA lo cubre por defecto." },
+          { en: "4 or more CONSECUTIVE PLAWA days requires advance approval if the absence is foreseeable.", es: "4 o más días consecutivos de PLAWA requieren aprobación previa si la ausencia es previsible." },
+          { en: "If you run out of PLAWA: the office cascades to PTO (if eligible), then Unpaid Personal Leave (if approved in advance).", es: "Si se queda sin PLAWA: la oficina pasa a PTO (si es elegible), luego a Licencia Personal No Pagada (si se aprueba con anticipación)." },
+          { en: "No retaliation for lawful PLAWA use. Phes cannot discipline, demote, fire, or penalize you for using PLAWA legally.", es: "Sin represalias por el uso legal de PLAWA. Phes no puede disciplinar, degradar, despedir ni penalizar por usar PLAWA legalmente." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Cook County Notice. Employees working in Cook County may be covered by the Cook County Paid Leave Ordinance in addition to or in place of the Illinois Paid Leave for All Workers Act. The benefits provided by Phes meet or exceed the requirements of both laws. If you have questions about your paid leave rights under the Cook County ordinance, you may contact the Cook County Commission on Human Rights at 312-603-1100.",
+          es: "Aviso del Condado de Cook. Los empleados que trabajan en el Condado de Cook pueden estar cubiertos por la Ordenanza de Licencia Pagada del Condado de Cook además o en lugar de la Ley de Licencia Pagada para Todos los Trabajadores de Illinois. Los beneficios que provee Phes cumplen o exceden los requisitos de ambas leyes. Si tiene preguntas sobre sus derechos de licencia pagada bajo la ordenanza del Condado de Cook, puede contactar a la Comisión de Derechos Humanos del Condado de Cook al 312-603-1100.",
+        },
+      },
+
+      { type: "h", text: { en: "Paid Time Off (PTO)", es: "Tiempo Libre Pagado (PTO)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "40 hours after 1 year. Tops up to 80 hours at 2-year anniversary.", es: "40 horas después de 1 año. Se rellena hasta 80 horas en el aniversario de 2 años." },
+          { en: "Hard cap: 80 hours total. Unused PTO does NOT stack. We top up to the cap, we do not add on top.", es: "Tope estricto: 80 horas en total. El PTO no usado NO se acumula. Rellenamos hasta el tope, no agregamos encima." },
+          { en: "7 days advance notice is required.", es: "Se requieren 7 días de aviso anticipado." },
+          { en: "Subject to first-come-first-serve. Maximum 2 cleaners off per day. Business needs can override the cap.", es: "Sujeto a primero en llegar, primero en ser atendido. Máximo 2 cleaners libres por día. Las necesidades del negocio pueden anular el tope." },
+          { en: "PTO IS paid out at separation per the Illinois Wage Payment and Collection Act.", es: "El PTO SÍ se paga al separarse conforme a la Ley de Pago y Cobranza de Salarios de Illinois." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Example: in your first PTO year you used only 20 of your 40 hours. At your 2-year anniversary, the office tops your bank up to 80 hours. The bank is NOT 20 carried over plus 80 = 100. The maximum balance is always 80.",
+          es: "Ejemplo: en su primer año de PTO usó solo 20 de sus 40 horas. En su aniversario de 2 años, la oficina rellena su banco hasta 80 horas. El banco NO es 20 acumuladas más 80 = 100. El balance máximo siempre es 80.",
+        },
+      },
+
+      { type: "h", text: { en: "Unpaid Personal Leave", es: "Licencia Personal No Pagada" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "40 hours / 5 days of unpaid time off, available day one.", es: "40 horas / 5 días de tiempo libre no pagado, disponible desde el primer día." },
+          { en: "7 days advance notice required.", es: "Se requieren 7 días de aviso anticipado." },
+          { en: "Same approval rules as PTO: first-come-first-serve, max 2 off per day, business needs can override.", es: "Mismas reglas de aprobación que el PTO: primero en llegar, máximo 2 libres por día, las necesidades del negocio pueden anular." },
+          { en: "Does NOT carry over to the next year. Not paid out at separation.", es: "NO se acumula al siguiente año. No se paga al separarse." },
+          { en: "Used for PLANNED absences only (kid's school event, out-of-town wedding, etc.). Not for same-day call-offs.", es: "Se usa solo para ausencias PLANEADAS (evento escolar de un hijo, boda fuera de la ciudad, etc.). No para faltas el mismo día." },
+        ],
+      },
+
+      { type: "h", text: { en: "Protected Absences (Never Counted as Unexcused)", es: "Ausencias Protegidas (Nunca Se Cuentan Como Injustificadas)" } },
+      {
+        type: "p",
+        text: {
+          en: "Certain absences are protected by law and are NEVER counted as unexcused, regardless of tenure or available leave hours. This applies even during your first 90 days. Protected categories include:",
+          es: "Ciertas ausencias están protegidas por la ley y NUNCA se cuentan como injustificadas, sin importar el tiempo de empleo o las horas de licencia disponibles. Esto aplica incluso durante los primeros 90 días. Las categorías protegidas incluyen:",
         },
       },
       {
         type: "bullets",
         items: [
-          { en: "Baseboards in all rooms (where accessible).", es: "Zócalos en todas las habitaciones (donde se pueda alcanzar)." },
+          { en: "Jury duty (with proper notice and a copy of the summons).", es: "Servicio de jurado (con aviso apropiado y copia de la citación)." },
+          { en: "Voting time on Election Day (up to 2 hours, advance notice required).", es: "Tiempo para votar el Día de Elecciones (hasta 2 horas, se requiere aviso anticipado)." },
+          { en: "Workplace injury / workers' compensation absences.", es: "Ausencias por lesión laboral o compensación al trabajador." },
+          { en: "Pregnancy-related medical needs or appointments.", es: "Necesidades o citas médicas relacionadas con el embarazo." },
+          { en: "Lactation breaks.", es: "Pausas de lactancia." },
+          { en: "Bereavement (immediate family: spouse, child, parent, sibling).", es: "Duelo (familia inmediata: cónyuge, hijo/a, padre/madre, hermano/a)." },
+          { en: "Military leave and family military leave.", es: "Licencia militar y licencia militar familiar." },
+          { en: "Court appearances as a crime victim, or for proceedings related to domestic violence, sexual violence, or other qualifying crimes (VESSA).", es: "Comparecencias judiciales como víctima de delito, o para procedimientos relacionados con violencia doméstica, violencia sexual u otros delitos calificantes (VESSA)." },
+          { en: "Disability-related absences covered by reasonable accommodation.", es: "Ausencias relacionadas con discapacidad cubiertas por acomodación razonable." },
+          { en: "Organ or bone marrow donation.", es: "Donación de órganos o médula ósea." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "When calling off, tell the office if the absence is related to any protected category so it can be handled properly. The office will NOT ask for medical details, only the category.",
+          es: "Al avisar que no irá a trabajar, dígale a la oficina si la ausencia se relaciona con alguna categoría protegida para que se maneje apropiadamente. La oficina NO pedirá detalles médicos, solo la categoría.",
+        },
+      },
+
+      { type: "h", text: { en: "Bereavement Leave", es: "Licencia por Duelo" } },
+      {
+        type: "p",
+        text: {
+          en: "Up to 3 paid scheduled workdays for an immediate family member's death (spouse, child, parent, sibling). Notify the office as soon as practicable. Extended family is handled case-by-case as unpaid time off; ask the office.",
+          es: "Hasta 3 días laborales programados pagados por la muerte de un familiar inmediato (cónyuge, hijo/a, padre/madre, hermano/a). Notifique a la oficina lo antes posible. Los familiares extendidos se manejan caso por caso como tiempo libre no pagado; consulte con la oficina.",
+        },
+      },
+
+      { type: "h", text: { en: "Jury Duty", es: "Servicio de Jurado" } },
+      {
+        type: "p",
+        text: {
+          en: "Jury service is unpaid by Phes. Your job is protected. You keep any juror compensation the court provides. Bring your summons or proof of service to the office before the date and notify your dispatcher.",
+          es: "El servicio de jurado no es pagado por Phes. Su empleo está protegido. Usted se queda con la compensación del tribunal. Lleve su citación o comprobante a la oficina antes de la fecha y notifique al despachador.",
+        },
+      },
+
+      { type: "h", text: { en: "Lactation Breaks", es: "Pausas de Lactancia" } },
+      {
+        type: "p",
+        text: {
+          en: "Reasonable lactation breaks are PAID at your regular rate and do NOT deduct from PLAWA or PTO. The office will work with you on timing and a private location at the office or between jobs. This is mandatory under Illinois law and Phes policy.",
+          es: "Las pausas de lactancia razonables se PAGAN a su tarifa regular y NO se descuentan de PLAWA ni PTO. La oficina coordinará con usted el horario y un lugar privado en la oficina o entre trabajos. Esto es obligatorio bajo la ley de Illinois y la política de Phes.",
+        },
+      },
+
+      { type: "h", text: { en: "Pregnancy Accommodation", es: "Acomodación por Embarazo" } },
+      {
+        type: "p",
+        text: {
+          en: "Illinois requires Phes to provide reasonable accommodations during pregnancy. Examples: lighter duties, more frequent breaks, adjusted lifting limits, modified schedule, or temporary reassignment. Ask the office. Phes will work out an accommodation that keeps you safely working as long as you choose to.",
+          es: "Illinois requiere que Phes brinde acomodaciones razonables durante el embarazo. Ejemplos: tareas más ligeras, pausas más frecuentes, límites de levantamiento ajustados, horario modificado o reasignación temporal. Pídalo a la oficina. Phes acordará una acomodación que la mantenga trabajando con seguridad mientras usted lo elija.",
+        },
+      },
+
+      { type: "h", text: { en: "VESSA Protections", es: "Protecciones VESSA" } },
+      {
+        type: "p",
+        text: {
+          en: "Employees affected by domestic or sexual violence may use employer-issued devices to document incidents. Phes will not retaliate and will provide access to such records upon request.",
+          es: "Los empleados afectados por violencia doméstica o sexual pueden usar dispositivos provistos por el empleador para documentar incidentes. Phes no tomará represalias y proveerá acceso a tales registros cuando se soliciten.",
+        },
+      },
+
+      { type: "h", text: { en: "Paid Holidays", es: "Feriados Pagados" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes observes six (6) paid holidays per calendar year: New Year's Day, Memorial Day, Independence Day (July 4), Labor Day, Thanksgiving Day, Christmas Day.",
+          es: "Phes observa seis (6) feriados pagados por año calendario: Año Nuevo, Memorial Day, Día de la Independencia (4 de julio), Día del Trabajo, Día de Acción de Gracias, Navidad.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Eligibility: holiday pay starts AFTER 90 days of employment. Any holiday in the first 90 days is unpaid for that employee, even if it is an observed Phes holiday.", es: "Elegibilidad: el pago por feriado comienza DESPUÉS de 90 días de empleo. Cualquier feriado en los primeros 90 días no se paga, incluso si es un feriado observado por Phes." },
+          { en: "Paid holidays are compensated at 8 hours at the employee's regular rate, unless otherwise required by law.", es: "Los feriados pagados se compensan a 8 horas a la tarifa regular del empleado, a menos que la ley exija otra cosa." },
+        ],
+      },
+
+      { type: "h", text: { en: "Birthday Pay (Employee Choice)", es: "Pago de Cumpleaños (Elección del Empleado)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "8 hours of regular pay per Benefit Year.", es: "8 horas de pago regular por Año de Beneficios." },
+          { en: "Eligibility: after 90 days of employment.", es: "Elegibilidad: después de 90 días de empleo." },
+          { en: "EMPLOYEE'S CHOICE: (a) take the day off in your birth month with 8 hours of pay, OR (b) work and receive 8 hours of additional pay on top of regular earnings for that day.", es: "ELECCIÓN DEL EMPLEADO: (a) tome el día libre en su mes de cumpleaños con 8 horas de pago, O (b) trabaje y reciba 8 horas de pago adicional sobre las ganancias regulares de ese día." },
+          { en: "Must be requested 7 days in advance through the two-step process.", es: "Debe solicitarse con 7 días de anticipación a través del proceso de dos pasos." },
+          { en: "Subject to office approval: first-come-first-serve, max 2 off per day, business needs can override.", es: "Sujeto a aprobación de la oficina: primero en llegar, máximo 2 libres por día, las necesidades del negocio pueden anular." },
+          { en: "Cannot be combined with PTO to extend vacations beyond standard approval limits.", es: "No se puede combinar con PTO para extender vacaciones más allá de los límites estándar de aprobación." },
+          { en: "Does NOT carry over. Forfeited if not used in your birth month.", es: "NO se acumula. Se pierde si no se usa en su mes de cumpleaños." },
+          { en: "NOT paid out at separation.", es: "NO se paga al separarse." },
+          { en: "Employees on active written warning, final warning, or Quality Probation may have their birthday request denied at office discretion.", es: "Empleados con advertencia activa por escrito, advertencia final o Probatoria de Calidad pueden ver su solicitud de cumpleaños rechazada a discreción de la oficina." },
+        ],
+      },
+
+      { type: "h", text: { en: "Two-Step Time-Off Request Process", es: "Proceso de Solicitud de Tiempo Libre de Dos Pasos" } },
+      {
+        type: "p",
+        text: {
+          en: "Every time-off request (PTO, sick day, birthday, schedule change) requires BOTH steps:",
+          es: "Cada solicitud de tiempo libre (PTO, día por enfermedad, cumpleaños, cambio de horario) requiere AMBOS pasos:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "STEP 1. Submit through MaidCentral / Qleno. This is what dispatch sees and what triggers client notifications.", es: "PASO 1. Envíe por MaidCentral / Qleno. Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
+          { en: "STEP 2. Contact the office team directly (text or call) to confirm receipt. Either step alone is not enough.", es: "PASO 2. Contacte directamente al equipo de la oficina (mensaje o llamada) para confirmar la recepción. Un paso solo no es suficiente." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "If you only contact the office without submitting in the system, dispatch will not see it and the client will not be notified. If you only submit in the system without contacting the office, the office may not see it in time. Both are required, every time.",
+          es: "Si solo contacta a la oficina sin enviar en el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía en el sistema sin contactar a la oficina, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 5 — PROFESSIONAL APPEARANCE & CONDUCT
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 5. Professional Appearance and Conduct", es: "SECCIÓN 5. Apariencia Profesional y Conducta" } },
+
+      { type: "h", text: { en: "Mandatory Dress Code", es: "Código de Vestimenta Obligatorio" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Phes-issued shirt or hoodie, clean, no visible stains. Untucked is acceptable.", es: "Camisa o sudadera de Phes, limpia, sin manchas visibles. Por fuera es aceptable." },
+          { en: "Phes-issued pants in good condition. Navy, black, or dark denim if no Phes pants. No shorts. No leggings as outerwear.", es: "Pantalones Phes en buen estado. Azul marino, negro o mezclilla oscura si no hay pantalones Phes. Sin shorts. Sin leggings como ropa exterior." },
+          { en: "Closed-toe athletic shoes (solid black or solid white). No sandals. No Crocs. No open backs.", es: "Calzado deportivo cerrado (negro sólido o blanco sólido). Sin sandalias. Sin Crocs. Sin parte trasera abierta." },
+          { en: "Shoe covers mandatory inside all client homes from the threshold. Change between homes. Never reuse.", es: "Cubrezapatos obligatorios dentro de todos los hogares de clientes desde el umbral. Cambielos entre hogares. Nunca los reutilice." },
+          { en: "Hair tied back if shoulder-length or longer.", es: "Cabello recogido si llega al hombro o más largo." },
+          { en: "Jewelry minimal. No large rings or bracelets that scratch surfaces.", es: "Joyería mínima. Sin anillos ni pulseras grandes que rayen superficies." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Religious or medical accommodation: if you require an accommodation to any uniform requirement for religious or medical reasons, contact the office and we will work with you on an appropriate adjustment.",
+          es: "Acomodación religiosa o médica: si requiere una acomodación a cualquier requisito del uniforme por razones religiosas o médicas, contacte a la oficina y trabajaremos con usted en un ajuste apropiado.",
+        },
+      },
+
+      { type: "h", text: { en: "Personal Phone Use", es: "Uso de Teléfono Personal" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Personal cell phones kept in your bag or vehicle during a job.", es: "Los teléfonos personales se mantienen en su bolso o vehículo durante un trabajo." },
+          { en: "Phone use during a job is permitted ONLY for the company app (clock-in, check-in, job worksheet) or genuine emergencies.", es: "El uso del teléfono durante un trabajo se permite SOLO para la app de la compañía (Clock In, Check In, hoja de trabajo) o emergencias genuinas." },
+          { en: "Personal calls, texts, and social media wait until break or after the visit.", es: "Llamadas personales, mensajes y redes sociales esperan hasta el descanso o después de la visita." },
+          { en: "To take any non-emergency call, exit the home entirely and notify your teammate.", es: "Para tomar cualquier llamada que no sea emergencia, salga completamente del hogar y notifique a su compañero de equipo." },
+          { en: "Photos and videos of client homes are forbidden, except through the company app for documenting work or damage.", es: "Las fotos y videos de los hogares de los clientes están prohibidos, excepto a través de la app de la compañía para documentar trabajo o daños." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Nothing in this policy restricts your rights under federal labor law to discuss wages, hours, or working conditions with coworkers or others.",
+          es: "Nada en esta política restringe sus derechos bajo la ley laboral federal a discutir salarios, horas o condiciones de trabajo con compañeros u otras personas.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 6 — OPERATIONAL PROTOCOLS
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 6. Operational Protocols", es: "SECCIÓN 6. Protocolos Operativos" } },
+
+      { type: "h", text: { en: "Off-Scope Client Requests", es: "Solicitudes de Clientes Fuera del Alcance" } },
+      {
+        type: "p",
+        text: {
+          en: "When a client asks for something not on the job ticket (and not on the 'Phes does NOT do' list), follow this flow:",
+          es: "Cuando un cliente solicita algo que no está en el ticket de trabajo (y no en la lista de 'lo que Phes NO hace'), siga este flujo:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Politely tell the client: 'Thank you for asking. That is not part of today's service, but let me call the office and they can let you know if we can add it. They will also handle any additional charges.'", es: "Dígale cortésmente al cliente: 'Gracias por preguntar. Eso no es parte del servicio de hoy, pero déjeme llamar a la oficina y ellos le pueden decir si lo podemos agregar. Ellos también manejarán cualquier cargo adicional.'" },
+          { en: "Step outside or to a private area. Call the office.", es: "Salga afuera o a un área privada. Llame a la oficina." },
+          { en: "The office decides: approve (with pricing) or decline.", es: "La oficina decide: aprobar (con precio) o rechazar." },
+          { en: "The office adds a note to the app.", es: "La oficina agrega una nota a la app." },
+          { en: "Tech proceeds based on the office's decision.", es: "El técnico procede según la decisión de la oficina." },
+          { en: "NEVER agree, quote pricing, or accept cash without office approval.", es: "NUNCA acepte, cotice precio, ni reciba efectivo sin aprobación de la oficina." },
+        ],
+      },
+
+      { type: "h", text: { en: "What Phes Does NOT Do", es: "Lo Que Phes NO Hace" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Bodily fluids (blood, vomit, urine, feces). Decline politely. The office can refer a biohazard service.", es: "Fluidos corporales (sangre, vómito, orina, heces). Rechácelo cortésmente. La oficina puede referir un servicio de biohazard." },
+          { en: "Inside the oven, refrigerator, or freezer (default scope). The office can add it; call.", es: "Dentro del horno, refrigerador o congelador (alcance estándar). La oficina lo puede agregar; llame." },
+          { en: "Pet waste, including litter boxes.", es: "Desechos de mascotas, incluyendo cajas de arena." },
+          { en: "Cash transactions on site. All payment goes through the office.", es: "Transacciones en efectivo en sitio. Todo pago pasa por la oficina." },
+          { en: "Climbing higher than the company-issued step stool. Never stand on furniture.", es: "Subir más alto que el banquito de la compañía. Nunca se pare en muebles." },
+          { en: "Wash dishes.", es: "Lavar platos." },
+          { en: "Make beds.", es: "Tender camas." },
+          { en: "Move heavy furniture. We clean around it. Anything over 25 lbs we do not lift or relocate.", es: "Mover muebles pesados. Limpiamos alrededor. Nada que pese más de 25 lb se levanta o se mueve." },
+          { en: "Clean window tracks.", es: "Limpiar rieles de ventanas." },
+          { en: "Carpet steam cleaning.", es: "Limpieza de alfombras a vapor." },
+          { en: "Biohazards, animal waste, hoarding situations, or infestations.", es: "Riesgos biológicos, desechos animales, situaciones de acumulación o infestaciones." },
+          { en: "Outdoor cleaning, fireplaces, running errands.", es: "Limpieza al aire libre, chimeneas, recados." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "The office may grant exceptions. If an exception note exists in the app, follow it. If a client requests something on the list and NO note exists, decline politely and tell the client you will let the office know.",
+          es: "La oficina puede otorgar excepciones. Si existe una nota de excepción en la app, sígala. Si un cliente solicita algo en la lista y NO existe una nota, rechácelo cortésmente y dígale al cliente que avisará a la oficina.",
+        },
+      },
+
+      { type: "h", text: { en: "Scope of Service. Standard Clean (Included Every Visit)", es: "Alcance del Servicio. Limpieza Estándar (Incluida en Cada Visita)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Kitchen: cobwebs, countertops and backsplash sanitized, cabinet exteriors wiped, microwave inside and out, stovetop and control panel and drip pans, refrigerator exterior (top and sides if accessible), sinks and faucets, trash emptied (client provides bag), floors vacuum / sweep / mop.", es: "Cocina: telarañas, mostradores y backsplash desinfectados, exteriores de gabinetes, microondas dentro y fuera, estufa y panel y bandejas, exterior del refrigerador, fregaderos y grifos, basura (cliente provee bolsa), pisos." },
+          { en: "Bathrooms: cobwebs, tub / shower / doors / toilet disinfected (inside and out), countertops and cabinet exteriors and sinks and faucets, mirrors and light fixtures, window sills and towel bars dusted, trash and liner, floors.", es: "Baños: telarañas, tina / ducha / puertas / inodoro desinfectados (dentro y fuera), mostradores y gabinetes exteriores y fregaderos y grifos, espejos y luces, alféizares y toalleros, basura y bolsa, pisos." },
+          { en: "Bedrooms: cobwebs, dust furniture / lamps / window sills / picture frames, mirrors and glass, vacuum and mop floors.", es: "Dormitorios: telarañas, polvo en muebles / lámparas / alféizares / cuadros, espejos y vidrios, aspirar y trapear pisos." },
+          { en: "Living / Family Room: cobwebs, dust furniture / lamps / window sills / picture frames, dust upholstery, mirrors and glass, trash and liner, floors.", es: "Sala / Familia: telarañas, polvo en muebles / lámparas / alféizares / cuadros, polvo en tapicería, espejos y vidrios, basura y bolsa, pisos." },
+          { en: "Laundry Room: cobwebs, wipe washer and dryer exterior, utility sink and countertops, dust and wipe shelves, sweep and mop.", es: "Cuarto de Lavado: telarañas, exterior de lavadora y secadora, fregadero y mostradores, polvo en estantes, barrer y trapear." },
+        ],
+      },
+
+      { type: "h", text: { en: "Deep Clean and Move-In / Move-Out. What's ADDED", es: "Limpieza Profunda y Mudanza. Lo Que Se AGREGA" } },
+      {
+        type: "p",
+        text: {
+          en: "A Deep Clean (or Move-In / Move-Out) includes EVERYTHING in the Standard Clean PLUS five extras. These five extras are what makes it a Deep Clean. It is not just 'cleaning harder.'",
+          es: "Una Limpieza Profunda (o Mudanza) incluye TODO lo de la Limpieza Estándar MÁS cinco extras. Estos cinco extras son lo que la hace Profunda. No es solo 'limpiar más fuerte.'",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Baseboards in all rooms (where accessible).", es: "Zócalos en todas las habitaciones (donde sea accesible)." },
           { en: "Ceiling fans dusted and cleaned.", es: "Ventiladores de techo desempolvados y limpios." },
           { en: "Doorknobs, door frames, light switches, and handles wiped and sanitized.", es: "Pomos, marcos de puertas, interruptores y manijas limpios y desinfectados." },
-          { en: "Storm doors and sliding patio doors — INSIDE and OUTSIDE glass.", es: "Puertas tormenta y puertas corredizas de patio — vidrio INTERIOR y EXTERIOR." },
+          { en: "Storm doors and sliding patio doors. Inside AND outside glass.", es: "Puertas tormenta y puertas corredizas. Vidrio INTERIOR y EXTERIOR." },
           { en: "Air vent covers dusted and cleaned.", es: "Tapas de ventilación desempolvadas y limpias." },
         ],
       },
@@ -184,406 +641,356 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Move-In / Move-Out cleans ASSUME the space is empty. If you arrive and the home is still furnished or has belongings throughout, call the office BEFORE starting — the scope and pricing change when there's furniture in the way.",
-          es: "Las limpiezas de Mudanza ASUMEN que el espacio está vacío. Si llega y la casa aún tiene muebles o pertenencias por todos lados, llame a la oficina ANTES de empezar — el alcance y el precio cambian cuando hay muebles en medio.",
+          en: "Move-In / Move-Out cleans ASSUME the space is empty. If you arrive and the home is still furnished or has belongings throughout, call the office BEFORE starting. The scope and pricing change when there is furniture in the way.",
+          es: "Las limpiezas de Mudanza ASUMEN que el espacio está vacío. Si llega y la casa aún tiene muebles o pertenencias por todas partes, llame a la oficina ANTES de empezar. El alcance y el precio cambian cuando hay muebles en medio.",
         },
       },
 
-      { type: "h", text: { en: "Add-Ons — NOT Included in Deep Clean", es: "Add-Ons — NO Incluidos en la Limpieza Profunda" } },
-      {
-        type: "p",
-        text: {
-          en: "These are priced separately. Even on a Deep Clean, they are NOT automatically included — the client must request and pay for them separately. Memorize the price list:",
-          es: "Estos se cobran por separado. Incluso en una Limpieza Profunda, NO se incluyen automáticamente — el cliente debe solicitarlos y pagarlos por separado. Memorice la lista de precios:",
-        },
-      },
+      { type: "h", text: { en: "Add-Ons. NOT Included in Deep Clean (Priced Separately)", es: "Add-Ons. NO Incluidos en Limpieza Profunda (Cobro por Separado)" } },
       {
         type: "bullets",
         items: [
-          { en: "Inside Refrigerator — $50.", es: "Dentro del Refrigerador — $50." },
-          { en: "Inside Oven — $50.", es: "Dentro del Horno — $50." },
-          { en: "Inside Kitchen Cabinets (client must empty them first) — $50.", es: "Dentro de Gabinetes de Cocina (el cliente debe vaciarlos primero) — $50." },
-          { en: "Inside Windows — price varies. EXCLUDES tracks and exterior panes.", es: "Ventanas Interiores — el precio varía. EXCLUYE rieles y vidrios exteriores." },
+          { en: "Inside Refrigerator: $50.", es: "Dentro del Refrigerador: $50." },
+          { en: "Inside Oven: $50.", es: "Dentro del Horno: $50." },
+          { en: "Inside Kitchen Cabinets (client must empty them first): $50.", es: "Dentro de Gabinetes de Cocina (el cliente debe vaciarlos primero): $50." },
+          { en: "Inside Windows: price varies. EXCLUDES tracks and exterior panes.", es: "Ventanas Interiores: el precio varía. EXCLUYE rieles y vidrios exteriores." },
         ],
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "If a client asks for an add-on mid-clean, follow the office-exception flow: call Maribel or Francisco to confirm the price was charged, then accommodate. Never quote pricing yourself and never accept cash on site — those go through the office.",
-          es: "Si un cliente pide un add-on a mitad del trabajo, siga el flujo de excepción de oficina: llame a Maribel o Francisco para confirmar que el precio fue cobrado, luego acomódelo. Nunca cotice precios usted mismo y nunca acepte efectivo en el sitio — eso va por la oficina.",
+          en: "If a client asks for an add-on mid-clean, call the office to confirm the price was charged, then accommodate. NEVER quote pricing yourself and NEVER accept cash on site. Those go through the office.",
+          es: "Si un cliente pide un add-on a mitad de la limpieza, llame a la oficina para confirmar que el precio fue cobrado, luego acomódelo. NUNCA cotice precio usted mismo y NUNCA acepte efectivo en sitio. Eso va por la oficina.",
         },
       },
 
-      { type: "h", text: { en: "Things We Do NOT Offer — Hard No's", es: "Cosas que NO Ofrecemos — No Rotundo" } },
+      { type: "h", text: { en: "On-Site Rules", es: "Reglas en Sitio" } },
       {
         type: "bullets",
         items: [
-          { en: "Carpet steam cleaning.", es: "Limpieza de alfombras a vapor." },
-          { en: "Dishes, laundry, bed-making.", es: "Lavar platos, lavar ropa, tender camas." },
-          { en: "Lifting or moving heavy furniture — anything OVER 25 lbs we clean around, never under.", es: "Levantar o mover muebles pesados — todo lo que pese MÁS de 25 lb lo limpiamos alrededor, nunca debajo." },
-          { en: "Biohazards, animal waste, hoarding situations, or infestations.", es: "Riesgos biológicos, desechos animales, situaciones de acumulación, o infestaciones." },
-          { en: "Outdoor cleaning, fireplaces, running errands.", es: "Limpieza al aire libre, chimeneas, recados." },
+          { en: "Ladders / step stools: never climb higher than a 2-step. Anything above that, leave a note and skip. Do not improvise on chairs, counters, or furniture.", es: "Escaleras / banquitos: nunca suba más alto que 2 escalones. Cualquier cosa más alta, deje nota y omita. No improvise sobre sillas, mostradores ni muebles." },
+          { en: "Trash: 5 bag maximum per visit. If there is more, document and tell the office. We do not haul extra.", es: "Basura: máximo 5 bolsas por visita. Si hay más, documente y avise a la oficina. No llevamos más." },
+          { en: "Arrival window: clients are told to expect a 45-minute arrival window due to traffic. If you will be at the late end, the office calls or texts the client. YOU also call the office BEFORE the 20-minute mark when running behind.", es: "Ventana de llegada: a los clientes se les dice que esperen una ventana de llegada de 45 minutos por el tráfico. Si llegará al final tarde, la oficina llama o envía mensaje al cliente. USTED también llama a la oficina ANTES del minuto 20 cuando esté retrasado." },
+          { en: "Lockbox / alarm code: some clients have a lockbox ($50 add-on) or alarm code. The office tells you in the app notes. Never share codes with anyone. Never write them down outside the app.", es: "Caja de seguridad / código de alarma: algunos clientes tienen caja ($50 add-on) o código de alarma. La oficina le dice en las notas de la app. Nunca comparta los códigos. Nunca los escriba fuera de la app." },
+          { en: "Decluttering: if surfaces are too cluttered to clean and the client was not notified ahead, call the office. We can decline (with cancellation fee applying) or shift scope. Never silently work around chaos.", es: "Desorden: si las superficies están demasiado desordenadas para limpiar y el cliente no fue avisado, llame a la oficina. Podemos rechazar (con cargo de cancelación aplicado) o cambiar el alcance. Nunca trabaje silenciosamente alrededor del caos." },
         ],
       },
 
-      { type: "h", text: { en: "On-Site Rules to Remember", es: "Reglas en Sitio Para Recordar" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Ladders / step stools: never climb higher than a 2-step. Anything above that, leave a note and skip — do not improvise on chairs, counters, or furniture.", es: "Escaleras / banquitos: nunca suba más alto que 2 escalones. Cualquier cosa más alta, deje nota y omita — no improvise sobre sillas, mostradores o muebles." },
-          { en: "Trash: 5 BAG MAXIMUM per visit. If there's more, document and tell the office — we do not haul extra.", es: "Basura: MÁXIMO 5 BOLSAS por visita. Si hay más, documente y avise a la oficina — no llevamos más." },
-          { en: "Arrival window: clients are told to expect a 45-minute window due to traffic. If you'll be at the late end, the office will text or call them — but YOU also call the office BEFORE the 20-minute mark when running behind.", es: "Ventana de llegada: a los clientes se les dice esperar una ventana de 45 minutos por el tráfico. Si llegará al final tarde, la oficina les enviará mensaje o llamada — pero USTED también llama a la oficina ANTES del minuto 20 cuando esté retrasado." },
-          { en: "Lockbox / alarm: some clients have a lockbox ($50 add-on) or alarm code. The office tells you in the app notes — never share lockbox codes with anyone.", es: "Caja de seguridad / alarma: algunos clientes tienen caja ($50 add-on) o código de alarma. La oficina le dice en las notas de la app — nunca comparta los códigos con nadie." },
-          { en: "Decluttering: if surfaces are too cluttered to clean and the client wasn't notified ahead, call the office. We can decline (with the cancellation fee applying) or shift scope — never silently work around chaos.", es: "Desorden: si las superficies están demasiado desordenadas para limpiar y el cliente no fue avisado, llame a la oficina. Podemos declinar (con el cargo de cancelación) o cambiar el alcance — nunca trabaje silenciosamente alrededor del caos." },
-        ],
-      },
-
-      { type: "h", text: { en: "Never Discuss Price With the Client", es: "Nunca Discuta el Precio con el Cliente" } },
+      { type: "h", text: { en: "Never Discuss Price With the Client", es: "Nunca Discuta el Precio Con el Cliente" } },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "Pricing conversations are 100% the office's job. If a client tries to negotiate, asks for a discount, offers cash for an unscheduled service, or tries to renegotiate the service fee in front of you — politely say 'I'll have the office reach out to discuss pricing' and call Maribel or Francisco. Clients who try to negotiate outside pricing with techs risk losing service. Protect yourself: stay out of money conversations.",
-          es: "Las conversaciones sobre precios son 100% trabajo de la oficina. Si un cliente intenta negociar, pide descuento, ofrece efectivo por un servicio no agendado, o intenta renegociar la tarifa frente a usted — diga cortésmente 'la oficina los contactará para hablar del precio' y llame a Maribel o Francisco. Los clientes que intentan negociar fuera de los precios con los técnicos arriesgan perder el servicio. Protéjase: no entre en conversaciones de dinero.",
+          en: "Pricing conversations are 100% the office's job. If a client tries to negotiate, asks for a discount, offers cash for an unscheduled service, or tries to renegotiate the service fee in front of you, politely say 'I will have the office reach out to discuss pricing' and call the office. Clients who try to negotiate outside pricing with techs risk losing service. Protect yourself: stay out of money conversations.",
+          es: "Las conversaciones sobre precios son 100% trabajo de la oficina. Si un cliente intenta negociar, pide descuento, ofrece efectivo por un servicio no agendado o intenta renegociar la tarifa frente a usted, diga cortésmente 'la oficina los contactará para discutir el precio' y llame a la oficina. Los clientes que intentan negociar fuera del precio con los técnicos arriesgan perder el servicio. Protéjase: manténgase fuera de conversaciones de dinero.",
         },
       },
 
-      // ── Attendance ─────────────────────────────────────────────────────────
-      { type: "h", text: { en: "Attendance — Grace Period", es: "Asistencia — Periodo de Gracia" } },
+      { type: "h", text: { en: "Property Damage Protocol", es: "Protocolo de Daño a la Propiedad" } },
       {
-        type: "p",
-        text: {
-          en: "You have a 20-minute grace window after your scheduled clock-in time. Beyond 20 minutes, the visit is recorded as tardy. Always call the office BEFORE the 20-minute mark if you'll be late — even within the grace window. Communication closes the gap; silence triggers the dispatch board's late chip.",
-          es: "Tiene un periodo de gracia de 20 minutos después de la hora programada. Más allá de 20 minutos, la visita se registra como tardanza. Siempre llame a la oficina ANTES del minuto 20 si llegará tarde — incluso dentro del periodo de gracia. La comunicación cierra la brecha; el silencio activa el chip de tardanza en el tablero de despacho.",
-        },
-      },
-      { type: "h", text: { en: "Tardiness Scale", es: "Escala de Tardanzas" } },
-      {
-        type: "table",
-        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
-        rows: [
-          { en: ["1st", "Recorded — coaching conversation"], es: ["1ª", "Registrada — conversación de orientación"] },
-          { en: ["2nd", "Recorded — coaching conversation"], es: ["2ª", "Registrada — conversación de orientación"] },
-          { en: ["3rd", "Written warning"], es: ["3ª", "Advertencia por escrito"] },
-          { en: ["4th", "Final warning"], es: ["4ª", "Última advertencia"] },
-          { en: ["5th", "Termination"], es: ["5ª", "Terminación"] },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "No-call / no-show is treated more seriously than tardiness and may result in immediate final warning or termination.",
-          es: "No llamar / no presentarse se trata con más seriedad que las tardanzas y puede resultar en una última advertencia inmediata o terminación.",
-        },
-      },
-
-      // ── Four-Bucket Order of Use ──────────────────────────────────────────
-      { type: "h", text: { en: "The Four Leave Buckets — Order of Use", es: "Las Cuatro Cubetas de Licencia — Orden de Uso" } },
-      {
-        type: "p",
-        text: {
-          en: "Phes uses four leave buckets to cover absences. They are used IN ORDER. As long as a bucket is available and you give the right notice, the absence is excused and does NOT count toward the discipline scale. An absence becomes unexcused only when (a) you no-call/no-show OR (b) all four buckets are exhausted and you didn't get advance approval for unpaid time.",
-          es: "Phes usa cuatro cubetas de licencia para cubrir ausencias. Se usan EN ORDEN. Mientras una cubeta esté disponible y dé el aviso correcto, la ausencia es justificada y NO cuenta hacia la escala de disciplina. Una ausencia se vuelve injustificada solo cuando (a) no llama / no se presenta O (b) las cuatro cubetas están agotadas y no obtuvo aprobación previa para tiempo no pagado.",
-        },
-      },
-      {
-        type: "table",
-        head: {
-          en: ["#", "Bucket", "Hours", "Eligible", "Notice", "Can be denied?", "Paid out?"],
-          es: ["#", "Cubeta", "Horas", "Elegible", "Aviso", "¿Puede negarse?", "¿Se paga?"],
-        },
-        rows: [
-          { en: ["1", "PLAWA (paid sick)", "40 / year", "After 90 days", "Grace call only", "No — protected", "No"],
-            es: ["1", "PLAWA (enfermedad pagada)", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No — protegida", "No"] },
-          { en: ["2", "PTO", "40 → 80 / year", "After 1 year", "7 days advance", "Yes — business needs", "Yes"],
-            es: ["2", "PTO", "40 → 80 / año", "Después de 1 año", "7 días anticipados", "Sí — necesidades del negocio", "Sí"] },
-          { en: ["3", "Unpaid Personal Leave", "40 / year (5 days)", "Day one", "7 days advance", "Yes — business needs", "No"],
-            es: ["3", "Licencia Personal No Pagada", "40 / año (5 días)", "Primer día", "7 días anticipados", "Sí — necesidades del negocio", "No"] },
-          { en: ["4", "Unpaid Absence Allowance", "40 / year", "After 90 days", "Grace call only", "No — last bucket before discipline", "No"],
-            es: ["4", "Tolerancia de Ausencia No Pagada", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No — última cubeta antes de disciplina", "No"] },
+        type: "bullets",
+        items: [
+          { en: "Stop work in that area immediately.", es: "Detenga el trabajo en esa área inmediatamente." },
+          { en: "Take photos from multiple angles, including surrounding context.", es: "Tome fotos desde múltiples ángulos, incluyendo el contexto alrededor." },
+          { en: "Do NOT attempt repair.", es: "NO intente repararlo." },
+          { en: "Call the office within 5 minutes. Send photos via app or text.", es: "Llame a la oficina dentro de 5 minutos. Envíe las fotos por la app o mensaje." },
+          { en: "The office handles all communication with the client.", es: "La oficina maneja toda la comunicación con el cliente." },
+          { en: "Continue the job unless the office instructs otherwise.", es: "Continúe el trabajo a menos que la oficina indique lo contrario." },
+          { en: "Do NOT discuss compensation, repair, or blame with the client.", es: "NO discuta compensación, reparación ni culpa con el cliente." },
         ],
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "PLAWA is used by DEFAULT — unless you elect in writing to draw from a different bucket. This protects your PTO for planned vacations and your other buckets for emergencies later in the year.",
-          es: "PLAWA se usa POR DEFECTO — a menos que elija por escrito usar otra cubeta. Esto protege su PTO para vacaciones planeadas y sus otras cubetas para emergencias más adelante en el año.",
+          en: "Phes general liability insurance covers accidental property damage. Tech follows the protocol. Office handles claims.",
+          es: "El seguro de responsabilidad general de Phes cubre el daño accidental a la propiedad. El técnico sigue el protocolo. La oficina maneja las reclamaciones.",
         },
       },
 
-      { type: "h", text: { en: "Paid Sick Leave (PLAWA) — What You Need to Know", es: "Licencia por Enfermedad Pagada (PLAWA) — Lo Que Debe Saber" } },
+      { type: "h", text: { en: "Client Complaint Mid-Job", es: "Queja del Cliente a Mitad del Trabajo" } },
       {
         type: "bullets",
         items: [
-          { en: "40 paid hours per Benefit Year, front-loaded after 90 days of employment.", es: "40 horas pagadas por Año de Beneficios, otorgadas por adelantado después de 90 días de empleo." },
-          { en: "Use it for ANY reason — your illness, a family member's illness, mental health day, medical appointment, etc. You never have to give a reason.", es: "Úselo por CUALQUIER razón — su enfermedad, enfermedad de un familiar, salud mental, cita médica, etc. Nunca tiene que dar una razón." },
-          { en: "Phes NEVER requires a doctor's note or supporting documentation to use PLAWA — regardless of how long the absence is. Phes policy is stricter than Illinois law on this point: we choose not to require any documentation.", es: "Phes NUNCA exige nota médica ni documentación de respaldo para usar PLAWA — sin importar la duración de la ausencia. La política de Phes es más estricta que la ley de Illinois en este punto: elegimos no exigir documentación alguna." },
-          { en: "Minimum block: 2 hours. Notice: the 20-minute grace call is all that's required — no advance approval needed. Use it the moment you know you need it.", es: "Bloque mínimo: 2 horas. Aviso: la llamada de gracia de 20 minutos es todo lo que se requiere — no se necesita aprobación previa. Úselo en el momento en que sepa que lo necesita." },
-          { en: "Cannot be denied for business needs. The max-2-cleaners-off and route-coverage rules apply to PTO and Unpaid Personal Leave only — PLAWA is protected leave.", es: "No se puede negar por necesidades del negocio. Las reglas de máximo 2 cleaners libres y cobertura de ruta aplican solo al PTO y a la Licencia Personal No Pagada — el PLAWA es licencia protegida." },
+          { en: "Stop and listen fully without interrupting.", es: "Deténgase y escuche completamente sin interrumpir." },
+          { en: "Acknowledge: 'I hear you. I want to make this right.'", es: "Reconozca: 'Lo escucho. Quiero que esto se haga bien.'" },
+          { en: "For simple issues (missed area, streak, forgotten task): offer to fix immediately.", es: "Para asuntos simples (área omitida, racha, tarea olvidada): ofrezca repararlo inmediatamente." },
+          { en: "For larger complaints (upset, threatening cancellation, demanding refund): step outside, call the office. The office takes over.", es: "Para quejas mayores (alterado, amenazando cancelación, exigiendo reembolso): salga afuera, llame a la oficina. La oficina toma el control." },
+          { en: "NEVER argue, defend, promise refunds, or walk off without office approval.", es: "NUNCA discuta, defienda, prometa reembolsos ni se vaya sin aprobación de la oficina." },
+          { en: "If the client becomes verbally abusive or unsafe: call the office first, then leave. Do NOT confront.", es: "Si el cliente se vuelve verbalmente abusivo o inseguro: llame a la oficina primero, luego salga. NO se enfrente." },
         ],
       },
+
+      { type: "h", text: { en: "Keys, Codes, and Access", es: "Llaves, Códigos y Acceso" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "All access information lives in the Phes app job ticket only.", es: "Toda la información de acceso vive solo en el ticket de trabajo de la app Phes." },
+          { en: "Never share codes with anyone, including coworkers not assigned.", es: "Nunca comparta códigos con nadie, incluso con compañeros que no están asignados." },
+          { en: "Never write codes down, screenshot, or save in personal notes.", es: "Nunca escriba códigos, tome capturas de pantalla ni los guarde en notas personales." },
+          { en: "If a code does not work, call the office. Do not attempt forced entry.", es: "Si un código no funciona, llame a la oficina. No intente entrada forzada." },
+          { en: "For physical keys: follow the job instructions in the app.", es: "Para llaves físicas: siga las instrucciones del trabajo en la app." },
+          { en: "Lost key is serious. Call the office immediately regardless of time.", es: "Una llave perdida es seria. Llame a la oficina inmediatamente sin importar la hora." },
+          { en: "Lock the door behind you when entering.", es: "Cierre la puerta detrás de usted al entrar." },
+          { en: "Never open the door to anyone (deliveries, neighbors).", es: "Nunca abra la puerta a nadie (entregas, vecinos)." },
+          { en: "Verify the door is locked when leaving.", es: "Verifique que la puerta esté cerrada al salir." },
+        ],
+      },
+
+      { type: "h", text: { en: "Client Not Home", es: "Cliente No Está en Casa" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Wait 20 minutes at the location.", es: "Espere 20 minutos en el lugar." },
+          { en: "If no access is set up: knock and wait 5 minutes, then call the office.", es: "Si no hay acceso configurado: toque la puerta y espere 5 minutos, luego llame a la oficina." },
+          { en: "Tech proceeds inside if access exists. Take normal completion photos. Lock up.", es: "El técnico procede dentro si existe acceso. Tome fotos normales de finalización. Cierre con llave." },
+          { en: "If access fails or is denied: call the office within 5 minutes. Office attempts client contact. Tech waits up to 20 minutes.", es: "Si el acceso falla o se niega: llame a la oficina dentro de 5 minutos. La oficina intenta contactar al cliente. El técnico espera hasta 20 minutos." },
+          { en: "If the office cannot reach the client: office decides reschedule or next job.", es: "Si la oficina no logra contactar al cliente: la oficina decide reprogramar o ir al siguiente trabajo." },
+          { en: "Tech is paid the 3-hour minimum for arrival.", es: "El técnico recibe el mínimo de 3 horas por la llegada." },
+        ],
+      },
+
+      { type: "h", text: { en: "Coworker No-Show", es: "Compañero No Se Presenta" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Wait 10 minutes at the location.", es: "Espere 10 minutos en el lugar." },
+          { en: "Call the office to confirm the partner's status.", es: "Llame a la oficina para confirmar el estado del compañero." },
+          { en: "Call or text the partner directly.", es: "Llame o envíe mensaje al compañero directamente." },
+          { en: "The office decides: (a) wait up to 30 minutes for the partner, (b) send a replacement, or (c) convert to solo cleaning.", es: "La oficina decide: (a) esperar hasta 30 minutos al compañero, (b) enviar un reemplazo, o (c) convertir a limpieza individual." },
+          { en: "Solo cleaning rules: proceed ONLY with explicit office approval. Paid at the regular commission rate (35% or 32%). Do NOT lift heavy items alone (skip and document). Update the office on estimated completion.", es: "Reglas de limpieza individual: proceda SOLO con aprobación explícita de la oficina. Pago a la tarifa regular de comisión (35% o 32%). NO levante artículos pesados solo (omita y documente). Actualice a la oficina sobre la finalización estimada." },
+          { en: "Refusing an approved solo assignment is insubordination.", es: "Negarse a una asignación individual aprobada es insubordinación." },
+          { en: "The tech does NOT discuss the partner's status with the client. The office handles client communication.", es: "El técnico NO discute el estado del compañero con el cliente. La oficina maneja la comunicación con el cliente." },
+        ],
+      },
+
+      { type: "h", text: { en: "Child Alone With Tech Protocol", es: "Protocolo de Niño Solo Con el Técnico" } },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "Sick time is NOT PTO. They are SEPARATE buckets. PLAWA is gone at the end of your Benefit Year and is NOT paid out when you leave Phes (PTO is). Using your sick hours does not reduce your PTO bank, and vice versa. Sick-time requests follow the same two-step process: submit through MaidCentral / Qleno AND contact Maribel or Francisco at the office.",
-          es: "El tiempo por enfermedad NO es PTO. Son cubetas SEPARADAS. PLAWA se pierde al final de su Año de Beneficios y NO se paga cuando deja Phes (el PTO sí). Usar sus horas por enfermedad no reduce su banco de PTO, ni al revés. Las solicitudes de tiempo por enfermedad siguen el mismo proceso de dos pasos: envíe por MaidCentral / Qleno Y contacte a Maribel o Francisco en la oficina.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Out of PLAWA hours? You do NOT go straight to discipline. The office cascades down the bucket order — PTO next, then Unpaid Personal Leave, then Unpaid Absence Allowance. As long as one bucket still has hours and you give the right notice, the absence stays excused.",
-          es: "¿Sin horas de PLAWA? NO pasa directamente a la disciplina. La oficina baja por el orden de cubetas — PTO siguiente, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada. Mientras una cubeta tenga horas y dé el aviso correcto, la ausencia se mantiene justificada.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Dispatched into City of Chicago? Chicago has its own ordinance with TWO separate leave buckets (Paid Leave + Paid Sick & Safe Leave). If you regularly work jobs inside city limits, talk to the office — your accruals may stack differently. Standard Phes PLAWA still applies in the suburbs (Cook County mirrors state law).",
-          es: "¿Despachado dentro de la Ciudad de Chicago? Chicago tiene su propia ordenanza con DOS cubetas separadas (Licencia Pagada + Licencia Pagada por Enfermedad y Seguridad). Si trabaja regularmente dentro de los límites de la ciudad, hable con la oficina — sus acumulaciones pueden apilarse diferente. El PLAWA estándar de Phes sigue aplicando en los suburbios (Cook County refleja la ley estatal).",
-        },
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "NO retaliation. By law, Phes cannot discipline, demote, fire, or penalize you for lawfully using PLAWA. If you ever feel pressure for taking a sick day, tell the office immediately.",
-          es: "SIN represalias. Por ley, Phes no puede disciplinar, degradar, despedir o penalizarlo por usar PLAWA legalmente. Si alguna vez siente presión por tomar un día por enfermedad, dígale a la oficina de inmediato.",
-        },
-      },
-      { type: "h", text: { en: "Paid Time Off (PTO)", es: "Tiempo Libre Pagado (PTO)" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "After 1 year (first work anniversary): 40 hours PTO per year.", es: "Después de 1 año (primer aniversario): 40 horas de PTO por año." },
-          { en: "After 2 years and beyond: bank is topped up to 80 hours each anniversary.", es: "Después de 2 años en adelante: el banco se rellena hasta 80 horas en cada aniversario." },
-          { en: "Hard cap: PTO does NOT exceed 80 hours total at any time. Unused PTO does NOT stack — we top up to the cap, we do not add on top.", es: "Tope estricto: el PTO NUNCA excede 80 horas totales. El PTO no usado NO se acumula — rellenamos hasta el tope, no agregamos encima." },
-          { en: "Request through the app in advance AND contact Maribel or Francisco at the office to confirm — same two-step process as sick time.", es: "Solicite por la app con anticipación Y contacte a Maribel o Francisco en la oficina para confirmar — el mismo proceso de dos pasos del tiempo por enfermedad." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Example: in your first PTO year you used only 20 of your 40 hours. At your 2-year anniversary, the office tops your bank up to 80 hours — NOT 20 carried over plus 80 = 100. The maximum balance is always 80.",
-          es: "Ejemplo: en su primer año de PTO usó solo 20 de sus 40 horas. En su aniversario de 2 años, la oficina rellena su banco hasta 80 horas — NO 20 acumuladas + 80 = 100. El balance máximo siempre es 80.",
-        },
-      },
-      { type: "h", text: { en: "PTO Approval Rules — Read This Before You Request", es: "Reglas de Aprobación de PTO — Lea Esto Antes de Solicitar" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "FIRST COME, FIRST SERVE. Earlier requests for a given date win — submit early, especially for popular dates (holidays, school breaks, summer Fridays).", es: "PRIMERO EN LLEGAR, PRIMERO EN SER ATENDIDO. Las solicitudes más tempranas para una fecha ganan — envíe temprano, sobre todo para fechas populares (feriados, vacaciones escolares, viernes de verano)." },
-          { en: "MAXIMUM 2 CLEANERS OFF on the same day. If two techs already have an approved day, additional requests for that date will be declined.", es: "MÁXIMO 2 CLEANERS LIBRES el mismo día. Si dos técnicos ya tienen el día aprobado, las solicitudes adicionales para esa fecha serán rechazadas." },
-          { en: "BUSINESS NEEDS COME FIRST. Even within the 2-per-day cap, the office may decline a request if it leaves a route uncovered or a key client unstaffed. Approval is never guaranteed.", es: "LAS NECESIDADES DE LA EMPRESA VAN PRIMERO. Incluso dentro del tope de 2 por día, la oficina puede rechazar una solicitud si deja una ruta descubierta o un cliente clave sin personal. La aprobación nunca está garantizada." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "Do NOT assume your request is approved until Maribel or Francisco confirms it. Buying a flight or booking travel before approval is your own risk — if the date is already filled by two earlier requests, or if business needs override, your request will be denied.",
-          es: "NO asuma que su solicitud está aprobada hasta que Maribel o Francisco lo confirmen. Comprar un vuelo o reservar viajes antes de la aprobación es su propio riesgo — si la fecha ya está llena con dos solicitudes anteriores, o si las necesidades del negocio anulan, su solicitud será rechazada.",
-        },
-      },
-      { type: "h", text: { en: "Unpaid Personal Days (Named Time Off)", es: "Días Personales No Pagados (Tiempo Libre Nombrado)" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Up to 5 unpaid personal days per year = 40 hours of unpaid time off.", es: "Hasta 5 días personales no pagados por año = 40 horas de tiempo libre no pagado." },
-          { en: "Logged in MaidCentral as 'Named Time Off' days.", es: "Registrados en MaidCentral como días de 'Named Time Off' (Tiempo Libre Nombrado)." },
-          { en: "Same two-step request as PTO and sick time — submit in the system AND contact Maribel or Francisco.", es: "Misma solicitud de dos pasos que el PTO y enfermedad — envíe por el sistema Y contacte a Maribel o Francisco." },
-          { en: "Approval is at management discretion. The same first-come-first-serve, max-2-cleaners-off, business-needs-first rules apply.", es: "La aprobación es a discreción de la gerencia. Aplican las mismas reglas de primero-en-llegar, máximo-2-cleaners-libres, necesidades-del-negocio-primero." },
-          { en: "Do not carry over to next year. Not paid out at separation.", es: "No se acumulan al año siguiente. No se pagan al separarse." },
-        ],
-      },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Unpaid Personal Leave is bucket #3 of 4. It's used after PLAWA and PTO are exhausted for PLANNED time off (kid's school event, out-of-town wedding, etc.). Notice and approval rules match PTO — 7 days advance, FCFS, max-2-off, business needs can override.",
-          es: "La Licencia Personal No Pagada es la cubeta #3 de 4. Se usa después de agotar PLAWA y PTO para tiempo libre PLANEADO (evento escolar de un hijo, boda fuera de la ciudad, etc.). El aviso y las reglas de aprobación coinciden con el PTO — 7 días anticipados, primero en llegar, máximo 2 libres, las necesidades del negocio pueden anular.",
+          en: "If a child under 18 is home alone or arrives home alone during a service, the tech immediately calls the office. Do NOT engage with the child beyond basic politeness. Do NOT discipline, feed, transport, or be alone in a room with a child. Keep doors open while in the home. The office decides whether to continue service or reschedule. Document the situation in the app. This policy protects Phes, employees, and the child.",
+          es: "Si un menor de 18 años está en casa solo o llega a casa solo durante un servicio, el técnico llama inmediatamente a la oficina. NO interactúe con el niño más allá de cortesía básica. NO discipline, alimente, transporte ni esté solo en una habitación con un niño. Mantenga las puertas abiertas dentro del hogar. La oficina decide si continuar el servicio o reprogramar. Documente la situación en la app. Esta política protege a Phes, a los empleados y al niño.",
         },
       },
 
-      // ── Unpaid Absence Allowance (bucket 4 of 4) ──────────────────────────
-      { type: "h", text: { en: "Unpaid Absence Allowance (Bucket #4 of 4)", es: "Tolerancia de Ausencia No Pagada (Cubeta #4 de 4)" } },
+      { type: "h", text: { en: "End-of-Job Checklist", es: "Lista de Verificación al Finalizar el Trabajo" } },
       {
         type: "bullets",
         items: [
-          { en: "Up to 40 unpaid hours per Benefit Year. Available after 90 days of employment.", es: "Hasta 40 horas no pagadas por Año de Beneficios. Disponible después de 90 días de empleo." },
-          { en: "Notice: the 20-minute grace call only — same as PLAWA, no advance approval required.", es: "Aviso: solo la llamada de gracia de 20 minutos — igual que PLAWA, no requiere aprobación previa." },
-          { en: "Used by Phes to cover UNPLANNED absences after PLAWA, PTO, and Unpaid Personal Leave are exhausted (e.g., another sick day, a same-day family emergency).", es: "Phes la usa para cubrir ausencias NO PLANEADAS después de agotar PLAWA, PTO y la Licencia Personal No Pagada (p. ej., otro día por enfermedad, una emergencia familiar del mismo día)." },
-          { en: "Does not carry over. Not paid out at separation.", es: "No se acumula. No se paga al separarse." },
-          { en: "This is the LAST bucket before the discipline scale kicks in. Once it's exhausted, additional unprotected absences are unexcused.", es: "Es la ÚLTIMA cubeta antes de que se active la escala de disciplina. Una vez agotada, las ausencias adicionales no protegidas son injustificadas." },
+          { en: "Quality walk-through of every room using the in-app checklist.", es: "Recorrido de calidad de cada habitación usando la lista en la app." },
+          { en: "Final touches: empty trash, replace bags, turn off lights, lock windows, place items back exactly where they were, supplies out of sight.", es: "Toques finales: vacíe la basura, reemplace las bolsas, apague las luces, cierre las ventanas, coloque los artículos exactamente donde estaban, suministros fuera de vista." },
+          { en: "Required photos: BEFORE and AFTER photos of every room cleaned, uploaded to the app. Required rooms: kitchen counters, bathroom sink / toilet / tub, bedroom floors, living areas.", es: "Fotos requeridas: fotos ANTES y DESPUÉS de cada habitación limpiada, subidas a la app. Habitaciones requeridas: mostradores de cocina, lavabo / inodoro / tina del baño, pisos de dormitorio, áreas de sala." },
+          { en: "Walk-through with the client if home. Ask 'Is there anything else you would like me to address?' Address simple requests. Call the office for larger.", es: "Recorrido con el cliente si está en casa. Pregunte '¿Hay algo más que le gustaría que atendiera?' Atienda solicitudes simples. Llame a la oficina para las más grandes." },
+          { en: "Mark the job complete in the app. Confirm time clocked. Add notes (issues, items skipped with reason, supplies running low). Confirm next job in route.", es: "Marque el trabajo como completo en la app. Confirme la hora registrada. Agregue notas (problemas, artículos omitidos con razón, suministros bajos). Confirme el siguiente trabajo en la ruta." },
+          { en: "Secure the home: lock all doors, set the alarm if instructed, return the key per protocol, confirm the app shows Job Complete.", es: "Asegure el hogar: cierre todas las puertas, active la alarma si se le indica, devuelva la llave según el protocolo, confirme que la app muestre Trabajo Completo." },
         ],
       },
-      { type: "h", text: { en: "What Gets Paid Out When You Leave", es: "Qué Se Paga al Salir" } },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 7 — EQUIPMENT, UNIFORMS & MILEAGE
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 7. Equipment, Uniforms, and Mileage", es: "SECCIÓN 7. Equipo, Uniformes y Millaje" } },
+
+      { type: "h", text: { en: "Company-Provided Equipment", es: "Equipo Provisto por la Compañía" } },
       {
         type: "bullets",
         items: [
-          { en: "PTO (vacation): any unused PTO IS paid out at separation, per Illinois Wage Payment & Collection Act.", es: "PTO (vacaciones): el PTO no usado SÍ se paga al separarse, conforme a la Ley de Pago y Cobranza de Salarios de Illinois." },
-          { en: "PLAWA (paid sick leave): NOT paid out at separation. PLAWA has no cash value.", es: "PLAWA (licencia por enfermedad pagada): NO se paga al separarse. PLAWA no tiene valor en efectivo." },
-          { en: "Holidays: not banked — only paid for the holiday itself, see eligibility below.", es: "Feriados: no se acumulan — solo se pagan en el día del feriado, vea la elegibilidad abajo." },
+          { en: "Up to two (2) vacuum cleaners per employee per calendar year, subject to management approval.", es: "Hasta dos (2) aspiradoras por empleado por año calendario, sujeto a aprobación de la gerencia." },
+          { en: "All company-purchased equipment remains Phes property.", es: "Todo el equipo comprado por la compañía sigue siendo propiedad de Phes." },
+          { en: "Phes covers normal wear and tear replacements. Employees may be responsible for documented negligence or intentional damage only, consistent with applicable law.", es: "Phes cubre los reemplazos por desgaste normal. Los empleados pueden ser responsables solo por negligencia documentada o daño intencional, conforme a la ley aplicable." },
         ],
       },
-      { type: "h", text: { en: "Time-Off Requests — Two-Step Process", es: "Solicitudes de Tiempo Libre — Proceso de Dos Pasos" } },
+
+      { type: "h", text: { en: "Uniform Issuance", es: "Entrega de Uniformes" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Each employee receives seven (7) company shirts, seven (7) company-approved pants, and one (1) company jacket.", es: "Cada empleado recibe siete (7) camisas de la compañía, siete (7) pantalones aprobados por la compañía y una (1) chamarra de la compañía." },
+          { en: "Uniforms remain Phes property unless otherwise approved in writing.", es: "Los uniformes siguen siendo propiedad de Phes a menos que se apruebe lo contrario por escrito." },
+        ],
+      },
+
+      { type: "h", text: { en: "Employee Out-of-Pocket", es: "De Bolsillo del Empleado" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Personal footwear meeting dress standards.", es: "Calzado personal que cumpla con los estándares de vestimenta." },
+          { en: "Undergarments and accessories.", es: "Ropa interior y accesorios." },
+          { en: "Optional uniform items beyond those provided.", es: "Artículos opcionales de uniforme más allá de los provistos." },
+          { en: "Employees should NOT purchase supplies or equipment for company use unless management provides written pre-approval for reimbursement.", es: "Los empleados NO deben comprar suministros o equipo para uso de la compañía a menos que la gerencia otorgue pre-aprobación por escrito para reembolso." },
+        ],
+      },
+
+      { type: "h", text: { en: "Mileage Reimbursement", es: "Reembolso de Millaje" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Reimbursed for travel BETWEEN one client location and a second client location on the same workday.", es: "Se reembolsa el viaje ENTRE una ubicación de cliente y una segunda ubicación de cliente en el mismo día laboral." },
+          { en: "Home-to-first-job and last-job-to-home mileage is NOT reimbursable.", es: "El millaje de casa al primer trabajo y del último trabajo a casa NO es reembolsable." },
+          { en: "Reimbursed at the IRS standard mileage rate in effect at the time of travel.", es: "Se reembolsa a la tarifa estándar de millaje del IRS vigente al momento del viaje." },
+          { en: "Must be submitted through the Phes app within the same calendar month incurred. Include date, client names, total miles.", es: "Debe enviarse por la app de Phes dentro del mismo mes calendario en que se incurrió. Incluya fecha, nombres de clientes, total de millas." },
+          { en: "Late or incomplete submissions may be denied. Mileage reimbursement is NOT considered wages.", es: "Las solicitudes tardías o incompletas pueden ser denegadas. El reembolso de millaje NO se considera salario." },
+        ],
+      },
+
+      { type: "h", text: { en: "Supply Storage Choice", es: "Elección de Almacenamiento de Suministros" } },
       {
         type: "p",
         text: {
-          en: "Every time-off request — PTO, sick day, schedule change — requires BOTH steps so the schedule gets updated AND the office knows directly.",
-          es: "Toda solicitud de tiempo libre — PTO, día por enfermedad, cambio de horario — requiere AMBOS pasos para que el horario se actualice Y la oficina sepa directamente.",
+          en: "Phes supply kits and equipment may be stored at the Phes office for employees who prefer not to carry them in their personal vehicles. Employees may choose to take supplies home for personal convenience or to keep them at the Phes office. This is the EMPLOYEE'S CHOICE.",
+          es: "Los kits de suministros y el equipo de Phes pueden almacenarse en la oficina de Phes para los empleados que prefieran no llevarlos en sus vehículos personales. Los empleados pueden elegir llevar los suministros a casa por conveniencia personal o mantenerlos en la oficina de Phes. Esta es la ELECCIÓN DEL EMPLEADO.",
+        },
+      },
+
+      { type: "h", text: { en: "Final Pay and Property Return", es: "Pago Final y Devolución de Propiedad" } },
+      {
+        type: "p",
+        text: {
+          en: "All company property must be returned upon separation. A required separation meeting takes place in the office on the last day or within 3 business days. Property includes the supply kit ($500+ value), uniforms, keys, access cards, and company app access. The final paycheck (including unused PTO payout) is issued at the separation meeting or by the next regular payday, whichever is earlier, per the Illinois Wage Payment and Collection Act. If the employee cannot come to the office, the final paycheck is mailed.",
+          es: "Toda la propiedad de la compañía debe ser devuelta al separarse. Se realiza una reunión obligatoria de separación en la oficina el último día o dentro de 3 días hábiles. La propiedad incluye el kit de suministros (valor de $500+), uniformes, llaves, tarjetas de acceso y acceso a la app de la compañía. El cheque final (incluyendo el pago de PTO no usado) se entrega en la reunión de separación o para el siguiente día de pago regular, lo que ocurra primero, conforme a la Ley de Pago y Cobranza de Salarios de Illinois. Si el empleado no puede ir a la oficina, el cheque final se envía por correo.",
+        },
+      },
+
+      { type: "h", text: { en: "Wage Deduction Notice", es: "Aviso de Deducción Salarial" } },
+      {
+        type: "p",
+        text: {
+          en: "Wage deductions for unreturned or damaged property require a SEPARATE signed written authorization at the time of incident, per the Illinois Wage Deduction Act. Refusal to sign does NOT prevent Phes from pursuing recovery through small claims court or other legal channels.",
+          es: "Las deducciones salariales por propiedad no devuelta o dañada requieren una autorización por escrito SEPARADA firmada al momento del incidente, conforme a la Ley de Deducción Salarial de Illinois. Negarse a firmar NO impide que Phes busque la recuperación a través de un tribunal de reclamos menores u otros canales legales.",
         },
       },
       {
-        type: "bullets",
-        items: [
-          { en: "STEP 1 — Submit the request through MaidCentral (and Qleno once we cut over). This is what dispatch sees and what triggers client notifications.", es: "PASO 1 — Envíe la solicitud por MaidCentral (y Qleno una vez que cambiemos). Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
-          { en: "STEP 2 — Contact Maribel or Francisco at the office directly (text or call) to confirm they've seen it. The system request alone is not enough.", es: "PASO 2 — Contacte a Maribel o Francisco en la oficina directamente (mensaje o llamada) para confirmar que la vieron. La solicitud por el sistema sola no es suficiente." },
-        ],
+        type: "p",
+        text: {
+          en: "Educational notice. Phes may request separate written wage deduction authorization for: (a) cost of replacing lost, stolen, or negligently damaged Phes property; (b) cost of repairing client property damaged due to documented negligence; (c) advance pay or loan repayment; (d) replacement uniforms beyond standard issue; (e) vacuum replacements beyond the 2-per-year allowance due to negligence; (f) supply kit items lost or damaged due to negligence; (g) bank fees or returned payment fees caused by employee error; and (h) other items with separate written authorization.",
+          es: "Aviso educativo. Phes puede solicitar autorización separada por escrito para deducción salarial por: (a) costo de reemplazar propiedad de Phes perdida, robada o dañada por negligencia; (b) costo de reparar propiedad del cliente dañada por negligencia documentada; (c) pago anticipado o reembolso de préstamo; (d) uniformes de reemplazo más allá de la entrega estándar; (e) reemplazos de aspiradora más allá de la asignación de 2 por año por negligencia; (f) artículos del kit de suministros perdidos o dañados por negligencia; (g) cargos bancarios o cargos por pago devuelto causados por error del empleado; y (h) otros artículos con autorización separada por escrito.",
+        },
       },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "If you only text Maribel or Francisco without the system request, dispatch won't see it and the client won't get notified. If you only submit in the system without contacting them, the office might not see it in time. Both are required, every time.",
-          es: "Si solo envía mensaje a Maribel o Francisco sin la solicitud por el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía por el sistema sin contactarlos, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
+          en: "Phes will NOT deduct without specific signed authorization at the time of incident. The employee has the right to refuse. No deduction reduces wages below the minimum wage for any workweek.",
+          es: "Phes NO deducirá sin autorización firmada específica al momento del incidente. El empleado tiene derecho a rehusarse. Ninguna deducción reduce los salarios por debajo del salario mínimo en ninguna semana laboral.",
         },
       },
-      { type: "h", text: { en: "Unexcused Absences — When the Discipline Scale Kicks In", es: "Ausencias Injustificadas — Cuándo Se Activa la Escala de Disciplina" } },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 8 — TIPPING
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 8. Tipping", es: "SECCIÓN 8. Propinas" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Tips are 100% the employee's.", es: "Las propinas son 100% del empleado." },
+          { en: "Cash tips: keep them.", es: "Propinas en efectivo: quédeselas." },
+          { en: "Tips through the booking system are paid on the next paycheck.", es: "Las propinas a través del sistema de reservas se pagan en el siguiente cheque." },
+          { en: "No kickback is owed to anyone.", es: "No se debe ningún porcentaje a nadie." },
+          { en: "Tax responsibility: employees are responsible for reporting cash tips for tax purposes per IRS rules. Tips paid through the booking system are reported on your paycheck.", es: "Responsabilidad fiscal: los empleados son responsables de reportar las propinas en efectivo para fines fiscales conforme a las reglas del IRS. Las propinas pagadas a través del sistema de reservas se reportan en su cheque." },
+        ],
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 9 — PERFORMANCE REVIEWS
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 9. Performance Reviews", es: "SECCIÓN 9. Evaluaciones de Desempeño" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "30-day check-in (during training period).", es: "Reunión a 30 días (durante el periodo de entrenamiento)." },
+          { en: "90-day formal review (end of probation, PLAWA eligibility begins).", es: "Evaluación formal a 90 días (fin de la probatoria, comienza la elegibilidad de PLAWA)." },
+          { en: "Quarterly reviews thereafter. ALL reviews take place IN PERSON.", es: "Evaluaciones trimestrales en adelante. TODAS las evaluaciones se hacen EN PERSONA." },
+          { en: "Reviews rotate format: in-person meeting and video review alternating each quarter.", es: "Las evaluaciones rotan formato: reunión en persona y revisión por video alternando cada trimestre." },
+          { en: "Quality metrics tracked: completion times, quality complaints, attendance, client satisfaction scores.", es: "Métricas de calidad seguidas: tiempos de finalización, quejas de calidad, asistencia, puntajes de satisfacción del cliente." },
+        ],
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 10 — COMMUNICATION
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 10. Communication", es: "SECCIÓN 10. Comunicación" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Phes communicates via text and voice (phone calls).", es: "Phes se comunica por mensaje de texto y voz (llamadas)." },
+          { en: "During business hours, employees should respond as soon as possible. Phes prefers immediate response.", es: "Durante horas de oficina, los empleados deben responder lo antes posible. Phes prefiere respuesta inmediata." },
+          { en: "By accepting employment, the employee consents to receive text messages from Phes regarding scheduling, job changes, and urgent matters (TCPA compliance).", es: "Al aceptar el empleo, el empleado consiente recibir mensajes de texto de Phes sobre programación, cambios de trabajo y asuntos urgentes (cumplimiento de TCPA)." },
+          { en: "Employees must keep contact information current. Updates go through the office.", es: "Los empleados deben mantener actualizada la información de contacto. Las actualizaciones se hacen a través de la oficina." },
+        ],
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 11 — SCHEDULE CHANGES & BUSINESS SLOWDOWNS
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 11. Schedule Changes and Business Slowdowns", es: "SECCIÓN 11. Cambios de Horario y Reducción de Negocio" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Phes may modify schedules based on business needs.", es: "Phes puede modificar horarios según las necesidades del negocio." },
+          { en: "Hours may be REDUCED during slow periods (weather, off-season, route changes).", es: "Las horas pueden REDUCIRSE durante periodos lentos (clima, temporada baja, cambios de ruta)." },
+          { en: "No guarantee of specific hours. W-2 status does NOT equal guaranteed weekly hours.", es: "No hay garantía de horas específicas. El estatus W-2 NO equivale a horas semanales garantizadas." },
+          { en: "Notice is given when possible.", es: "Se da aviso cuando es posible." },
+          { en: "Hour reductions are NOT layoffs. The employee remains on the team.", es: "Las reducciones de horas NO son despidos. El empleado permanece en el equipo." },
+        ],
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 12 — EQUAL EMPLOYMENT OPPORTUNITY
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 12. Equal Employment Opportunity", es: "SECCIÓN 12. Igualdad de Oportunidades en el Empleo" } },
       {
         type: "p",
         text: {
-          en: "An absence is unexcused ONLY when (a) it's a no-call/no-show, OR (b) all four leave buckets are exhausted AND you didn't get advance approval for unpaid time. Using any bucket with proper notice is excused — full stop. Once an absence IS unexcused, the discipline scale applies:",
-          es: "Una ausencia es injustificada SOLO cuando (a) es un no llamó / no se presentó, O (b) las cuatro cubetas están agotadas Y no obtuvo aprobación previa para tiempo no pagado. Usar cualquier cubeta con aviso apropiado es justificado — sin excepciones. Una vez que una ausencia ES injustificada, aplica la escala de disciplina:",
+          en: "Phes Cleaning Services provides equal employment opportunities to all employees and applicants in accordance with applicable federal, state, and local law. Phes prohibits discrimination, harassment, and retaliation, and provides reasonable accommodation upon request. Full sexual harassment training content is in the standalone Sexual Harassment Prevention module.",
+          es: "Phes Cleaning Services brinda igualdad de oportunidades de empleo a todos los empleados y solicitantes conforme a la ley federal, estatal y local aplicable. Phes prohíbe la discriminación, el acoso y las represalias, y provee acomodación razonable cuando se solicita. El contenido completo de capacitación sobre acoso sexual está en el módulo independiente de Prevención del Acoso Sexual.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 13 — POLICY ADMINISTRATION
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 13. Policy Administration", es: "SECCIÓN 13. Administración de Políticas" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes Cleaning Services reserves the right to interpret, administer, and amend this handbook at its discretion in accordance with applicable law. Material policy changes trigger required immediate re-acknowledgment by all employees. Minor changes are communicated and re-acknowledged at the next annual December cycle.",
+          es: "Phes Cleaning Services se reserva el derecho de interpretar, administrar y enmendar este manual a su discreción conforme a la ley aplicable. Los cambios de política materiales activan el re-reconocimiento inmediato requerido por todos los empleados. Los cambios menores se comunican y se re-reconocen en el siguiente ciclo anual de diciembre.",
+        },
+      },
+
+      // ═══════════════════════════════════════════════════════════════════════
+      // SECTION 14 — HANDBOOK ACKNOWLEDGMENT
+      // ═══════════════════════════════════════════════════════════════════════
+      { type: "h", text: { en: "SECTION 14. Handbook Acknowledgment", es: "SECCIÓN 14. Reconocimiento del Manual" } },
+      {
+        type: "p",
+        text: {
+          en: "By completing this module and signing the final acknowledgment (rendered separately in a later step), you acknowledge:",
+          es: "Al completar este módulo y firmar el reconocimiento final (presentado por separado en un paso posterior), usted reconoce:",
         },
       },
       {
-        type: "table",
-        head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
-        rows: [
-          { en: ["1st", "Recorded"], es: ["1ª", "Registrada"] },
-          { en: ["2nd", "Recorded"], es: ["2ª", "Registrada"] },
-          { en: ["3rd", "Written warning"], es: ["3ª", "Advertencia por escrito"] },
-          { en: ["4th", "Final warning"], es: ["4ª", "Última advertencia"] },
-          { en: ["5th", "Termination"], es: ["5ª", "Terminación"] },
+        type: "bullets",
+        items: [
+          { en: "You received and read the 2026 Phes Employee Handbook.", es: "Recibió y leyó el Manual del Empleado de Phes 2026." },
+          { en: "You understand your employment is AT-WILL.", es: "Entiende que su empleo es A VOLUNTAD." },
+          { en: "You provide EXPRESS WRITTEN CONSENT to the commission structure: 35% commission on standard cleanings, 32% on deep cleans and move-in / move-out cleanings, $20.00 per hour for commercial jobs within allotted hours. Quality Verification occurs 24 hours post-job. The job converts to $18.00 per hour if you refuse a valid re-clean request (Quality Verification fails). This commission structure is a fundamental term of employment.", es: "Provee CONSENTIMIENTO EXPRESO POR ESCRITO a la estructura de comisión: 35% en limpiezas estándar, 32% en limpiezas profundas y mudanzas, $20.00 por hora en trabajos comerciales dentro de las horas asignadas. La Verificación de Calidad ocurre 24 horas después del trabajo. El trabajo se convierte a $18.00 por hora si rechaza una solicitud válida de re-limpieza (la Verificación de Calidad falla). Esta estructura de comisión es un término fundamental del empleo." },
+          { en: "You understand the wage deduction policy and your right to refuse specific authorizations.", es: "Entiende la política de deducción salarial y su derecho a rehusar autorizaciones específicas." },
+          { en: "You understand material policy changes require immediate re-acknowledgment.", es: "Entiende que los cambios de política materiales requieren re-reconocimiento inmediato." },
+          { en: "You commit to the annual re-acknowledgment cycle aligned with December sexual harassment training.", es: "Se compromete con el ciclo anual de re-reconocimiento alineado con la capacitación de acoso sexual en diciembre." },
         ],
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "Using PLAWA — with the grace call — can NEVER count toward this scale, ever. No matter how many sick days you take, the absences are protected as long as you make the call and you have hours.",
-          es: "Usar PLAWA — con la llamada de gracia — NUNCA puede contar hacia esta escala. Sin importar cuántos días por enfermedad tome, las ausencias están protegidas mientras haga la llamada y tenga horas.",
-        },
-      },
-      { type: "h", text: { en: "Paid Holidays", es: "Feriados Pagados" } },
-      {
-        type: "p",
-        text: {
-          en: "Phes observes 6 paid holidays plus your birthday: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving, Christmas Day, and your birthday (taken any day that month).",
-          es: "Phes observa 6 feriados pagados más su cumpleaños: Año Nuevo, Memorial Day, Día de la Independencia, Día del Trabajo, Acción de Gracias, Navidad, y su cumpleaños (cualquier día de ese mes).",
-        },
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "Eligibility: holiday pay starts AFTER 90 days of employment. Any holiday that falls in your first 90 days is unpaid for you, even if it's an observed Phes holiday.",
-          es: "Elegibilidad: el pago por feriados comienza DESPUÉS de 90 días de empleo. Cualquier feriado que caiga en sus primeros 90 días es no pagado para usted, incluso si es un feriado observado por Phes.",
-        },
-      },
-      // ── Other Leave Types ──────────────────────────────────────────────────
-      { type: "h", text: { en: "Bereavement Leave", es: "Licencia por Duelo" } },
-      {
-        type: "p",
-        text: {
-          en: "If an immediate family member passes away — spouse, child, parent, or sibling — Phes provides up to 3 paid days at your regular rate. Notify the office as soon as practicable. Extended family (grandparent, in-law, aunt/uncle) is handled case-by-case as unpaid time off; ask the office.",
-          es: "Si un familiar inmediato fallece — cónyuge, hijo/a, padre/madre o hermano/a — Phes ofrece hasta 3 días pagados a su tarifa regular. Notifique a la oficina lo antes posible. Familiares extendidos (abuelo/a, suegros, tíos) se manejan caso por caso como tiempo libre no pagado; pregunte a la oficina.",
-        },
-      },
-      { type: "h", text: { en: "Jury Duty", es: "Servicio de Jurado" } },
-      {
-        type: "p",
-        text: {
-          en: "Jury service is unpaid by Phes. Your job is protected — you cannot be disciplined or terminated for attending — and you keep any juror compensation the court provides. Bring your summons or proof of service to the office before the date and notify your dispatcher.",
-          es: "El servicio de jurado no es pagado por Phes. Su empleo está protegido — no puede ser disciplinado ni despedido por asistir — y se queda con la compensación del tribunal. Traiga la citación o comprobante a la oficina antes de la fecha y notifique al despachador.",
-        },
-      },
-      { type: "h", text: { en: "Lactation Breaks", es: "Pausas de Lactancia" } },
-      {
-        type: "p",
-        text: {
-          en: "Reasonable lactation breaks are PAID at your regular rate and do NOT deduct from PLAWA or PTO. The office will work with you on timing and a private location at the office or between jobs. This is mandatory under Illinois law and the Phes handbook.",
-          es: "Las pausas de lactancia razonables se PAGAN a su tarifa regular y NO se descuentan de PLAWA ni PTO. La oficina coordinará con usted el tiempo y un lugar privado en la oficina o entre trabajos. Es obligatorio bajo la ley de Illinois y el manual de Phes.",
-        },
-      },
-      { type: "h", text: { en: "Pregnancy Accommodation", es: "Acomodación por Embarazo" } },
-      {
-        type: "p",
-        text: {
-          en: "Illinois requires Phes to provide reasonable accommodations during pregnancy — examples: lighter duties, more frequent breaks, adjusted lifting limits, modified schedule, or temporary reassignment. Ask the office; we'll work out an accommodation that keeps you safely working as long as you choose to.",
-          es: "Illinois requiere que Phes brinde acomodaciones razonables durante el embarazo — ejemplos: tareas más ligeras, pausas más frecuentes, límites ajustados de carga, horario modificado o reasignación temporal. Pregunte a la oficina; coordinaremos una acomodación que la mantenga trabajando con seguridad mientras usted decida hacerlo.",
+          en: "The formal e-signature page (with IP address, device info, version hash, and tamper-evident storage per UETA / E-SIGN) lands as part of the final comprehensive handbook PDF flow in a later step. This module's quiz verifies your comprehension of the content above.",
+          es: "La página de firma electrónica formal (con dirección IP, información del dispositivo, hash de versión y almacenamiento a prueba de manipulación conforme a UETA / E-SIGN) se entrega como parte del flujo del PDF final del manual en un paso posterior. El examen de este módulo verifica su comprensión del contenido anterior.",
         },
       },
 
-      // ── Dress Code & Conduct ───────────────────────────────────────────────
-      { type: "h", text: { en: "Uniform — Mandatory", es: "Uniforme — Obligatorio" } },
-      {
-        type: "p",
-        text: {
-          en: "You must arrive at every job in full Phes attire — the company-issued shirt and pants. The uniform is what every client expects to see at their door, and it is how we keep the brand consistent across hundreds of homes a week.",
-          es: "Debe llegar a cada trabajo con el uniforme Phes completo — la camisa y los pantalones provistos por la compañía. El uniforme es lo que cada cliente espera ver en su puerta y es como mantenemos la marca consistente en cientos de hogares por semana.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "No personal clothing substitutions — even if your uniform is dirty or you forgot it. If you don't have your uniform, contact the office BEFORE the job. Do not show up at a client's home out of uniform.",
-          es: "No se permiten sustituciones de ropa personal — incluso si el uniforme está sucio o lo olvidó. Si no tiene su uniforme, contacte a la oficina ANTES del trabajo. No se presente en el hogar de un cliente fuera de uniforme.",
-        },
-      },
-      {
-        type: "bullets",
-        items: [
-          { en: "Phes-issued shirt — clean, untucked is acceptable, no visible stains.", es: "Camisa Phes — limpia, sin manchas visibles, puede llevarse por fuera." },
-          { en: "Phes-issued pants in good condition. No shorts, no leggings as outerwear.", es: "Pantalones Phes en buen estado. Sin shorts, sin leggings como ropa exterior." },
-          { en: "Closed-toe athletic shoes. No sandals, no Crocs, no open backs.", es: "Calzado deportivo cerrado. Sin sandalias, sin Crocs, sin parte trasera abierta." },
-          { en: "Hair tied back if shoulder-length or longer.", es: "Cabello recogido si llega a los hombros o más largo." },
-          { en: "Jewelry minimal — no large rings or bracelets that can scratch surfaces.", es: "Joyería mínima — sin anillos ni pulseras grandes que puedan rayar superficies." },
-        ],
-      },
-      { type: "h", text: { en: "Shoe Covers", es: "Cubrezapatos" } },
-      {
-        type: "p",
-        text: {
-          en: "Shoe covers are mandatory inside every client home from the moment you cross the threshold. Change covers between homes. Never reuse covers from a previous job.",
-          es: "Los cubrezapatos son obligatorios dentro de cada hogar desde el momento en que cruza el umbral. Cambie los cubrezapatos entre hogares. Nunca reutilice cubrezapatos de un trabajo anterior.",
-        },
-      },
-      { type: "h", text: { en: "Personal Phone Use", es: "Uso de Teléfono Personal" } },
-      {
-        type: "p",
-        text: {
-          en: "Personal cell phones are not allowed during a job. Keep your phone in your bag or vehicle. The only phone use during a job is the company app for clock-in / check-in / job worksheet — and only when stepping aside briefly. Personal calls, texts, and social media wait until break or after the visit.",
-          es: "No se permiten teléfonos personales durante un trabajo. Mantenga su teléfono en su bolso o vehículo. El único uso permitido durante un trabajo es la aplicación de la compañía para Clock In / Check In / Hoja de Trabajo — y solo apartándose brevemente. Llamadas personales, mensajes y redes sociales esperan hasta el descanso o después de la visita.",
-        },
-      },
-      {
-        type: "callout",
-        tone: "warning",
-        text: {
-          en: "Photos or videos of client homes are strictly forbidden — except photos taken inside the company app for documenting completed work or damage.",
-          es: "Fotos o videos de hogares de clientes están estrictamente prohibidos — excepto fotos tomadas dentro de la aplicación de la compañía para documentar trabajo completado o daños.",
-        },
-      },
     ],
   },
 
@@ -1207,8 +1614,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If a client, contractor, or vendor harasses you while you're working — at a home, on a route, in our shop — that is still sexual harassment, and Phes is required by law to investigate and act. You are NEVER expected to tolerate harassment because 'the client is important.' Leave the property if you feel unsafe, then call Maribel or Francisco immediately.",
-          es: "Si un cliente, contratista o vendedor lo acosa mientras trabaja — en una casa, en una ruta, en nuestra oficina — eso sigue siendo acoso sexual, y Phes está obligado por ley a investigar y actuar. NUNCA se espera que tolere acoso porque 'el cliente es importante.' Salga de la propiedad si se siente inseguro, luego llame a Maribel o Francisco inmediatamente.",
+          en: "If a client, contractor, or vendor harasses you while you're working — at a home, on a route, in our shop — that is still sexual harassment, and Phes is required by law to investigate and act. You are NEVER expected to tolerate harassment because 'the client is important.' Leave the property if you feel unsafe, then call the office team immediately.",
+          es: "Si un cliente, contratista o vendedor lo acosa mientras trabaja — en una casa, en una ruta, en nuestra oficina — eso sigue siendo acoso sexual, y Phes está obligado por ley a investigar y actuar. NUNCA se espera que tolere acoso porque 'el cliente es importante.' Salga de la propiedad si se siente inseguro, luego llame a el equipo de la oficina inmediatamente.",
         },
       },
 
@@ -1217,8 +1624,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "INTERNAL — Tell Maribel or Francisco at the office directly (text, call, or in person). They will document the report and start an investigation within a reasonable timeframe.", es: "INTERNO — Hable directamente con Maribel o Francisco en la oficina (mensaje, llamada o en persona). Documentarán el reporte e iniciarán una investigación en un plazo razonable." },
-          { en: "INTERNAL ALTERNATIVE — If your concern involves Maribel or Francisco, report directly to Sal Martinez (owner). Use any channel: email, text, in person. No retaliation.", es: "ALTERNATIVA INTERNA — Si su preocupación involucra a Maribel o Francisco, reporte directamente a Sal Martinez (propietario). Use cualquier canal: correo, mensaje, en persona. Sin represalias." },
+          { en: "INTERNAL — Tell the office team at the office directly (text, call, or in person). They will document the report and start an investigation within a reasonable timeframe.", es: "INTERNO — Hable directamente con el equipo de la oficina en la oficina (mensaje, llamada o en persona). Documentarán el reporte e iniciarán una investigación en un plazo razonable." },
+          { en: "INTERNAL ALTERNATIVE — If your concern involves the office team, report directly to the company owner. Use any channel: email, text, in person. No retaliation.", es: "ALTERNATIVA INTERNA — Si su preocupación involucra a el equipo de la oficina, reporte directamente a el propietario de la empresa. Use cualquier canal: correo, mensaje, en persona. Sin represalias." },
           { en: "EXTERNAL — Illinois Department of Human Rights (IDHR). 300 days from the incident to file a charge under Illinois law. Web: dhr.illinois.gov.", es: "EXTERNO — Departamento de Derechos Humanos de Illinois (IDHR). 300 días desde el incidente para presentar un cargo bajo la ley de Illinois. Web: dhr.illinois.gov." },
           { en: "EXTERNAL — U.S. Equal Employment Opportunity Commission (EEOC). 300 days from the incident in Illinois (Illinois is a deferral state). Web: eeoc.gov.", es: "EXTERNO — Comisión de Igualdad de Oportunidades en el Empleo de EE.UU. (EEOC). 300 días desde el incidente en Illinois (Illinois es un estado con derechos diferidos). Web: eeoc.gov." },
         ],
@@ -1247,8 +1654,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "You don't have to be the target to report. If you see or hear another tech, the office, a client, or anyone behaving in a way that fits the descriptions above, you can — and should — report it to Maribel, Francisco, or Sal. Bystander reports are taken just as seriously as direct reports, and the same retaliation protections apply.",
-          es: "No tiene que ser el objetivo para reportar. Si ve o escucha a otro técnico, a la oficina, a un cliente, o a cualquier persona comportándose de manera que coincida con las descripciones anteriores, puede — y debe — reportarlo a Maribel, Francisco o Sal. Los reportes de testigos se toman con la misma seriedad que los reportes directos, y aplican las mismas protecciones contra represalias.",
+          en: "You don't have to be the target to report. If you see or hear another tech, the office, a client, or anyone behaving in a way that fits the descriptions above, you can — and should — report it to the office team or the company owner. Bystander reports are taken just as seriously as direct reports, and the same retaliation protections apply.",
+          es: "No tiene que ser el objetivo para reportar. Si ve o escucha a otro técnico, a la oficina, a un cliente, o a cualquier persona comportándose de manera que coincida con las descripciones anteriores, puede — y debe — reportarlo a el equipo de la oficina o el propietario. Los reportes de testigos se toman con la misma seriedad que los reportes directos, y aplican las mismas protecciones contra represalias.",
         },
       },
 
@@ -1394,7 +1801,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're feeling sick tonight and won't work tomorrow. How do you report it?", es: "Se siente mal esta noche y no trabajará mañana. ¿Cómo lo reporta?" },
     options: [
       { en: "Text a co-worker so they can tell the office.", es: "Mensaje a un compañero para que avise a la oficina." },
-      { en: "Submit a sick request through MaidCentral / Qleno AND make the grace-window call to Maribel or Francisco — that's all PLAWA needs. No advance approval, no doctor's note, no reason required.", es: "Envíe la solicitud por MaidCentral / Qleno Y haga la llamada de gracia a Maribel o Francisco — eso es todo lo que PLAWA necesita. Sin aprobación previa, sin nota médica, sin razón requerida." },
+      { en: "Submit a sick request through MaidCentral / Qleno AND make the grace-window call to the office team — that's all PLAWA needs. No advance approval, no doctor's note, no reason required.", es: "Envíe la solicitud por MaidCentral / Qleno Y haga la llamada de gracia a el equipo de la oficina — eso es todo lo que PLAWA necesita. Sin aprobación previa, sin nota médica, sin razón requerida." },
       { en: "Call the office in the morning when you should be at work.", es: "Llamar a la oficina en la mañana cuando debería estar trabajando." },
       { en: "Just don't show up — they'll figure it out.", es: "Simplemente no presentarse — ya lo entenderán." },
     ],
@@ -1644,12 +2051,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     id: "q-pp-27-bucket-order",
     moduleId: "phes-policies",
     prompt: {
-      en: "Phes uses four leave buckets to cover absences. What is the order they are used in?",
-      es: "Phes usa cuatro cubetas de licencia para cubrir ausencias. ¿En qué orden se usan?",
+      en: "Phes uses three leave buckets to cover absences. What is the order they are used in?",
+      es: "Phes usa tres cubetas de licencia para cubrir ausencias. ¿En qué orden se usan?",
     },
     options: [
-      { en: "PTO → PLAWA → Unpaid Personal Leave → Unpaid Absence Allowance.", es: "PTO → PLAWA → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada." },
-      { en: "PLAWA → PTO → Unpaid Personal Leave → Unpaid Absence Allowance.", es: "PLAWA → PTO → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada." },
+      { en: "PTO → PLAWA → Unpaid Personal Leave.", es: "PTO → PLAWA → Licencia Personal No Pagada." },
+      { en: "PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and absence is not otherwise protected).", es: "PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma)." },
       { en: "Whichever bucket the office picks each time.", es: "La cubeta que la oficina escoja cada vez." },
       { en: "Unpaid Personal Leave first, paid buckets last.", es: "Licencia Personal No Pagada primero, las pagadas al final." },
     ],
@@ -1664,7 +2071,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Any time you call off sick more than twice in a month.", es: "Cada vez que llame por enfermedad más de dos veces al mes." },
-      { en: "Only when (a) it's a no-call/no-show, OR (b) all four leave buckets are exhausted and you didn't get advance approval for unpaid time. Using any bucket with proper notice is excused.", es: "Solo cuando (a) es un no llamó / no se presentó, O (b) las cuatro cubetas de licencia están agotadas y no obtuvo aprobación previa para tiempo no pagado. Usar cualquier cubeta con aviso apropiado es justificado." },
+      { en: "Only when (a) it's a no-call/no-show, OR (b) all three leave buckets are exhausted and you didn't get advance approval for unpaid time. Using any bucket with proper notice is excused.", es: "Solo cuando (a) es un no llamó / no se presentó, O (b) las tres cubetas de licencia están agotadas y no obtuvo aprobación previa para tiempo no pagado. Usar cualquier cubeta con aviso apropiado es justificado." },
       { en: "As soon as your PLAWA balance hits zero.", es: "Tan pronto como su saldo de PLAWA llega a cero." },
       { en: "Any absence that isn't backed by a doctor's note.", es: "Cualquier ausencia que no esté respaldada por una nota médica." },
     ],
@@ -1724,7 +2131,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Every bucket: 7 days advance notice, no exceptions.", es: "Toda cubeta: 7 días de aviso anticipado, sin excepciones." },
-      { en: "PLAWA and Unpaid Absence Allowance: the 20-minute grace call only. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + Maribel/Francisco) for all four.", es: "PLAWA y Tolerancia de Ausencia No Pagada: solo la llamada de gracia de 20 minutos. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + Maribel/Francisco) para las cuatro." },
+      { en: "PLAWA: the 20-minute grace call only, no advance approval. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + the office team) for all three.", es: "PLAWA y Tolerancia de Ausencia No Pagada: solo la llamada de gracia de 20 minutos. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + the office team) para las cuatro." },
       { en: "Doctor's note required for all four.", es: "Nota médica requerida para las cuatro." },
       { en: "Only the office decides — no fixed notice rules.", es: "Solo la oficina decide — sin reglas fijas de aviso." },
     ],
@@ -1746,17 +2153,17 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-pp-34-unpaid-absence-allowance",
+    id: "q-pp-34-protected-still-excused",
     moduleId: "phes-policies",
     prompt: {
-      en: "You've burned through PLAWA, PTO, and Unpaid Personal Leave. You wake up sick and call off (with the 20-minute grace call). Is there still a bucket Phes uses before the absence becomes unexcused?",
-      es: "Ha agotado PLAWA, PTO, y Licencia Personal No Pagada. Despierta enfermo y llama para faltar (con la llamada de gracia de 20 minutos). ¿Existe todavía una cubeta que Phes use antes de que la ausencia sea injustificada?",
+      en: "You've burned through PLAWA, PTO, and Unpaid Personal Leave. The very next absence is jury duty (you have a court summons). Is it unexcused?",
+      es: "Ha agotado PLAWA, PTO, y Licencia Personal No Pagada. La siguiente ausencia es servicio de jurado (tiene una citación judicial). ¿Es injustificada?",
     },
     options: [
-      { en: "No — once the first three are out, the absence is unexcused.", es: "No — una vez agotadas las primeras tres, la ausencia es injustificada." },
-      { en: "Yes — the Unpaid Absence Allowance (40 hours, after 90 days, grace-call only, no advance approval needed). It's the last bucket before discipline. After it's exhausted, further unprotected absences become unexcused.", es: "Sí — la Tolerancia de Ausencia No Pagada (40 horas, después de 90 días, solo llamada de gracia, sin aprobación previa). Es la última cubeta antes de la disciplina. Una vez agotada, las ausencias no protegidas adicionales se vuelven injustificadas." },
-      { en: "Phes will let you borrow against next year's PTO.", es: "Phes le permite pedir prestado contra el PTO del próximo año." },
-      { en: "Only if the absence is for an immediate family member.", es: "Solo si la ausencia es por un familiar inmediato." },
+      { en: "Yes. All three buckets are gone so any new absence counts.", es: "Sí. Las tres cubetas se agotaron, así que cualquier ausencia nueva cuenta." },
+      { en: "No. Jury duty is a PROTECTED absence under Illinois law. Protected absences are NEVER counted as unexcused, no matter how many leave hours you have left. Same for workers comp, bereavement, lactation, pregnancy, VESSA, military leave, and Election Day voting.", es: "No. El servicio de jurado es una ausencia PROTEGIDA bajo la ley de Illinois. Las ausencias protegidas NUNCA cuentan como injustificadas, sin importar cuántas horas de licencia le queden. Lo mismo aplica para compensación al trabajador, duelo, lactancia, embarazo, VESSA, licencia militar y tiempo para votar el Día de Elecciones." },
+      { en: "Only if you bring a doctor's note.", es: "Solo si trae una nota médica." },
+      { en: "It depends on whether two other cleaners are also off that day.", es: "Depende de si hay otros dos cleaners libres ese día." },
     ],
     correctIndex: 1,
   },
@@ -1844,7 +2251,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Offer them $20 off and pocket the difference.", es: "Ofrézcale $20 de descuento y guárdese la diferencia." },
-      { en: "Politely say 'I'll have the office reach out to discuss pricing,' then call Maribel or Francisco. Pricing is 100% the office's job — never negotiate, never accept cash discounts, never quote prices.", es: "Diga cortésmente 'la oficina los contactará para hablar del precio,' luego llame a Maribel o Francisco. El precio es 100% trabajo de la oficina — nunca negocie, nunca acepte descuentos en efectivo, nunca cotice." },
+      { en: "Politely say 'I'll have the office reach out to discuss pricing,' then call the office team. Pricing is 100% the office's job — never negotiate, never accept cash discounts, never quote prices.", es: "Diga cortésmente 'la oficina los contactará para hablar del precio,' luego llame a el equipo de la oficina. El precio es 100% trabajo de la oficina — nunca negocie, nunca acepte descuentos en efectivo, nunca cotice." },
       { en: "Tell them Phes doesn't do discounts and finish the job in silence.", es: "Dígale que Phes no hace descuentos y termine el trabajo en silencio." },
       { en: "Quote a discount yourself to keep them happy.", es: "Cotice un descuento usted mismo para mantenerlos contentos." },
     ],
@@ -2659,7 +3066,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — clients are not Phes employees, so there's nothing Phes can do.", es: "No — los clientes no son empleados de Phes, así que no hay nada que Phes pueda hacer." },
-      { en: "Yes — Phes is legally required to investigate and act on harassment by clients or third parties just as if it were a coworker. Leave the property if you feel unsafe and call Maribel or Francisco immediately.", es: "Sí — Phes está legalmente obligado a investigar y actuar sobre el acoso de clientes o terceros igual que si fuera un compañero. Salga de la propiedad si se siente inseguro y llame a Maribel o Francisco inmediatamente." },
+      { en: "Yes — Phes is legally required to investigate and act on harassment by clients or third parties just as if it were a coworker. Leave the property if you feel unsafe and call the office team immediately.", es: "Sí — Phes está legalmente obligado a investigar y actuar sobre el acoso de clientes o terceros igual que si fuera un compañero. Salga de la propiedad si se siente inseguro y llame a el equipo de la oficina inmediatamente." },
       { en: "Only if the client is also a supervisor.", es: "Solo si el cliente también es supervisor." },
       { en: "Only if the comment is in writing.", es: "Solo si el comentario está por escrito." },
     ],
@@ -2674,7 +3081,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Only directly to Sal — and only in person.", es: "Solo directamente con Sal — y solo en persona." },
-      { en: "Internally: Maribel or Francisco at the office; if it involves them, Sal directly. Externally: Illinois Department of Human Rights (IDHR) or the U.S. EEOC.", es: "Internamente: Maribel o Francisco en la oficina; si los involucra a ellos, Sal directamente. Externamente: Departamento de Derechos Humanos de Illinois (IDHR) o EEOC de EE.UU." },
+      { en: "Internally: the office team at the office; if it involves them, the company owner directly. Externally: Illinois Department of Human Rights (IDHR) or the U.S. EEOC.", es: "Internamente: el equipo de la oficina en la oficina; si los involucra a ellos, al propietario directamente. Externamente: Departamento de Derechos Humanos de Illinois (IDHR) o EEOC de EE.UU." },
       { en: "You must use the company app — verbal reports are not accepted.", es: "Debe usar la aplicación de la compañía — los reportes verbales no se aceptan." },
       { en: "Only an attorney can file a report.", es: "Solo un abogado puede presentar un reporte." },
     ],

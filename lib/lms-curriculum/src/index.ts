@@ -196,7 +196,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-31-plawa-default": 1,
   "q-pp-32-notice-by-bucket": 1,
   "q-pp-33-plawa-reason": 1,
-  "q-pp-34-unpaid-absence-allowance": 1,
+  "q-pp-34-protected-still-excused": 1,
   "q-pp-35-deep-clean-includes": 1,
   "q-pp-36-deep-clean-excludes": 1,
   "q-pp-37-deep-clean-windows": 0,
@@ -315,7 +315,7 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-27-bucket-order", "q-pp-28-unexcused-definition", "q-pp-29-plawa-denial",
       "q-pp-30-plawa-no-discipline", "q-pp-31-plawa-default",
       "q-pp-32-notice-by-bucket", "q-pp-33-plawa-reason",
-      "q-pp-34-unpaid-absence-allowance",
+      "q-pp-34-protected-still-excused",
       // Cleaning checklist + Deep Clean scope (2026-05-12)
       "q-pp-35-deep-clean-includes", "q-pp-36-deep-clean-excludes",
       "q-pp-37-deep-clean-windows", "q-pp-38-heavy-furniture-25lb",

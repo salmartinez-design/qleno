@@ -61,7 +61,7 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-31-plawa-default": 1,
   "q-pp-32-notice-by-bucket": 1,
   "q-pp-33-plawa-reason": 1,
-  "q-pp-34-unpaid-absence-allowance": 1,
+  "q-pp-34-protected-still-excused": 1,
   "q-pp-35-deep-clean-includes": 1,
   "q-pp-36-deep-clean-excludes": 1,
   "q-pp-37-deep-clean-windows": 0,

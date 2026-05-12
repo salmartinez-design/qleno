@@ -742,6 +742,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "CREATE lms_document_versions", stmt: `
       CREATE TABLE IF NOT EXISTS lms_document_versions (
         id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL REFERENCES companies(id),
         document_type       TEXT NOT NULL,
         locale              TEXT NOT NULL,
         version_hash        TEXT NOT NULL,
@@ -753,10 +754,35 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
-    { label: "lms_document_versions_type_locale_hash_uq",
-      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_document_versions_type_locale_hash_uq ON lms_document_versions(document_type, locale, version_hash)` },
-    { label: "lms_document_versions_type_locale_idx",
-      stmt: `CREATE INDEX IF NOT EXISTS lms_document_versions_type_locale_idx ON lms_document_versions(document_type, locale)` },
+    // PR #2 backfill: if PR #1's lms_document_versions table already
+    // exists from an earlier deploy without company_id, add the column.
+    // Idempotent — guarded by IF NOT EXISTS so re-runs are no-ops.
+    // Drops the legacy non-tenant-scoped indexes that PR #1 created so
+    // the new tenant-scoped indexes below can take over.
+    { label: "ALTER lms_document_versions add company_id (if missing)", stmt: `
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'lms_document_versions' AND column_name = 'company_id'
+        ) THEN
+          ALTER TABLE lms_document_versions
+            ADD COLUMN company_id INTEGER REFERENCES companies(id);
+          -- Backfill any pre-existing rows to Phes (company_id=1). PR #1
+          -- shipped before any signing endpoints, so this should normally
+          -- be a no-op.
+          UPDATE lms_document_versions SET company_id = 1 WHERE company_id IS NULL;
+          ALTER TABLE lms_document_versions ALTER COLUMN company_id SET NOT NULL;
+        END IF;
+      END $$
+    ` },
+    { label: "DROP legacy lms_document_versions indexes (if exist)",
+      stmt: `DROP INDEX IF EXISTS lms_document_versions_type_locale_hash_uq` },
+    { label: "DROP legacy lms_document_versions type_locale idx",
+      stmt: `DROP INDEX IF EXISTS lms_document_versions_type_locale_idx` },
+    { label: "lms_document_versions_company_type_locale_hash_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_document_versions_company_type_locale_hash_uq ON lms_document_versions(company_id, document_type, locale, version_hash)` },
+    { label: "lms_document_versions_company_type_locale_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_document_versions_company_type_locale_idx ON lms_document_versions(company_id, document_type, locale)` },
 
     { label: "CREATE lms_signed_documents", stmt: `
       CREATE TABLE IF NOT EXISTS lms_signed_documents (

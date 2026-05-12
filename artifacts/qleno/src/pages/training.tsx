@@ -627,7 +627,6 @@ export default function TrainingPage() {
         <AckView
           locale={locale}
           tenantName={curriculum.tenantName}
-          tenantLogoUrl={curriculum.tenantLogoUrl}
           learner={learner}
           onCancel={() => setView({ kind: "home" })}
           onSubmit={async (signature) => {
@@ -641,7 +640,6 @@ export default function TrainingPage() {
         <DoneView
           locale={locale}
           tenantName={curriculum.tenantName}
-          tenantLogoUrl={curriculum.tenantLogoUrl}
           onReturnHome={() => setLocation("/")}
         />
       )}
