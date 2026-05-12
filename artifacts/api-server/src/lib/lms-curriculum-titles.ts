@@ -48,6 +48,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Sexual Harassment Prevention (Illinois)",
     es: "Prevención del Acoso Sexual (Illinois)",
   },
+  "drug-alcohol": {
+    en: "Drug & Alcohol Policy",
+    es: "Política de Drogas y Alcohol",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",

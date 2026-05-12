@@ -47,6 +47,7 @@ export type ModuleId =
   | "maidcentral"
   | "products-tools"
   | "il-sexual-harassment"
+  | "drug-alcohol"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -72,6 +73,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "maidcentral",
   "products-tools",
   "il-sexual-harassment",
+  "drug-alcohol",
   "acknowledgment",
 ] as const;
 
@@ -84,6 +86,11 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * (820 ILCS 96) requires comprehension verification, not just attestation.
  * Phes also re-runs this module annually — content is updated each January
  * and the office uses the admin Reset action to re-enroll the team.
+ *
+ * drug-alcohol (Phase 3, PR #4) follows the same pattern: quiz to verify
+ * comprehension, followed by a SEPARATE signed acknowledgment (legally
+ * binding e-signature) handled by lms_signed_documents — the quiz pass
+ * does NOT supersede the signed ack requirement.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -92,6 +99,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "maidcentral",
   "products-tools",
   "il-sexual-harassment",
+  "drug-alcohol",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -292,6 +300,23 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-il-13-consent-withdrawn": 1,
   "q-il-14-investigation-rights": 1,
   "q-il-15-good-faith-protection": 1,
+
+  // ── Module 7: drug-alcohol (10, Phase 3 PR #4) ──────────────────────────
+  // Phes Drug & Alcohol Policy. Quiz verifies comprehension; the binding
+  // signed acknowledgment lives in lms_signed_documents (document_type
+  // 'drug_alcohol'). Both are required for legal compliance under Illinois
+  // Cannabis Regulation & Tax Act + the Illinois Right to Privacy in the
+  // Workplace Act (820 ILCS 55).
+  "q-da-01-no-pre-employment-test": 1,
+  "q-da-02-impairment-not-cannabis-use": 1,
+  "q-da-03-impairment-signs": 1,
+  "q-da-04-reasonable-suspicion-process": 1,
+  "q-da-05-post-accident-threshold": 1,
+  "q-da-06-prescription-meds": 1,
+  "q-da-07-refusal-to-test": 1,
+  "q-da-08-discipline-scale": 1,
+  "q-da-09-dui-reporting-window": 1,
+  "q-da-10-license-suspension-disclosure": 1,
 });
 
 /**
@@ -355,6 +380,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-il-07-retaliation", "q-il-08-bystander-duty", "q-il-09-idhr-deadline",
       "q-il-10-eeoc-deadline", "q-il-11-annual-retraining", "q-il-12-severe-or-pervasive",
       "q-il-13-consent-withdrawn", "q-il-14-investigation-rights", "q-il-15-good-faith-protection",
+    ],
+    "drug-alcohol": [
+      "q-da-01-no-pre-employment-test", "q-da-02-impairment-not-cannabis-use",
+      "q-da-03-impairment-signs", "q-da-04-reasonable-suspicion-process",
+      "q-da-05-post-accident-threshold", "q-da-06-prescription-meds",
+      "q-da-07-refusal-to-test", "q-da-08-discipline-scale",
+      "q-da-09-dui-reporting-window", "q-da-10-license-suspension-disclosure",
     ],
   });
 

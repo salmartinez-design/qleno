@@ -12,11 +12,13 @@
  * two separate audit trails. Deleting one tenant's history can
  * never touch another's.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   lmsDocumentVersionsTable,
+  lmsSignedDocumentsTable,
   usersTable,
+  REQUIRED_PRE_FINAL_SIGNED_DOCS,
   type LmsDocumentVersion,
 } from "@workspace/db/schema";
 import { hashContent } from "./lms-signatures.js";
@@ -220,4 +222,45 @@ export async function markVersionMaterial(
         eq(lmsDocumentVersionsTable.company_id, companyId),
       ),
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Final-exam signed-document gate
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Return the subset of REQUIRED_PRE_FINAL_SIGNED_DOCS that the user has
+ * NOT yet signed (no active row in lms_signed_documents for that
+ * document_type). Tenant-scoped.
+ *
+ * Per PR #4 policy decision: the final mixed test does not unlock
+ * until this list is empty. The /quiz/submit endpoint rejects with
+ * 403 when called for FINAL_MODULE_ID while any required doc is still
+ * missing, and the /me endpoint echoes this list so the frontend can
+ * render the final-exam tile as locked with a "sign these first" hint.
+ *
+ * Returns an array of document_type strings, in the order defined by
+ * REQUIRED_PRE_FINAL_SIGNED_DOCS (stable across calls).
+ */
+export async function getMissingRequiredSignedDocs(
+  companyId: number,
+  userId: number,
+): Promise<string[]> {
+  const required = [...REQUIRED_PRE_FINAL_SIGNED_DOCS];
+  if (required.length === 0) return [];
+
+  const rows = await db
+    .select({ document_type: lmsSignedDocumentsTable.document_type })
+    .from(lmsSignedDocumentsTable)
+    .where(
+      and(
+        eq(lmsSignedDocumentsTable.company_id, companyId),
+        eq(lmsSignedDocumentsTable.user_id, userId),
+        eq(lmsSignedDocumentsTable.status, "active"),
+        inArray(lmsSignedDocumentsTable.document_type, required),
+      ),
+    );
+
+  const signed = new Set(rows.map((r) => r.document_type));
+  return required.filter((t) => !signed.has(t));
 }

@@ -67,6 +67,7 @@ import {
   captureRequestMetadata,
   parseMinimalDeviceInfo,
 } from "../lib/lms-signatures.js";
+import { getMissingRequiredSignedDocs } from "../lib/lms-signatures-db.js";
 import { issueCertificate } from "../lib/lms-certificates.js";
 
 const router = Router();
@@ -297,15 +298,26 @@ router.get("/me", requireAuth, async (req, res) => {
     for (const m of MODULE_ORDER) {
       unlocked[m] = isModuleUnlocked(m, completed);
     }
-    unlocked[FINAL_MODULE_ID] = isFinalUnlocked(completed);
+    // PR #4: the final exam also requires every standalone signed
+    // acknowledgment to be in place. We compute the missing list and
+    // bake it into the unlocked flag too, so the existing frontend
+    // sequential-gating logic naturally treats the final card as
+    // locked when signed docs are pending. The frontend also reads
+    // missing_required_signed_docs directly to show WHAT'S missing.
+    const missingSignedDocs = await getMissingRequiredSignedDocs(
+      companyId,
+      userId,
+    );
+    unlocked[FINAL_MODULE_ID] =
+      isFinalUnlocked(completed) && missingSignedDocs.length === 0;
 
     const limits: Record<string, number> = {};
     for (const m of MODULE_ORDER) limits[m] = MAX_MODULE_ATTEMPTS;
     limits[FINAL_MODULE_ID] = MAX_FINAL_ATTEMPTS;
 
-    // Bypass capability: owners, admins, and office staff (Maribel, Francisco
-    // for Phes) can skip modules. This `is_owner` field is kept for the
-    // existing frontend prop name; semantically it now means "can_bypass".
+    // Bypass capability: owners, admins, and office staff can skip
+    // modules. This `is_owner` field is kept for the existing frontend
+    // prop name; semantically it now means "can_bypass".
     const canBypass =
       req.auth!.role === "owner" ||
       req.auth!.role === "admin" ||
@@ -319,6 +331,7 @@ router.get("/me", requireAuth, async (req, res) => {
         days_remaining: daysUntil(enrollment.deadline_at, now),
         limits,
         is_owner: canBypass,
+        missing_required_signed_docs: missingSignedDocs,
         can_bypass: canBypass,
       },
     });
@@ -597,6 +610,27 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
           error: "Forbidden",
           message: "Final mixed test is locked",
         });
+      }
+      // PR #4 policy: final exam additionally requires every standalone
+      // signed acknowledgment to be in place. Bypass: owners / admins /
+      // office are exempt from this gate (they don't need to sign their
+      // own training to take the exam).
+      const callerRole = req.auth!.role;
+      const exemptFromSignGate =
+        callerRole === "owner" ||
+        callerRole === "admin" ||
+        callerRole === "office" ||
+        callerRole === "super_admin";
+      if (!exemptFromSignGate) {
+        const missing = await getMissingRequiredSignedDocs(companyId, userId);
+        if (missing.length > 0) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message:
+              "Final mixed test is locked: sign all required acknowledgments first",
+            missing_required_signed_docs: missing,
+          });
+        }
       }
     } else if (!isModuleUnlocked(moduleId, completed)) {
       return res.status(403).json({
@@ -1303,29 +1337,15 @@ router.post(
 
       await touchEnrollment(enrollment.id, now);
 
-      // Phase 12: issue a completion certificate for the bypassed module.
-      // The cert is for the TARGET learner (when admin/office bypasses on
-      // their behalf) or the caller themselves (when an owner bypasses
-      // their own training). score=100 because bypass is treated as a
-      // perfect-completion attestation by the granting admin.
-      let bypassCertId: number | null = null;
-      try {
-        const meta = captureRequestMetadata(req);
-        const cert = await issueCertificate({
-          companyId,
-          userId: targetUserId,
-          moduleId,
-          score: 100,
-          passed: true,
-          locale: enrollment.locale === "es" ? "es" : "en",
-          ipAddress: meta.ip_address,
-          deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
-          quizAttemptId: null,
-        });
-        bypassCertId = cert.id;
-      } catch (err) {
-        console.error("[lms] cert issuance failed on bypass (non-fatal):", err);
-      }
+      // PR #4 policy decision: bypass marks the quiz passed for
+      // navigation purposes but does NOT issue a completion certificate
+      // and does NOT create a signed_document row. Certificates and
+      // signed documents represent ACTUAL employee action; admin bypass
+      // is a separate audit-logged event ("bypassed_by") that must stay
+      // distinct from a learner-driven "signed_by" / "certified" event.
+      // (This reverts the cert auto-issue that PR #3 wired in.)
+      const bypassingUserId = req.auth!.userId;
+      const self = targetUserId === bypassingUserId;
 
       await logAudit(
         req,
@@ -1336,13 +1356,20 @@ router.post(
         {
           module_id: moduleId,
           target_user_id: targetUserId,
-          self: targetUserId === req.auth!.userId,
-          certificate_id: bypassCertId,
+          bypassed_by_user_id: bypassingUserId,
+          self,
+          // Explicit marker so the audit dashboard can distinguish
+          // bypasses from actual sign / cert events at a glance.
+          source: "admin_bypass",
         },
       );
 
       return res.json({
-        data: { ok: true, enrollment_id: enrollment.id, certificate_id: bypassCertId },
+        data: {
+          ok: true,
+          enrollment_id: enrollment.id,
+          certificate_id: null,
+        },
       });
     } catch (err) {
       console.error("[lms] /admin/bypass-module error:", err);
