@@ -43,6 +43,12 @@ describe("SIGNED_DOCUMENT_CONTENT registry", () => {
     assert.ok(SIGNED_DOCUMENT_CONTENT.video_photo_release!.es);
   });
 
+  it("includes non_solicitation (Phase 6 PR #7)", () => {
+    assert.ok(SIGNED_DOCUMENT_CONTENT.non_solicitation);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.non_solicitation!.en);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.non_solicitation!.es);
+  });
+
   it("every registered document has BOTH en and es entries", () => {
     for (const [type, entry] of Object.entries(SIGNED_DOCUMENT_CONTENT)) {
       assert.ok(entry?.en?.contentHtml, `${type}: missing en.contentHtml`);
@@ -146,6 +152,111 @@ describe("listRegisteredDocumentTypes", () => {
 
   it("includes video_photo_release after PR #6", () => {
     assert.ok(listRegisteredDocumentTypes().includes("video_photo_release"));
+  });
+
+  it("includes non_solicitation after PR #7", () => {
+    assert.ok(listRegisteredDocumentTypes().includes("non_solicitation"));
+  });
+});
+
+describe("non_solicitation content shape (PR #7 spec checks)", () => {
+  it("Spanish entry IS flagged pendingTranslationReview (one of the four flagged docs)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.pendingTranslationReview ?? false,
+      true,
+    );
+    assert.equal(isSpanishPendingTranslationReview("non_solicitation"), true);
+  });
+
+  it("English entry is NOT flagged pendingTranslationReview (English is binding)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.pendingTranslationReview ?? false,
+      false,
+    );
+  });
+
+  it("English content cites the Illinois Freedom to Work Act with the 820 ILCS 90 citation", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("Illinois Freedom to Work Act"),
+      "English version must reference the Illinois Freedom to Work Act by name",
+    );
+    assert.ok(
+      en.includes("820 ILCS 90"),
+      "English version must include the 820 ILCS 90 citation",
+    );
+  });
+
+  it("Spanish content cites the Illinois Freedom to Work Act translation + the 820 ILCS 90 citation", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    assert.ok(
+      es.includes("Ley de Libertad para Trabajar de Illinois"),
+      "Spanish version must reference the IL Freedom to Work Act translation",
+    );
+    assert.ok(
+      es.includes("820 ILCS 90"),
+      "Spanish version must include the 820 ILCS 90 citation",
+    );
+  });
+
+  it("English content states a 12-MONTH duration verbatim", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("TWELVE MONTHS"),
+      "English must state the 12-month duration explicitly",
+    );
+  });
+
+  it("English content explicitly carves out coworkers from the restriction", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("COWORKERS ARE NOT RESTRICTED"),
+      "English must include the coworker carve-out section header",
+    );
+  });
+
+  it("English content includes the inbound-contact carve-out", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("INBOUND CONTACT"),
+      "English must include the INBOUND CONTACT carve-out language",
+    );
+  });
+
+  it("English content includes the general-advertising carve-out", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("GENERAL ADVERTISING"),
+      "English must include the general-advertising carve-out section header",
+    );
+  });
+
+  it("English content explicitly disclaims being a non-compete", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("NO NON-COMPETE"),
+      "English must include the NO NON-COMPETE section",
+    );
+  });
+
+  it("English content describes remedies as injunctive + documented damages + attorney fees only (no liquidated damages)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("injunctive relief"),
+      "English must state injunctive relief as the primary remedy",
+    );
+    assert.ok(
+      en.includes("does not impose liquidated damages"),
+      "English must explicitly disclaim liquidated damages / penalty clauses",
+    );
+  });
+
+  it("English and Spanish content hash to DIFFERENT version hashes (legally distinct)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    const hEn = hashContent(en, "en");
+    const hEs = hashContent(es, "es");
+    assert.notEqual(hEn, hEs);
   });
 });
 

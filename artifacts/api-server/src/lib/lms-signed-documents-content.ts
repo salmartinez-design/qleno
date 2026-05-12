@@ -410,6 +410,132 @@ const VIDEO_PHOTO_RELEASE_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// non_solicitation (Phase 6, PR #7)
+//
+// CO-SIGNED agreement bound by the Illinois Freedom to Work Act (820 ILCS 90).
+// Phes intentionally narrows the agreement to stay well within IL reasonableness:
+//   - 12-month post-separation duration
+//   - CLIENTS ONLY (coworkers explicitly carved out)
+//   - inbound-contact carve-out (former clients may contact YOU)
+//   - general advertising carve-out
+//   - no liquidated-damages or penalty clauses (IL courts disfavor)
+//   - injunctive relief + documented damages + reasonable attorney fees only
+//
+// Spanish version is one of the FOUR FLAGGED docs requiring professional
+// translator review. UI shows a banner: English version is binding until
+// human translation review is approved.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NON_SOLICITATION_EN: SignedDocumentLocaleContent = {
+  title: "Non-Solicitation Agreement",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "NON-SOLICITATION AGREEMENT",
+    "Effective Date: January 1, 2026",
+    "",
+    "This Non-Solicitation Agreement is entered into between Phes Cleaning Services and me as a condition of my employment. The Agreement is governed by the Illinois Freedom to Work Act, 820 ILCS 90, and is intentionally narrowed to remain reasonable in scope, duration, and protected interest.",
+    "",
+    "1. RESTRICTION (CLIENTS ONLY).",
+    "During my employment with Phes and for TWELVE MONTHS after my last day of employment, I will not directly or indirectly solicit any Phes client for cleaning services, whether for my own account, for a future employer, or for any other business.",
+    "",
+    "2. DEFINITION OF PHES CLIENT.",
+    "Phes Client means any household, person, or business that has received cleaning services from Phes Cleaning Services in the twenty-four months prior to my last day with Phes.",
+    "",
+    "3. COWORKERS ARE NOT RESTRICTED.",
+    "This Agreement does not restrict me in any way from recruiting Phes coworkers to join me at a new employer or in any new venture. Phes does not impose a coworker non-solicitation covenant on hourly employees, consistent with the spirit of the Illinois Freedom to Work Act.",
+    "",
+    "4. WHAT COUNTS AS SOLICITATION.",
+    "Solicitation under this Agreement means me reaching out to a Phes Client to offer cleaning services. Specifically: calling, texting, emailing, direct-messaging, mailing, or visiting a Phes Client to offer cleaning services; asking a current Phes coworker to pass a flyer or business card to a Phes Client; or posting a service offer in a private channel that I joined because I knew Phes Clients use it.",
+    "",
+    "5. GENERAL ADVERTISING AND INBOUND CONTACT ARE NOT SOLICITATION.",
+    "Nothing in this Agreement restricts me from: (a) running general advertising (Craigslist, neighborhood bulletin boards, public-facing Facebook pages, the open web) that targets the public at large, even if a Phes Client happens to see it; or (b) accepting INBOUND CONTACT from a Phes Client who finds me on their own initiative without me having approached them, invited contact, or taken any step to trigger the contact. If a Phes Client contacts me first under those conditions, I may discuss and accept the work.",
+    "",
+    "6. NO NON-COMPETE.",
+    "This Agreement does not prevent me from accepting employment with another cleaning company in the Chicagoland area or anywhere else. I am free to continue working in cleaning at any time, with any employer.",
+    "",
+    "7. CONSIDERATION.",
+    "Phes provides the following consideration in exchange for my acceptance of this Agreement: paid training, regular scheduled shifts, paid time off accruing under the Illinois Paid Leave for All Workers Act, holiday pay, and the other benefits described in the Compensation module of the Phes Employee Handbook. Continued employment past two years also constitutes adequate consideration under Illinois law.",
+    "",
+    "8. REASONABLE SCOPE.",
+    "I acknowledge that the twelve-month duration, the clients-only scope, the inbound-contact carve-out, and the absence of any geographic territory restriction collectively make this Agreement reasonable and necessary to protect Phes's legitimate business interest in client relationships, consistent with the Illinois Freedom to Work Act.",
+    "",
+    "9. REMEDIES.",
+    "If Phes believes I have violated this Agreement, Phes may seek injunctive relief (a court order requiring me to stop the prohibited conduct) and may recover documented damages and reasonable attorney fees, as permitted by Illinois law. Phes does not impose liquidated damages or penalty clauses under this Agreement.",
+    "",
+    "10. SEVERABILITY AND BLUE-PENCIL.",
+    "If any court finds any portion of this Agreement to be unenforceable as written, the parties intend that the court apply the Illinois blue-pencil doctrine to narrow the restriction to the maximum extent enforceable rather than strike it entirely.",
+    "",
+    "11. PHES REPRESENTATIVE CO-SIGNATURE.",
+    "This Agreement is a two-way commitment. I agree to the twelve-month client non-solicit; Phes commits to the consideration described in section 7. The signed instrument is co-signed by the Phes representative. The co-signature appears on the final PDF after my signature.",
+    "",
+    "12. AT-WILL EMPLOYMENT.",
+    "Nothing in this Agreement alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason. My obligations under this Agreement survive termination of employment.",
+    "",
+    "13. ELECTRONIC SIGNATURE CONSENT.",
+    "I consent to sign this Agreement electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Non-Solicitation Agreement.",
+  ].join("\n"),
+  notes: "Phase 6 PR #7 — Phes non-solicitation agreement. 12 months, clients only, IL Freedom to Work Act compliant.",
+};
+
+const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
+  title: "Acuerdo de No Solicitación",
+  pendingTranslationReview: true,
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "ACUERDO DE NO SOLICITACIÓN",
+    "Fecha Efectiva: 1 de enero de 2026",
+    "",
+    "Este Acuerdo de No Solicitación se celebra entre Phes Cleaning Services y yo como condición de mi empleo. El Acuerdo se rige por la Ley de Libertad para Trabajar de Illinois, 820 ILCS 90, y se restringe intencionalmente para permanecer razonable en alcance, duración e interés protegido.",
+    "",
+    "1. RESTRICCIÓN (SOLO CLIENTES).",
+    "Durante mi empleo con Phes y por DOCE MESES después de mi último día de empleo, no solicitaré directa o indirectamente a ningún cliente de Phes para servicios de limpieza, ya sea para mi propia cuenta, para un futuro empleador o para cualquier otro negocio.",
+    "",
+    "2. DEFINICIÓN DE CLIENTE DE PHES.",
+    "Cliente de Phes significa cualquier hogar, persona o negocio que haya recibido servicios de limpieza de Phes Cleaning Services en los veinticuatro meses anteriores a mi último día con Phes.",
+    "",
+    "3. LOS COMPAÑEROS NO ESTÁN RESTRINGIDOS.",
+    "Este Acuerdo no me restringe de ninguna manera para reclutar a compañeros de Phes para que se me unan en un nuevo empleador o en cualquier nueva empresa. Phes no impone un acuerdo de no solicitación de compañeros sobre empleados por hora, consistente con el espíritu de la Ley de Libertad para Trabajar de Illinois.",
+    "",
+    "4. LO QUE CUENTA COMO SOLICITACIÓN.",
+    "Solicitación bajo este Acuerdo significa que yo me acerque a un Cliente de Phes para ofrecer servicios de limpieza. Específicamente: llamar, enviar mensajes de texto, correo electrónico, mensaje directo, correo postal o visitar a un Cliente de Phes para ofrecer servicios de limpieza; pedirle a un compañero actual de Phes que pase un volante o tarjeta de presentación a un Cliente de Phes; o publicar una oferta de servicio en un canal privado al que me uní porque sabía que Clientes de Phes lo usan.",
+    "",
+    "5. LA PUBLICIDAD GENERAL Y EL CONTACTO INICIADO POR EL CLIENTE NO SON SOLICITACIÓN.",
+    "Nada en este Acuerdo me restringe de: (a) manejar publicidad general (Craigslist, tableros de anuncios del vecindario, páginas de Facebook públicas, la web abierta) dirigida al público en general, aunque un Cliente de Phes la vea por casualidad; o (b) aceptar CONTACTO INICIADO POR EL CLIENTE de un Cliente de Phes que me encuentre por iniciativa propia sin que yo lo haya buscado, invitado el contacto o realizado paso alguno para provocar el contacto. Si un Cliente de Phes me contacta primero bajo esas condiciones, puedo discutir y aceptar el trabajo.",
+    "",
+    "6. SIN ACUERDO DE NO COMPETENCIA.",
+    "Este Acuerdo no me impide aceptar empleo en otra empresa de limpieza en el área de Chicago ni en ningún otro lugar. Soy libre de continuar trabajando en limpieza en cualquier momento, con cualquier empleador.",
+    "",
+    "7. CONSIDERACIÓN.",
+    "Phes provee la siguiente consideración a cambio de mi aceptación de este Acuerdo: capacitación pagada, turnos programados regulares, tiempo libre pagado que se acumula bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois, pago por feriados y los demás beneficios descritos en el módulo de Compensación del Manual del Empleado de Phes. El empleo continuo por más de dos años también constituye consideración adecuada bajo la ley de Illinois.",
+    "",
+    "8. ALCANCE RAZONABLE.",
+    "Reconozco que la duración de doce meses, el alcance limitado a clientes, la exclusión de contacto iniciado por el cliente y la ausencia de cualquier restricción de territorio geográfico hacen, en conjunto, que este Acuerdo sea razonable y necesario para proteger el interés comercial legítimo de Phes en las relaciones con los clientes, consistente con la Ley de Libertad para Trabajar de Illinois.",
+    "",
+    "9. REMEDIOS.",
+    "Si Phes cree que he violado este Acuerdo, Phes puede buscar alivio por orden judicial (una orden de la corte que me exija detener la conducta prohibida) y puede recuperar daños documentados y honorarios razonables de abogado, según lo permita la ley de Illinois. Phes no impone daños liquidados ni cláusulas de penalización bajo este Acuerdo.",
+    "",
+    "10. SEPARABILIDAD Y LÁPIZ AZUL.",
+    "Si cualquier corte encuentra que alguna parte de este Acuerdo no es exigible tal como está escrita, las partes pretenden que la corte aplique la doctrina del lápiz azul de Illinois para reducir la restricción al alcance máximo exigible en lugar de eliminarla por completo.",
+    "",
+    "11. CO-FIRMA DEL REPRESENTANTE DE PHES.",
+    "Este Acuerdo es un compromiso de dos vías. Yo acepto la no solicitación de clientes de doce meses; Phes se compromete con la consideración descrita en la sección 7. El instrumento firmado es co-firmado por el representante de Phes. La co-firma aparece en el PDF final después de mi firma.",
+    "",
+    "12. EMPLEO A VOLUNTAD.",
+    "Nada en este Acuerdo altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal. Mis obligaciones bajo este Acuerdo sobreviven a la terminación del empleo.",
+    "",
+    "13. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "Doy mi consentimiento para firmar este Acuerdo electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Acuerdo de No Solicitación.",
+  ].join("\n"),
+  notes:
+    "PENDING PROFESSIONAL TRANSLATION REVIEW. Initial AI translation. " +
+    "Human translator review required before final production sign-off.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -426,8 +552,11 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
     en: VIDEO_PHOTO_RELEASE_EN,
     es: VIDEO_PHOTO_RELEASE_ES,
   },
-  // PR #7+ will add: non_solicitation, supply_kit, social_media. Same shape,
-  // same conventions.
+  non_solicitation: {
+    en: NON_SOLICITATION_EN,
+    es: NON_SOLICITATION_ES,
+  },
+  // PR #8+ will add: supply_kit, social_media. Same shape, same conventions.
 };
 
 /**

@@ -515,7 +515,7 @@ export const REQUIRED_PRE_FINAL_SIGNED_DOCS = [
   "drug_alcohol",
   "code_of_conduct",
   "video_photo_release",
-  // PR #7 will add: "non_solicitation"
+  "non_solicitation",
   // PR #8 will add: "social_media"
   // PR #10 will add: "supply_kit"
 ] as const;

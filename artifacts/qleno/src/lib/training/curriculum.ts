@@ -2230,6 +2230,144 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 10. NON-SOLICITATION AGREEMENT (Phase 6, PR #7)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // CO-SIGNED agreement. The signed instrument lives in lms_signed_documents
+  // at document_type 'non_solicitation' and is co-signed by the Phes
+  // representative (tenant owner by default).
+  //
+  // Governed by the Illinois Freedom to Work Act (820 ILCS 90). Under IL law,
+  // a non-solicit covenant is enforceable only when it is:
+  //   1. Supported by adequate CONSIDERATION (continued employment of 2+
+  //      years, or other consideration explicitly stated).
+  //   2. REASONABLE in scope, duration, and geography.
+  //   3. NECESSARY to protect a LEGITIMATE BUSINESS INTEREST (Phes client
+  //      relationships, not the general labor market).
+  // Phes intentionally narrows the agreement: 12 months, CLIENTS only
+  // (not coworkers), and inbound-contact carve-out. This is intentionally
+  // conservative because IL courts blue-pencil aggressively.
+  //
+  // Spanish version is one of the FOUR FLAGGED docs requiring professional
+  // translator review. The Spanish UI will show a banner warning that the
+  // English version is binding until human translation is approved.
+  {
+    id: "non-solicitation",
+    number: 10,
+    iconKind: "shield",
+    title: {
+      en: "Non-Solicitation Agreement",
+      es: "Acuerdo de No Solicitación",
+    },
+    subtitle: {
+      en: "What you may not do with Phes clients during your employment and for 12 months after you leave. You may freely solicit coworkers and the general public.",
+      es: "Lo que no puede hacer con los clientes de Phes durante su empleo y por 12 meses después de irse. Puede solicitar libremente a compañeros y al público general.",
+    },
+    estimatedMinutes: 12,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Phes spends years building relationships with its clients. The client list is the most valuable asset of the business. The Non-Solicitation Agreement protects those relationships from being taken away after an employee leaves. It does NOT restrict your ability to look for other work, to recruit coworkers to a new opportunity, or to advertise services to the general public. It is narrowly aimed at Phes CLIENTS only.",
+          es: "Por qué importa este módulo. Phes pasa años construyendo relaciones con sus clientes. La lista de clientes es el activo más valioso del negocio. El Acuerdo de No Solicitación protege esas relaciones de ser arrebatadas después de que un empleado se va. NO restringe su habilidad de buscar otro trabajo, de reclutar compañeros para una nueva oportunidad, ni de anunciar servicios al público general. Apunta de forma estrecha solo a los CLIENTES de Phes.",
+        },
+      },
+
+      { type: "h", text: { en: "What the Agreement Restricts (Clients Only)", es: "Lo Que el Acuerdo Restringe (Solo Clientes)" } },
+      {
+        type: "p",
+        text: {
+          en: "The agreement says that during your employment and for 12 months after your last day with Phes, you will NOT directly or indirectly solicit Phes clients for cleaning services (whether for yourself, for a future employer, or for any other business). Phes CLIENTS means any household or business that has used Phes services in the 24 months before you left.",
+          es: "El acuerdo dice que durante su empleo y por 12 meses después de su último día con Phes, NO solicitará directa o indirectamente a clientes de Phes para servicios de limpieza (ya sea para usted, para un empleador futuro o para cualquier otro negocio). CLIENTES de Phes significa cualquier hogar o negocio que haya usado servicios de Phes en los 24 meses anteriores a su salida.",
+        },
+      },
+
+      { type: "h", text: { en: "What the Agreement Does NOT Restrict", es: "Lo Que el Acuerdo NO Restringe" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Working for another cleaning company in the Chicagoland area. The agreement is not a non-compete; you may take another job in cleaning at any time.", es: "Trabajar para otra empresa de limpieza en el área de Chicago. El acuerdo no es un acuerdo de no competencia; puede tomar otro trabajo en limpieza en cualquier momento." },
+          { en: "Recruiting Phes coworkers to join you at a new employer. Phes does not restrict coworker solicitation. The Illinois Freedom to Work Act discourages coworker non-solicits for hourly workers, and Phes does not include one.", es: "Reclutar a compañeros de Phes para que se unan a usted en un nuevo empleador. Phes no restringe la solicitación de compañeros. La Ley de Libertad para Trabajar de Illinois desalienta los acuerdos de no solicitación de compañeros para trabajadores por hora, y Phes no incluye uno." },
+          { en: "General advertising. Posting on Craigslist, putting flyers on a neighborhood bulletin board, running a Facebook page that targets the public at large. None of that is solicitation under this agreement, even if a Phes client happens to see it.", es: "Publicidad general. Publicar en Craigslist, poner volantes en un tablero de anuncios del vecindario, manejar una página de Facebook dirigida al público en general. Nada de eso es solicitación bajo este acuerdo, aunque un cliente de Phes la vea por casualidad." },
+          { en: "Accepting INBOUND contact from a former Phes client who finds you on their own. If a client contacts you first, without you having approached them, you may discuss work with them. You may not have done anything to invite or trigger the contact.", es: "Aceptar contacto INICIADO POR EL CLIENTE de un antiguo cliente de Phes que lo encuentre por su cuenta. Si un cliente lo contacta primero, sin que usted lo haya buscado, puede discutir el trabajo con él. No debe haber hecho nada para invitar o provocar el contacto." },
+        ],
+      },
+
+      { type: "h", text: { en: "What Counts as Solicitation", es: "Lo Que Cuenta Como Solicitación" } },
+      {
+        type: "p",
+        text: {
+          en: "Solicitation means YOU reaching out to a Phes client. Specifically:",
+          es: "Solicitación significa que USTED se acerque a un cliente de Phes. Específicamente:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Calling, texting, emailing, DMing, or mailing a Phes client to offer them cleaning services.", es: "Llamar, enviar mensaje de texto, correo electrónico, mensaje directo o correo postal a un cliente de Phes para ofrecerle servicios de limpieza." },
+          { en: "Knocking on the door of a Phes client to offer them cleaning services.", es: "Tocar la puerta de un cliente de Phes para ofrecerle servicios de limpieza." },
+          { en: "Asking a current Phes coworker to pass along a flyer or business card to a Phes client.", es: "Pedirle a un compañero actual de Phes que pase un volante o tarjeta de presentación a un cliente de Phes." },
+          { en: "Posting a service offer to a private channel (a neighborhood Facebook group, a WhatsApp group, a Slack workspace) that you joined because you knew Phes clients use it.", es: "Publicar una oferta de servicio en un canal privado (un grupo de Facebook del vecindario, un grupo de WhatsApp, un espacio de Slack) al que se unió porque sabía que clientes de Phes lo usan." },
+        ],
+      },
+
+      { type: "h", text: { en: "Duration: 12 Months", es: "Duración: 12 Meses" } },
+      {
+        type: "p",
+        text: {
+          en: "The restriction runs for TWELVE months from your last day at Phes. After 12 months you may solicit anyone, including former Phes clients, without restriction under this agreement.",
+          es: "La restricción dura DOCE meses a partir de su último día en Phes. Después de 12 meses puede solicitar a cualquiera, incluidos antiguos clientes de Phes, sin restricción bajo este acuerdo.",
+        },
+      },
+
+      { type: "h", text: { en: "Illinois Freedom to Work Act (820 ILCS 90)", es: "Ley de Libertad para Trabajar de Illinois (820 ILCS 90)" } },
+      {
+        type: "p",
+        text: {
+          en: "Illinois law is friendlier to workers than many other states. Under the Illinois Freedom to Work Act (820 ILCS 90), a non-solicitation covenant is enforceable only when it is REASONABLE in scope, supported by adequate CONSIDERATION (something of value given in exchange for the promise), and NECESSARY to protect a LEGITIMATE business interest. Phes intentionally narrows the agreement to 12 months, to clients only, with the inbound-contact carve-out, so it stays well within what Illinois courts have found reasonable for an hourly cleaning workforce.",
+          es: "La ley de Illinois es más amigable con los trabajadores que muchos otros estados. Bajo la Ley de Libertad para Trabajar de Illinois (820 ILCS 90), un acuerdo de no solicitación es exigible solo cuando es RAZONABLE en alcance, está apoyado por una CONSIDERACIÓN adecuada (algo de valor dado a cambio de la promesa) y es NECESARIO para proteger un interés comercial LEGÍTIMO. Phes restringe el acuerdo intencionalmente a 12 meses, solo a clientes, con la exclusión de contacto iniciado por el cliente, para que se mantenga claramente dentro de lo que los tribunales de Illinois han encontrado razonable para una fuerza laboral de limpieza por hora.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Consideration for this agreement: Phes provides paid training, regular scheduled shifts, paid time off, holiday pay, and the other benefits described in the Compensation module. Continued employment past 2 years is also recognized as consideration under Illinois law.",
+          es: "Consideración por este acuerdo: Phes provee capacitación pagada, turnos programados regulares, tiempo libre pagado, pago por feriados y los demás beneficios descritos en el módulo de Compensación. El empleo continuo por más de 2 años también se reconoce como consideración bajo la ley de Illinois.",
+        },
+      },
+
+      { type: "h", text: { en: "Phes Representative Co-Signature", es: "Co-Firma del Representante de Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "Like the Video & Photo Release, the Non-Solicitation Agreement is a two-way commitment: you agree to the restriction; Phes commits to the consideration described above. The signed instrument is CO-SIGNED by the Phes representative (by default the owner). The co-signature appears on the final PDF after you sign. You do not need to be present.",
+          es: "Como la Autorización de Video y Foto, el Acuerdo de No Solicitación es un compromiso de dos vías: usted acepta la restricción; Phes se compromete con la consideración descrita arriba. El instrumento firmado es CO-FIRMADO por el representante de Phes (por defecto el dueño). La co-firma aparece en el PDF final después de que usted firme. No necesita estar presente.",
+        },
+      },
+
+      { type: "h", text: { en: "If You Violate the Agreement", es: "Si Viola el Acuerdo" } },
+      {
+        type: "p",
+        text: {
+          en: "If Phes believes you are soliciting Phes clients in violation of the agreement, Phes may seek INJUNCTIVE RELIEF (a court order requiring you to stop) and recover documented damages plus reasonable attorney fees, as permitted by Illinois law. Phes does NOT impose liquidated damages or penalty clauses, because IL courts disfavor them in employee non-solicits.",
+          es: "Si Phes cree que está solicitando clientes de Phes en violación del acuerdo, Phes puede buscar ALIVIO POR ORDEN JUDICIAL (una orden de la corte que le exija detenerse) y recuperar daños documentados más honorarios razonables de abogado, según lo permita la ley de Illinois. Phes NO impone daños liquidados ni cláusulas de penalización, porque los tribunales de IL no las favorecen en acuerdos de no solicitación con empleados.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Non-Solicitation Agreement that records the commitment. The agreement is co-signed by the Phes representative. You can re-download the signed PDF anytime from your training page. If you have questions about whether a specific situation would count as solicitation, ask the office before you act, not after.",
+          es: "Después de este examen: firmará un Acuerdo de No Solicitación por separado que registra el compromiso. El acuerdo es co-firmado por el representante de Phes. Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación. Si tiene preguntas sobre si una situación específica contaría como solicitación, pregunte a la oficina antes de actuar, no después.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4211,6 +4349,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes. Content already in ACTIVE DISTRIBUTION at the time of separation may continue. The 5-year limit applies to NEW uses, not existing assets. If you want it taken down anyway, you can withdraw consent in writing and Phes will remove it from Phes-controlled channels within 30 days.", es: "Sí. El contenido que ya está en DISTRIBUCIÓN ACTIVA al momento de la separación puede continuar. El límite de 5 años aplica a NUEVOS usos, no a los recursos existentes. Si aun así quiere que se retire, puede retirar el consentimiento por escrito y Phes lo retirará de los canales controlados por Phes dentro de los 30 días." },
       { en: "Only if Phes pays you a continued-use fee.", es: "Solo si Phes le paga una tarifa por uso continuado." },
       { en: "Yes, but only for one year.", es: "Sí, pero solo por un año." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 10: NON-SOLICITATION AGREEMENT (10 questions, Phase 6 PR #7)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-ns-01-clients-not-coworkers",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Does the Non-Solicitation Agreement restrict you from recruiting Phes coworkers to a new job?",
+      es: "¿El Acuerdo de No Solicitación le impide reclutar a compañeros de Phes para un nuevo trabajo?",
+    },
+    options: [
+      { en: "Yes. The agreement covers both clients and coworkers.", es: "Sí. El acuerdo cubre tanto clientes como compañeros." },
+      { en: "No. The agreement restricts soliciting Phes CLIENTS only. You may freely recruit Phes coworkers. The Illinois Freedom to Work Act discourages coworker non-solicits for hourly workers, and Phes does not include one.", es: "No. El acuerdo restringe solicitar solo a CLIENTES de Phes. Puede reclutar libremente a compañeros de Phes. La Ley de Libertad para Trabajar de Illinois desalienta los acuerdos de no solicitación de compañeros para trabajadores por hora, y Phes no incluye uno." },
+      { en: "Only if the coworker is a primary tech.", es: "Solo si el compañero es técnico principal." },
+      { en: "Only if you give 30 days notice.", es: "Solo si da aviso de 30 días." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-02-12-month-duration",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "You leave Phes today. How long does the Non-Solicitation Agreement restrict you from soliciting Phes clients?",
+      es: "Se va de Phes hoy. ¿Por cuánto tiempo le restringe el Acuerdo de No Solicitación solicitar a clientes de Phes?",
+    },
+    options: [
+      { en: "Forever.", es: "Para siempre." },
+      { en: "12 months from your last day at Phes. After 12 months you may solicit anyone, including former Phes clients, without restriction under this agreement.", es: "12 meses desde su último día en Phes. Después de 12 meses puede solicitar a cualquiera, incluidos antiguos clientes de Phes, sin restricción bajo este acuerdo." },
+      { en: "5 years.", es: "5 años." },
+      { en: "10 years.", es: "10 años." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-03-what-counts-as-solicit",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Which of the following IS solicitation under the agreement?",
+      es: "¿Cuál de los siguientes ES solicitación bajo el acuerdo?",
+    },
+    options: [
+      { en: "Running a Facebook page that advertises cleaning to the public at large.", es: "Manejar una página de Facebook que anuncia limpieza al público en general." },
+      { en: "Sending a DM to a Phes client offering to clean their home next Saturday.", es: "Enviar un mensaje directo a un cliente de Phes ofreciendo limpiar su casa el próximo sábado." },
+      { en: "Putting a flyer on a neighborhood bulletin board.", es: "Poner un volante en un tablero de anuncios del vecindario." },
+      { en: "Posting on Craigslist for cleaning work in Oak Lawn.", es: "Publicar en Craigslist trabajo de limpieza en Oak Lawn." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-04-general-advertising-ok",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "After leaving Phes you start a small cleaning side business. You post on Craigslist offering services to anyone in Oak Lawn. A Phes client happens to see the post and contacts you. Is this a violation?",
+      es: "Después de dejar Phes inicia un pequeño negocio paralelo de limpieza. Publica en Craigslist ofreciendo servicios a cualquiera en Oak Lawn. Un cliente de Phes ve la publicación por casualidad y lo contacta. ¿Es una violación?",
+    },
+    options: [
+      { en: "Yes — any work with a former Phes client is forbidden.", es: "Sí — cualquier trabajo con un antiguo cliente de Phes está prohibido." },
+      { en: "No. General advertising is not solicitation under the agreement, even if a Phes client happens to see it. The client contacted you, not the other way around (inbound-contact carve-out applies).", es: "No. La publicidad general no es solicitación bajo el acuerdo, aunque un cliente de Phes la vea por casualidad. El cliente lo contactó a usted, no al revés (aplica la exclusión de contacto iniciado por el cliente)." },
+      { en: "Only if you charge less than Phes.", es: "Solo si cobra menos que Phes." },
+      { en: "Only if you took photos of Phes job sites.", es: "Solo si tomó fotos de lugares de trabajo de Phes." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-05-il-freedom-to-work",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Which Illinois law governs the enforceability of the Non-Solicitation Agreement and requires that any restriction be reasonable, supported by consideration, and tied to a legitimate business interest?",
+      es: "¿Qué ley de Illinois rige la exigibilidad del Acuerdo de No Solicitación y requiere que cualquier restricción sea razonable, apoyada por consideración y vinculada a un interés comercial legítimo?",
+    },
+    options: [
+      { en: "Illinois Cannabis Regulation and Tax Act.", es: "Ley de Regulación e Impuestos del Cannabis de Illinois." },
+      { en: "Illinois Freedom to Work Act, 820 ILCS 90.", es: "Ley de Libertad para Trabajar de Illinois, 820 ILCS 90." },
+      { en: "Illinois Right of Publicity Act.", es: "Ley del Derecho de Publicidad de Illinois." },
+      { en: "Illinois Paid Leave for All Workers Act.", es: "Ley de Licencia Pagada para Todos los Trabajadores de Illinois." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-06-during-employment-too",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "You're currently employed at Phes. A Phes client asks if you would clean their home this Saturday on the side, paid in cash. The agreement says:",
+      es: "Actualmente está empleado en Phes. Un cliente de Phes le pregunta si podría limpiar su casa este sábado por su cuenta, pagado en efectivo. El acuerdo dice:",
+    },
+    options: [
+      { en: "You may accept because the agreement is only post-employment.", es: "Puede aceptar porque el acuerdo es solo después del empleo." },
+      { en: "The restriction applies DURING employment AND for 12 months after. While employed, you must decline and refer the client to the office. This is also a Code of Conduct conflict-of-interest issue.", es: "La restricción aplica DURANTE el empleo Y por 12 meses después. Mientras esté empleado, debe rechazar y referir al cliente a la oficina. Esto también es un problema de conflicto de interés del Código de Conducta." },
+      { en: "You may accept if you charge less than Phes does.", es: "Puede aceptar si cobra menos que Phes." },
+      { en: "You may accept if the client insists.", es: "Puede aceptar si el cliente insiste." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-07-consideration",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Under Illinois law, a non-solicitation agreement must be supported by CONSIDERATION — something of value given in exchange for the promise. What does Phes offer as consideration for this agreement?",
+      es: "Bajo la ley de Illinois, un acuerdo de no solicitación debe estar apoyado por CONSIDERACIÓN — algo de valor dado a cambio de la promesa. ¿Qué ofrece Phes como consideración por este acuerdo?",
+    },
+    options: [
+      { en: "Phes pays a $5,000 signing bonus.", es: "Phes paga un bono de $5,000 al firmar." },
+      { en: "Paid training, regular scheduled shifts, paid time off, holiday pay, and the other benefits described in the Compensation module. Continued employment past 2 years is also recognized as consideration under Illinois law.", es: "Capacitación pagada, turnos programados regulares, tiempo libre pagado, pago por feriados y los demás beneficios descritos en el módulo de Compensación. El empleo continuo por más de 2 años también se reconoce como consideración bajo la ley de Illinois." },
+      { en: "Phes promises lifetime employment.", es: "Phes promete empleo de por vida." },
+      { en: "Phes pays you to sign and that's it.", es: "Phes le paga por firmar y nada más." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-08-remedy-injunctive",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "If Phes believes you have violated the agreement, what remedies does Phes pursue under this agreement?",
+      es: "Si Phes cree que ha violado el acuerdo, ¿qué remedios busca Phes bajo este acuerdo?",
+    },
+    options: [
+      { en: "A flat $50,000 penalty per violation.", es: "Una multa fija de $50,000 por cada violación." },
+      { en: "Injunctive relief (a court order to stop) plus documented damages plus reasonable attorney fees. Phes does NOT impose liquidated damages or penalty clauses because Illinois courts disfavor them in employee non-solicits.", es: "Alivio por orden judicial (una orden de la corte que exija detenerse) más daños documentados más honorarios razonables de abogado. Phes NO impone daños liquidados ni cláusulas de penalización porque los tribunales de Illinois no las favorecen en acuerdos de no solicitación con empleados." },
+      { en: "Phes immediately reports you to the police.", es: "Phes lo reporta inmediatamente a la policía." },
+      { en: "Phes garnishes your wages at your new job.", es: "Phes embarga sus salarios en su nuevo trabajo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-09-co-signature",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Why is the Non-Solicitation Agreement CO-SIGNED by the Phes representative?",
+      es: "¿Por qué el Acuerdo de No Solicitación es CO-FIRMADO por el representante de Phes?",
+    },
+    options: [
+      { en: "Because the office wants more signatures on file.", es: "Porque la oficina quiere más firmas archivadas." },
+      { en: "Because the agreement is a TWO-WAY commitment: you agree to the 12-month restriction; Phes commits to the consideration (paid training, benefits, continued employment). The co-signature binds both sides.", es: "Porque el acuerdo es un compromiso DE DOS VÍAS: usted acepta la restricción de 12 meses; Phes se compromete a la consideración (capacitación pagada, beneficios, empleo continuo). La co-firma vincula a ambas partes." },
+      { en: "Because Illinois law requires two signatures on every non-solicit.", es: "Porque la ley de Illinois exige dos firmas en cada acuerdo de no solicitación." },
+      { en: "Because it makes the document harder to forge.", es: "Porque hace el documento más difícil de falsificar." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-10-inbound-clients-exception",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "You left Phes three months ago. A former Phes client found your personal Instagram (which has nothing to do with cleaning) and messaged you asking if you do cleaning work. You had not contacted or invited them. Under the agreement, may you take the work?",
+      es: "Se fue de Phes hace tres meses. Un antiguo cliente de Phes encontró su Instagram personal (que no tiene nada que ver con limpieza) y le envió un mensaje preguntando si hace trabajo de limpieza. Usted no lo contactó ni invitó. Bajo el acuerdo, ¿puede tomar el trabajo?",
+    },
+    options: [
+      { en: "No. Any work with a former Phes client within 12 months is forbidden.", es: "No. Cualquier trabajo con un antiguo cliente de Phes dentro de los 12 meses está prohibido." },
+      { en: "Yes. The inbound-contact carve-out applies: the client contacted you first, without you having approached them or done anything to invite the contact. You may discuss work with them.", es: "Sí. Aplica la exclusión de contacto iniciado por el cliente: el cliente lo contactó primero, sin que usted lo hubiera buscado ni hecho nada para invitar el contacto. Puede discutir el trabajo con él." },
+      { en: "Only if you charge less than Phes.", es: "Solo si cobra menos que Phes." },
+      { en: "Only after consulting an attorney.", es: "Solo después de consultar a un abogado." },
     ],
     correctIndex: 1,
   },
