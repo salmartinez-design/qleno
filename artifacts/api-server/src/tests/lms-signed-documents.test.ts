@@ -49,6 +49,12 @@ describe("SIGNED_DOCUMENT_CONTENT registry", () => {
     assert.ok(SIGNED_DOCUMENT_CONTENT.non_solicitation!.es);
   });
 
+  it("includes social_media (Phase 7 PR #8)", () => {
+    assert.ok(SIGNED_DOCUMENT_CONTENT.social_media);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.social_media!.en);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.social_media!.es);
+  });
+
   it("every registered document has BOTH en and es entries", () => {
     for (const [type, entry] of Object.entries(SIGNED_DOCUMENT_CONTENT)) {
       assert.ok(entry?.en?.contentHtml, `${type}: missing en.contentHtml`);
@@ -156,6 +162,115 @@ describe("listRegisteredDocumentTypes", () => {
 
   it("includes non_solicitation after PR #7", () => {
     assert.ok(listRegisteredDocumentTypes().includes("non_solicitation"));
+  });
+
+  it("includes social_media after PR #8", () => {
+    assert.ok(listRegisteredDocumentTypes().includes("social_media"));
+  });
+});
+
+describe("social_media content shape (PR #8 spec checks)", () => {
+  it("English entry is NOT flagged pendingTranslationReview", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.social_media!.en.pendingTranslationReview ?? false,
+      false,
+    );
+  });
+
+  it("Spanish entry is NOT flagged pendingTranslationReview (not one of the four flagged docs)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.social_media!.es.pendingTranslationReview ?? false,
+      false,
+    );
+    assert.equal(isSpanishPendingTranslationReview("social_media"), false);
+  });
+
+  it("English content carves out NLRA Section 7 explicitly", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.social_media!.en.contentHtml;
+    assert.ok(
+      en.includes("Section 7 of the National Labor Relations Act"),
+      "English must reference NLRA Section 7 explicitly",
+    );
+    assert.ok(
+      en.includes("29 U.S.C. 157"),
+      "English must include the 29 U.S.C. 157 citation",
+    );
+    assert.ok(
+      en.includes("protected concerted activity"),
+      "English must reference protected concerted activity language",
+    );
+  });
+
+  it("Spanish content carves out NLRA Section 7 explicitly", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.social_media!.es.contentHtml;
+    assert.ok(
+      es.includes("Sección 7 de la Ley Nacional de Relaciones Laborales"),
+      "Spanish must reference NLRA Section 7 translated",
+    );
+    assert.ok(
+      es.includes("29 U.S.C. 157"),
+      "Spanish must include the 29 U.S.C. 157 citation",
+    );
+  });
+
+  it("English content references the Illinois Right to Privacy in the Workplace Act (820 ILCS 55)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.social_media!.en.contentHtml;
+    assert.ok(
+      en.includes("Illinois Right to Privacy in the Workplace Act"),
+      "English must reference the IL Right to Privacy in the Workplace Act",
+    );
+    assert.ok(
+      en.includes("820 ILCS 55"),
+      "English must include the 820 ILCS 55 citation",
+    );
+  });
+
+  it("Spanish content references 820 ILCS 55 with Spanish act name", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.social_media!.es.contentHtml;
+    assert.ok(
+      es.includes("Ley del Derecho a la Privacidad en el Lugar de Trabajo"),
+      "Spanish must reference the IL Right to Privacy in the Workplace Act translation",
+    );
+    assert.ok(
+      es.includes("820 ILCS 55"),
+      "Spanish must include the 820 ILCS 55 citation",
+    );
+  });
+
+  it("English content prohibits in-uniform posing with alcohol / cannabis / weapons", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.social_media!.en.contentHtml;
+    assert.ok(
+      en.includes("PHES UNIFORM RESTRICTIONS"),
+      "English must include the uniform-restrictions section",
+    );
+    assert.ok(
+      en.includes("alcohol"),
+      "English must mention alcohol in the in-uniform restriction",
+    );
+  });
+
+  it("English content restricts DM solicitation but allows general advertising + inbound contact", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.social_media!.en.contentHtml;
+    assert.ok(
+      en.includes("CLIENT SOLICITATION VIA SOCIAL MEDIA"),
+      "English must include the client-solicitation section",
+    );
+    assert.ok(
+      en.includes("general advertising"),
+      "English must call out general advertising as permitted",
+    );
+    assert.ok(
+      en.includes("inbound contact"),
+      "English must call out inbound contact as permitted",
+    );
+  });
+
+  it("English and Spanish content hash to DIFFERENT version hashes (legally distinct)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.social_media!.en.contentHtml;
+    const es = SIGNED_DOCUMENT_CONTENT.social_media!.es.contentHtml;
+    const hEn = hashContent(en, "en");
+    const hEs = hashContent(es, "es");
+    assert.notEqual(hEn, hEs);
   });
 });
 

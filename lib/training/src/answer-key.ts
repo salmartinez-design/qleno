@@ -200,6 +200,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-ns-08-remedy-injunctive": 1,
   "q-ns-09-co-signature": 1,
   "q-ns-10-inbound-clients-exception": 1,
+
+  // ── Module 11: social-media (10, Phase 7 PR #8) ────────────────────────
+  "q-sm-01-client-confidentiality": 1,
+  "q-sm-02-nlra-section-7": 1,
+  "q-sm-03-off-duty-private": 1,
+  "q-sm-04-uniform-misuse": 1,
+  "q-sm-05-client-solicitation": 1,
+  "q-sm-06-disparagement": 1,
+  "q-sm-07-impersonation": 1,
+  "q-sm-08-protected-concerted": 1,
+  "q-sm-09-harassment-reporting": 1,
+  "q-sm-10-client-photos": 1,
 });
 
 /**

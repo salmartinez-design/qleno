@@ -33,7 +33,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 11 modules in expected sequence (non-solicitation added 2026-05-12 Phase 6)", () => {
+  it("MODULE_ORDER has all 12 modules in expected sequence (social-media added 2026-05-12 Phase 7)", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
@@ -45,11 +45,12 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "code-of-conduct",
       "video-photo-release",
       "non-solicitation",
+      "social-media",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 10 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 11 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
@@ -61,6 +62,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "code-of-conduct",
       "video-photo-release",
       "non-solicitation",
+      "social-media",
     ]);
   });
 
@@ -99,6 +101,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
     // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
     // non-solicitation: 10 (Phase 6 spec, agreement-scope comprehension)
+    // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
       "phes-policies": 40,
@@ -106,6 +109,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "code-of-conduct": 10,
       "video-photo-release": 9,
       "non-solicitation": 10,
+      "social-media": 10,
       compensation: 15,
       "cleaning-best-practices": 15,
       maidcentral: 15,
@@ -121,8 +125,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 154 total (40 + 15*5 + 10 + 10 + 9 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 154);
+  it("ALL_QUESTION_IDS is 164 total (40 + 15*5 + 10 + 10 + 9 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 164);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
