@@ -2546,6 +2546,18 @@ type SignedDocumentRow = {
   representative_signed_at: string | null;
 };
 
+/**
+ * Document types that require a Phes representative co-signature.
+ * Mirrors CO_SIGNED_DOCUMENT_TYPES in @workspace/db/schema. Kept as a
+ * Set here so the admin panel can decide when to render the Co-sign
+ * action without round-tripping the server. PR #7 (non-solicit) will
+ * use this same set.
+ */
+const CO_SIGNED_DOCUMENT_TYPES = new Set<string>([
+  "video_photo_release",
+  "non_solicitation",
+]);
+
 function humanDocumentType(documentType: string): string {
   const titles: Record<string, string> = {
     drug_alcohol: "Drug & Alcohol Policy",
@@ -2569,6 +2581,24 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
   const token = useAuthStore((s) => s.token);
   const [docs, setDocs] = useState<SignedDocumentRow[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [coSignOpen, setCoSignOpen] = useState<number | null>(null);
+  const [coSignName, setCoSignName] = useState("");
+  const [coSignAffirm, setCoSignAffirm] = useState(false);
+  const [coSignSaving, setCoSignSaving] = useState(false);
+  const [coSignErr, setCoSignErr] = useState<string | null>(null);
+
+  async function loadDocs() {
+    try {
+      const data = await api<SignedDocumentRow[]>(
+        "GET",
+        `/lms/signatures/admin/learner/${row.user_id}`,
+        token,
+      );
+      setDocs(data);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -2588,6 +2618,34 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
       cancelled = true;
     };
   }, [row.user_id, token]);
+
+  function openCoSign(docId: number) {
+    setCoSignOpen(docId);
+    setCoSignName("");
+    setCoSignAffirm(false);
+    setCoSignErr(null);
+  }
+
+  async function submitCoSign(docId: number) {
+    setCoSignSaving(true);
+    setCoSignErr(null);
+    try {
+      await api("POST", `/lms/signatures/admin/co-sign`, token, {
+        signedDocumentId: docId,
+        affirmation: coSignAffirm,
+        signature: coSignName.trim(),
+        signatureMethod: "typed",
+      });
+      setCoSignOpen(null);
+      setCoSignName("");
+      setCoSignAffirm(false);
+      await loadDocs();
+    } catch (e) {
+      setCoSignErr(String((e as Error).message));
+    } finally {
+      setCoSignSaving(false);
+    }
+  }
 
   async function handleDownload(docId: number) {
     try {
@@ -2696,6 +2754,11 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
             : isActive
             ? SUCCESS
             : INK_LIGHT;
+          const needsCoSign =
+            isActive &&
+            CO_SIGNED_DOCUMENT_TYPES.has(d.document_type) &&
+            d.representative_signed_at == null;
+          const expanded = coSignOpen === d.id;
           return (
             <div
               key={d.id}
@@ -2706,67 +2769,231 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
                 borderRadius: 8,
                 padding: "10px 12px",
                 fontSize: 12,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 8,
               }}
             >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 800, color: INK, fontSize: 12 }}>
-                  {humanDocumentType(d.document_type)}
-                </div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    color: INK_MUTE,
-                    marginTop: 2,
-                    fontWeight: 600,
-                  }}
-                >
-                  {d.locale.toUpperCase()} · {humanDateTime(d.signed_at)} ·{" "}
-                  {d.status === "active"
-                    ? "Active"
-                    : d.status === "superseded"
-                    ? "Superseded"
-                    : "Revoked"}
-                </div>
-                {d.representative_signed_at ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 800, color: INK, fontSize: 12 }}>
+                    {humanDocumentType(d.document_type)}
+                  </div>
                   <div
                     style={{
-                      fontSize: 10,
-                      color: SUCCESS,
-                      fontWeight: 700,
+                      fontSize: 11,
+                      color: INK_MUTE,
                       marginTop: 2,
+                      fontWeight: 600,
                     }}
                   >
-                    Co-signed by Phes representative
+                    {d.locale.toUpperCase()} · {humanDateTime(d.signed_at)} ·{" "}
+                    {d.status === "active"
+                      ? "Active"
+                      : d.status === "superseded"
+                      ? "Superseded"
+                      : "Revoked"}
                   </div>
-                ) : null}
+                  {d.representative_signed_at ? (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: SUCCESS,
+                        fontWeight: 700,
+                        marginTop: 2,
+                      }}
+                    >
+                      Co-signed by Phes representative
+                    </div>
+                  ) : null}
+                  {needsCoSign ? (
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "#BA7517",
+                        fontWeight: 700,
+                        marginTop: 2,
+                      }}
+                    >
+                      Awaiting Phes representative co-signature
+                    </div>
+                  ) : null}
+                </div>
+                <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                  {needsCoSign && !expanded ? (
+                    <button
+                      type="button"
+                      onClick={() => openCoSign(d.id)}
+                      title="Co-sign as Phes representative"
+                      style={{
+                        background: "#BA7517",
+                        color: "#fff",
+                        border: 0,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                      }}
+                    >
+                      Co-sign
+                    </button>
+                  ) : null}
+                  {!isRevoked ? (
+                    <button
+                      type="button"
+                      onClick={() => handleDownload(d.id)}
+                      title="Download signed PDF"
+                      style={{
+                        background: NAVY,
+                        color: "#fff",
+                        border: 0,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Download size={11} /> PDF
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              {!isRevoked ? (
-                <button
-                  type="button"
-                  onClick={() => handleDownload(d.id)}
-                  title="Download signed PDF"
+              {expanded ? (
+                <div
                   style={{
-                    background: NAVY,
-                    color: "#fff",
-                    border: 0,
-                    padding: "5px 10px",
+                    marginTop: 10,
+                    padding: 10,
+                    background: LINE_SOFT,
                     borderRadius: 6,
-                    fontSize: 11,
-                    fontWeight: 800,
-                    cursor: "pointer",
-                    fontFamily: FONT,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 4,
-                    flexShrink: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 8,
                   }}
                 >
-                  <Download size={11} /> PDF
-                </button>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: INK,
+                    }}
+                  >
+                    Co-sign as Phes representative
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Type your full legal name"
+                    value={coSignName}
+                    onChange={(e) => setCoSignName(e.target.value)}
+                    disabled={coSignSaving}
+                    style={{
+                      padding: "8px 10px",
+                      borderRadius: 6,
+                      border: `1px solid ${LINE}`,
+                      fontSize: 12,
+                      fontFamily: FONT,
+                      background: SURFACE,
+                      color: INK,
+                    }}
+                  />
+                  <label
+                    style={{
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      fontSize: 11,
+                      color: INK,
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={coSignAffirm}
+                      onChange={(e) => setCoSignAffirm(e.target.checked)}
+                      disabled={coSignSaving}
+                      style={{ marginTop: 2 }}
+                    />
+                    <span>
+                      I affirm that I am the Phes representative authorized
+                      to co-sign this acknowledgment on behalf of the
+                      company, and that my electronic signature has the same
+                      legal effect as a handwritten signature.
+                    </span>
+                  </label>
+                  {coSignErr ? (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: DANGER,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {coSignErr}
+                    </div>
+                  ) : null}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => submitCoSign(d.id)}
+                      disabled={
+                        coSignSaving ||
+                        !coSignAffirm ||
+                        coSignName.trim().length < 2
+                      }
+                      style={{
+                        background:
+                          coSignSaving ||
+                          !coSignAffirm ||
+                          coSignName.trim().length < 2
+                            ? INK_LIGHT
+                            : SUCCESS,
+                        color: "#fff",
+                        border: 0,
+                        padding: "6px 12px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 800,
+                        cursor:
+                          coSignSaving ||
+                          !coSignAffirm ||
+                          coSignName.trim().length < 2
+                            ? "not-allowed"
+                            : "pointer",
+                        fontFamily: FONT,
+                      }}
+                    >
+                      {coSignSaving ? "Co-signing..." : "Co-sign"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCoSignOpen(null)}
+                      disabled={coSignSaving}
+                      style={{
+                        background: SURFACE,
+                        color: INK,
+                        border: `1px solid ${LINE}`,
+                        padding: "6px 12px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               ) : null}
             </div>
           );

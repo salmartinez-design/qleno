@@ -49,6 +49,7 @@ export type ModuleId =
   | "il-sexual-harassment"
   | "drug-alcohol"
   | "code-of-conduct"
+  | "video-photo-release"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -76,6 +77,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "il-sexual-harassment",
   "drug-alcohol",
   "code-of-conduct",
+  "video-photo-release",
   "acknowledgment",
 ] as const;
 
@@ -100,6 +102,15 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * anti-harassment, anti-discrimination (IL Human Rights Act protected
  * classes), anti-retaliation, reporting channels, conflict of interest,
  * and key / property handling.
+ *
+ * video-photo-release (Phase 5, PR #6) adds a CO-SIGNED legal release.
+ * 9-question comprehension quiz + separate signed acknowledgment at
+ * document_type 'video_photo_release'. References Illinois Right of
+ * Publicity Act (765 ILCS 1075), includes a 5-year limit on new uses
+ * after separation, AI training carve-out, 30-day removal-effort
+ * withdrawal clause, and courtesy preview language. Co-signed by the
+ * tenant Phes representative (default-resolved by
+ * getTenantOwnerForSignature).
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -110,6 +121,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "il-sexual-harassment",
   "drug-alcohol",
   "code-of-conduct",
+  "video-photo-release",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -347,6 +359,24 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-coc-08-key-handling": 1,
   "q-coc-09-cooperation-investigation": 1,
   "q-coc-10-reporting-channels": 1,
+
+  // ── Module 9: video-photo-release (9, Phase 5 PR #6) ────────────────────
+  // Phes Video / Photo Release. Co-signed by the Phes representative
+  // (tenant owner by default). References Illinois Right of Publicity
+  // Act (765 ILCS 1075) for the limits on commercial use of a person's
+  // identity. Includes a 5-year post-separation limit on NEW uses,
+  // AI-training carve-out, and a 30-day removal-effort withdrawal
+  // clause. Spanish translation is NOT in the four flagged docs and
+  // ships without a translator-review banner.
+  "q-vpr-01-voluntary": 1,
+  "q-vpr-02-5-year-limit": 1,
+  "q-vpr-03-ai-carve-out": 1,
+  "q-vpr-04-withdrawal-30-day": 1,
+  "q-vpr-05-third-party-limits": 1,
+  "q-vpr-06-il-right-of-publicity": 1,
+  "q-vpr-07-co-signature": 1,
+  "q-vpr-08-courtesy-preview": 1,
+  "q-vpr-09-active-distribution": 1,
 });
 
 /**
@@ -424,6 +454,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-coc-05-protected-classes", "q-coc-06-retaliation-good-faith",
       "q-coc-07-conflict-of-interest", "q-coc-08-key-handling",
       "q-coc-09-cooperation-investigation", "q-coc-10-reporting-channels",
+    ],
+    "video-photo-release": [
+      "q-vpr-01-voluntary", "q-vpr-02-5-year-limit",
+      "q-vpr-03-ai-carve-out", "q-vpr-04-withdrawal-30-day",
+      "q-vpr-05-third-party-limits", "q-vpr-06-il-right-of-publicity",
+      "q-vpr-07-co-signature", "q-vpr-08-courtesy-preview",
+      "q-vpr-09-active-distribution",
     ],
   });
 

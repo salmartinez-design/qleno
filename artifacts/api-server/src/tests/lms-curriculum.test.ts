@@ -33,7 +33,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 9 modules in expected sequence (code-of-conduct added 2026-05-12 Phase 4)", () => {
+  it("MODULE_ORDER has all 10 modules in expected sequence (video-photo-release added 2026-05-12 Phase 5)", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
@@ -43,11 +43,12 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "il-sexual-harassment",
       "drug-alcohol",
       "code-of-conduct",
+      "video-photo-release",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 8 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 9 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
@@ -57,6 +58,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "il-sexual-harassment",
       "drug-alcohol",
       "code-of-conduct",
+      "video-photo-release",
     ]);
   });
 
@@ -93,11 +95,13 @@ describe("LMS curriculum — constants & catalog shape", () => {
     // phes-policies: 40 (full handbook coverage)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
+    // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
       "phes-policies": 40,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
+      "video-photo-release": 9,
       compensation: 15,
       "cleaning-best-practices": 15,
       maidcentral: 15,
@@ -113,8 +117,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 135 total (40 + 15*5 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 135);
+  it("ALL_QUESTION_IDS is 144 total (40 + 15*5 + 10 + 10 + 9)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 144);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

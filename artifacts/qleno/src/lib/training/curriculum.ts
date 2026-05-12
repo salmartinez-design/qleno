@@ -2097,6 +2097,139 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 9. VIDEO / PHOTO RELEASE (Phase 5, PR #6)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // CO-SIGNED release. The signed acknowledgment lives in lms_signed_documents
+  // at document_type 'video_photo_release', is registered in
+  // CO_SIGNED_DOCUMENT_TYPES, and is co-signed by the Phes representative
+  // (tenant owner by default, resolved via getTenantOwnerForSignature).
+  //
+  // Governed by the Illinois Right of Publicity Act (765 ILCS 1075), which
+  // requires affirmative consent to use a person's identity for commercial
+  // purposes. The release captures that consent in writing, bounded by:
+  //   1. 5-year limit on NEW uses after employment ends (content already
+  //      in active distribution may continue).
+  //   2. AI training / deepfake / synthetic media is carved out (requires
+  //      separate written consent).
+  //   3. Withdrawal at any time. 30-day removal effort for Phes-controlled
+  //      channels. Third-party shares cannot be recalled.
+  //   4. Courtesy preview before publication where feasible.
+  {
+    id: "video-photo-release",
+    number: 9,
+    iconKind: "shield",
+    title: {
+      en: "Video & Photo Release",
+      es: "Autorización de Video y Foto",
+    },
+    subtitle: {
+      en: "Phes may take photos or video of you at work. This module explains your rights, your AI carve-out, and how to withdraw consent.",
+      es: "Phes puede tomar fotos o videos de usted en el trabajo. Este módulo explica sus derechos, la exclusión de IA y cómo retirar el consentimiento.",
+    },
+    estimatedMinutes: 10,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Phes uses photos and short videos of crews at work to recruit techs, train new hires, and grow the business through social media and the website. The Illinois Right of Publicity Act (765 ILCS 1075) requires Phes to get your AFFIRMATIVE WRITTEN CONSENT before using your identity for any commercial purpose. This release is how we capture that consent and the limits you set on it. Signing is VOLUNTARY. You may decline without any change to your job duties, schedule, or pay.",
+          es: "Por qué importa este módulo. Phes usa fotos y videos cortos de equipos en el trabajo para reclutar técnicos, entrenar nuevas contrataciones y hacer crecer el negocio a través de redes sociales y la página web. La Ley del Derecho de Publicidad de Illinois (765 ILCS 1075) requiere que Phes obtenga su CONSENTIMIENTO AFIRMATIVO POR ESCRITO antes de usar su identidad para cualquier propósito comercial. Esta autorización es cómo capturamos ese consentimiento y los límites que usted ponga. Firmar es VOLUNTARIO. Puede rechazarlo sin cambios en sus funciones, horario o pago.",
+        },
+      },
+
+      { type: "h", text: { en: "What This Release Does and Does Not Cover", es: "Lo Que Esta Autorización Cubre y No Cubre" } },
+      {
+        type: "p",
+        text: {
+          en: "By signing, you give Phes permission to capture photos and video of you in your work environment (homes you clean as part of your Phes shift, the Phes office, training sessions, and team events), and to use those photos and videos in Phes recruiting materials, training materials, the Phes website, and Phes social-media channels.",
+          es: "Al firmar, usted da permiso a Phes para capturar fotos y videos suyos en su entorno de trabajo (hogares que limpia como parte de su turno de Phes, la oficina de Phes, sesiones de capacitación y eventos del equipo), y para usar esas fotos y videos en materiales de reclutamiento de Phes, materiales de capacitación, la página web de Phes y los canales de redes sociales de Phes.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Phes is the COMMERCIAL USER. The release covers Phes-internal uses (training) and Phes-external uses (recruiting, marketing).", es: "Phes es el USUARIO COMERCIAL. La autorización cubre usos internos de Phes (capacitación) y externos de Phes (reclutamiento, mercadotecnia)." },
+          { en: "The release does NOT permit any third party to use your likeness. If a magazine, news outlet, or another business asks Phes to share footage of you, Phes must ask for your separate consent before sharing.", es: "La autorización NO permite a ningún tercero usar su semejanza. Si una revista, medio de noticias u otro negocio pide a Phes compartir imágenes suyas, Phes debe pedirle su consentimiento separado antes de compartirlas." },
+          { en: "The release does NOT permit AI training, deepfake generation, or any synthetic-media use. This is carved out below and requires a separate written consent.", es: "La autorización NO permite el entrenamiento de IA, generación de deepfakes ni ningún uso de medios sintéticos. Esto se excluye más abajo y requiere un consentimiento separado por escrito." },
+        ],
+      },
+
+      { type: "h", text: { en: "5-Year Post-Separation Limit on New Uses", es: "Límite de 5 Años para Nuevos Usos Después de la Separación" } },
+      {
+        type: "p",
+        text: {
+          en: "If your employment with Phes ends (voluntary or involuntary), Phes may continue to use content featuring your likeness that was ALREADY IN ACTIVE DISTRIBUTION at the time you left (for example, a training video posted on the website before your last day, or a recruiting graphic already in rotation). Phes may NOT launch new uses of content featuring your likeness after the 5-year mark following your last day, except for content that was in active distribution at separation.",
+          es: "Si su empleo con Phes termina (voluntaria o involuntariamente), Phes puede continuar usando contenido que muestre su semejanza que YA ESTABA EN DISTRIBUCIÓN ACTIVA cuando se fue (por ejemplo, un video de capacitación publicado en el sitio web antes de su último día, o un gráfico de reclutamiento ya en rotación). Phes NO podrá iniciar nuevos usos de contenido que muestre su semejanza después del límite de 5 años siguientes a su último día, excepto para contenido que estaba en distribución activa al momento de la separación.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Practical effect: after you leave, your face does not appear in NEW Phes recruiting campaigns once 5 years have passed. Existing assets may continue to play.",
+          es: "Efecto práctico: después de irse, su rostro no aparece en NUEVAS campañas de reclutamiento de Phes una vez transcurridos 5 años. Los recursos existentes pueden seguir reproduciéndose.",
+        },
+      },
+
+      { type: "h", text: { en: "AI Training and Synthetic-Media Carve-Out", es: "Exclusión de Entrenamiento de IA y Medios Sintéticos" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Phes WILL NOT use your photos or video to train any AI model, to generate deepfakes, or to produce any synthetic media featuring your likeness, without your SEPARATE WRITTEN CONSENT. This release does not authorize any such use, no matter how the request is framed. If Phes ever asks for an AI-training-specific consent in the future, the request will be a different document with its own signature.",
+          es: "Phes NO USARÁ sus fotos o video para entrenar ningún modelo de IA, generar deepfakes ni producir ningún medio sintético que muestre su semejanza, sin su CONSENTIMIENTO SEPARADO POR ESCRITO. Esta autorización no permite ningún uso así, sin importar cómo se plantee la petición. Si Phes alguna vez pide un consentimiento específico para entrenamiento de IA en el futuro, la solicitud será un documento distinto con su propia firma.",
+        },
+      },
+
+      { type: "h", text: { en: "Courtesy Preview Before Publication", es: "Vista Previa de Cortesía Antes de la Publicación" } },
+      {
+        type: "p",
+        text: {
+          en: "When feasible, Phes will provide you a courtesy preview of content featuring your likeness BEFORE we publish it. Courtesy preview is not a veto. You may flag concerns, and we will consider them. Phes commits to making reasonable effort, but pre-approval is not a condition of publication under this release.",
+          es: "Cuando sea factible, Phes le proveerá una vista previa de cortesía del contenido que muestre su semejanza ANTES de publicarlo. La vista previa de cortesía no es un veto. Puede señalar inquietudes y las consideraremos. Phes se compromete a hacer un esfuerzo razonable, pero la pre-aprobación no es una condición de la publicación bajo esta autorización.",
+        },
+      },
+
+      { type: "h", text: { en: "How to Withdraw Consent", es: "Cómo Retirar el Consentimiento" } },
+      {
+        type: "p",
+        text: {
+          en: "You may withdraw your consent at any time, for any reason or no reason, by giving written notice to the office. Withdrawal works prospectively. Here is what Phes will and will not do:",
+          es: "Puede retirar su consentimiento en cualquier momento, por cualquier razón o sin razón, dando aviso por escrito a la oficina. El retiro funciona hacia adelante. Esto es lo que Phes hará y no hará:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Phes WILL take reasonable steps to remove content featuring your likeness from active Phes-controlled distribution channels (website, Phes social-media pages, recruiting materials we control) within 30 days of receiving your written withdrawal.", es: "Phes TOMARÁ medidas razonables para retirar contenido que muestre su semejanza de los canales de distribución activos controlados por Phes (página web, páginas de redes sociales de Phes, materiales de reclutamiento que controlamos) dentro de los 30 días de recibir su retiro por escrito." },
+          { en: "Phes CANNOT recall content already distributed by third parties (re-posts, downloads, screenshots, news articles that referenced our content). Once content has left Phes-controlled distribution, third-party copies are outside Phes's control.", es: "Phes NO PUEDE recuperar contenido ya distribuido por terceros (republicaciones, descargas, capturas de pantalla, artículos de noticias que hayan referido nuestro contenido). Una vez que el contenido salió de la distribución controlada por Phes, las copias de terceros están fuera del control de Phes." },
+          { en: "Phes WILL NOT use the withdrawn content in NEW campaigns or NEW publications after the withdrawal date.", es: "Phes NO USARÁ el contenido retirado en NUEVAS campañas o NUEVAS publicaciones después de la fecha de retiro." },
+          { en: "Withdrawing consent does not affect your job, your schedule, your pay, or your standing with Phes in any way.", es: "Retirar el consentimiento no afecta su trabajo, su horario, su pago ni su posición con Phes de ninguna manera." },
+        ],
+      },
+
+      { type: "h", text: { en: "Phes Representative Co-Signature", es: "Co-Firma del Representante de Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "Because this release is a two-way commitment (you grant rights; Phes commits to specific limits), the signed acknowledgment is CO-SIGNED by the Phes representative (by default the owner). The co-signature appears on the final PDF after you sign. You do not need to be present for the co-signature; it is added later by the office.",
+          es: "Como esta autorización es un compromiso de dos partes (usted otorga derechos; Phes se compromete a límites específicos), el reconocimiento firmado es CO-FIRMADO por el representante de Phes (por defecto el dueño). La co-firma aparece en el PDF final después de que usted firme. No necesita estar presente para la co-firma; la oficina la añade después.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Video and Photo Release that records the rights you grant and the limits Phes commits to. The release is co-signed by the Phes representative. You can re-download the signed PDF anytime from your training page. If you decline to sign, your job is not affected; Phes simply will not photograph or record you for commercial use.",
+          es: "Después de este examen: firmará una Autorización de Video y Foto por separado que registra los derechos que otorga y los límites a los que Phes se compromete. La autorización es co-firmada por el representante de Phes. Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación. Si decide no firmar, su trabajo no se ve afectado; Phes simplemente no lo fotografiará ni grabará para uso comercial.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3939,6 +4072,145 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "You can contact the owner directly, file with the Illinois Department of Human Rights (IDHR) or the federal EEOC. You are not required to report internally first.", es: "Puede contactar al dueño directamente, presentar ante el Departamento de Derechos Humanos de Illinois (IDHR) o ante la EEOC federal. No está obligado a reportar internamente primero." },
       { en: "You must report to the accused person first.", es: "Debe reportar primero a la persona acusada." },
       { en: "You can post about it on social media so other employees can see.", es: "Puede publicarlo en redes sociales para que otros empleados lo vean." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 9: VIDEO / PHOTO RELEASE (9 questions, Phase 5 PR #6)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-vpr-01-voluntary",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "You don't want your photo on Phes social media. What happens if you decline to sign the Video & Photo Release?",
+      es: "No quiere que su foto aparezca en las redes sociales de Phes. ¿Qué pasa si decide no firmar la Autorización de Video y Foto?",
+    },
+    options: [
+      { en: "You can be terminated for refusing to sign.", es: "Pueden despedirlo por negarse a firmar." },
+      { en: "Nothing happens to your job. Signing is voluntary. Phes simply will not photograph or record you for commercial use.", es: "No pasa nada con su trabajo. Firmar es voluntario. Phes simplemente no lo fotografiará ni grabará para uso comercial." },
+      { en: "Your hours are reduced.", es: "Le reducen las horas." },
+      { en: "You lose your annual raise.", es: "Pierde su aumento anual." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-02-5-year-limit",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "You sign the release. Two years later you leave Phes. What can Phes do with the existing photos and video of you?",
+      es: "Firma la autorización. Dos años después se va de Phes. ¿Qué puede hacer Phes con las fotos y videos existentes suyos?",
+    },
+    options: [
+      { en: "Use them forever, no time limit.", es: "Usarlos para siempre, sin límite de tiempo." },
+      { en: "Continue using content that was already in active distribution at the time you left, but Phes may not launch NEW uses of content featuring your likeness more than 5 years after your last day.", es: "Continuar usando contenido que ya estaba en distribución activa al momento de irse, pero Phes no podrá iniciar NUEVOS usos de contenido con su semejanza más de 5 años después de su último día." },
+      { en: "Phes must remove all content immediately on your last day.", es: "Phes debe retirar todo el contenido inmediatamente en su último día." },
+      { en: "Phes must pay you a residual for any continued use.", es: "Phes debe pagarle un residual por cualquier uso continuado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-03-ai-carve-out",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "Phes wants to use your photos to train an AI model that generates new recruiting graphics. Does this release authorize that?",
+      es: "Phes quiere usar sus fotos para entrenar un modelo de IA que genera nuevos gráficos de reclutamiento. ¿Esta autorización permite eso?",
+    },
+    options: [
+      { en: "Yes, recruiting is a covered use.", es: "Sí, el reclutamiento es un uso cubierto." },
+      { en: "No. AI training, deepfake creation, and synthetic-media generation are carved out and require a SEPARATE written consent. This release does not authorize them under any circumstances.", es: "No. El entrenamiento de IA, la creación de deepfakes y la generación de medios sintéticos están excluidos y requieren un consentimiento separado por escrito. Esta autorización no los permite bajo ninguna circunstancia." },
+      { en: "Yes, but only for internal use.", es: "Sí, pero solo para uso interno." },
+      { en: "Yes, because it's still your image.", es: "Sí, porque sigue siendo su imagen." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-04-withdrawal-30-day",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "You signed the release a year ago. Today you want to withdraw consent. What does the release commit Phes to do?",
+      es: "Firmó la autorización hace un año. Hoy quiere retirar su consentimiento. ¿A qué se compromete Phes según la autorización?",
+    },
+    options: [
+      { en: "Phes is not obligated to do anything; consent is permanent.", es: "Phes no está obligado a hacer nada; el consentimiento es permanente." },
+      { en: "Phes will take reasonable steps to remove content featuring your likeness from active Phes-controlled distribution channels within 30 days of receiving your written withdrawal. Phes will not use the withdrawn content in NEW campaigns after the withdrawal date.", es: "Phes tomará medidas razonables para retirar contenido con su semejanza de los canales de distribución activos controlados por Phes dentro de los 30 días de recibir su retiro por escrito. Phes no usará el contenido retirado en NUEVAS campañas después de la fecha de retiro." },
+      { en: "Phes must pay you to release the content.", es: "Phes debe pagarle para liberar el contenido." },
+      { en: "Phes must remove all content within 24 hours, no exceptions.", es: "Phes debe retirar todo el contenido en 24 horas, sin excepciones." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-05-third-party-limits",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "You withdrew consent. A former client had previously screenshot a Phes Instagram post that featured you and reposted it on their own account. Can Phes force the client to take down their repost?",
+      es: "Retiró su consentimiento. Un cliente anterior había hecho captura de pantalla de una publicación de Instagram de Phes con su imagen y la republicó en su propia cuenta. ¿Puede Phes obligar al cliente a retirar su republicación?",
+    },
+    options: [
+      { en: "Yes, Phes has full control over any copy of the content.", es: "Sí, Phes tiene control total sobre cualquier copia del contenido." },
+      { en: "No. Phes cannot recall content already distributed by third parties (re-posts, downloads, screenshots, news references). Once content left Phes-controlled distribution, third-party copies are outside Phes's control. The release acknowledges this explicitly.", es: "No. Phes no puede recuperar contenido ya distribuido por terceros (republicaciones, descargas, capturas, referencias de noticias). Una vez que el contenido salió de la distribución controlada por Phes, las copias de terceros están fuera del control de Phes. La autorización reconoce esto explícitamente." },
+      { en: "Only with a court order.", es: "Solo con una orden judicial." },
+      { en: "Only if the client charges money for the repost.", es: "Solo si el cliente cobra dinero por la republicación." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-06-il-right-of-publicity",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "Which Illinois law requires Phes to get your AFFIRMATIVE WRITTEN CONSENT before using your identity for commercial purposes?",
+      es: "¿Qué ley de Illinois requiere que Phes obtenga su CONSENTIMIENTO AFIRMATIVO POR ESCRITO antes de usar su identidad para propósitos comerciales?",
+    },
+    options: [
+      { en: "Illinois Cannabis Regulation and Tax Act.", es: "Ley de Regulación e Impuestos del Cannabis de Illinois." },
+      { en: "Illinois Right of Publicity Act, 765 ILCS 1075. The Video & Photo Release is the document where Phes captures that affirmative consent in writing.", es: "Ley del Derecho de Publicidad de Illinois, 765 ILCS 1075. La Autorización de Video y Foto es el documento donde Phes captura ese consentimiento afirmativo por escrito." },
+      { en: "Illinois Workplace Transparency Act.", es: "Ley de Transparencia Laboral de Illinois." },
+      { en: "Illinois Paid Leave for All Workers Act.", es: "Ley de Licencia Pagada para Todos los Trabajadores de Illinois." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-07-co-signature",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "Why is the Video & Photo Release CO-SIGNED by the Phes representative, unlike other Phes acknowledgments?",
+      es: "¿Por qué la Autorización de Video y Foto es CO-FIRMADA por el representante de Phes, a diferencia de otros reconocimientos de Phes?",
+    },
+    options: [
+      { en: "Because the office wants more signatures on file.", es: "Porque la oficina quiere más firmas archivadas." },
+      { en: "Because the release is a TWO-WAY commitment: you grant rights, and Phes commits to specific limits (5-year post-separation cap, AI carve-out, 30-day withdrawal removal effort, courtesy preview). The co-signature binds Phes to those commitments.", es: "Porque la autorización es un compromiso DE DOS VÍAS: usted otorga derechos y Phes se compromete a límites específicos (límite de 5 años después de la separación, exclusión de IA, esfuerzo de retiro en 30 días, vista previa de cortesía). La co-firma vincula a Phes a esos compromisos." },
+      { en: "Because Illinois law requires two signatures on every release.", es: "Porque la ley de Illinois exige dos firmas en cada autorización." },
+      { en: "Because it makes the document harder to forge.", es: "Porque hace el documento más difícil de falsificar." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-08-courtesy-preview",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "Does the release give you the right to APPROVE every photo or video before Phes uses it?",
+      es: "¿La autorización le da el derecho a APROBAR cada foto o video antes de que Phes lo use?",
+    },
+    options: [
+      { en: "Yes. Approval is required for every publication.", es: "Sí. La aprobación es requerida para cada publicación." },
+      { en: "No. Phes commits to a COURTESY PREVIEW where feasible, meaning Phes will make reasonable effort to show you content before publication. Courtesy preview is not a veto; pre-approval is not a condition of publication. You may flag concerns, and we will consider them.", es: "No. Phes se compromete a una VISTA PREVIA DE CORTESÍA cuando sea factible, lo que significa que Phes hará un esfuerzo razonable para mostrarle el contenido antes de la publicación. La vista previa de cortesía no es un veto; la pre-aprobación no es condición de publicación. Puede señalar inquietudes y las consideraremos." },
+      { en: "Yes, but only for video, not photo.", es: "Sí, pero solo para video, no foto." },
+      { en: "No, you have no input at all.", es: "No, no tiene ninguna participación." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-vpr-09-active-distribution",
+    moduleId: "video-photo-release",
+    prompt: {
+      en: "You're leaving Phes next month. A training video posted to the Phes website 6 months ago features you. After your last day, Phes plans to keep the training video live on the site. Is that allowed under the release?",
+      es: "Se va de Phes el próximo mes. Un video de capacitación publicado en el sitio web de Phes hace 6 meses lo muestra. Después de su último día, Phes planea mantener el video de capacitación en el sitio. ¿Es permitido bajo la autorización?",
+    },
+    options: [
+      { en: "No. Phes must take down all content featuring you on your last day.", es: "No. Phes debe retirar todo contenido suyo en su último día." },
+      { en: "Yes. Content already in ACTIVE DISTRIBUTION at the time of separation may continue. The 5-year limit applies to NEW uses, not existing assets. If you want it taken down anyway, you can withdraw consent in writing and Phes will remove it from Phes-controlled channels within 30 days.", es: "Sí. El contenido que ya está en DISTRIBUCIÓN ACTIVA al momento de la separación puede continuar. El límite de 5 años aplica a NUEVOS usos, no a los recursos existentes. Si aun así quiere que se retire, puede retirar el consentimiento por escrito y Phes lo retirará de los canales controlados por Phes dentro de los 30 días." },
+      { en: "Only if Phes pays you a continued-use fee.", es: "Solo si Phes le paga una tarifa por uso continuado." },
+      { en: "Yes, but only for one year.", es: "Sí, pero solo por un año." },
     ],
     correctIndex: 1,
   },

@@ -56,6 +56,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Code of Conduct",
     es: "Código de Conducta",
   },
+  "video-photo-release": {
+    en: "Video & Photo Release",
+    es: "Autorización de Video y Foto",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",
