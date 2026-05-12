@@ -152,7 +152,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   // ── Module 1: phes-policies (34) ─────────────────────────────────────────
   // 15 original + 8 (handbook reconciliation 2026-05-11) + 2 sick-time
   // deep dive + 1 unpaid personal days + 8 (four-bucket policy 2026-05-12:
-  // PLAWA → PTO → Unpaid Personal Leave → Unpaid Absence Allowance with
+  // PLAWA → PTO → Unpaid Personal Leave → Unexcused Unpaid Absence Allowance with
   // the two-condition unexcused rule, PLAWA denial / default / discipline
   // protection, and notice requirements per bucket).
   "q-pp-01-w2": 1,

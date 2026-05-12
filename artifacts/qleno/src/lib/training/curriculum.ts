@@ -187,8 +187,8 @@ const BASE_MODULES: Module[] = [
             es: ["2", "PTO", "40 → 80 / año", "Después de 1 año", "7 días anticipados", "Sí — necesidades del negocio", "Sí"] },
           { en: ["3", "Unpaid Personal Leave", "40 / year (5 days)", "Day one", "7 days advance", "Yes — business needs", "No"],
             es: ["3", "Licencia Personal No Pagada", "40 / año (5 días)", "Primer día", "7 días anticipados", "Sí — necesidades del negocio", "No"] },
-          { en: ["4", "Unpaid Absence Allowance", "40 / year", "After 90 days", "Grace call only", "No — last bucket before discipline", "No"],
-            es: ["4", "Tolerancia de Ausencia No Pagada", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No — última cubeta antes de disciplina", "No"] },
+          { en: ["4", "Unexcused Unpaid Absence Allowance", "40 / year", "After 90 days", "Grace call only", "No — last bucket before discipline", "No"],
+            es: ["4", "Tolerancia de Ausencia No Pagada Injustificada", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No — última cubeta antes de disciplina", "No"] },
         ],
       },
       {
@@ -215,16 +215,16 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Sick time is NOT PTO. They are SEPARATE buckets. PLAWA is gone at the end of your Benefit Year and is NOT paid out when you leave Phes (PTO is). Using your sick hours does not reduce your PTO bank, and vice versa. Sick-time requests follow the same two-step process: submit through MaidCentral / Qleno AND contact Maribel or Francisco at the office.",
-          es: "El tiempo por enfermedad NO es PTO. Son cubetas SEPARADAS. PLAWA se pierde al final de su Año de Beneficios y NO se paga cuando deja Phes (el PTO sí). Usar sus horas por enfermedad no reduce su banco de PTO, ni al revés. Las solicitudes de tiempo por enfermedad siguen el mismo proceso de dos pasos: envíe por MaidCentral / Qleno Y contacte a Maribel o Francisco en la oficina.",
+          en: "Sick time is NOT PTO. They are SEPARATE buckets. PLAWA is gone at the end of your Benefit Year and is NOT paid out when you leave Phes (PTO is). Using your sick hours does not reduce your PTO bank, and vice versa. Sick-time requests follow the same two-step process: submit through MaidCentral / Qleno AND contact the office.",
+          es: "El tiempo por enfermedad NO es PTO. Son cubetas SEPARADAS. PLAWA se pierde al final de su Año de Beneficios y NO se paga cuando deja Phes (el PTO sí). Usar sus horas por enfermedad no reduce su banco de PTO, ni al revés. Las solicitudes de tiempo por enfermedad siguen el mismo proceso de dos pasos: envíe por MaidCentral / Qleno Y contacte a la oficina.",
         },
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "Out of PLAWA hours? You do NOT go straight to discipline. The office cascades down the bucket order — PTO next, then Unpaid Personal Leave, then Unpaid Absence Allowance. As long as one bucket still has hours and you give the right notice, the absence stays excused.",
-          es: "¿Sin horas de PLAWA? NO pasa directamente a la disciplina. La oficina baja por el orden de cubetas — PTO siguiente, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada. Mientras una cubeta tenga horas y dé el aviso correcto, la ausencia se mantiene justificada.",
+          en: "Out of PLAWA hours? You do NOT go straight to discipline. The office cascades down the bucket order — PTO next, then Unpaid Personal Leave, then Unexcused Unpaid Absence Allowance. As long as one bucket still has hours and you give the right notice, the absence stays excused.",
+          es: "¿Sin horas de PLAWA? NO pasa directamente a la disciplina. La oficina baja por el orden de cubetas — PTO siguiente, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada Injustificada. Mientras una cubeta tenga horas y dé el aviso correcto, la ausencia se mantiene justificada.",
         },
       },
       {
@@ -243,6 +243,14 @@ const BASE_MODULES: Module[] = [
           es: "SIN represalias. Por ley, Phes no puede disciplinar, degradar, despedir o penalizarlo por usar PLAWA legalmente. Si alguna vez siente presión por tomar un día por enfermedad, dígale a la oficina de inmediato.",
         },
       },
+      { type: "h", text: { en: "Cook County Notice", es: "Aviso del Condado de Cook" } },
+      {
+        type: "p",
+        text: {
+          en: "Employees working in Cook County may be covered by the Cook County Paid Leave Ordinance in addition to or in place of the Illinois Paid Leave for All Workers Act. The benefits provided by Phes meet or exceed the requirements of both laws. If you have questions about your paid leave rights under the Cook County ordinance, you may contact the Cook County Commission on Human Rights at 312-603-1100.",
+          es: "Los empleados que trabajan en el Condado de Cook pueden estar cubiertos por la Ordenanza de Licencia Pagada del Condado de Cook además de, o en lugar de, la Ley de Licencia Pagada para Todos los Trabajadores de Illinois. Los beneficios que ofrece Phes cumplen o superan los requisitos de ambas leyes. Si tiene preguntas sobre sus derechos de licencia pagada bajo la ordenanza del Condado de Cook, puede comunicarse con la Comisión de Derechos Humanos del Condado de Cook al 312-603-1100.",
+        },
+      },
       { type: "h", text: { en: "Paid Time Off (PTO)", es: "Tiempo Libre Pagado (PTO)" } },
       {
         type: "bullets",
@@ -250,7 +258,7 @@ const BASE_MODULES: Module[] = [
           { en: "After 1 year (first work anniversary): 40 hours PTO per year.", es: "Después de 1 año (primer aniversario): 40 horas de PTO por año." },
           { en: "After 2 years and beyond: bank is topped up to 80 hours each anniversary.", es: "Después de 2 años en adelante: el banco se rellena hasta 80 horas en cada aniversario." },
           { en: "Hard cap: PTO does NOT exceed 80 hours total at any time. Unused PTO does NOT stack — we top up to the cap, we do not add on top.", es: "Tope estricto: el PTO NUNCA excede 80 horas totales. El PTO no usado NO se acumula — rellenamos hasta el tope, no agregamos encima." },
-          { en: "Request through the app in advance AND contact Maribel or Francisco at the office to confirm — same two-step process as sick time.", es: "Solicite por la app con anticipación Y contacte a Maribel o Francisco en la oficina para confirmar — el mismo proceso de dos pasos del tiempo por enfermedad." },
+          { en: "Request through the app in advance AND contact the office to confirm — same two-step process as sick time.", es: "Solicite por la app con anticipación Y contacte a la oficina para confirmar — el mismo proceso de dos pasos del tiempo por enfermedad." },
         ],
       },
       {
@@ -274,8 +282,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Do NOT assume your request is approved until Maribel or Francisco confirms it. Buying a flight or booking travel before approval is your own risk — if the date is already filled by two earlier requests, or if business needs override, your request will be denied.",
-          es: "NO asuma que su solicitud está aprobada hasta que Maribel o Francisco lo confirmen. Comprar un vuelo o reservar viajes antes de la aprobación es su propio riesgo — si la fecha ya está llena con dos solicitudes anteriores, o si las necesidades del negocio anulan, su solicitud será rechazada.",
+          en: "Do NOT assume your request is approved until the office confirms it. Buying a flight or booking travel before approval is your own risk — if the date is already filled by two earlier requests, or if business needs override, your request will be denied.",
+          es: "NO asuma que su solicitud está aprobada hasta que la oficina lo confirme. Comprar un vuelo o reservar viajes antes de la aprobación es su propio riesgo — si la fecha ya está llena con dos solicitudes anteriores, o si las necesidades del negocio anulan, su solicitud será rechazada.",
         },
       },
       { type: "h", text: { en: "Unpaid Personal Days (Named Time Off)", es: "Días Personales No Pagados (Tiempo Libre Nombrado)" } },
@@ -284,7 +292,7 @@ const BASE_MODULES: Module[] = [
         items: [
           { en: "Up to 5 unpaid personal days per year = 40 hours of unpaid time off.", es: "Hasta 5 días personales no pagados por año = 40 horas de tiempo libre no pagado." },
           { en: "Logged in MaidCentral as 'Named Time Off' days.", es: "Registrados en MaidCentral como días de 'Named Time Off' (Tiempo Libre Nombrado)." },
-          { en: "Same two-step request as PTO and sick time — submit in the system AND contact Maribel or Francisco.", es: "Misma solicitud de dos pasos que el PTO y enfermedad — envíe por el sistema Y contacte a Maribel o Francisco." },
+          { en: "Same two-step request as PTO and sick time — submit in the system AND contact the office.", es: "Misma solicitud de dos pasos que el PTO y enfermedad — envíe por el sistema Y contacte a la oficina." },
           { en: "Approval is at management discretion. The same first-come-first-serve, max-2-cleaners-off, business-needs-first rules apply.", es: "La aprobación es a discreción de la gerencia. Aplican las mismas reglas de primero-en-llegar, máximo-2-cleaners-libres, necesidades-del-negocio-primero." },
           { en: "Do not carry over to next year. Not paid out at separation.", es: "No se acumulan al año siguiente. No se pagan al separarse." },
         ],
@@ -298,8 +306,8 @@ const BASE_MODULES: Module[] = [
         },
       },
 
-      // ── Unpaid Absence Allowance (bucket 4 of 4) ──────────────────────────
-      { type: "h", text: { en: "Unpaid Absence Allowance (Bucket #4 of 4)", es: "Tolerancia de Ausencia No Pagada (Cubeta #4 de 4)" } },
+      // ── Unexcused Unpaid Absence Allowance (bucket 4 of 4) ──────────────────────────
+      { type: "h", text: { en: "Unexcused Unpaid Absence Allowance (Bucket #4 of 4)", es: "Tolerancia de Ausencia No Pagada Injustificada (Cubeta #4 de 4)" } },
       {
         type: "bullets",
         items: [
@@ -331,15 +339,15 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "STEP 1 — Submit the request through MaidCentral (and Qleno once we cut over). This is what dispatch sees and what triggers client notifications.", es: "PASO 1 — Envíe la solicitud por MaidCentral (y Qleno una vez que cambiemos). Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
-          { en: "STEP 2 — Contact Maribel or Francisco at the office directly (text or call) to confirm they've seen it. The system request alone is not enough.", es: "PASO 2 — Contacte a Maribel o Francisco en la oficina directamente (mensaje o llamada) para confirmar que la vieron. La solicitud por el sistema sola no es suficiente." },
+          { en: "STEP 2 — Contact the office directly (text or call) to confirm they've seen it. The system request alone is not enough.", es: "PASO 2 — Contacte a la oficina directamente (mensaje o llamada) para confirmar que la vieron. La solicitud por el sistema sola no es suficiente." },
         ],
       },
       {
         type: "callout",
         tone: "warning",
         text: {
-          en: "If you only text Maribel or Francisco without the system request, dispatch won't see it and the client won't get notified. If you only submit in the system without contacting them, the office might not see it in time. Both are required, every time.",
-          es: "Si solo envía mensaje a Maribel o Francisco sin la solicitud por el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía por el sistema sin contactarlos, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
+          en: "If you only text the office without the system request, dispatch won't see it and the client won't get notified. If you only submit in the system without contacting them, the office might not see it in time. Both are required, every time.",
+          es: "Si solo envía mensaje a la oficina sin la solicitud por el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía por el sistema sin contactarlos, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
         },
       },
       { type: "h", text: { en: "Unexcused Absences — When the Discipline Scale Kicks In", es: "Ausencias Injustificadas — Cuándo Se Activa la Escala de Disciplina" } },
@@ -468,6 +476,13 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Photos or videos of client homes are strictly forbidden — except photos taken inside the company app for documenting completed work or damage.",
           es: "Fotos o videos de hogares de clientes están estrictamente prohibidos — excepto fotos tomadas dentro de la aplicación de la compañía para documentar trabajo completado o daños.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Nothing in this policy restricts your rights under federal labor law to discuss wages, hours, or working conditions with coworkers or others.",
+          es: "Nada en esta política restringe sus derechos bajo la ley federal laboral para hablar sobre salarios, horarios o condiciones de trabajo con compañeros u otras personas.",
         },
       },
     ],
@@ -1133,7 +1148,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're feeling sick tonight and won't work tomorrow. How do you report it?", es: "Se siente mal esta noche y no trabajará mañana. ¿Cómo lo reporta?" },
     options: [
       { en: "Text a co-worker so they can tell the office.", es: "Mensaje a un compañero para que avise a la oficina." },
-      { en: "Submit a sick request through MaidCentral / Qleno AND make the grace-window call to Maribel or Francisco — that's all PLAWA needs. No advance approval, no doctor's note, no reason required.", es: "Envíe la solicitud por MaidCentral / Qleno Y haga la llamada de gracia a Maribel o Francisco — eso es todo lo que PLAWA necesita. Sin aprobación previa, sin nota médica, sin razón requerida." },
+      { en: "Submit a sick request through MaidCentral / Qleno AND make the grace-window call to the office — that's all PLAWA needs. No advance approval, no doctor's note, no reason required.", es: "Envíe la solicitud por MaidCentral / Qleno Y haga la llamada de gracia a la oficina — eso es todo lo que PLAWA necesita. Sin aprobación previa, sin nota médica, sin razón requerida." },
       { en: "Call the office in the morning when you should be at work.", es: "Llamar a la oficina en la mañana cuando debería estar trabajando." },
       { en: "Just don't show up — they'll figure it out.", es: "Simplemente no presentarse — ya lo entenderán." },
     ],
@@ -1154,7 +1169,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
-    prompt: { en: "An absence becomes 'unexcused' only when (a) you no-call/no-show OR (b) all four leave buckets (PLAWA, PTO, Unpaid Personal Leave, Unpaid Absence Allowance) are exhausted. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' solo cuando (a) no llama / no se presenta, O (b) las cuatro cubetas (PLAWA, PTO, Licencia Personal No Pagada, Tolerancia de Ausencia No Pagada) están agotadas. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
+    prompt: { en: "An absence becomes 'unexcused' only when (a) you no-call/no-show OR (b) all four leave buckets (PLAWA, PTO, Unpaid Personal Leave, Unexcused Unpaid Absence Allowance) are exhausted. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' solo cuando (a) no llama / no se presenta, O (b) las cuatro cubetas (PLAWA, PTO, Licencia Personal No Pagada, Tolerancia de Ausencia No Pagada Injustificada) están agotadas. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
     options: [
       { en: "Coaching conversation", es: "Conversación de orientación" },
       { en: "Written warning", es: "Advertencia por escrito" },
@@ -1357,7 +1372,7 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Ha usado las 40 horas de su PLAWA en este Año de Beneficios. Despierta enfermo y llama para faltar (con la llamada de gracia de 20 minutos). ¿Cómo se clasifica esta ausencia?",
     },
     options: [
-      { en: "Phes covers the absence with the next leave bucket in order — PTO, then Unpaid Personal Leave, then Unpaid Absence Allowance. It is NOT unexcused unless all four buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden — PTO, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada. NO es injustificada a menos que las cuatro cubetas estén agotadas o haya sido un no llamó / no se presentó." },
+      { en: "Phes covers the absence with the next leave bucket in order — PTO, then Unpaid Personal Leave, then Unexcused Unpaid Absence Allowance. It is NOT unexcused unless all four buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden — PTO, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada Injustificada. NO es injustificada a menos que las cuatro cubetas estén agotadas o haya sido un no llamó / no se presentó." },
       { en: "Unexcused — once PLAWA is gone, every sick call counts toward discipline.", es: "Injustificada — una vez agotado el PLAWA, cada llamada por enfermedad cuenta hacia la disciplina." },
       { en: "PTO is automatically deducted, but if PTO is also gone you're unexcused.", es: "Se deduce PTO automáticamente, pero si el PTO también está agotado, queda como injustificada." },
       { en: "Phes terminates immediately for going over PLAWA.", es: "Phes termina inmediatamente por exceder el PLAWA." },
@@ -1387,8 +1402,8 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Phes usa cuatro cubetas de licencia para cubrir ausencias. ¿En qué orden se usan?",
     },
     options: [
-      { en: "PTO → PLAWA → Unpaid Personal Leave → Unpaid Absence Allowance.", es: "PTO → PLAWA → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada." },
-      { en: "PLAWA → PTO → Unpaid Personal Leave → Unpaid Absence Allowance.", es: "PLAWA → PTO → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada." },
+      { en: "PTO → PLAWA → Unpaid Personal Leave → Unexcused Unpaid Absence Allowance.", es: "PTO → PLAWA → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada Injustificada." },
+      { en: "PLAWA → PTO → Unpaid Personal Leave → Unexcused Unpaid Absence Allowance.", es: "PLAWA → PTO → Licencia Personal No Pagada → Tolerancia de Ausencia No Pagada Injustificada." },
       { en: "Whichever bucket the office picks each time.", es: "La cubeta que la oficina escoja cada vez." },
       { en: "Unpaid Personal Leave first, paid buckets last.", es: "Licencia Personal No Pagada primero, las pagadas al final." },
     ],
@@ -1463,7 +1478,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Every bucket: 7 days advance notice, no exceptions.", es: "Toda cubeta: 7 días de aviso anticipado, sin excepciones." },
-      { en: "PLAWA and Unpaid Absence Allowance: the 20-minute grace call only. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + Maribel/Francisco) for all four.", es: "PLAWA y Tolerancia de Ausencia No Pagada: solo la llamada de gracia de 20 minutos. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + Maribel/Francisco) para las cuatro." },
+      { en: "PLAWA and Unexcused Unpaid Absence Allowance: the 20-minute grace call only. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + the office) for all four.", es: "PLAWA y Tolerancia de Ausencia No Pagada Injustificada: solo la llamada de gracia de 20 minutos. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + la oficina) para las cuatro." },
       { en: "Doctor's note required for all four.", es: "Nota médica requerida para las cuatro." },
       { en: "Only the office decides — no fixed notice rules.", es: "Solo la oficina decide — sin reglas fijas de aviso." },
     ],
@@ -1493,7 +1508,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — once the first three are out, the absence is unexcused.", es: "No — una vez agotadas las primeras tres, la ausencia es injustificada." },
-      { en: "Yes — the Unpaid Absence Allowance (40 hours, after 90 days, grace-call only, no advance approval needed). It's the last bucket before discipline. After it's exhausted, further unprotected absences become unexcused.", es: "Sí — la Tolerancia de Ausencia No Pagada (40 horas, después de 90 días, solo llamada de gracia, sin aprobación previa). Es la última cubeta antes de la disciplina. Una vez agotada, las ausencias no protegidas adicionales se vuelven injustificadas." },
+      { en: "Yes — the Unexcused Unpaid Absence Allowance (40 hours, after 90 days, grace-call only, no advance approval needed). It's the last bucket before discipline. After it's exhausted, further unprotected absences become unexcused.", es: "Sí — la Tolerancia de Ausencia No Pagada Injustificada (40 horas, después de 90 días, solo llamada de gracia, sin aprobación previa). Es la última cubeta antes de la disciplina. Una vez agotada, las ausencias no protegidas adicionales se vuelven injustificadas." },
       { en: "Phes will let you borrow against next year's PTO.", es: "Phes le permite pedir prestado contra el PTO del próximo año." },
       { en: "Only if the absence is for an immediate family member.", es: "Solo si la ausencia es por un familiar inmediato." },
     ],
