@@ -130,6 +130,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pt-13-cloth-cross": 1,
   "q-pt-14-step-stool": 1,
   "q-pt-15-furniture-stand": 2,
+
+  // ── Module 6: sexual-harassment-prevention (10, IHRA 2026-05-12) ────────
+  "q-sh-01-definition": 1,
+  "q-sh-02-client-harassment": 1,
+  "q-sh-03-quid-pro-quo": 1,
+  "q-sh-04-who-to-report": 1,
+  "q-sh-05-retaliation": 1,
+  "q-sh-06-external-agencies": 2,
+  "q-sh-07-zero-tolerance": 0,
+  "q-sh-08-protected-groups": 2,
+  "q-sh-09-witness": 1,
+  "q-sh-10-borderline": 2,
 });
 
 /**

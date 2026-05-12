@@ -46,6 +46,7 @@ export type ModuleId =
   | "cleaning-best-practices"
   | "maidcentral"
   | "products-tools"
+  | "sexual-harassment-prevention"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -70,6 +71,12 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "cleaning-best-practices",
   "maidcentral",
   "products-tools",
+  // [phes-ihra 2026-05-12] Sexual Harassment Prevention Training — annual
+  // requirement under the Illinois Human Rights Act (775 ILCS 5/2-109).
+  // First completion happens during onboarding; annual recompletion by
+  // Dec 31 every year. Annual-reset machinery is a follow-up — for now,
+  // sequential gating + completion record is in place.
+  "sexual-harassment-prevention",
   "acknowledgment",
 ] as const;
 
@@ -84,6 +91,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "cleaning-best-practices",
   "maidcentral",
   "products-tools",
+  "sexual-harassment-prevention",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -257,6 +265,18 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pt-13-cloth-cross": 1,
   "q-pt-14-step-stool": 1,
   "q-pt-15-furniture-stand": 2,
+
+  // ── Module 6: sexual-harassment-prevention (10, IHRA 2026-05-12) ────────
+  "q-sh-01-definition": 1,
+  "q-sh-02-client-harassment": 1,
+  "q-sh-03-quid-pro-quo": 1,
+  "q-sh-04-who-to-report": 1,
+  "q-sh-05-retaliation": 1,
+  "q-sh-06-external-agencies": 2,
+  "q-sh-07-zero-tolerance": 0,
+  "q-sh-08-protected-groups": 2,
+  "q-sh-09-witness": 1,
+  "q-sh-10-borderline": 2,
 });
 
 /**
@@ -309,6 +329,12 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pt-07-magic-eraser-paint", "q-pt-08-magic-eraser-glass", "q-pt-09-pumice-where",
       "q-pt-10-pumice-wet", "q-pt-11-steel-wool-grade", "q-pt-12-steel-wool-chrome",
       "q-pt-13-cloth-cross", "q-pt-14-step-stool", "q-pt-15-furniture-stand",
+    ],
+    "sexual-harassment-prevention": [
+      "q-sh-01-definition", "q-sh-02-client-harassment", "q-sh-03-quid-pro-quo",
+      "q-sh-04-who-to-report", "q-sh-05-retaliation", "q-sh-06-external-agencies",
+      "q-sh-07-zero-tolerance", "q-sh-08-protected-groups", "q-sh-09-witness",
+      "q-sh-10-borderline",
     ],
   });
 

@@ -33,24 +33,26 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 6 modules in expected sequence", () => {
+  it("MODULE_ORDER has all 7 modules in expected sequence", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
       "cleaning-best-practices",
       "maidcentral",
       "products-tools",
+      "sexual-harassment-prevention",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 5 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 6 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
       "cleaning-best-practices",
       "maidcentral",
       "products-tools",
+      "sexual-harassment-prevention",
     ]);
   });
 
@@ -83,9 +85,11 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
-  it("each non-policies module has exactly 15 questions (per Phes spec)", () => {
+  it("each onboarding non-policies module has exactly 15 questions (per Phes spec)", () => {
+    // phes-policies has 34; sexual-harassment-prevention has 10 (IHRA spec).
+    // The remaining four onboarding modules are 15 each.
     for (const m of QUIZ_MODULE_IDS) {
-      if (m === "phes-policies") continue;
+      if (m === "phes-policies" || m === "sexual-harassment-prevention") continue;
       assert.equal(
         QUESTIONS_BY_MODULE[m].length,
         15,
@@ -94,8 +98,16 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 94 total (4 modules × 15 + phes-policies × 34)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 94);
+  it("sexual-harassment-prevention has 10 questions (IHRA spec)", () => {
+    assert.equal(
+      QUESTIONS_BY_MODULE["sexual-harassment-prevention"].length,
+      10,
+      `sexual-harassment-prevention should have 10 questions; has ${QUESTIONS_BY_MODULE["sexual-harassment-prevention"].length}`,
+    );
+  });
+
+  it("ALL_QUESTION_IDS is 104 total (4 modules × 15 + phes-policies × 34 + SH × 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 104);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
