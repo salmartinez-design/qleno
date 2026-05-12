@@ -710,6 +710,173 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE INDEX IF NOT EXISTS lms_quiz_attempts_enrollment_module_attempted_idx ON lms_quiz_attempts(enrollment_id, module_id, attempted_at)` },
     { label: "lms_quiz_attempts_company_attempted_idx",
       stmt: `CREATE INDEX IF NOT EXISTS lms_quiz_attempts_company_attempted_idx ON lms_quiz_attempts(company_id, attempted_at)` },
+
+    // ── [lms-signatures 2026-05-12] Onboarding / handbook signature infra ─
+    // Six tables + three enums. UETA / E-SIGN compliance: tamper-evident
+    // versioning, IP / device capture, audit log, annual cycles, forced
+    // re-ack on material changes. Source of truth schema lives in
+    // lib/db/src/schema/lms-signatures.ts; mirrored here so the
+    // cold-start guard creates them before any signature endpoint runs.
+    { label: "enum signature_method",
+      stmt: `
+        DO $$ BEGIN
+          CREATE TYPE signature_method AS ENUM ('drawn', 'typed');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      ` },
+    { label: "enum signed_document_status",
+      stmt: `
+        DO $$ BEGIN
+          CREATE TYPE signed_document_status AS ENUM ('active', 'superseded', 'revoked');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      ` },
+    { label: "enum signature_event_type",
+      stmt: `
+        DO $$ BEGIN
+          CREATE TYPE signature_event_type AS ENUM ('sign_initiated', 'sign_completed', 'co_signed', 'pdf_downloaded', 'revoked');
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$
+      ` },
+
+    { label: "CREATE lms_document_versions", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_document_versions (
+        id                  SERIAL PRIMARY KEY,
+        document_type       TEXT NOT NULL,
+        locale              TEXT NOT NULL,
+        version_hash        TEXT NOT NULL,
+        content_html        TEXT NOT NULL,
+        is_material         BOOLEAN NOT NULL DEFAULT FALSE,
+        notes               TEXT,
+        effective_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_by_user_id  INTEGER REFERENCES users(id),
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_document_versions_type_locale_hash_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_document_versions_type_locale_hash_uq ON lms_document_versions(document_type, locale, version_hash)` },
+    { label: "lms_document_versions_type_locale_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_document_versions_type_locale_idx ON lms_document_versions(document_type, locale)` },
+
+    { label: "CREATE lms_signed_documents", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_signed_documents (
+        id                                SERIAL PRIMARY KEY,
+        company_id                        INTEGER NOT NULL REFERENCES companies(id),
+        user_id                           INTEGER NOT NULL REFERENCES users(id),
+        document_type                     TEXT NOT NULL,
+        document_version_id               INTEGER NOT NULL REFERENCES lms_document_versions(id),
+        locale                            TEXT NOT NULL,
+        version_hash                      TEXT NOT NULL,
+        employee_signature                TEXT NOT NULL,
+        employee_signature_method         signature_method NOT NULL,
+        signed_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        ip_address                        TEXT NOT NULL,
+        device_info                       TEXT NOT NULL,
+        representative_user_id            INTEGER REFERENCES users(id),
+        representative_signature          TEXT,
+        representative_signature_method   signature_method,
+        representative_signed_at          TIMESTAMPTZ,
+        representative_ip_address         TEXT,
+        representative_device_info        TEXT,
+        status                            signed_document_status NOT NULL DEFAULT 'active',
+        superseded_by_id                  INTEGER,
+        superseded_at                     TIMESTAMPTZ,
+        pdf_storage_url                   TEXT,
+        cycle_id                          INTEGER,
+        created_at                        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at                        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_signed_documents_company_user_type_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_signed_documents_company_user_type_idx ON lms_signed_documents(company_id, user_id, document_type)` },
+    { label: "lms_signed_documents_company_status_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_signed_documents_company_status_idx ON lms_signed_documents(company_id, status)` },
+    { label: "lms_signed_documents_cycle_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_signed_documents_cycle_idx ON lms_signed_documents(cycle_id)` },
+
+    { label: "CREATE lms_signature_events", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_signature_events (
+        id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL REFERENCES companies(id),
+        user_id             INTEGER NOT NULL REFERENCES users(id),
+        event_type          signature_event_type NOT NULL,
+        signed_document_id  INTEGER REFERENCES lms_signed_documents(id),
+        document_type       TEXT,
+        ip_address          TEXT NOT NULL,
+        user_agent          TEXT NOT NULL,
+        event_data          JSONB,
+        event_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_signature_events_company_user_at_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_signature_events_company_user_at_idx ON lms_signature_events(company_id, user_id, event_at)` },
+    { label: "lms_signature_events_signed_document_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_signature_events_signed_document_idx ON lms_signature_events(signed_document_id)` },
+
+    { label: "CREATE lms_completion_certificates", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_completion_certificates (
+        id                       SERIAL PRIMARY KEY,
+        company_id               INTEGER NOT NULL REFERENCES companies(id),
+        user_id                  INTEGER NOT NULL REFERENCES users(id),
+        module_id                TEXT NOT NULL,
+        quiz_attempt_id          INTEGER,
+        score                    INTEGER,
+        passed                   BOOLEAN NOT NULL,
+        curriculum_version_hash  TEXT,
+        locale                   TEXT NOT NULL,
+        ip_address               TEXT NOT NULL,
+        device_info              TEXT NOT NULL,
+        issued_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        pdf_storage_url          TEXT,
+        revoked_at               TIMESTAMPTZ,
+        revoked_reason           TEXT,
+        cycle_id                 INTEGER,
+        created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_completion_certificates_company_user_module_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_completion_certificates_company_user_module_idx ON lms_completion_certificates(company_id, user_id, module_id)` },
+    { label: "lms_completion_certificates_company_issued_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_completion_certificates_company_issued_idx ON lms_completion_certificates(company_id, issued_at)` },
+
+    { label: "CREATE lms_annual_ack_cycles", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_annual_ack_cycles (
+        id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL REFERENCES companies(id),
+        cycle_year          INTEGER NOT NULL,
+        deadline_at         TIMESTAMPTZ NOT NULL,
+        required_documents  JSONB NOT NULL,
+        opened_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        closed_at           TIMESTAMPTZ,
+        notes               TEXT,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_annual_ack_cycles_company_year_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_annual_ack_cycles_company_year_uq ON lms_annual_ack_cycles(company_id, cycle_year)` },
+
+    { label: "CREATE lms_pending_re_ack", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_pending_re_ack (
+        id                                SERIAL PRIMARY KEY,
+        company_id                        INTEGER NOT NULL REFERENCES companies(id),
+        user_id                           INTEGER NOT NULL REFERENCES users(id),
+        document_type                     TEXT NOT NULL,
+        new_version_id                    INTEGER NOT NULL REFERENCES lms_document_versions(id),
+        new_version_hash                  TEXT NOT NULL,
+        trigger_reason                    TEXT NOT NULL,
+        triggered_at                      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        triggered_by_user_id              INTEGER REFERENCES users(id),
+        acknowledged_at                   TIMESTAMPTZ,
+        acknowledged_signed_document_id   INTEGER REFERENCES lms_signed_documents(id),
+        defer_until                       TIMESTAMPTZ,
+        created_at                        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at                        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_pending_re_ack_company_user_pending_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_pending_re_ack_company_user_pending_idx ON lms_pending_re_ack(company_id, user_id, acknowledged_at)` },
+    { label: "lms_pending_re_ack_document_type_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_pending_re_ack_document_type_idx ON lms_pending_re_ack(document_type)` },
   ];
 
   for (const { label, stmt } of guards) {

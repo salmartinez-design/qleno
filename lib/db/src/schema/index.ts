@@ -88,3 +88,9 @@ export * from "./recurring_schedule_addons_days";
 // frontend-only single end-of-course quiz with backend-persisted, gated,
 // deadline-bounded per-module flow + final mixed test.
 export * from "./lms";
+
+// [lms-signatures 2026-05-12] UETA / E-SIGN signature infrastructure for
+// the 2026 onboarding / handbook / acknowledgment system. Tables:
+// signed_documents, document_versions, signature_events,
+// completion_certificates, annual_ack_cycles, pending_re_ack.
+export * from "./lms-signatures";
