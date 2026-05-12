@@ -1891,6 +1891,212 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 8. CODE OF CONDUCT (Phase 4, PR #5)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Phes core-values + behavioral expectations module. Quiz verifies
+  // comprehension; the legally binding signed acknowledgment lives in
+  // lms_signed_documents at document_type 'code_of_conduct' (PR #5 of 16).
+  //
+  // The Code of Conduct overlaps several other modules by design:
+  //   - Anti-harassment cross-references il-sexual-harassment (module 6)
+  //   - Confidentiality cross-references the future video-photo release
+  //   - Conflict of interest previews the non-solicitation agreement
+  // Each module covers its area in depth; the Code of Conduct is the
+  // top-level promise to follow ALL of them.
+  {
+    id: "code-of-conduct",
+    number: 8,
+    iconKind: "shield",
+    title: {
+      en: "Code of Conduct",
+      es: "Código de Conducta",
+    },
+    subtitle: {
+      en: "Honesty, respect, and trust in client homes. Every Phes employee signs this.",
+      es: "Honestidad, respeto y confianza en los hogares de clientes. Todo empleado de Phes lo firma.",
+    },
+    estimatedMinutes: 10,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Phes employees enter private homes. Clients trust you with their keys, alarm codes, valuables, children, and pets. That trust is the only thing that lets Phes operate. This module describes the conduct every Phes employee commits to, and the very small number of behaviors that result in immediate termination. You will sign a separate acknowledgment after the quiz that records your commitment to this code.",
+          es: "Por qué importa este módulo. Los empleados de Phes entran a hogares privados. Los clientes les confían sus llaves, códigos de alarma, objetos de valor, hijos y mascotas. Esa confianza es lo único que permite que Phes opere. Este módulo describe la conducta a la que se compromete todo empleado de Phes y el muy pequeño número de comportamientos que resultan en terminación inmediata. Firmará un reconocimiento separado después del examen que registra su compromiso con este código.",
+        },
+      },
+
+      { type: "h", text: { en: "Honesty and Integrity", es: "Honestidad e Integridad" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes operates on honest reporting. The numbers we send to clients and the numbers we record in payroll have to match what actually happened. Concretely:",
+          es: "Phes opera sobre el reporte honesto. Los números que enviamos a los clientes y los que registramos en nómina deben coincidir con lo que realmente ocurrió. En concreto:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Clock in only when you arrive at the job. Clock out only when you leave. Do not pre-clock or back-clock.", es: "Marque entrada solo cuando llegue al trabajo. Marque salida solo cuando se vaya. No marque antes ni atrás." },
+          { en: "Mark a task complete only when you actually performed it. If you skipped a room or a checklist item, say so on the Worksheet so the office can communicate with the client.", es: "Marque una tarea como completada solo cuando realmente la haya realizado. Si se saltó una habitación o un elemento de la lista, indíquelo en la Hoja de Trabajo para que la oficina pueda comunicarse con el cliente." },
+          { en: "Report damage you caused or witnessed before you leave the job site. Phes can resolve almost any honest mistake. We cannot resolve a hidden one.", es: "Reporte cualquier daño que haya causado o presenciado antes de salir del lugar. Phes puede resolver casi cualquier error honesto. No podemos resolver uno oculto." },
+          { en: "Be truthful in conversations with the office, with clients, and with coworkers. Do not embellish reasons for absence, tardiness, or job conditions.", es: "Sea veraz en las conversaciones con la oficina, los clientes y los compañeros. No exagere las razones de ausencia, tardanza o condiciones del trabajo." },
+        ],
+      },
+
+      { type: "h", text: { en: "Confidentiality of Client Homes", es: "Confidencialidad de los Hogares de Clientes" } },
+      {
+        type: "p",
+        text: {
+          en: "What you see and hear inside a client's home stays inside that home. This includes everything you might come across during a clean: prescription medications on a counter, family photographs, documents on a desk, personal items, conversations you overhear, and the layout of the home itself.",
+          es: "Lo que ve y escucha dentro del hogar de un cliente se queda dentro de ese hogar. Esto incluye todo lo que pueda encontrar durante una limpieza: medicamentos recetados sobre una mesa, fotografías familiares, documentos en un escritorio, objetos personales, conversaciones que escuche por casualidad y la disposición del hogar.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Do not photograph or video a client's home for any reason other than documenting a Phes-related issue (damage, completed work, before-and-after) authorized by the office. Such photos are uploaded directly to MaidCentral and not stored on your personal device.", es: "No fotografíe ni grabe el hogar de un cliente por ningún motivo que no sea documentar un asunto relacionado con Phes (daño, trabajo terminado, antes y después) autorizado por la oficina. Esas fotos se cargan directamente a MaidCentral y no se guardan en su dispositivo personal." },
+          { en: "Do not share details about a client's home with anyone outside Phes. This includes friends, family, social media, and other clients.", es: "No comparta detalles sobre el hogar de un cliente con nadie fuera de Phes. Esto incluye amigos, familiares, redes sociales y otros clientes." },
+          { en: "Do not access closed rooms, locked closets, or drawers unless the Worksheet specifically lists them. Closed doors are private space.", es: "No acceda a habitaciones cerradas, armarios o cajones cerrados a menos que la Hoja de Trabajo los indique específicamente. Las puertas cerradas son espacio privado." },
+          { en: "Do not look through mail, documents, or personal items. If you see something that requires Phes attention (water damage, unsafe condition), photograph only what you need to document it and notify the office.", es: "No revise correspondencia, documentos u objetos personales. Si ve algo que requiere atención de Phes (daño por agua, condición insegura), fotografíe solo lo necesario para documentarlo y notifique a la oficina." },
+        ],
+      },
+
+      { type: "h", text: { en: "Zero Tolerance for Theft", es: "Cero Tolerancia al Robo" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Taking ANY item from a client's home that you did not bring with you, no matter how small or how unimportant it appears, is THEFT. Phes has a zero-tolerance policy. Theft results in immediate termination, a report to local law enforcement, and forfeiture of any final paycheck balance not yet earned for hours actually worked. This includes cash left on counters, coins, food and drinks from the refrigerator, partial bottles of cleaning supplies, jewelry, electronics, prescription medications, and items in trash or recycling unless the client has expressly given them to Phes.",
+          es: "Tomar CUALQUIER objeto del hogar de un cliente que no haya traído consigo, sin importar lo pequeño o sin valor que parezca, es ROBO. Phes tiene política de cero tolerancia. El robo resulta en terminación inmediata, un reporte a las autoridades locales y la pérdida de cualquier saldo final del pago no devengado por horas efectivamente trabajadas. Esto incluye efectivo dejado sobre mostradores, monedas, alimentos y bebidas del refrigerador, botellas parciales de productos de limpieza, joyería, electrónicos, medicamentos recetados y artículos en basura o reciclaje a menos que el cliente los haya entregado expresamente a Phes.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "If a client offers you food, water, or a small item, accept only what is reasonable, thank them, and note it on the Worksheet so the office is informed. If you are uncertain whether something was offered, decline politely and contact the office.",
+          es: "Si un cliente le ofrece comida, agua o un objeto pequeño, acepte solo lo razonable, agradezca y anótelo en la Hoja de Trabajo para que la oficina esté informada. Si no está seguro de si algo fue ofrecido, rechácelo cortésmente y contacte a la oficina.",
+        },
+      },
+
+      { type: "h", text: { en: "Respect and Anti-Harassment", es: "Respeto y Anti-Acoso" } },
+      {
+        type: "p",
+        text: {
+          en: "Every Phes employee, every client, and every person you encounter during a Phes shift is entitled to be treated with respect. Phes prohibits harassment of any kind, whether based on a protected class or not. The detailed sexual-harassment policy is in module 6 (Illinois Sexual Harassment Prevention). The Code of Conduct extends the same prohibition to all forms of harassment including verbal abuse, physical aggression, intimidation, slurs, mocking another person, and unwelcome physical contact.",
+          es: "Todo empleado de Phes, todo cliente y toda persona con quien se encuentre durante un turno de Phes tiene derecho a ser tratado con respeto. Phes prohíbe el acoso de cualquier tipo, basado o no en una clase protegida. La política detallada de acoso sexual está en el módulo 6 (Prevención de Acoso Sexual en Illinois). El Código de Conducta extiende la misma prohibición a todas las formas de acoso incluyendo abuso verbal, agresión física, intimidación, insultos, burlarse de otra persona y contacto físico no deseado.",
+        },
+      },
+
+      { type: "h", text: { en: "Anti-Discrimination (Illinois Human Rights Act)", es: "Anti-Discriminación (Ley de Derechos Humanos de Illinois)" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes does not discriminate against any employee or applicant based on a protected class. Illinois recognizes the following protected classes under the Illinois Human Rights Act:",
+          es: "Phes no discrimina contra ningún empleado o solicitante basado en una clase protegida. Illinois reconoce las siguientes clases protegidas bajo la Ley de Derechos Humanos de Illinois:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Race, color, national origin, ancestry, religion, citizenship status.", es: "Raza, color, origen nacional, ascendencia, religión, estatus de ciudadanía." },
+          { en: "Sex (including pregnancy, childbirth, and related conditions), sexual orientation, gender identity.", es: "Sexo (incluyendo embarazo, parto y condiciones relacionadas), orientación sexual, identidad de género." },
+          { en: "Age (40 and over), marital status, parental status, military status, order of protection status.", es: "Edad (40 años o más), estado civil, estado parental, estatus militar, estatus de orden de protección." },
+          { en: "Physical or mental disability, including pregnancy-related disability.", es: "Discapacidad física o mental, incluyendo discapacidad relacionada con el embarazo." },
+          { en: "Arrest record, conviction record (in most circumstances), and other categories protected by state or federal law.", es: "Antecedentes de arresto, antecedentes de condena (en la mayoría de las circunstancias) y otras categorías protegidas por la ley estatal o federal." },
+        ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "Discrimination includes treating someone less favorably because of a protected class, in hiring, scheduling, pay, discipline, training, or any other term or condition of employment. It also includes failing to provide reasonable accommodation when accommodation is required by law (disability, pregnancy, religious observance, lactation, domestic violence leave).",
+          es: "La discriminación incluye tratar a alguien menos favorablemente debido a una clase protegida, en contratación, programación, pago, disciplina, capacitación o cualquier otro término o condición de empleo. También incluye no proveer acomodación razonable cuando la acomodación es requerida por ley (discapacidad, embarazo, observancia religiosa, lactancia, licencia por violencia doméstica).",
+        },
+      },
+
+      { type: "h", text: { en: "Anti-Retaliation (Good-Faith Reporting Is Protected)", es: "Anti-Represalias (El Reporte de Buena Fe Está Protegido)" } },
+      {
+        type: "p",
+        text: {
+          en: "If you report a Code of Conduct violation, a safety concern, harassment, discrimination, or any other unlawful or unethical conduct IN GOOD FAITH, Phes will not retaliate against you. This protection applies whether or not the investigation ultimately substantiates the report. Good faith means you genuinely believed your report was true at the time you made it.",
+          es: "Si reporta una violación del Código de Conducta, una preocupación de seguridad, acoso, discriminación o cualquier otra conducta ilegal o no ética DE BUENA FE, Phes no tomará represalias en su contra. Esta protección aplica sin importar si la investigación finalmente confirma el reporte. Buena fe significa que realmente creyó que su reporte era verdadero al momento de hacerlo.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Retaliation includes termination, demotion, reduced hours, schedule changes used as punishment, exclusion from training, hostile treatment, or any other adverse employment action taken because someone made a good-faith report.",
+          es: "Las represalias incluyen terminación, degradación, reducción de horas, cambios de horario usados como castigo, exclusión de capacitación, trato hostil o cualquier otra acción laboral adversa tomada porque alguien hizo un reporte de buena fe.",
+        },
+      },
+
+      { type: "h", text: { en: "Conflict of Interest", es: "Conflicto de Interés" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes hires you to clean Phes clients on Phes schedules using Phes systems. You may not solicit Phes clients for personal cleaning work, side work, or any other paid service either during your employment or while a non-solicitation agreement is in effect. The full details of the non-solicitation obligation are in the signed Non-Solicitation Agreement (PR #7). The Code of Conduct asks you to keep your work for Phes clients on Phes time, billed through Phes.",
+          es: "Phes lo contrata para limpiar a clientes de Phes en horarios de Phes usando sistemas de Phes. No puede solicitar a clientes de Phes para trabajo de limpieza personal, trabajo paralelo o cualquier otro servicio pagado, ya sea durante su empleo o mientras un acuerdo de no solicitación esté vigente. Los detalles completos de la obligación de no solicitación están en el Acuerdo de No Solicitación firmado (PR #7). El Código de Conducta le pide que mantenga su trabajo para clientes de Phes en tiempo de Phes, facturado a través de Phes.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Do not give clients your personal phone number or invite them to contact you outside the Phes channel.", es: "No dé a los clientes su número personal ni los invite a contactarlo fuera del canal de Phes." },
+          { en: "Do not accept cash from a client to clean for them outside of the Phes appointment.", es: "No acepte efectivo de un cliente para limpiar fuera de la cita de Phes." },
+          { en: "If a client asks for cleaning services outside the Phes schedule, refer them to the office and let the office book it.", es: "Si un cliente pide servicios de limpieza fuera del horario de Phes, refiéralo a la oficina y deje que la oficina lo programe." },
+        ],
+      },
+
+      { type: "h", text: { en: "Keys, Alarm Codes, and Property", es: "Llaves, Códigos de Alarma y Propiedad" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Treat client keys and lockbox codes as Phes property. You are not authorized to copy a key, share a code, or take a key home.", es: "Trate las llaves de clientes y códigos de cajas con llave como propiedad de Phes. No está autorizado para copiar una llave, compartir un código o llevarse una llave a casa." },
+          { en: "Return keys and codes to the office at the end of every shift, or per the office's logged procedure for repeat-visit clients.", es: "Devuelva las llaves y códigos a la oficina al final de cada turno, o según el procedimiento registrado de la oficina para clientes de visita recurrente." },
+          { en: "Report a lost or misplaced key to the office IMMEDIATELY. Lost keys are not grounds for discipline by themselves; covering up a lost key is.", es: "Reporte una llave perdida o extraviada a la oficina INMEDIATAMENTE. Una llave perdida por sí sola no es motivo de disciplina; ocultar una llave perdida sí lo es." },
+          { en: "Do not lend the Phes vehicle, your assigned tools, or Phes supplies to anyone outside Phes.", es: "No preste el vehículo de Phes, sus herramientas asignadas ni los suministros de Phes a nadie fuera de Phes." },
+        ],
+      },
+
+      { type: "h", text: { en: "How to Report a Concern", es: "Cómo Reportar una Inquietud" } },
+      {
+        type: "p",
+        text: {
+          en: "If you witness or experience a Code of Conduct violation, you have several reporting paths. You can pick whichever you are most comfortable with.",
+          es: "Si presencia o experimenta una violación del Código de Conducta, tiene varias vías para reportar. Puede elegir la que le resulte más cómoda.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "The office team. Call or text the office at any time during business hours. Outside business hours, leave a message and the office will return your call the next business day.", es: "El equipo de la oficina. Llame o envíe mensaje a la oficina en cualquier momento durante horas hábiles. Fuera de horas hábiles, deje un mensaje y la oficina le devolverá la llamada el siguiente día hábil." },
+          { en: "The owner directly. For matters you would prefer not to take through the office, contact the owner.", es: "El dueño directamente. Para asuntos que prefiera no llevar a través de la oficina, contacte al dueño." },
+          { en: "Illinois Department of Human Rights (IDHR) for harassment or discrimination claims. EEOC for federal claims. Both have intake forms online. Phes provides this information so you know the public option exists; you are not required to report internally first.", es: "Departamento de Derechos Humanos de Illinois (IDHR) para reclamos de acoso o discriminación. EEOC para reclamos federales. Ambos tienen formularios de admisión en línea. Phes provee esta información para que sepa que la opción pública existe; no está obligado a reportar internamente primero." },
+        ],
+      },
+
+      { type: "h", text: { en: "Cooperation in Investigations", es: "Cooperación en Investigaciones" } },
+      {
+        type: "p",
+        text: {
+          en: "If Phes opens an internal investigation (workplace incident, missing item from a client home, allegation of harassment, etc.), every employee with relevant information is expected to cooperate truthfully. Cooperation includes giving an honest written or verbal statement, providing any photos or documentation requested, and not discussing the investigation with other involved parties while it is open. Refusing to cooperate or providing false information during an investigation is itself a Code of Conduct violation and may result in discipline up to termination.",
+          es: "Si Phes abre una investigación interna (incidente laboral, artículo faltante en el hogar de un cliente, alegación de acoso, etc.), se espera que todo empleado con información relevante coopere veridicamente. La cooperación incluye dar una declaración escrita o verbal honesta, proveer cualquier foto o documentación solicitada y no discutir la investigación con otras partes involucradas mientras está abierta. Negarse a cooperar o proveer información falsa durante una investigación es en sí una violación del Código de Conducta y puede resultar en disciplina hasta la terminación.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Code of Conduct Acknowledgment that records your commitment. The signed acknowledgment is a separate legal document tied to your employment, captured with your IP, device, and a hash of the exact policy text. You can re-download the signed PDF anytime from your training page.",
+          es: "Después de este examen: firmará un Reconocimiento del Código de Conducta por separado que registra su compromiso. El reconocimiento firmado es un documento legal separado vinculado a su empleo, capturado con su IP, dispositivo y un hash del texto exacto de la política. Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3579,6 +3785,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes. ANY license suspension or revocation must be reported within 72 hours. So must any major moving violation (reckless driving, leaving the scene, driving without insurance, driving with a suspended license).", es: "Sí. CUALQUIER suspensión o revocación de la licencia debe reportarse dentro de 72 horas. También cualquier infracción mayor (conducción imprudente, abandonar el lugar, conducir sin seguro, conducir con licencia suspendida)." },
       { en: "Only if the office asks first.", es: "Solo si la oficina pregunta primero." },
       { en: "Only if a client sees the suspension notice.", es: "Solo si un cliente ve el aviso de suspensión." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 8: CODE OF CONDUCT (10 questions, Phase 4 PR #5)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-coc-01-honesty",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You finish your last job 15 minutes earlier than expected. You're tired and want to head home. What does the Code of Conduct say about clocking out?",
+      es: "Termina su último trabajo 15 minutos antes de lo esperado. Está cansado y quiere irse a casa. ¿Qué dice el Código de Conducta sobre marcar la salida?",
+    },
+    options: [
+      { en: "Clock out at the originally scheduled end time so your hours look consistent week over week.", es: "Marque salida a la hora de fin originalmente programada para que sus horas se vean consistentes semana a semana." },
+      { en: "Clock out when you actually leave the job site. The clock has to match what happened. Pre-clocking, back-clocking, or padding hours is a Code of Conduct violation.", es: "Marque salida cuando realmente salga del lugar. El reloj tiene que coincidir con lo que ocurrió. Marcar antes, marcar después o inflar horas es una violación del Código de Conducta." },
+      { en: "Clock out 15 minutes early to match the actual time, then add the difference to the next job.", es: "Marque salida 15 minutos antes para que coincida y luego agregue la diferencia al siguiente trabajo." },
+      { en: "Ask a teammate to clock you out from their phone when you get home.", es: "Pídale a un compañero que marque su salida desde su teléfono cuando llegue a casa." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-02-confidentiality",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "While cleaning a client's home you notice prescription medication and a custody-court document on the kitchen counter. After the job, can you mention what you saw to a coworker or post about it on social media?",
+      es: "Mientras limpia el hogar de un cliente, ve un medicamento recetado y un documento de corte sobre custodia en la cocina. Después del trabajo, ¿puede comentarle a un compañero o publicarlo en redes sociales?",
+    },
+    options: [
+      { en: "Yes, as long as you don't name the client.", es: "Sí, siempre que no nombre al cliente." },
+      { en: "No. What you see and hear inside a client's home stays inside that home. Confidentiality extends to coworkers, friends, family, and any public-facing platform.", es: "No. Lo que ve y escucha dentro del hogar de un cliente se queda dentro de ese hogar. La confidencialidad se extiende a compañeros, amigos, familia y cualquier plataforma pública." },
+      { en: "Only if you saw something concerning.", es: "Solo si vio algo preocupante." },
+      { en: "Yes, if you're discussing it for safety reasons.", es: "Sí, si lo discute por razones de seguridad." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-03-theft-zero-tolerance",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You're cleaning a kitchen and find $2 in coins on the counter. The client has gone to work and isn't home. The Code of Conduct says you should:",
+      es: "Está limpiando una cocina y encuentra $2 en monedas sobre el mostrador. El cliente se fue a trabajar y no está en casa. El Código de Conducta dice que debe:",
+    },
+    options: [
+      { en: "Pocket it. Two dollars is small enough that no one will notice.", es: "Guárdelo. Dos dólares es lo suficientemente pequeño para que nadie se dé cuenta." },
+      { en: "Leave the coins where they are or place them somewhere visible like next to the client's keys. Taking ANY item from a client's home, no matter how small, is theft. Phes has zero tolerance: immediate termination plus a report to local law enforcement.", es: "Deje las monedas donde están o póngalas en un lugar visible como junto a las llaves del cliente. Tomar CUALQUIER objeto del hogar de un cliente, sin importar el tamaño, es robo. Phes tiene cero tolerancia: terminación inmediata más un reporte a las autoridades locales." },
+      { en: "Use them to buy a soda for yourself since the client left them out.", es: "Úselas para comprarse una soda ya que el cliente las dejó afuera." },
+      { en: "Pocket them and split with your teammate.", es: "Guárdelas y compártalas con su compañero." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-04-harassment-reporting",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You witness a coworker making racially mocking jokes about another team member during a shift. The team member looks uncomfortable but does not say anything. What does the Code of Conduct expect you to do?",
+      es: "Ve a un compañero haciendo bromas racistas sobre otro miembro del equipo durante un turno. El miembro del equipo se ve incómodo pero no dice nada. ¿Qué espera el Código de Conducta que haga?",
+    },
+    options: [
+      { en: "Stay out of it. If the affected person didn't object, it isn't your business.", es: "Manténgase al margen. Si la persona afectada no objetó, no es asunto suyo." },
+      { en: "Report what you saw to the office or directly to the owner. Phes prohibits all forms of harassment, and the Code of Conduct asks bystanders to surface what they observe so the office can act on it.", es: "Reporte lo que vio a la oficina o directamente al dueño. Phes prohíbe todas las formas de acoso, y el Código de Conducta pide a los testigos que comuniquen lo que observan para que la oficina pueda actuar." },
+      { en: "Tell the coworker privately that you didn't think the jokes were funny.", es: "Dígale al compañero en privado que no le pareció gracioso." },
+      { en: "Post about it online so other employees can see.", es: "Publíquelo en línea para que otros empleados lo vean." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-05-protected-classes",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "Which of the following is a PROTECTED CLASS under the Illinois Human Rights Act referenced in the Code of Conduct?",
+      es: "¿Cuál de las siguientes es una CLASE PROTEGIDA bajo la Ley de Derechos Humanos de Illinois mencionada en el Código de Conducta?",
+    },
+    options: [
+      { en: "Whether the employee owns a car.", es: "Si el empleado tiene auto." },
+      { en: "Sexual orientation, gender identity, pregnancy, and disability are all protected classes (alongside race, religion, national origin, age 40+, and several others).", es: "Orientación sexual, identidad de género, embarazo y discapacidad son todas clases protegidas (junto con raza, religión, origen nacional, edad 40+ y varias otras)." },
+      { en: "Favorite sports team.", es: "Equipo deportivo favorito." },
+      { en: "How many hours the employee wants to work.", es: "Cuántas horas quiere trabajar el empleado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-06-retaliation-good-faith",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You file a good-faith report about a Code of Conduct violation. After investigation, the office concludes there was not enough evidence to substantiate the report. Are you still protected from retaliation?",
+      es: "Presenta un reporte de buena fe sobre una violación del Código de Conducta. Después de la investigación, la oficina concluye que no hubo suficiente evidencia para comprobar el reporte. ¿Sigue protegido contra represalias?",
+    },
+    options: [
+      { en: "No. Only successful reports are protected.", es: "No. Solo los reportes exitosos están protegidos." },
+      { en: "Yes. Good-faith reporting is protected regardless of whether the investigation ultimately substantiates the report. Good faith means you genuinely believed your report was true at the time you made it.", es: "Sí. El reporte de buena fe está protegido sin importar si la investigación finalmente comprueba el reporte. Buena fe significa que realmente creyó que su reporte era verdadero al momento de hacerlo." },
+      { en: "Only if you reported in writing.", es: "Solo si reportó por escrito." },
+      { en: "Only if the accused agrees that you reported in good faith.", es: "Solo si el acusado acepta que reportó de buena fe." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-07-conflict-of-interest",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "At the end of a clean, the client asks if you could come back next Saturday to clean for them privately, paid in cash. What does the Code of Conduct say?",
+      es: "Al final de una limpieza, el cliente le pregunta si puede regresar el próximo sábado para limpiar para ellos en privado, pagado en efectivo. ¿Qué dice el Código de Conducta?",
+    },
+    options: [
+      { en: "Accept it. The client likes your work and Saturday is your day off.", es: "Acéptelo. Al cliente le gusta su trabajo y el sábado es su día libre." },
+      { en: "Decline. Refer the client to the office to book the additional clean through Phes. Soliciting or accepting Phes-client work outside the Phes channel is a conflict of interest and is also addressed in the Non-Solicitation Agreement.", es: "Rehúselo. Refiera al cliente a la oficina para reservar la limpieza adicional a través de Phes. Solicitar o aceptar trabajo de un cliente de Phes fuera del canal de Phes es un conflicto de interés y también está tratado en el Acuerdo de No Solicitación." },
+      { en: "Accept it but only if you charge less than the Phes rate.", es: "Acéptelo pero solo si cobra menos que la tarifa de Phes." },
+      { en: "Accept it and tell the office afterward.", es: "Acéptelo y avísele a la oficina después." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-08-key-handling",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You're sent to a recurring client's home and the office issues you a copy of their key. After the job, what does the Code of Conduct require you to do with the key?",
+      es: "Le envían a la casa de un cliente recurrente y la oficina le entrega una copia de su llave. Después del trabajo, ¿qué requiere el Código de Conducta que haga con la llave?",
+    },
+    options: [
+      { en: "Take it home so you have it ready for next week.", es: "Llevársela a casa para tenerla lista la próxima semana." },
+      { en: "Return it to the office at the end of the shift, or follow the office's logged procedure for repeat-visit clients. Keys are Phes property; you may not copy them, share them, or take them home without authorization.", es: "Devolverla a la oficina al final del turno, o seguir el procedimiento registrado de la oficina para clientes de visita recurrente. Las llaves son propiedad de Phes; no puede copiarlas, compartirlas ni llevárselas a casa sin autorización." },
+      { en: "Give a copy to your teammate so they can cover for you if needed.", es: "Darle una copia a su compañero por si necesita cubrirlo." },
+      { en: "Hide it under the client's doormat.", es: "Esconderla debajo del tapete del cliente." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-09-cooperation-investigation",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "Phes opens an internal investigation about a missing item from a client's home. You weren't on the job but a coworker mentioned something relevant to you. What does the Code of Conduct require?",
+      es: "Phes abre una investigación interna sobre un artículo faltante en el hogar de un cliente. Usted no estuvo en el trabajo pero un compañero le mencionó algo relevante. ¿Qué requiere el Código de Conducta?",
+    },
+    options: [
+      { en: "Stay quiet. It wasn't your shift.", es: "Quedarse callado. No fue su turno." },
+      { en: "Cooperate truthfully. If you have relevant information, share it with the office. Refusing to cooperate or providing false information during an investigation is itself a Code of Conduct violation.", es: "Cooperar veridicamente. Si tiene información relevante, compártala con la oficina. Negarse a cooperar o proveer información falsa durante una investigación es en sí una violación del Código de Conducta." },
+      { en: "Tell the coworker to lie to protect them.", es: "Decirle al compañero que mienta para protegerlo." },
+      { en: "Discuss the investigation publicly to get the truth out.", es: "Discutir la investigación públicamente para que se sepa la verdad." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-coc-10-reporting-channels",
+    moduleId: "code-of-conduct",
+    prompt: {
+      en: "You want to report a harassment concern, but you'd prefer not to take it through the office team. Which reporting paths are available under the Code of Conduct?",
+      es: "Quiere reportar una preocupación de acoso, pero preferiría no llevarla a través del equipo de la oficina. ¿Qué vías de reporte están disponibles bajo el Código de Conducta?",
+    },
+    options: [
+      { en: "Only the office team. There is no other option.", es: "Solo el equipo de la oficina. No hay otra opción." },
+      { en: "You can contact the owner directly, file with the Illinois Department of Human Rights (IDHR) or the federal EEOC. You are not required to report internally first.", es: "Puede contactar al dueño directamente, presentar ante el Departamento de Derechos Humanos de Illinois (IDHR) o ante la EEOC federal. No está obligado a reportar internamente primero." },
+      { en: "You must report to the accused person first.", es: "Debe reportar primero a la persona acusada." },
+      { en: "You can post about it on social media so other employees can see.", es: "Puede publicarlo en redes sociales para que otros empleados lo vean." },
     ],
     correctIndex: 1,
   },

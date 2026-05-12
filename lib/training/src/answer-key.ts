@@ -165,6 +165,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-da-08-discipline-scale": 1,
   "q-da-09-dui-reporting-window": 1,
   "q-da-10-license-suspension-disclosure": 1,
+
+  // ── Module 8: code-of-conduct (10, Phase 4 PR #5) ──────────────────────
+  "q-coc-01-honesty": 1,
+  "q-coc-02-confidentiality": 1,
+  "q-coc-03-theft-zero-tolerance": 1,
+  "q-coc-04-harassment-reporting": 1,
+  "q-coc-05-protected-classes": 1,
+  "q-coc-06-retaliation-good-faith": 1,
+  "q-coc-07-conflict-of-interest": 1,
+  "q-coc-08-key-handling": 1,
+  "q-coc-09-cooperation-investigation": 1,
+  "q-coc-10-reporting-channels": 1,
 });
 
 /**

@@ -189,6 +189,115 @@ const DRUG_ALCOHOL_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// code_of_conduct (Phase 4, PR #5)
+//
+// NOT in the four flagged legal documents for human translator review
+// (those are drug_alcohol, non_solicitation, wage_deduction_notice,
+// commission_consent). The Spanish translation here is straightforward
+// behavioral policy and goes live without the pending-review banner.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CODE_OF_CONDUCT_EN: SignedDocumentLocaleContent = {
+  title: "Code of Conduct Acknowledgment",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "CODE OF CONDUCT ACKNOWLEDGMENT",
+    "Effective Date: January 1, 2026",
+    "",
+    "By signing this acknowledgment, I confirm that I have read and understand the Phes Code of Conduct contained in the 2026 Phes Employee Handbook and the Code of Conduct training module. I commit to the following terms as a condition of my employment with Phes Cleaning Services:",
+    "",
+    "1. HONESTY AND INTEGRITY.",
+    "I will be truthful in my time records, my Worksheet entries, and my communications with the office, coworkers, and clients. I will clock in only when I arrive at a job and clock out only when I leave. I will report damage I cause or witness before I leave the job site. I will not pre-clock, back-clock, or pad hours.",
+    "",
+    "2. CONFIDENTIALITY OF CLIENT HOMES.",
+    "What I see and hear inside a client's home stays inside that home. I will not photograph or video a client's property except to document a Phes-authorized issue uploaded directly to MaidCentral. I will not share details about a client's home, possessions, or family with anyone outside Phes, including on social media. I will not access closed rooms, locked closets, or drawers not listed on the Worksheet, and I will not look through mail, documents, or personal items.",
+    "",
+    "3. ZERO TOLERANCE FOR THEFT.",
+    "I will not take any item from a client's home that I did not bring with me. I understand that Phes has a zero-tolerance theft policy and that taking any item, regardless of value, results in immediate termination, forfeiture of any final paycheck balance not yet earned for hours actually worked, and a report to local law enforcement. I will only accept food, water, or small items that a client has expressly offered, and I will note such offers on the Worksheet.",
+    "",
+    "4. RESPECT AND ANTI-HARASSMENT.",
+    "I will treat every Phes employee, every client, and every person I encounter on a Phes shift with respect. I will not engage in harassment of any kind, including verbal abuse, physical aggression, intimidation, slurs, mocking, or unwelcome physical contact. I understand the detailed sexual-harassment policy is set out in the Illinois Sexual Harassment Prevention module and applies in full.",
+    "",
+    "5. ANTI-DISCRIMINATION.",
+    "I will not discriminate against any Phes employee, applicant, or person I serve based on a protected class under the Illinois Human Rights Act, including race, color, national origin, ancestry, religion, citizenship status, sex (including pregnancy, childbirth, and related conditions), sexual orientation, gender identity, age (40 and over), marital status, parental status, military status, order-of-protection status, physical or mental disability, arrest record, conviction record (in most circumstances), or any other category protected by state or federal law.",
+    "",
+    "6. ANTI-RETALIATION AND GOOD-FAITH REPORTING.",
+    "I understand that Phes prohibits retaliation against any employee who reports a Code of Conduct violation, a safety concern, harassment, discrimination, or any other unlawful or unethical conduct in good faith. Good faith means I genuinely believed my report was true at the time I made it. Protection applies regardless of whether the investigation ultimately substantiates the report.",
+    "",
+    "7. CONFLICT OF INTEREST.",
+    "I will not solicit Phes clients for personal cleaning work, side work, or any other paid service either during my employment or while a non-solicitation agreement is in effect. If a client asks for additional cleaning, I will refer them to the office. I will not give clients my personal phone number or accept cash from a client for work outside the Phes channel.",
+    "",
+    "8. KEYS, ALARM CODES, AND PROPERTY.",
+    "I will treat client keys and lockbox codes as Phes property. I will not copy a key, share a code, or take a key home without authorization. I will return keys and codes at the end of every shift, or follow the office's logged procedure for repeat-visit clients. I will report a lost or misplaced key to the office immediately. I will not lend the Phes vehicle, my assigned tools, or Phes supplies to anyone outside Phes.",
+    "",
+    "9. REPORTING CHANNELS.",
+    "I understand that I may report a concern to the office team, to the owner directly, to the Illinois Department of Human Rights (IDHR), or to the federal EEOC. I am not required to report internally before going to a public agency.",
+    "",
+    "10. COOPERATION IN INVESTIGATIONS.",
+    "If Phes opens an internal investigation, I will cooperate truthfully when asked, provide any relevant photos or documentation, and refrain from discussing the open investigation with other involved parties. I understand that refusing to cooperate or providing false information during an investigation is itself a Code of Conduct violation.",
+    "",
+    "11. AT-WILL EMPLOYMENT.",
+    "Nothing in this acknowledgment alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason.",
+    "",
+    "12. ELECTRONIC SIGNATURE CONSENT.",
+    "I consent to sign this acknowledgment electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Code of Conduct Acknowledgment.",
+  ].join("\n"),
+  notes: "Phase 4 PR #5 — initial Phes Code of Conduct acknowledgment.",
+};
+
+const CODE_OF_CONDUCT_ES: SignedDocumentLocaleContent = {
+  title: "Reconocimiento del Código de Conducta",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "RECONOCIMIENTO DEL CÓDIGO DE CONDUCTA",
+    "Fecha Efectiva: 1 de enero de 2026",
+    "",
+    "Al firmar este reconocimiento, confirmo que he leído y entiendo el Código de Conducta de Phes contenido en el Manual del Empleado de Phes 2026 y en el módulo de capacitación del Código de Conducta. Me comprometo a los siguientes términos como condición de mi empleo con Phes Cleaning Services:",
+    "",
+    "1. HONESTIDAD E INTEGRIDAD.",
+    "Seré veraz en mis registros de tiempo, en las anotaciones de mi Hoja de Trabajo y en mis comunicaciones con la oficina, compañeros y clientes. Marcaré entrada solo cuando llegue al trabajo y salida solo cuando salga. Reportaré cualquier daño que cause o presencie antes de salir del lugar. No marcaré antes, no marcaré después ni inflaré horas.",
+    "",
+    "2. CONFIDENCIALIDAD DE LOS HOGARES DE CLIENTES.",
+    "Lo que vea y escuche dentro del hogar de un cliente se queda dentro de ese hogar. No fotografiaré ni grabaré la propiedad de un cliente excepto para documentar un asunto autorizado por Phes cargado directamente a MaidCentral. No compartiré detalles sobre el hogar, posesiones o familia de un cliente con nadie fuera de Phes, incluyendo redes sociales. No accederé a habitaciones cerradas, armarios cerrados o cajones no listados en la Hoja de Trabajo, y no revisaré correspondencia, documentos u objetos personales.",
+    "",
+    "3. CERO TOLERANCIA AL ROBO.",
+    "No tomaré ningún objeto del hogar de un cliente que no haya traído conmigo. Entiendo que Phes tiene una política de cero tolerancia al robo y que tomar cualquier objeto, sin importar su valor, resulta en terminación inmediata, la pérdida de cualquier saldo final del pago no devengado por horas efectivamente trabajadas, y un reporte a las autoridades locales. Solo aceptaré comida, agua u objetos pequeños que el cliente haya ofrecido expresamente, y anotaré esos ofrecimientos en la Hoja de Trabajo.",
+    "",
+    "4. RESPETO Y ANTI-ACOSO.",
+    "Trataré con respeto a todo empleado de Phes, todo cliente y toda persona con quien me encuentre en un turno de Phes. No participaré en acoso de ninguna forma, incluyendo abuso verbal, agresión física, intimidación, insultos, burlas o contacto físico no deseado. Entiendo que la política detallada de acoso sexual está en el módulo de Prevención del Acoso Sexual de Illinois y aplica en su totalidad.",
+    "",
+    "5. ANTI-DISCRIMINACIÓN.",
+    "No discriminaré contra ningún empleado, solicitante o persona a quien sirva basado en una clase protegida bajo la Ley de Derechos Humanos de Illinois, incluyendo raza, color, origen nacional, ascendencia, religión, estatus de ciudadanía, sexo (incluyendo embarazo, parto y condiciones relacionadas), orientación sexual, identidad de género, edad (40 años o más), estado civil, estado parental, estatus militar, estatus de orden de protección, discapacidad física o mental, antecedentes de arresto, antecedentes de condena (en la mayoría de las circunstancias) o cualquier otra categoría protegida por la ley estatal o federal.",
+    "",
+    "6. ANTI-REPRESALIAS Y REPORTE DE BUENA FE.",
+    "Entiendo que Phes prohíbe las represalias contra cualquier empleado que reporte una violación del Código de Conducta, una preocupación de seguridad, acoso, discriminación o cualquier otra conducta ilegal o no ética de buena fe. Buena fe significa que realmente creí que mi reporte era verdadero al momento de hacerlo. La protección aplica sin importar si la investigación finalmente confirma el reporte.",
+    "",
+    "7. CONFLICTO DE INTERÉS.",
+    "No solicitaré a clientes de Phes para trabajo de limpieza personal, trabajo paralelo o cualquier otro servicio pagado, ya sea durante mi empleo o mientras un acuerdo de no solicitación esté vigente. Si un cliente pide limpieza adicional, lo referiré a la oficina. No daré a los clientes mi número personal ni aceptaré efectivo de un cliente por trabajo fuera del canal de Phes.",
+    "",
+    "8. LLAVES, CÓDIGOS DE ALARMA Y PROPIEDAD.",
+    "Trataré las llaves de clientes y códigos de cajas con llave como propiedad de Phes. No copiaré una llave, no compartiré un código ni me llevaré una llave a casa sin autorización. Devolveré las llaves y códigos al final de cada turno, o seguiré el procedimiento registrado de la oficina para clientes de visita recurrente. Reportaré inmediatamente a la oficina cualquier llave perdida o extraviada. No prestaré el vehículo de Phes, mis herramientas asignadas ni los suministros de Phes a nadie fuera de Phes.",
+    "",
+    "9. VÍAS DE REPORTE.",
+    "Entiendo que puedo reportar una preocupación al equipo de la oficina, al dueño directamente, al Departamento de Derechos Humanos de Illinois (IDHR) o a la EEOC federal. No estoy obligado a reportar internamente antes de ir a una agencia pública.",
+    "",
+    "10. COOPERACIÓN EN INVESTIGACIONES.",
+    "Si Phes abre una investigación interna, cooperaré veridicamente cuando se me pida, proveeré cualquier foto o documentación relevante y me abstendré de discutir la investigación abierta con otras partes involucradas. Entiendo que negarme a cooperar o proveer información falsa durante una investigación es en sí una violación del Código de Conducta.",
+    "",
+    "11. EMPLEO A VOLUNTAD.",
+    "Nada en este reconocimiento altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal.",
+    "",
+    "12. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "Doy mi consentimiento para firmar este reconocimiento electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Reconocimiento del Código de Conducta.",
+  ].join("\n"),
+  notes: "Phase 4 PR #5 — Phes Code of Conduct acknowledgment, Spanish version.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -197,8 +306,12 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
     en: DRUG_ALCOHOL_EN,
     es: DRUG_ALCOHOL_ES,
   },
-  // PR #5+ will add: code_of_conduct, video_photo_release, non_solicitation,
-  // supply_kit, social_media. Same shape, same conventions.
+  code_of_conduct: {
+    en: CODE_OF_CONDUCT_EN,
+    es: CODE_OF_CONDUCT_ES,
+  },
+  // PR #6+ will add: video_photo_release, non_solicitation, supply_kit,
+  // social_media. Same shape, same conventions.
 };
 
 /**

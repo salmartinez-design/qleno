@@ -31,6 +31,12 @@ describe("SIGNED_DOCUMENT_CONTENT registry", () => {
     assert.ok(SIGNED_DOCUMENT_CONTENT.drug_alcohol!.es);
   });
 
+  it("includes code_of_conduct (Phase 4 PR #5)", () => {
+    assert.ok(SIGNED_DOCUMENT_CONTENT.code_of_conduct);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.code_of_conduct!.en);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.code_of_conduct!.es);
+  });
+
   it("every registered document has BOTH en and es entries", () => {
     for (const [type, entry] of Object.entries(SIGNED_DOCUMENT_CONTENT)) {
       assert.ok(entry?.en?.contentHtml, `${type}: missing en.contentHtml`);
@@ -126,6 +132,59 @@ describe("getSignedDocumentContent", () => {
 describe("listRegisteredDocumentTypes", () => {
   it("includes drug_alcohol after PR #4", () => {
     assert.ok(listRegisteredDocumentTypes().includes("drug_alcohol"));
+  });
+
+  it("includes code_of_conduct after PR #5", () => {
+    assert.ok(listRegisteredDocumentTypes().includes("code_of_conduct"));
+  });
+});
+
+describe("code_of_conduct content shape", () => {
+  it("English entry is NOT flagged pendingTranslationReview", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.code_of_conduct!.en.pendingTranslationReview ?? false,
+      false,
+    );
+  });
+
+  it("Spanish entry is NOT flagged pendingTranslationReview (not in the four flagged docs)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.code_of_conduct!.es.pendingTranslationReview ?? false,
+      false,
+    );
+    assert.equal(isSpanishPendingTranslationReview("code_of_conduct"), false);
+  });
+
+  it("English content references the Illinois Human Rights Act", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.code_of_conduct!.en.contentHtml;
+    assert.ok(
+      en.includes("Illinois Human Rights Act"),
+      "English version must reference the Illinois Human Rights Act protected classes",
+    );
+  });
+
+  it("Spanish content references the Ley de Derechos Humanos de Illinois", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.code_of_conduct!.es.contentHtml;
+    assert.ok(
+      es.includes("Ley de Derechos Humanos de Illinois"),
+      "Spanish version must reference the IL Human Rights Act translation",
+    );
+  });
+
+  it("English content includes zero-tolerance theft clause verbatim", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.code_of_conduct!.en.contentHtml;
+    assert.ok(
+      en.includes("zero-tolerance theft policy"),
+      "English version must include the zero-tolerance theft commitment",
+    );
+  });
+
+  it("English and Spanish content hash to DIFFERENT version hashes (legally distinct)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.code_of_conduct!.en.contentHtml;
+    const es = SIGNED_DOCUMENT_CONTENT.code_of_conduct!.es.contentHtml;
+    const hEn = hashContent(en, "en");
+    const hEs = hashContent(es, "es");
+    assert.notEqual(hEn, hEs);
   });
 });
 
