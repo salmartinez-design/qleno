@@ -142,6 +142,113 @@ const BASE_MODULES: Module[] = [
         },
       },
 
+      // ── Scope of Service: Standard vs Deep Clean vs Add-Ons ────────────────
+      { type: "h", text: { en: "Scope of Service — Standard Clean", es: "Alcance del Servicio — Limpieza Estándar" } },
+      {
+        type: "p",
+        text: {
+          en: "Every visit, regardless of frequency, includes the Standard Clean across all serviced rooms. Memorize this — it's what every client expects every time.",
+          es: "Cada visita, sin importar la frecuencia, incluye la Limpieza Estándar en todas las habitaciones servidas. Memorícela — es lo que cada cliente espera cada vez.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Kitchen: cobwebs, countertops + backsplash sanitized, cabinet exteriors wiped, microwave inside/out, stovetop + control panel + drip pans, refrigerator exterior (top/sides if accessible), sinks + faucets, trash emptied (client provides bag), floors vacuum/sweep/mop.", es: "Cocina: telarañas, mostradores y backsplash desinfectados, exteriores de gabinetes, microondas dentro/fuera, estufa + panel + bandejas, exterior del refrigerador, fregaderos + grifos, basura (cliente provee bolsa), pisos." },
+          { en: "Bathrooms: cobwebs, tub/shower/doors/toilet disinfected (inside + out), countertops + cabinet exteriors + sinks + faucets, mirrors + light fixtures, window sills + towel bars dusted, trash + liner, floors.", es: "Baños: telarañas, tina/ducha/puertas/inodoro desinfectados (dentro + fuera), mostradores + gabinetes exteriores + fregaderos + grifos, espejos + luces, alféizares + toalleros, basura + bolsa, pisos." },
+          { en: "Bedrooms: cobwebs, dust furniture / lamps / window sills / picture frames, mirrors + glass, vacuum + mop floors.", es: "Dormitorios: telarañas, polvo en muebles / lámparas / alféizares / cuadros, espejos + vidrios, aspirar + trapear pisos." },
+          { en: "Living / Family Room: cobwebs, dust furniture / lamps / window sills / picture frames, dust upholstery, mirrors + glass, trash + liner, floors.", es: "Sala / Familia: telarañas, polvo en muebles / lámparas / alféizares / cuadros, polvo en tapicería, espejos + vidrios, basura + bolsa, pisos." },
+          { en: "Laundry Room: cobwebs, wipe washer + dryer exterior, utility sink + countertops, dust + wipe shelves, sweep + mop.", es: "Cuarto de Lavado: telarañas, exterior de lavadora + secadora, fregadero + mostradores, polvo en estantes, barrer + trapear." },
+        ],
+      },
+
+      { type: "h", text: { en: "Deep Clean & Move-In/Out — What's ADDED", es: "Limpieza Profunda y Mudanza — Lo que se AGREGA" } },
+      {
+        type: "p",
+        text: {
+          en: "A Deep Clean (or Move-In / Move-Out) includes EVERYTHING in the Standard Clean PLUS five extras. These five extras are what makes it a Deep Clean — not just 'cleaning harder'.",
+          es: "Una Limpieza Profunda (o Mudanza) incluye TODO lo de la Limpieza Estándar MÁS cinco extras. Estos cinco extras son lo que la hace Profunda — no solo 'limpiar más fuerte'.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Baseboards in all rooms (where accessible).", es: "Zócalos en todas las habitaciones (donde se pueda alcanzar)." },
+          { en: "Ceiling fans dusted and cleaned.", es: "Ventiladores de techo desempolvados y limpios." },
+          { en: "Doorknobs, door frames, light switches, and handles wiped and sanitized.", es: "Pomos, marcos de puertas, interruptores y manijas limpios y desinfectados." },
+          { en: "Storm doors and sliding patio doors — INSIDE and OUTSIDE glass.", es: "Puertas tormenta y puertas corredizas de patio — vidrio INTERIOR y EXTERIOR." },
+          { en: "Air vent covers dusted and cleaned.", es: "Tapas de ventilación desempolvadas y limpias." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Move-In / Move-Out cleans ASSUME the space is empty. If you arrive and the home is still furnished or has belongings throughout, call the office BEFORE starting — the scope and pricing change when there's furniture in the way.",
+          es: "Las limpiezas de Mudanza ASUMEN que el espacio está vacío. Si llega y la casa aún tiene muebles o pertenencias por todos lados, llame a la oficina ANTES de empezar — el alcance y el precio cambian cuando hay muebles en medio.",
+        },
+      },
+
+      { type: "h", text: { en: "Add-Ons — NOT Included in Deep Clean", es: "Add-Ons — NO Incluidos en la Limpieza Profunda" } },
+      {
+        type: "p",
+        text: {
+          en: "These are priced separately. Even on a Deep Clean, they are NOT automatically included — the client must request and pay for them separately. Memorize the price list:",
+          es: "Estos se cobran por separado. Incluso en una Limpieza Profunda, NO se incluyen automáticamente — el cliente debe solicitarlos y pagarlos por separado. Memorice la lista de precios:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Inside Refrigerator — $50.", es: "Dentro del Refrigerador — $50." },
+          { en: "Inside Oven — $50.", es: "Dentro del Horno — $50." },
+          { en: "Inside Kitchen Cabinets (client must empty them first) — $50.", es: "Dentro de Gabinetes de Cocina (el cliente debe vaciarlos primero) — $50." },
+          { en: "Inside Windows — price varies. EXCLUDES tracks and exterior panes.", es: "Ventanas Interiores — el precio varía. EXCLUYE rieles y vidrios exteriores." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "If a client asks for an add-on mid-clean, follow the office-exception flow: call Maribel or Francisco to confirm the price was charged, then accommodate. Never quote pricing yourself and never accept cash on site — those go through the office.",
+          es: "Si un cliente pide un add-on a mitad del trabajo, siga el flujo de excepción de oficina: llame a Maribel o Francisco para confirmar que el precio fue cobrado, luego acomódelo. Nunca cotice precios usted mismo y nunca acepte efectivo en el sitio — eso va por la oficina.",
+        },
+      },
+
+      { type: "h", text: { en: "Things We Do NOT Offer — Hard No's", es: "Cosas que NO Ofrecemos — No Rotundo" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Carpet steam cleaning.", es: "Limpieza de alfombras a vapor." },
+          { en: "Dishes, laundry, bed-making.", es: "Lavar platos, lavar ropa, tender camas." },
+          { en: "Lifting or moving heavy furniture — anything OVER 25 lbs we clean around, never under.", es: "Levantar o mover muebles pesados — todo lo que pese MÁS de 25 lb lo limpiamos alrededor, nunca debajo." },
+          { en: "Biohazards, animal waste, hoarding situations, or infestations.", es: "Riesgos biológicos, desechos animales, situaciones de acumulación, o infestaciones." },
+          { en: "Outdoor cleaning, fireplaces, running errands.", es: "Limpieza al aire libre, chimeneas, recados." },
+        ],
+      },
+
+      { type: "h", text: { en: "On-Site Rules to Remember", es: "Reglas en Sitio Para Recordar" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Ladders / step stools: never climb higher than a 2-step. Anything above that, leave a note and skip — do not improvise on chairs, counters, or furniture.", es: "Escaleras / banquitos: nunca suba más alto que 2 escalones. Cualquier cosa más alta, deje nota y omita — no improvise sobre sillas, mostradores o muebles." },
+          { en: "Trash: 5 BAG MAXIMUM per visit. If there's more, document and tell the office — we do not haul extra.", es: "Basura: MÁXIMO 5 BOLSAS por visita. Si hay más, documente y avise a la oficina — no llevamos más." },
+          { en: "Arrival window: clients are told to expect a 45-minute window due to traffic. If you'll be at the late end, the office will text or call them — but YOU also call the office BEFORE the 20-minute mark when running behind.", es: "Ventana de llegada: a los clientes se les dice esperar una ventana de 45 minutos por el tráfico. Si llegará al final tarde, la oficina les enviará mensaje o llamada — pero USTED también llama a la oficina ANTES del minuto 20 cuando esté retrasado." },
+          { en: "Lockbox / alarm: some clients have a lockbox ($50 add-on) or alarm code. The office tells you in the app notes — never share lockbox codes with anyone.", es: "Caja de seguridad / alarma: algunos clientes tienen caja ($50 add-on) o código de alarma. La oficina le dice en las notas de la app — nunca comparta los códigos con nadie." },
+          { en: "Decluttering: if surfaces are too cluttered to clean and the client wasn't notified ahead, call the office. We can decline (with the cancellation fee applying) or shift scope — never silently work around chaos.", es: "Desorden: si las superficies están demasiado desordenadas para limpiar y el cliente no fue avisado, llame a la oficina. Podemos declinar (con el cargo de cancelación) o cambiar el alcance — nunca trabaje silenciosamente alrededor del caos." },
+        ],
+      },
+
+      { type: "h", text: { en: "Never Discuss Price With the Client", es: "Nunca Discuta el Precio con el Cliente" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Pricing conversations are 100% the office's job. If a client tries to negotiate, asks for a discount, offers cash for an unscheduled service, or tries to renegotiate the service fee in front of you — politely say 'I'll have the office reach out to discuss pricing' and call Maribel or Francisco. Clients who try to negotiate outside pricing with techs risk losing service. Protect yourself: stay out of money conversations.",
+          es: "Las conversaciones sobre precios son 100% trabajo de la oficina. Si un cliente intenta negociar, pide descuento, ofrece efectivo por un servicio no agendado, o intenta renegociar la tarifa frente a usted — diga cortésmente 'la oficina los contactará para hablar del precio' y llame a Maribel o Francisco. Los clientes que intentan negociar fuera de los precios con los técnicos arriesgan perder el servicio. Protéjase: no entre en conversaciones de dinero.",
+        },
+      },
+
       // ── Attendance ─────────────────────────────────────────────────────────
       { type: "h", text: { en: "Attendance — Grace Period", es: "Asistencia — Periodo de Gracia" } },
       {
@@ -1650,6 +1757,96 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes — the Unpaid Absence Allowance (40 hours, after 90 days, grace-call only, no advance approval needed). It's the last bucket before discipline. After it's exhausted, further unprotected absences become unexcused.", es: "Sí — la Tolerancia de Ausencia No Pagada (40 horas, después de 90 días, solo llamada de gracia, sin aprobación previa). Es la última cubeta antes de la disciplina. Una vez agotada, las ausencias no protegidas adicionales se vuelven injustificadas." },
       { en: "Phes will let you borrow against next year's PTO.", es: "Phes le permite pedir prestado contra el PTO del próximo año." },
       { en: "Only if the absence is for an immediate family member.", es: "Solo si la ausencia es por un familiar inmediato." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-35-deep-clean-includes",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You're on a Deep Clean. Which of these is INCLUDED in the Deep Clean scope (no add-on charge)?",
+      es: "Está en una Limpieza Profunda. ¿Cuál de estos está INCLUIDO en el alcance (sin cobro de add-on)?",
+    },
+    options: [
+      { en: "Cleaning inside the refrigerator.", es: "Limpiar dentro del refrigerador." },
+      { en: "Baseboards, ceiling fans, doorknobs / light switches, storm + sliding patio doors (inside & outside glass), air vent covers — plus everything in the Standard Clean.", es: "Zócalos, ventiladores de techo, pomos / interruptores, puertas tormenta + corredizas (vidrio interior y exterior), tapas de ventilación — más todo lo de la Limpieza Estándar." },
+      { en: "Cleaning inside the oven.", es: "Limpiar dentro del horno." },
+      { en: "Cleaning inside kitchen cabinets.", es: "Limpiar dentro de los gabinetes de cocina." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-36-deep-clean-excludes",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "On a Deep Clean the client asks you to clean inside the oven and inside the refrigerator while you're there. The Worksheet doesn't list these as add-ons. What do you do?",
+      es: "En una Limpieza Profunda el cliente le pide limpiar dentro del horno y dentro del refrigerador. La Hoja de Trabajo no los muestra como add-ons. ¿Qué hace?",
+    },
+    options: [
+      { en: "Do them — Deep Clean covers everything.", es: "Hágalos — la Limpieza Profunda cubre todo." },
+      { en: "Call the office to confirm the $50/each add-on charge and accommodate if there's time before your next job. If you're tight on time, decline politely and offer to add it next visit. Never quote the price yourself.", es: "Llame a la oficina para confirmar el cobro de add-on de $50 cada uno y acomódelo si hay tiempo antes del siguiente trabajo. Si está apretado de tiempo, decline cortésmente y ofrezca agregarlo la próxima visita. Nunca cotice el precio usted mismo." },
+      { en: "Tell the client to call the office directly.", es: "Dígale al cliente que llame a la oficina directamente." },
+      { en: "Do them and charge the client cash on site.", es: "Hágalos y cobre al cliente en efectivo en el sitio." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-37-deep-clean-windows",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "The 'Inside Windows' add-on covers what exactly?",
+      es: "El add-on de 'Ventanas Interiores' cubre exactamente qué?",
+    },
+    options: [
+      { en: "Interior glass only — EXCLUDES tracks and exterior panes. Price varies.", es: "Solo vidrio interior — EXCLUYE rieles y vidrios exteriores. El precio varía." },
+      { en: "Interior, exterior, AND tracks — one flat $50 charge.", es: "Interior, exterior Y rieles — un cargo fijo de $50." },
+      { en: "All windows in the home, no exclusions.", es: "Todas las ventanas, sin exclusiones." },
+      { en: "Window tracks only.", es: "Solo los rieles." },
+    ],
+    correctIndex: 0,
+  },
+  {
+    id: "q-pp-38-heavy-furniture-25lb",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "A client asks you to slide their dresser away from the wall so you can clean behind it. The dresser is heavy — well over 25 lbs. What do you do?",
+      es: "Un cliente le pide mover una cómoda de la pared para limpiar detrás. La cómoda es pesada — más de 25 lb. ¿Qué hace?",
+    },
+    options: [
+      { en: "Move it carefully — the customer is always right.", es: "Muévala con cuidado — el cliente siempre tiene la razón." },
+      { en: "Decline politely. Phes does not lift or move anything over 25 lbs. Clean around it, document it as a note in the app, and tell the office.", es: "Decline cortésmente. Phes no levanta ni mueve nada de más de 25 lb. Limpie alrededor, documente con nota en la app, y avise a la oficina." },
+      { en: "Ask the client to move it themselves while you wait.", es: "Pídale al cliente que la mueva mientras espera." },
+      { en: "Move it if you can do it alone.", es: "Muévala si puede solo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-39-trash-bag-limit",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You arrive at a job and the household has 8 full trash bags. What's the rule?",
+      es: "Llega a un trabajo y el hogar tiene 8 bolsas de basura llenas. ¿Cuál es la regla?",
+    },
+    options: [
+      { en: "Take them all — the client is paying for service.", es: "Llévelas todas — el cliente está pagando." },
+      { en: "Maximum 5 bags per visit. Take the first 5, document the rest with a note in the app, and call the office. We do not haul extra.", es: "Máximo 5 bolsas por visita. Tome las primeras 5, documente el resto con nota en la app, y llame a la oficina. No llevamos extra." },
+      { en: "Refuse to take any — let the client deal with it.", es: "Rehúse llevarse alguna — que el cliente se encargue." },
+      { en: "Take whatever fits in your car.", es: "Tome lo que quepa en su carro." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-40-no-price-discussion",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "A client tells you their last cleaning company charged $30 less and asks if you can match the price. What's the right response?",
+      es: "Un cliente le dice que su compañía anterior cobraba $30 menos y pregunta si puede igualar el precio. ¿Cuál es la respuesta correcta?",
+    },
+    options: [
+      { en: "Offer them $20 off and pocket the difference.", es: "Ofrézcale $20 de descuento y guárdese la diferencia." },
+      { en: "Politely say 'I'll have the office reach out to discuss pricing,' then call Maribel or Francisco. Pricing is 100% the office's job — never negotiate, never accept cash discounts, never quote prices.", es: "Diga cortésmente 'la oficina los contactará para hablar del precio,' luego llame a Maribel o Francisco. El precio es 100% trabajo de la oficina — nunca negocie, nunca acepte descuentos en efectivo, nunca cotice." },
+      { en: "Tell them Phes doesn't do discounts and finish the job in silence.", es: "Dígale que Phes no hace descuentos y termine el trabajo en silencio." },
+      { en: "Quote a discount yourself to keep them happy.", es: "Cotice un descuento usted mismo para mantenerlos contentos." },
     ],
     correctIndex: 1,
   },
