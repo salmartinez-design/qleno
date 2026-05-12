@@ -96,6 +96,83 @@ export function captureRequestMetadata(req: Request): SignatureRequestMetadata {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Minimal device info parser (PII minimization)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Per Phase 3 spec: certificates and signed-document audit rows capture
+// "device info" as Browser + OS only. Detailed fingerprinting data
+// (screen resolution, fonts, plugins, etc.) is NOT collected. The raw
+// user-agent string is the most we have to work with on the server, so
+// we parse a tight subset and store the resulting compact string.
+//
+// Pure regex matching. Lives here (not in -db helpers) so unit tests can
+// exercise it directly. Returns "unknown" only when the UA is empty.
+// Falls through to a permissive "Browser / OS" when no recognized brand
+// is found, rather than swallowing the data silently.
+
+interface ParsedDevice {
+  browser: string;
+  os: string;
+}
+
+function detectBrowser(ua: string): string {
+  // Order matters: Edge contains "Chrome" + "Safari"; Chrome contains "Safari".
+  // Match the more-specific brand first.
+  if (/Edg\//.test(ua)) {
+    const m = ua.match(/Edg\/(\d+)/);
+    return m ? `Edge ${m[1]}` : "Edge";
+  }
+  if (/OPR\//.test(ua)) {
+    const m = ua.match(/OPR\/(\d+)/);
+    return m ? `Opera ${m[1]}` : "Opera";
+  }
+  if (/Firefox\//.test(ua)) {
+    const m = ua.match(/Firefox\/(\d+)/);
+    return m ? `Firefox ${m[1]}` : "Firefox";
+  }
+  if (/Chrome\//.test(ua)) {
+    const m = ua.match(/Chrome\/(\d+)/);
+    return m ? `Chrome ${m[1]}` : "Chrome";
+  }
+  if (/Safari\//.test(ua) && /Version\//.test(ua)) {
+    const m = ua.match(/Version\/(\d+)/);
+    return m ? `Safari ${m[1]}` : "Safari";
+  }
+  return "Browser";
+}
+
+function detectOs(ua: string): string {
+  if (/iPad/.test(ua)) return "iPadOS";
+  if (/iPhone|iPod/.test(ua)) return "iOS";
+  if (/Android/.test(ua)) return "Android";
+  if (/Macintosh|Mac OS X/.test(ua)) return "macOS";
+  if (/Windows NT/.test(ua)) return "Windows";
+  if (/CrOS/.test(ua)) return "ChromeOS";
+  if (/X11; Linux|Linux/.test(ua)) return "Linux";
+  return "OS";
+}
+
+/**
+ * Compact, PII-minimized device descriptor for audit rows. Examples:
+ *   "Chrome 120 / macOS"
+ *   "Safari 17 / iOS"
+ *   "Firefox 121 / Windows"
+ *
+ * Returns the literal "unknown" only when the raw user-agent is empty
+ * or the literal "unknown" (the same fallback captureRequestMetadata
+ * uses when no UA header was sent).
+ */
+export function parseMinimalDeviceInfo(rawUserAgent: string): string {
+  if (!rawUserAgent || rawUserAgent === "unknown") return "unknown";
+  const ua = String(rawUserAgent);
+  const parsed: ParsedDevice = {
+    browser: detectBrowser(ua),
+    os: detectOs(ua),
+  };
+  return `${parsed.browser} / ${parsed.os}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Signature method validation
 // ─────────────────────────────────────────────────────────────────────────────
 

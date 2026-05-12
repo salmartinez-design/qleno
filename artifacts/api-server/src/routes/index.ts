@@ -74,6 +74,7 @@ import contactRouter from "./contact.js";
 import geocodeRouter from "./geocode.js";
 import configRouter from "./config.js";
 import lmsRouter from "./lms.js";
+import lmsCertificatesRouter from "./lms-certificates.js";
 
 const router: IRouter = Router();
 
@@ -152,5 +153,6 @@ router.use("/contact", contactRouter);
 router.use("/geocode", geocodeRouter);
 router.use("/config", configRouter);
 router.use("/lms", lmsRouter);
+router.use("/lms/certificates", lmsCertificatesRouter);
 
 export default router;

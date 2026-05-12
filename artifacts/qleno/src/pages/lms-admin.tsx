@@ -28,6 +28,8 @@ import {
   ChevronRight,
   ChevronDown,
   FastForward,
+  Download,
+  Award,
   RotateCcw,
   History,
 } from "lucide-react";
@@ -651,6 +653,7 @@ function RosterTable({
                     }}
                   >
                     <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+                    <LearnerCertificatesPanel row={r} />
                   </td>
                 </tr>
               ) : null}
@@ -951,6 +954,7 @@ function RosterCards({
           {expanded.has(r.enrollment_id) ? (
             <div style={{ marginTop: 6 }}>
               <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+              <LearnerCertificatesPanel row={r} />
             </div>
           ) : null}
         </article>
@@ -2295,6 +2299,228 @@ function BulkPasswordDialog({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LearnerCertificatesPanel — Phase 12: shows the per-learner cert audit
+// trail in the admin expand row. Fetches on first render via the
+// admin-side endpoint and renders the full chain (including historical
+// re-takes) with a download button per cert.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type CertificateRow = {
+  id: number;
+  module_id: string;
+  score: number | null;
+  passed: boolean;
+  locale: string;
+  issued_at: string;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+};
+
+function LearnerCertificatesPanel({ row }: { row: RosterRow }) {
+  const token = useAuthStore((s) => s.token);
+  const [certs, setCerts] = useState<CertificateRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api<CertificateRow[]>(
+          "GET",
+          `/lms/certificates/admin/learner/${row.user_id}`,
+          token,
+        );
+        if (!cancelled) setCerts(data);
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.user_id, token]);
+
+  async function handleDownload(certId: number) {
+    try {
+      const url = `${API_BASE}/lms/certificates/${certId}/pdf`;
+      const res = await fetch(url, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const disposition = res.headers.get("content-disposition") ?? "";
+      const m = /filename="([^"]+)"/.exec(disposition);
+      const filename = m?.[1] ?? `phes-cert-${certId}.pdf`;
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      console.error("[lms-admin] download cert failed:", e);
+    }
+  }
+
+  if (err) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: "#FEF2F2",
+          border: `1px solid #FECACA`,
+          color: DANGER,
+          borderRadius: 8,
+          fontSize: 12,
+        }}
+      >
+        Failed to load certificates: {err}
+      </div>
+    );
+  }
+
+  if (certs == null) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          fontSize: 12,
+          color: INK_MUTE,
+          fontStyle: "italic",
+        }}
+      >
+        Loading certificates...
+      </div>
+    );
+  }
+
+  if (certs.length === 0) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: LINE_SOFT,
+          borderRadius: 8,
+          fontSize: 12,
+          color: INK_MUTE,
+        }}
+      >
+        No certificates issued yet. Certificates are auto-generated when a
+        learner passes a quiz, acknowledges a content module, or has a
+        module bypassed by an admin.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <Award size={12} /> Completion Certificates ({certs.length})
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+          gap: 8,
+        }}
+      >
+        {certs.map((c) => {
+          const isRevoked = !!c.revoked_at;
+          return (
+            <div
+              key={c.id}
+              style={{
+                background: SURFACE,
+                border: `1px solid ${isRevoked ? "#FECACA" : LINE}`,
+                borderLeft: `3px solid ${
+                  isRevoked ? DANGER : c.passed ? SUCCESS : INK_LIGHT
+                }`,
+                borderRadius: 8,
+                padding: "10px 12px",
+                fontSize: 12,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800, color: INK, fontSize: 12 }}>
+                  {humanModule(c.module_id)}
+                </div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    color: INK_MUTE,
+                    marginTop: 2,
+                    fontWeight: 600,
+                  }}
+                >
+                  {c.score != null ? `${c.score}% · ` : ""}
+                  {c.locale.toUpperCase()} · {humanDateTime(c.issued_at)}
+                </div>
+                {isRevoked ? (
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: DANGER,
+                      fontWeight: 700,
+                      marginTop: 2,
+                    }}
+                  >
+                    REVOKED: {c.revoked_reason ?? "no reason given"}
+                  </div>
+                ) : null}
+              </div>
+              {!isRevoked ? (
+                <button
+                  type="button"
+                  onClick={() => handleDownload(c.id)}
+                  title="Download certificate PDF"
+                  style={{
+                    background: NAVY,
+                    color: "#fff",
+                    border: 0,
+                    padding: "5px 10px",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  <Download size={11} /> PDF
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

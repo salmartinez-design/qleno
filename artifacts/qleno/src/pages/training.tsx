@@ -61,6 +61,7 @@ import {
   AlertTriangle,
   Info,
   CircleCheck,
+  Download,
   Lock,
   Award,
   Loader2,
@@ -150,6 +151,7 @@ type SubmitResult = {
   attempts_used?: number;
   max_attempts?: number;
   attempts_remaining?: number;
+  certificate_id?: number | null;
 };
 
 type View =
@@ -249,13 +251,59 @@ const lmsApi = {
       payload,
     ),
   bypassModule: (token: string | null, moduleId: string) =>
-    api<{ ok: true; enrollment_id: number }>(
+    api<{ ok: true; enrollment_id: number; certificate_id: number | null }>(
       "POST",
       "/lms/admin/bypass-module",
       token,
       { moduleId },
     ),
+  listMyCertificates: (token: string | null) =>
+    api<CertificateRow[]>("GET", "/lms/certificates/me", token),
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Certificate download — opens the PDF in a new tab. The auth header is
+// passed via fetch + blob conversion so the cert id can stay in a same-
+// origin URL even when the API runs under /api/.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type CertificateRow = {
+  id: number;
+  module_id: string;
+  score: number | null;
+  passed: boolean;
+  issued_at: string;
+  locale: string;
+  revoked_at: string | null;
+};
+
+async function downloadCertificatePdf(
+  token: string | null,
+  certificateId: number,
+): Promise<void> {
+  const url = `${API_BASE}/lms/certificates/${certificateId}/pdf`;
+  const res = await fetch(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `GET /lms/certificates/${certificateId}/pdf → ${res.status}: ${text}`,
+    );
+  }
+  const blob = await res.blob();
+  const dispositionHeader = res.headers.get("content-disposition") ?? "";
+  const filenameMatch = /filename="([^"]+)"/.exec(dispositionHeader);
+  const filename = filenameMatch?.[1] ?? `phes-certificate-${certificateId}.pdf`;
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Token helpers
@@ -339,6 +387,7 @@ const T = {
   retry_quiz: { en: "Try again", es: "Intentar de nuevo" },
   start_quiz: { en: "Start quiz", es: "Comenzar examen" },
   review_quiz: { en: "Review", es: "Revisar" },
+  downloadCert: { en: "Certificate", es: "Certificado" },
 } as const;
 
 function tr(key: keyof typeof T, locale: Locale): string {
@@ -394,16 +443,33 @@ export default function TrainingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>({ kind: "home" });
+  const [certificates, setCertificates] = useState<CertificateRow[]>([]);
 
   const curriculum = useMemo<Curriculum>(
     () => getCurriculum(learner?.companyId ?? null),
     [learner?.companyId],
   );
 
+  /** module_id → most recent ACTIVE certificate id (revoked rows skipped). */
+  const certByModule = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {};
+    // certificates are listed newest-first by the server, so the first
+    // non-revoked one per module wins.
+    for (const c of certificates) {
+      if (c.revoked_at) continue;
+      if (!(c.module_id in map)) map[c.module_id] = c.id;
+    }
+    return map;
+  }, [certificates]);
+
   const refresh = useCallback(async () => {
     try {
-      const next = await lmsApi.me(token);
+      const [next, certs] = await Promise.all([
+        lmsApi.me(token),
+        lmsApi.listMyCertificates(token).catch(() => [] as CertificateRow[]),
+      ]);
       setState(next);
+      setCertificates(certs);
       // Sync locale from server if present
       if (next.enrollment.locale === "en" || next.enrollment.locale === "es") {
         setLocale(next.enrollment.locale);
@@ -540,6 +606,7 @@ export default function TrainingPage() {
           finalUnlocked={finalUnlocked}
           finalPassed={finalPassed}
           ackUnlocked={ackUnlocked}
+          certByModule={certByModule}
           onOpenModule={(moduleId) => setView({ kind: "module", moduleId })}
           onOpenFinal={() => setView({ kind: "final-intro" })}
           onOpenAck={() => setView({ kind: "ack" })}
@@ -547,6 +614,7 @@ export default function TrainingPage() {
             await lmsApi.bypassModule(token, moduleId);
             await refresh();
           }}
+          onDownloadCert={(certId) => downloadCertificatePdf(token, certId)}
         />
       )}
       {view.kind === "module" && (
@@ -937,10 +1005,12 @@ function Home({
   finalUnlocked,
   finalPassed,
   ackUnlocked,
+  certByModule,
   onOpenModule,
   onOpenFinal,
   onOpenAck,
   onBypass,
+  onDownloadCert,
 }: {
   curriculum: Curriculum;
   state: LmsState;
@@ -948,10 +1018,12 @@ function Home({
   finalUnlocked: boolean;
   finalPassed: boolean;
   ackUnlocked: boolean;
+  certByModule: Record<string, number>;
   onOpenModule: (id: string) => void;
   onOpenFinal: () => void;
   onOpenAck: () => void;
   onBypass: (moduleId: string) => Promise<void>;
+  onDownloadCert: (certId: number) => Promise<void>;
 }) {
   const isOwner = !!state.is_owner;
   const completed = state.progress
@@ -1041,6 +1113,7 @@ function Home({
             ? () => onOpenModule(moduleId)
             : undefined;
 
+          const certId = certByModule[moduleId];
           return (
             <ModuleRow
               key={moduleId}
@@ -1060,6 +1133,8 @@ function Home({
                   ? () => onBypass(moduleId)
                   : undefined
               }
+              certId={certId}
+              onDownloadCert={onDownloadCert}
             />
           );
         })}
@@ -1136,6 +1211,8 @@ function ModuleRow({
   isOwner,
   onClick,
   onBypass,
+  certId,
+  onDownloadCert,
 }: {
   module: Module;
   locale: Locale;
@@ -1149,6 +1226,8 @@ function ModuleRow({
   isOwner: boolean;
   onClick?: () => void;
   onBypass?: () => void;
+  certId?: number;
+  onDownloadCert?: (certId: number) => Promise<void>;
 }) {
   const isMobile = useIsMobile();
   const atCap = isQuizModule && status !== "passed" && attempts >= maxAttempts;
@@ -1271,6 +1350,35 @@ function ModuleRow({
       >
         <CircleCheck size={14} />
         {tr("passed", locale)}
+        {certId && onDownloadCert ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDownloadCert(certId).catch((err) =>
+                console.error("[training] download cert failed:", err),
+              );
+            }}
+            title={tr("downloadCert", locale)}
+            style={{
+              background: "transparent",
+              color: SUCCESS,
+              border: `1px solid ${SUCCESS}33`,
+              padding: "3px 8px",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: FONT,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              marginLeft: 4,
+            }}
+          >
+            <Download size={11} /> {tr("downloadCert", locale)}
+          </button>
+        ) : null}
       </span>
     ) : !unlocked && !isOwner ? (
       <span
