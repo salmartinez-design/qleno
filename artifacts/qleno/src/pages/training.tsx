@@ -736,18 +736,23 @@ function Header({
           }}
           aria-hidden
         />
+        {/* [phes-logo 2026-05-12] Tenant brand mark next to the Qleno
+            product mark. /phes-logo.jpeg is the Phes brand asset shipped
+            in artifacts/qleno/public. The logo replaces the prior
+            text-only tenant name so the page reads as Phes-branded
+            content rendered on the Qleno platform. */}
+        <img
+          src="/phes-logo.jpeg"
+          alt={tenantName}
+          style={{
+            height: isMobile ? 32 : 40,
+            width: "auto",
+            display: "block",
+            objectFit: "contain",
+            flexShrink: 0,
+          }}
+        />
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div
-            style={{
-              fontWeight: 700,
-              fontSize: 14,
-              letterSpacing: "-0.01em",
-              color: INK,
-              lineHeight: 1.2,
-            }}
-          >
-            {tenantName}
-          </div>
           <div
             style={{
               fontSize: 10,

@@ -432,6 +432,19 @@ function Shell({ children }: { children: React.ReactNode }) {
             }}
             aria-hidden
           />
+          {/* [phes-logo 2026-05-12] Phes tenant brand mark on the admin
+              header. /phes-logo.jpeg is the Phes brand asset shipped in
+              artifacts/qleno/public. */}
+          <img
+            src="/phes-logo.jpeg"
+            alt="Phes"
+            style={{
+              height: 32,
+              width: "auto",
+              display: "block",
+              objectFit: "contain",
+            }}
+          />
           <div
             style={{
               fontWeight: 700,

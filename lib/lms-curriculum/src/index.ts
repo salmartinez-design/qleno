@@ -149,12 +149,14 @@ export const FINAL_TEST_SIZE = 50;
  * compares lms-curriculum to lib/training.
  */
 export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
-  // ── Module 1: phes-policies (34) ─────────────────────────────────────────
+  // ── Module 1: phes-policies (36) ─────────────────────────────────────────
   // 15 original + 8 (handbook reconciliation 2026-05-11) + 2 sick-time
-  // deep dive + 1 unpaid personal days + 8 (four-bucket policy 2026-05-12:
-  // PLAWA → PTO → Unpaid Personal Leave → Unpaid Absence Allowance with
-  // the two-condition unexcused rule, PLAWA denial / default / discipline
-  // protection, and notice requirements per bucket).
+  // deep dive + 1 unpaid personal days + 7 (three-bucket policy 2026-05-12:
+  // PLAWA → PTO → Unpaid Personal Leave with the two-condition unexcused
+  // rule, PLAWA denial / default / discipline protection, and notice
+  // requirements per bucket) + 3 (protected absences carve-out 2026-05-12:
+  // first-90-day with no PLAWA, jury duty regardless of tenure, workplace
+  // injury regardless of tenure).
   "q-pp-01-w2": 1,
   "q-pp-02-guarantee": 2,
   "q-pp-03-scope-oven": 1,
@@ -188,7 +190,9 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-31-plawa-default": 1,
   "q-pp-32-notice-by-bucket": 1,
   "q-pp-33-plawa-reason": 1,
-  "q-pp-34-unpaid-absence-allowance": 1,
+  "q-pp-34-no-plawa-first-90": 1,
+  "q-pp-35-jury-no-leave": 1,
+  "q-pp-36-workplace-injury": 1,
 
   // ── Module 2: compensation (15) ──────────────────────────────────────────
   "q-cm-01-training-pay": 1,
@@ -276,11 +280,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-22-separation-payout", "q-pp-23-holiday-90day",
       "q-pp-24-sick-doc", "q-pp-25-sick-no-balance",
       "q-pp-26-unpaid-personal",
-      // Four-bucket policy (2026-05-12)
+      // Three-bucket policy (2026-05-12)
       "q-pp-27-bucket-order", "q-pp-28-unexcused-definition", "q-pp-29-plawa-denial",
       "q-pp-30-plawa-no-discipline", "q-pp-31-plawa-default",
       "q-pp-32-notice-by-bucket", "q-pp-33-plawa-reason",
-      "q-pp-34-unpaid-absence-allowance",
+      // Protected absences carve-out (2026-05-12)
+      "q-pp-34-no-plawa-first-90", "q-pp-35-jury-no-leave",
+      "q-pp-36-workplace-injury",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
