@@ -514,7 +514,7 @@ export type AnnualDocumentType = (typeof ANNUAL_DOCUMENT_TYPES)[number];
 export const REQUIRED_PRE_FINAL_SIGNED_DOCS = [
   "drug_alcohol",
   "code_of_conduct",
-  // PR #6 will add: "video_photo_release"
+  "video_photo_release",
   // PR #7 will add: "non_solicitation"
   // PR #8 will add: "social_media"
   // PR #10 will add: "supply_kit"

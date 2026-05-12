@@ -177,6 +177,17 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-coc-08-key-handling": 1,
   "q-coc-09-cooperation-investigation": 1,
   "q-coc-10-reporting-channels": 1,
+
+  // ── Module 9: video-photo-release (9, Phase 5 PR #6) ───────────────────
+  "q-vpr-01-voluntary": 1,
+  "q-vpr-02-5-year-limit": 1,
+  "q-vpr-03-ai-carve-out": 1,
+  "q-vpr-04-withdrawal-30-day": 1,
+  "q-vpr-05-third-party-limits": 1,
+  "q-vpr-06-il-right-of-publicity": 1,
+  "q-vpr-07-co-signature": 1,
+  "q-vpr-08-courtesy-preview": 1,
+  "q-vpr-09-active-distribution": 1,
 });
 
 /**

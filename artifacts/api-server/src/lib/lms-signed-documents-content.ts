@@ -298,6 +298,118 @@ const CODE_OF_CONDUCT_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// video_photo_release (Phase 5, PR #6)
+//
+// CO-SIGNED release governed by the Illinois Right of Publicity Act
+// (765 ILCS 1075). Improved version that replaces the broad legacy
+// release with explicit limits:
+//   1. 5-year post-separation cap on NEW uses (existing content in
+//      active distribution may continue).
+//   2. AI training / deepfake / synthetic-media carve-out (requires
+//      separate written consent).
+//   3. Withdrawal at any time. 30-day removal effort for Phes-controlled
+//      channels. Third-party shares cannot be recalled.
+//   4. Courtesy preview before publication where feasible (not a veto).
+//
+// NOT in the four flagged docs for human translator review. Spanish
+// goes live without the pending-review banner.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VIDEO_PHOTO_RELEASE_EN: SignedDocumentLocaleContent = {
+  title: "Video and Photo Release",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "VIDEO AND PHOTO RELEASE",
+    "Effective Date: January 1, 2026",
+    "",
+    "By signing this release, I authorize Phes Cleaning Services to record, store, and use photographs and video of me captured in the course of my employment, subject to the limits described below. This release is given voluntarily and is consistent with the Illinois Right of Publicity Act, 765 ILCS 1075, which requires my affirmative written consent before Phes may use my identity for any commercial purpose.",
+    "",
+    "1. VOLUNTARY CONSENT.",
+    "I understand that signing this release is voluntary. I may decline without any change to my job duties, schedule, pay, or standing with Phes. If I decline, Phes will not photograph or record me for commercial use.",
+    "",
+    "2. SCOPE OF AUTHORIZED USE.",
+    "I authorize Phes to use photographs and video of me captured in my work environment (homes I clean as part of my Phes shift, the Phes office, training sessions, and team events) in the following Phes-controlled materials and channels: Phes recruiting and marketing materials, Phes training and onboarding materials, the Phes website, and Phes-operated social media channels. Phes is the sole commercial user authorized by this release.",
+    "",
+    "3. THIRD-PARTY USE NOT AUTHORIZED.",
+    "This release does not authorize any third party (other businesses, news outlets, advertising partners) to use my likeness. If a third party requests footage of me from Phes for the third party's own use, Phes must seek my separate written consent before sharing.",
+    "",
+    "4. AI TRAINING AND SYNTHETIC-MEDIA CARVE-OUT.",
+    "Phes will not use my photographs or video for the training of any artificial-intelligence model, for deepfake creation, or for any other synthetic-media generation featuring my likeness, without my SEPARATE WRITTEN CONSENT. This release does not authorize any such use under any circumstances. Any future request for AI-training consent will be a different document with its own signature.",
+    "",
+    "5. POST-SEPARATION LIMIT ON NEW USES.",
+    "If my employment with Phes ends (voluntary or involuntary), Phes may continue to use content featuring my likeness after my employment ends, with a 5-year limit on new uses of content featuring my likeness post-separation, except for content already in active distribution. Practical effect: existing content (training videos, recruiting graphics, social-media posts already in rotation) may continue to play, but Phes may not launch new uses of content featuring my likeness more than 5 years after my last day, with the exception of content that was in active distribution at separation.",
+    "",
+    "6. COURTESY PREVIEW BEFORE PUBLICATION.",
+    "Phes will make reasonable effort to provide a courtesy preview of content featuring my likeness before publication when feasible. Courtesy preview is not a veto and pre-approval is not a condition of publication under this release. I may flag concerns and Phes will consider them.",
+    "",
+    "7. WITHDRAWAL OF CONSENT.",
+    "I may withdraw my consent at any time, for any reason or no reason, by giving written notice to the office. Upon withdrawal, Phes will make reasonable efforts to remove content from active Phes-controlled distribution within 30 days. Content distributed through third parties (shared or re-posted by others, downloads, screenshots, news references) cannot be recalled. Phes will not use the withdrawn content in new campaigns or new publications after the withdrawal date. Withdrawing consent does not affect my job, schedule, pay, or standing with Phes.",
+    "",
+    "8. PHES REPRESENTATIVE CO-SIGNATURE.",
+    "Because this release is a two-way commitment, the Phes representative co-signs it. The co-signature binds Phes to the limits set out in sections 4 through 7 above. The co-signature is added after my signature; I do not need to be present.",
+    "",
+    "9. NO COMPENSATION FOR USE.",
+    "I understand that Phes does not pay residuals, royalties, or any additional compensation for use of content featuring my likeness under this release. The release is granted as part of my employment relationship and is not tied to any wage or bonus.",
+    "",
+    "10. AT-WILL EMPLOYMENT.",
+    "Nothing in this release alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason.",
+    "",
+    "11. ELECTRONIC SIGNATURE CONSENT.",
+    "I consent to sign this release electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Video and Photo Release.",
+  ].join("\n"),
+  notes: "Phase 5 PR #6 — improved Phes video/photo release with AI carve-out + 5-year post-separation limit + 30-day withdrawal removal effort. Cites 765 ILCS 1075.",
+};
+
+const VIDEO_PHOTO_RELEASE_ES: SignedDocumentLocaleContent = {
+  title: "Autorización de Video y Foto",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "AUTORIZACIÓN DE VIDEO Y FOTO",
+    "Fecha Efectiva: 1 de enero de 2026",
+    "",
+    "Al firmar esta autorización, autorizo a Phes Cleaning Services a grabar, almacenar y usar fotografías y videos míos capturados en el curso de mi empleo, sujeto a los límites descritos a continuación. Esta autorización se da voluntariamente y es consistente con la Ley del Derecho de Publicidad de Illinois, 765 ILCS 1075, que requiere mi consentimiento afirmativo por escrito antes de que Phes pueda usar mi identidad para cualquier propósito comercial.",
+    "",
+    "1. CONSENTIMIENTO VOLUNTARIO.",
+    "Entiendo que firmar esta autorización es voluntario. Puedo rechazarlo sin ningún cambio en mis funciones, horario, pago o posición con Phes. Si rechazo, Phes no me fotografiará ni grabará para uso comercial.",
+    "",
+    "2. ALCANCE DEL USO AUTORIZADO.",
+    "Autorizo a Phes a usar fotografías y videos míos capturados en mi entorno de trabajo (hogares que limpio como parte de mi turno de Phes, la oficina de Phes, sesiones de capacitación y eventos del equipo) en los siguientes materiales y canales controlados por Phes: materiales de reclutamiento y mercadotecnia de Phes, materiales de capacitación y orientación de Phes, la página web de Phes y los canales de redes sociales operados por Phes. Phes es el único usuario comercial autorizado por esta autorización.",
+    "",
+    "3. USO POR TERCEROS NO AUTORIZADO.",
+    "Esta autorización no permite a ningún tercero (otros negocios, medios de noticias, socios publicitarios) usar mi semejanza. Si un tercero solicita imágenes mías a Phes para uso propio del tercero, Phes debe pedir mi consentimiento separado por escrito antes de compartirlas.",
+    "",
+    "4. EXCLUSIÓN DE ENTRENAMIENTO DE IA Y MEDIOS SINTÉTICOS.",
+    "Phes no usará mis fotografías o videos para el entrenamiento de ningún modelo de inteligencia artificial, para la creación de deepfakes, ni para ninguna otra generación de medios sintéticos con mi semejanza, sin mi CONSENTIMIENTO SEPARADO POR ESCRITO. Esta autorización no permite ningún uso así bajo ninguna circunstancia. Cualquier solicitud futura de consentimiento para entrenamiento de IA será un documento distinto con su propia firma.",
+    "",
+    "5. LÍMITE DESPUÉS DE LA SEPARACIÓN PARA NUEVOS USOS.",
+    "Si mi empleo con Phes termina (voluntaria o involuntariamente), Phes podrá continuar usando contenido que muestre mi semejanza después del término de mi empleo, con un límite de 5 años para nuevos usos de contenido que muestre mi semejanza después de la separación, excepto para contenido que ya estaba en distribución activa. Efecto práctico: el contenido existente (videos de capacitación, gráficos de reclutamiento, publicaciones en redes sociales ya en rotación) puede continuar reproduciéndose, pero Phes no podrá iniciar nuevos usos de contenido con mi semejanza más de 5 años después de mi último día, con la excepción del contenido que estaba en distribución activa al momento de la separación.",
+    "",
+    "6. VISTA PREVIA DE CORTESÍA ANTES DE LA PUBLICACIÓN.",
+    "Phes hará un esfuerzo razonable por proveer una vista previa de cortesía del contenido con mi semejanza antes de la publicación cuando sea factible. La vista previa de cortesía no es un veto y la pre-aprobación no es condición de la publicación bajo esta autorización. Puedo señalar inquietudes y Phes las considerará.",
+    "",
+    "7. RETIRO DEL CONSENTIMIENTO.",
+    "Puedo retirar mi consentimiento en cualquier momento, por cualquier razón o sin razón, dando aviso por escrito a la oficina. Al retirarlo, Phes hará esfuerzos razonables por retirar el contenido de la distribución activa controlada por Phes dentro de los 30 días. El contenido distribuido a través de terceros (compartido o republicado por otros, descargas, capturas de pantalla, referencias de noticias) no puede ser recuperado. Phes no usará el contenido retirado en nuevas campañas o nuevas publicaciones después de la fecha de retiro. Retirar el consentimiento no afecta mi trabajo, horario, pago o posición con Phes.",
+    "",
+    "8. CO-FIRMA DEL REPRESENTANTE DE PHES.",
+    "Como esta autorización es un compromiso de dos vías, el representante de Phes la co-firma. La co-firma vincula a Phes a los límites establecidos en las secciones 4 a 7 anteriores. La co-firma se agrega después de mi firma; no necesito estar presente.",
+    "",
+    "9. SIN COMPENSACIÓN POR EL USO.",
+    "Entiendo que Phes no paga residuales, regalías o ninguna compensación adicional por el uso de contenido con mi semejanza bajo esta autorización. La autorización se otorga como parte de mi relación laboral y no está vinculada a ningún salario o bono.",
+    "",
+    "10. EMPLEO A VOLUNTAD.",
+    "Nada en esta autorización altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal.",
+    "",
+    "11. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "Doy mi consentimiento para firmar esta autorización electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado esta Autorización de Video y Foto.",
+  ].join("\n"),
+  notes: "Phase 5 PR #6 — Phes video/photo release, Spanish version. Not in the four flagged docs.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -310,8 +422,12 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
     en: CODE_OF_CONDUCT_EN,
     es: CODE_OF_CONDUCT_ES,
   },
-  // PR #6+ will add: video_photo_release, non_solicitation, supply_kit,
-  // social_media. Same shape, same conventions.
+  video_photo_release: {
+    en: VIDEO_PHOTO_RELEASE_EN,
+    es: VIDEO_PHOTO_RELEASE_ES,
+  },
+  // PR #7+ will add: non_solicitation, supply_kit, social_media. Same shape,
+  // same conventions.
 };
 
 /**

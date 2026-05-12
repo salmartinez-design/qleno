@@ -37,6 +37,12 @@ describe("SIGNED_DOCUMENT_CONTENT registry", () => {
     assert.ok(SIGNED_DOCUMENT_CONTENT.code_of_conduct!.es);
   });
 
+  it("includes video_photo_release (Phase 5 PR #6)", () => {
+    assert.ok(SIGNED_DOCUMENT_CONTENT.video_photo_release);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.video_photo_release!.en);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.video_photo_release!.es);
+  });
+
   it("every registered document has BOTH en and es entries", () => {
     for (const [type, entry] of Object.entries(SIGNED_DOCUMENT_CONTENT)) {
       assert.ok(entry?.en?.contentHtml, `${type}: missing en.contentHtml`);
@@ -136,6 +142,119 @@ describe("listRegisteredDocumentTypes", () => {
 
   it("includes code_of_conduct after PR #5", () => {
     assert.ok(listRegisteredDocumentTypes().includes("code_of_conduct"));
+  });
+
+  it("includes video_photo_release after PR #6", () => {
+    assert.ok(listRegisteredDocumentTypes().includes("video_photo_release"));
+  });
+});
+
+describe("video_photo_release content shape (PR #6 spec checks)", () => {
+  it("English entry is NOT flagged pendingTranslationReview (not in the four flagged docs)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.pendingTranslationReview ?? false,
+      false,
+    );
+  });
+
+  it("Spanish entry is NOT flagged pendingTranslationReview", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.video_photo_release!.es.pendingTranslationReview ?? false,
+      false,
+    );
+    assert.equal(isSpanishPendingTranslationReview("video_photo_release"), false);
+  });
+
+  it("English content cites the Illinois Right of Publicity Act with the 765 ILCS 1075 citation", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("Illinois Right of Publicity Act"),
+      "English version must reference the Illinois Right of Publicity Act by name",
+    );
+    assert.ok(
+      en.includes("765 ILCS 1075"),
+      "English version must include the 765 ILCS 1075 citation",
+    );
+  });
+
+  it("Spanish content cites the Illinois Right of Publicity Act translation + the 765 ILCS 1075 citation", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.video_photo_release!.es.contentHtml;
+    assert.ok(
+      es.includes("Ley del Derecho de Publicidad de Illinois"),
+      "Spanish version must reference the IL Right of Publicity Act translation",
+    );
+    assert.ok(
+      es.includes("765 ILCS 1075"),
+      "Spanish version must include the 765 ILCS 1075 citation",
+    );
+  });
+
+  it("English content includes the AI-training carve-out verbatim", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("SEPARATE WRITTEN CONSENT"),
+      "English must require SEPARATE WRITTEN CONSENT for AI training",
+    );
+    assert.ok(
+      en.includes("deepfake"),
+      "English must mention deepfake carve-out",
+    );
+    assert.ok(
+      en.includes("synthetic-media"),
+      "English must mention synthetic-media carve-out",
+    );
+  });
+
+  it("English content includes the 5-year post-separation limit verbatim", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("5-year limit on new uses"),
+      "English must include the 5-year limit on new uses",
+    );
+    assert.ok(
+      en.includes("already in active distribution"),
+      "English must call out the active-distribution exception",
+    );
+  });
+
+  it("English content includes the 30-day withdrawal removal effort", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("within 30 days"),
+      "English must include the 30-day withdrawal removal effort",
+    );
+    assert.ok(
+      en.includes("Content distributed through third parties"),
+      "English must call out the third-party limitation on withdrawal",
+    );
+  });
+
+  it("English content includes the courtesy preview language", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("courtesy preview"),
+      "English must mention courtesy preview",
+    );
+    assert.ok(
+      en.includes("not a veto"),
+      "English must clarify that courtesy preview is not a veto",
+    );
+  });
+
+  it("English content states the release is voluntary", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    assert.ok(
+      en.includes("voluntary") || en.includes("voluntarily"),
+      "English must call out that signing is voluntary",
+    );
+  });
+
+  it("English and Spanish content hash to DIFFERENT version hashes (legally distinct)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.video_photo_release!.en.contentHtml;
+    const es = SIGNED_DOCUMENT_CONTENT.video_photo_release!.es.contentHtml;
+    const hEn = hashContent(en, "en");
+    const hEs = hashContent(es, "es");
+    assert.notEqual(hEn, hEs);
   });
 });
 
