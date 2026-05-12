@@ -104,6 +104,27 @@ export function maxAttemptsFor(moduleId: string): number {
 }
 
 /**
+ * Returns true when this user should see learner-only UI: attempt
+ * counters, "attempts remaining" copy, lockout messages, deadline
+ * countdowns — anything that exists to pressure a learner toward
+ * completing the module on a schedule.
+ *
+ * Owners and admins always return false. They get the bypass /
+ * preview path instead; the attempt cap is never enforced against
+ * them on the server (see canBypassCap in routes/lms.ts), so the
+ * UI must match.
+ *
+ * Lives here (not in training.tsx) so it can be unit-tested with the
+ * existing lms-curriculum.test.ts harness without spinning up React.
+ * Any new learner-gating widget added to training.tsx, the LMS admin
+ * surface, or the field app should consume this predicate so the
+ * next "hide this from owners" request has one place to extend.
+ */
+export function shouldShowLearnerGating(isOwner: boolean): boolean {
+  return !isOwner;
+}
+
+/**
  * Number of questions sampled for the final mixed test. Drawn at random
  * (without replacement) across every QUIZ_MODULE_IDS. If the curriculum has
  * fewer than this many total questions, the final uses every question.

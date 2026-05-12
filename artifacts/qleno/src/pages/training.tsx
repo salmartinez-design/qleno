@@ -45,6 +45,7 @@ import {
   MAX_MODULE_ATTEMPTS,
   MAX_FINAL_ATTEMPTS,
   maxAttemptsFor,
+  shouldShowLearnerGating,
   isModuleUnlocked,
   isFinalUnlocked,
   type ModuleId,
@@ -588,6 +589,7 @@ export default function TrainingPage() {
           priorAttempts={
             state.progress.find((p) => p.module_id === view.moduleId)?.attempts ?? 0
           }
+          isOwner={!!state.is_owner}
           onCancel={() => setView({ kind: "module", moduleId: view.moduleId })}
           onPassed={async () => {
             await refresh();
@@ -611,6 +613,7 @@ export default function TrainingPage() {
           priorAttempts={
             state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
           }
+          isOwner={!!state.is_owner}
           onCancel={() => setView({ kind: "home" })}
           onPassed={async () => {
             await refresh();
@@ -667,6 +670,10 @@ function useIsMobile(): boolean {
   }, []);
   return isMobile;
 }
+
+// shouldShowLearnerGating(isOwner) is imported from @workspace/lms-curriculum
+// so the predicate has a single home and stays unit-tested. See the imports
+// block at the top of this file.
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
@@ -765,7 +772,7 @@ function Header({
           justifyContent: isMobile ? "flex-end" : "flex-start",
         }}
       >
-        {daysRemaining != null && !isOwner && (
+        {daysRemaining != null && shouldShowLearnerGating(isOwner) && (
           <DeadlineBadge days={daysRemaining} locale={locale} />
         )}
         <LocaleToggle locale={locale} setLocale={setLocale} compact={isMobile} />
@@ -1202,7 +1209,7 @@ function ModuleRow({
         {m.estimatedMinutes} min
         {isQuizModule ? ` · ${tr("pass80", locale)}` : ""}
         {status === "passed" && bestScore > 0 ? ` · ${bestScore}%` : ""}
-        {isQuizModule && status !== "passed" && !isOwner ? (
+        {isQuizModule && status !== "passed" && shouldShowLearnerGating(isOwner) ? (
           <span
             style={{
               marginLeft: 6,
@@ -1214,7 +1221,7 @@ function ModuleRow({
           </span>
         ) : null}
       </div>
-      {atCap && !isOwner ? (
+      {atCap && shouldShowLearnerGating(isOwner) ? (
         <div
           style={{
             fontSize: 11,
@@ -1465,7 +1472,7 @@ function FinalStepCard({
             <div style={{ fontSize: 12, opacity: 0.85, marginTop: 3, lineHeight: 1.4 }}>
               {tr("finalIntro", locale)}
             </div>
-            {!passed && !isOwner ? (
+            {!passed && shouldShowLearnerGating(isOwner) ? (
               <div
                 style={{
                   fontSize: 11,
@@ -1513,7 +1520,7 @@ function FinalStepCard({
             >
               {tr("finalIntro", locale)}
             </div>
-            {!passed && !isOwner ? (
+            {!passed && shouldShowLearnerGating(isOwner) ? (
               <div
                 style={{
                   fontSize: 11,
@@ -1717,16 +1724,16 @@ function ModuleView({
         {m.blocks.map((b, i) => (
           <Block key={i} block={b} locale={locale} />
         ))}
-        {isQuizModule ? (
+        {isQuizModule && shouldShowLearnerGating(isOwner) ? (
           <div
             style={{
               marginTop: 18,
               padding: "10px 12px",
-              background: atCap && !isOwner ? "#FEF2F2" : LINE_SOFT,
-              border: `1px solid ${atCap && !isOwner ? "#FECACA" : LINE}`,
+              background: atCap ? "#FEF2F2" : LINE_SOFT,
+              border: `1px solid ${atCap ? "#FECACA" : LINE}`,
               borderRadius: 8,
               fontSize: 12,
-              color: atCap && !isOwner ? DANGER : INK_MUTE,
+              color: atCap ? DANGER : INK_MUTE,
               fontWeight: 700,
               display: "flex",
               justifyContent: "space-between",
@@ -1742,7 +1749,7 @@ function ModuleView({
                 : ""}
             </span>
             <span>
-              {atCap && !isOwner
+              {atCap
                 ? tr("noAttemptsLeft", locale)
                 : `${Math.max(0, maxAttempts - attempts)} ${tr("attemptsRemaining", locale)}`}
             </span>
@@ -1955,6 +1962,7 @@ function QuizView({
   locale,
   token,
   priorAttempts,
+  isOwner,
   onCancel,
   onPassed,
 }: {
@@ -1963,6 +1971,7 @@ function QuizView({
   locale: Locale;
   token: string | null;
   priorAttempts: number;
+  isOwner: boolean;
   onCancel: () => void;
   onPassed: () => Promise<void>;
 }) {
@@ -2070,6 +2079,7 @@ function QuizView({
         attemptsRemaining={attemptsRemaining}
         maxAttempts={result.max_attempts ?? maxAttempts}
         passThreshold={PASS_THRESHOLD_PCT}
+        isOwner={isOwner}
         onContinue={async () => {
           if (result.passed) {
             await onPassed();
@@ -2139,20 +2149,22 @@ function QuizView({
             {" · "}
             {cursor + 1} / {total}
           </div>
-          <div
-            style={{
-              fontSize: 11,
-              color: INK_MUTE,
-              fontWeight: 800,
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-              background: LINE_SOFT,
-              padding: "3px 8px",
-              borderRadius: 999,
-            }}
-          >
-            {tr("attempt", locale)} {currentAttempt} {tr("of", locale)} {maxAttempts}
-          </div>
+          {shouldShowLearnerGating(isOwner) ? (
+            <div
+              style={{
+                fontSize: 11,
+                color: INK_MUTE,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                background: LINE_SOFT,
+                padding: "3px 8px",
+                borderRadius: 999,
+              }}
+            >
+              {tr("attempt", locale)} {currentAttempt} {tr("of", locale)} {maxAttempts}
+            </div>
+          ) : null}
         </div>
         <div
           style={{
@@ -2298,6 +2310,7 @@ function ResultView({
   attemptsRemaining,
   maxAttempts,
   passThreshold,
+  isOwner,
   onContinue,
 }: {
   locale: Locale;
@@ -2305,10 +2318,14 @@ function ResultView({
   attemptsRemaining: number;
   maxAttempts: number;
   passThreshold: number;
+  isOwner: boolean;
   onContinue: () => void;
 }) {
   const { passed, score } = result;
-  const noMoreRetries = !passed && attemptsRemaining <= 0;
+  // Owners are never "out of attempts" — the server bypasses the cap
+  // and the UI matches that. Treat as if attempts remain.
+  const noMoreRetries =
+    !passed && shouldShowLearnerGating(isOwner) && attemptsRemaining <= 0;
   return (
     <div style={{ maxWidth: 480, margin: "60px auto", padding: 18 }}>
       <div
@@ -2331,7 +2348,7 @@ function ResultView({
         <div style={{ marginTop: 8, fontSize: 13, color: INK_MUTE }}>
           {score}% · {passThreshold}% {locale === "en" ? "to pass" : "para aprobar"}
         </div>
-        {!passed ? (
+        {!passed && shouldShowLearnerGating(isOwner) ? (
           <div
             style={{
               marginTop: 10,
