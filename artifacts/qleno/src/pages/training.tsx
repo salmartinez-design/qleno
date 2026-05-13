@@ -26,6 +26,7 @@
  *   Plus Jakarta Sans, NAVY/TEAL accent palette, rounded surfaces,
  *   bilingual EN/ES toggle.
  */
+import * as React from "react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -67,6 +68,7 @@ import {
   Loader2,
   CalendarClock,
   FastForward,
+  FileSignature,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -165,6 +167,7 @@ type View =
   | { kind: "module"; moduleId: string }
   | { kind: "quiz"; moduleId: string }
   | { kind: "sign-document"; documentType: string }
+  | { kind: "sign-handbook" }
   | { kind: "final-intro" }
   | { kind: "final-quiz" }
   | { kind: "ack" }
@@ -300,6 +303,32 @@ const lmsApi = {
     }),
   listMySignedDocuments: (token: string | null) =>
     api<SignedDocumentRow[]>("GET", "/lms/signatures/me", token),
+  getHandbookEligibility: (token: string | null) =>
+    api<HandbookEligibility>("GET", "/lms/handbook/eligibility", token),
+  signHandbook: (
+    token: string | null,
+    args: {
+      locale: Locale;
+      signatureMethod: "typed" | "drawn";
+      signature: string;
+    },
+  ) =>
+    api<{
+      signed_document_id: number;
+      version_hash: string;
+      signed_at: string;
+    }>("POST", "/lms/handbook/sign", token, {
+      ...args,
+      affirmation: true,
+    }),
+};
+
+type HandbookEligibility = {
+  eligible: boolean;
+  missing_modules: string[];
+  missing_signed_docs: string[];
+  passed_modules: string[];
+  final_exam_passed: boolean;
 };
 
 type SignedDocumentContent = {
@@ -503,6 +532,8 @@ export default function TrainingPage() {
   const [view, setView] = useState<View>({ kind: "home" });
   const [certificates, setCertificates] = useState<CertificateRow[]>([]);
   const [signedDocs, setSignedDocs] = useState<SignedDocumentRow[]>([]);
+  const [handbookEligibility, setHandbookEligibility] =
+    useState<HandbookEligibility | null>(null);
 
   const curriculum = useMemo<Curriculum>(
     () => getCurriculum(learner?.companyId ?? null),
@@ -533,16 +564,20 @@ export default function TrainingPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [next, certs, docs] = await Promise.all([
+      const [next, certs, docs, eligibility] = await Promise.all([
         lmsApi.me(token),
         lmsApi.listMyCertificates(token).catch(() => [] as CertificateRow[]),
         lmsApi
           .listMySignedDocuments(token)
           .catch(() => [] as SignedDocumentRow[]),
+        lmsApi
+          .getHandbookEligibility(token)
+          .catch(() => null as HandbookEligibility | null),
       ]);
       setState(next);
       setCertificates(certs);
       setSignedDocs(docs);
+      setHandbookEligibility(eligibility);
       // Sync locale from server if present
       if (next.enrollment.locale === "en" || next.enrollment.locale === "es") {
         setLocale(next.enrollment.locale);
@@ -681,12 +716,15 @@ export default function TrainingPage() {
           ackUnlocked={ackUnlocked}
           certByModule={certByModule}
           signedDocByType={signedDocByType}
+          handbookEligibility={handbookEligibility}
+          token={token}
           onOpenModule={(moduleId) => setView({ kind: "module", moduleId })}
           onOpenFinal={() => setView({ kind: "final-intro" })}
           onOpenAck={() => setView({ kind: "ack" })}
           onOpenSign={(documentType) =>
             setView({ kind: "sign-document", documentType })
           }
+          onOpenSignHandbook={() => setView({ kind: "sign-handbook" })}
           onBypass={async (moduleId) => {
             await lmsApi.bypassModule(token, moduleId);
             await refresh();
@@ -795,6 +833,20 @@ export default function TrainingPage() {
           setLocale={setLocale}
           learner={learner}
           token={token}
+          onCancel={() => setView({ kind: "home" })}
+          onSigned={async () => {
+            await refresh();
+            setView({ kind: "home" });
+          }}
+        />
+      )}
+      {view.kind === "sign-handbook" && (
+        <HandbookSignView
+          locale={locale}
+          setLocale={setLocale}
+          learner={learner}
+          token={token}
+          eligibility={handbookEligibility}
           onCancel={() => setView({ kind: "home" })}
           onSigned={async () => {
             await refresh();
@@ -1098,10 +1150,13 @@ function Home({
   ackUnlocked,
   certByModule,
   signedDocByType,
+  handbookEligibility,
+  token,
   onOpenModule,
   onOpenFinal,
   onOpenAck,
   onOpenSign,
+  onOpenSignHandbook,
   onBypass,
   onDownloadCert,
 }: {
@@ -1113,10 +1168,13 @@ function Home({
   ackUnlocked: boolean;
   certByModule: Record<string, number>;
   signedDocByType: Record<string, number>;
+  handbookEligibility: HandbookEligibility | null;
+  token: string | null;
   onOpenModule: (id: string) => void;
   onOpenFinal: () => void;
   onOpenAck: () => void;
   onOpenSign: (documentType: string) => void;
+  onOpenSignHandbook: () => void;
   onBypass: (moduleId: string) => Promise<void>;
   onDownloadCert: (certId: number) => Promise<void>;
 }) {
@@ -1396,8 +1454,65 @@ function Home({
           </div>
         );
       })()}
+
+      {/* Comprehensive Handbook signing card (Phase 11 + Handbook UI PR).
+          Shows after the final exam. Locked until eligibility is fully
+          satisfied (all modules + all six standalone acks + final exam).
+          Once signed, displays a Download link instead of the Sign CTA.
+          Owners see a Preview hint pointing to /lms/handbook/preview
+          which exists on the API but is intentionally not wired here
+          to avoid drawing employees into an admin-only surface. */}
+      {(() => {
+        const handbookSignedId = signedDocByType["handbook"];
+        const eligible = !!handbookEligibility?.eligible;
+        return (
+          <div style={{ marginTop: 22 }}>
+            <HandbookCard
+              locale={locale}
+              eligible={eligible}
+              eligibility={handbookEligibility}
+              signedDocumentId={handbookSignedId ?? null}
+              isOwner={isOwner}
+              onSign={onOpenSignHandbook}
+              onDownload={async () => {
+                if (!handbookSignedId) return;
+                await downloadHandbookPdf(token);
+              }}
+              onPreview={async () => {
+                await previewHandbookPdf(token, locale);
+              }}
+            />
+          </div>
+        );
+      })()}
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Handbook PDF download (fetch + blob → object URL) — same pattern as
+// downloadCertificatePdf. Calls GET /api/lms/handbook/me/pdf which
+// returns the caller's most recent active handbook PDF.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function downloadHandbookPdf(token: string | null): Promise<void> {
+  const url = `${API_BASE}/lms/handbook/me/pdf`;
+  const res = await fetch(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`GET /lms/handbook/me/pdf → ${res.status}: ${text}`);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = `phes-handbook.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
 }
 
 /** Friendly localized name for a signed-document type slug. */
@@ -3070,6 +3185,938 @@ function SignDocumentView({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HandbookCard — final tile after the final exam. Shows compliance state
+// (eligible / locked / signed) and the CTA to sign or download.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HandbookCard({
+  locale,
+  eligible,
+  eligibility,
+  signedDocumentId,
+  isOwner,
+  onSign,
+  onDownload,
+  onPreview,
+}: {
+  locale: Locale;
+  eligible: boolean;
+  eligibility: HandbookEligibility | null;
+  signedDocumentId: number | null;
+  isOwner: boolean;
+  onSign: () => void;
+  onDownload: () => Promise<void>;
+  onPreview: () => Promise<void>;
+}) {
+  const signed = signedDocumentId !== null;
+  const stripeColor = signed ? SUCCESS : eligible ? WARN : INK_LIGHT;
+  const isNarrow = useIsMobile();
+
+  return (
+    <div
+      style={{
+        background: SURFACE,
+        border: `1px solid ${LINE}`,
+        borderLeft: `4px solid ${stripeColor}`,
+        borderRadius: RADIUS,
+        padding: "16px 18px",
+        display: "grid",
+        gridTemplateColumns: isNarrow ? "1fr" : "auto 1fr auto",
+        alignItems: isNarrow ? "stretch" : "center",
+        gap: isNarrow ? 10 : 14,
+        fontFamily: FONT,
+      }}
+    >
+      <FileSignature
+        size={isNarrow ? 18 : 22}
+        style={{ color: stripeColor, justifySelf: isNarrow ? "start" : "auto" }}
+      />
+      <div>
+        <div
+          style={{
+            fontWeight: 800,
+            fontSize: 15,
+            color: INK,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          {locale === "es"
+            ? "Manual Integral del Empleado"
+            : "Comprehensive Employee Handbook"}
+          {signed ? (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 800,
+                color: SUCCESS,
+                background: "#ECFDF5",
+                padding: "2px 8px",
+                borderRadius: 999,
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
+            >
+              {locale === "es" ? "Firmado" : "Signed"}
+            </span>
+          ) : null}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 4,
+            lineHeight: 1.55,
+          }}
+        >
+          {signed
+            ? locale === "es"
+              ? "Manual firmado. Descargue su copia para sus registros."
+              : "Handbook signed. Download your copy for your records."
+            : eligible
+            ? locale === "es"
+              ? "Último paso. Firme el manual integral para completar la incorporación."
+              : "Final step. Sign the comprehensive handbook to complete onboarding."
+            : locale === "es"
+            ? "Termine los módulos, los reconocimientos y el examen final para desbloquear el manual."
+            : "Finish the modules, signed acknowledgments, and final exam to unlock the handbook."}
+        </div>
+        {!signed && !eligible && eligibility ? (
+          <HandbookGateHint eligibility={eligibility} locale={locale} />
+        ) : null}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexDirection: isNarrow ? "row" : "column",
+          gap: 8,
+          justifyContent: isNarrow ? "flex-end" : "flex-start",
+          flexWrap: "wrap",
+        }}
+      >
+        {isOwner && !signed ? (
+          <SecondaryButton
+            onClick={() => {
+              onPreview().catch((e) => {
+                alert(String((e as Error).message));
+              });
+            }}
+          >
+            <Download size={14} />
+            {locale === "es" ? "Vista previa" : "Preview"}
+          </SecondaryButton>
+        ) : null}
+        {signed ? (
+          <SecondaryButton
+            onClick={() => {
+              onDownload().catch((e) => {
+                alert(String((e as Error).message));
+              });
+            }}
+          >
+            <Download size={14} />
+            {locale === "es" ? "Descargar" : "Download"}
+          </SecondaryButton>
+        ) : (
+          <PrimaryButton disabled={!eligible && !isOwner} onClick={onSign}>
+            {locale === "es" ? "Firmar manual" : "Sign handbook"}
+            <ChevronRight size={14} />
+          </PrimaryButton>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Owner-only preview: fetches GET /api/lms/handbook/preview?locale=X
+// with the auth header, converts the PDF blob to an object URL, and
+// opens it in a new tab. Same pattern as downloadCertificatePdf and
+// downloadHandbookPdf so the auth-protected endpoint stays reachable.
+async function previewHandbookPdf(
+  token: string | null,
+  locale: Locale,
+): Promise<void> {
+  const url = `${API_BASE}/lms/handbook/preview?locale=${locale}`;
+  const res = await fetch(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`GET /lms/handbook/preview → ${res.status}: ${text}`);
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+function HandbookGateHint({
+  eligibility,
+  locale,
+}: {
+  eligibility: HandbookEligibility;
+  locale: Locale;
+}) {
+  const bits: string[] = [];
+  if (eligibility.missing_modules.length > 0) {
+    bits.push(
+      locale === "es"
+        ? `${eligibility.missing_modules.length} módulo(s) por aprobar`
+        : `${eligibility.missing_modules.length} module(s) to pass`,
+    );
+  }
+  if (eligibility.missing_signed_docs.length > 0) {
+    bits.push(
+      locale === "es"
+        ? `${eligibility.missing_signed_docs.length} reconocimiento(s) por firmar`
+        : `${eligibility.missing_signed_docs.length} acknowledgment(s) to sign`,
+    );
+  }
+  if (!eligibility.final_exam_passed) {
+    bits.push(
+      locale === "es"
+        ? "Examen final mixto pendiente"
+        : "Final mixed exam pending",
+    );
+  }
+  if (bits.length === 0) return null;
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        fontSize: 11.5,
+        color: INK_LIGHT,
+        lineHeight: 1.5,
+      }}
+    >
+      {bits.join(" · ")}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HandbookSignView — comprehensive handbook signing flow.
+//
+// Per legal requirement: the employee MUST scroll to the bottom of the
+// handbook content before the affirmation checkbox is enabled. This is
+// the click-to-sign equivalent of "read and understood" — they cannot
+// opt-in without having visibly traversed the content.
+//
+// On successful sign the server returns the new signed_document_id; we
+// fire-and-forget a fetch of the PDF so the browser caches it, then
+// return to home. The Download button on HandbookCard pulls it on demand.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HandbookSignView({
+  locale,
+  setLocale,
+  learner,
+  token,
+  eligibility,
+  onCancel,
+  onSigned,
+}: {
+  locale: Locale;
+  setLocale: (l: Locale) => void;
+  learner: Learner | null;
+  token: string | null;
+  eligibility: HandbookEligibility | null;
+  onCancel: () => void;
+  onSigned: () => Promise<void>;
+}) {
+  const [content, setContent] = useState<SignedDocumentContent | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const suggested = learner
+    ? `${learner.firstName} ${learner.lastName}`.trim()
+    : "";
+  const [name, setName] = useState(suggested);
+  const [affirmed, setAffirmed] = useState(false);
+  const [scrolledToEnd, setScrolledToEnd] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [method, setMethod] = useState<"typed" | "drawn">("typed");
+  const [drawnDataUrl, setDrawnDataUrl] = useState<string>("");
+  const [signedAt, setSignedAt] = useState<string | null>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset the scroll-to-end gate whenever locale (and thus content) changes.
+  useEffect(() => {
+    setScrolledToEnd(false);
+    setAffirmed(false);
+  }, [locale]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setContent(null);
+    setError(null);
+    (async () => {
+      try {
+        const data = await lmsApi.getSignedDocumentContent(
+          token,
+          "handbook",
+          locale,
+        );
+        if (!cancelled) setContent(data);
+      } catch (e) {
+        if (!cancelled) setError(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [locale, token]);
+
+  // If the content is shorter than the viewport, there is nothing to
+  // scroll — treat it as "read to end" on mount.
+  useEffect(() => {
+    if (!content) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight <= el.clientHeight + 2) {
+      setScrolledToEnd(true);
+    }
+  }, [content]);
+
+  const onScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (remaining < 8) {
+      setScrolledToEnd(true);
+    }
+  }, []);
+
+  const canAffirm = scrolledToEnd;
+  const signaturePayloadReady =
+    method === "typed"
+      ? name.trim().length >= 2
+      : drawnDataUrl.length > 0;
+  const canSubmit =
+    !busy &&
+    affirmed &&
+    canAffirm &&
+    name.trim().length >= 2 &&
+    signaturePayloadReady &&
+    content !== null &&
+    !!eligibility?.eligible;
+
+  // Post-sign confirmation screen. Renders for ~5 s with a Download
+  // button before refreshing into home; the learner can also tap
+  // "Return to training" to skip the auto-close.
+  if (signedAt) {
+    return (
+      <HandbookSignedConfirmation
+        locale={locale}
+        signedAt={signedAt}
+        signerName={name.trim()}
+        signatureMethod={method}
+        token={token}
+        onClose={async () => {
+          await onSigned();
+        }}
+      />
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 820, margin: "0 auto", padding: "20px 18px" }}>
+      <BackLink label={tr("back", locale)} onClick={onCancel} />
+      <div
+        style={{
+          marginTop: 14,
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderRadius: RADIUS,
+          padding: 24,
+        }}
+      >
+        {error ? (
+          <div style={{ color: DANGER, fontSize: 13 }}>{error}</div>
+        ) : !content ? (
+          <div style={{ padding: 40, textAlign: "center", color: INK_MUTE }}>
+            <Loader2 className="qleno-spin" size={20} />
+          </div>
+        ) : (
+          <>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 22, color: INK }}>
+                {content.title}
+              </div>
+              <LocaleToggle locale={locale} setLocale={setLocale} />
+            </div>
+
+            <div style={{ fontSize: 12.5, color: INK_MUTE, marginBottom: 14 }}>
+              {locale === "es"
+                ? "Desplácese hasta el final del manual para activar la firma. Su firma electrónica tiene el mismo efecto legal que una manuscrita (UETA / E-SIGN)."
+                : "Scroll to the bottom of the handbook to enable signing. Your electronic signature has the same legal effect as a handwritten one (UETA / E-SIGN)."}
+            </div>
+
+            {content.pendingTranslationReview ? (
+              <div
+                style={{
+                  background: "#FFFBEB",
+                  border: `1px solid #FDE68A`,
+                  borderLeft: `3px solid ${WARN}`,
+                  padding: 12,
+                  borderRadius: 6,
+                  marginBottom: 14,
+                  display: "flex",
+                  gap: 10,
+                }}
+              >
+                <AlertTriangle
+                  size={16}
+                  style={{ color: WARN, flexShrink: 0, marginTop: 2 }}
+                />
+                <div style={{ fontSize: 12.5, color: INK, lineHeight: 1.55 }}>
+                  {locale === "es"
+                    ? "Esta traducción al español está bajo revisión profesional. La versión en inglés es vinculante hasta que la traducción final sea aprobada."
+                    : "This Spanish translation is under professional review. The English version is binding until the final translation is approved."}
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              ref={scrollRef}
+              onScroll={onScroll}
+              style={{
+                background: PAGE_BG,
+                border: `1px solid ${LINE_SOFT}`,
+                borderRadius: 8,
+                padding: "18px 20px",
+                height: 420,
+                overflowY: "auto",
+                fontSize: 13.5,
+                color: INK,
+                lineHeight: 1.65,
+                whiteSpace: "pre-wrap",
+                fontFamily: FONT,
+              }}
+            >
+              {content.contentHtml}
+            </div>
+
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: scrolledToEnd ? SUCCESS : INK_LIGHT,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {scrolledToEnd ? (
+                <>
+                  <CircleCheck size={14} />
+                  {locale === "es"
+                    ? "Manual leído completo"
+                    : "Handbook read in full"}
+                </>
+              ) : (
+                <>
+                  {locale === "es"
+                    ? "Desplácese hasta el final para continuar"
+                    : "Scroll to the bottom to continue"}
+                </>
+              )}
+            </div>
+
+            <label
+              style={{
+                display: "flex",
+                gap: 10,
+                alignItems: "flex-start",
+                marginTop: 18,
+                fontSize: 13,
+                color: canAffirm ? INK : INK_LIGHT,
+                lineHeight: 1.55,
+                cursor: canAffirm ? "pointer" : "not-allowed",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={affirmed}
+                disabled={!canAffirm}
+                onChange={(e) => setAffirmed(e.target.checked)}
+                style={{ marginTop: 4, flexShrink: 0 }}
+              />
+              <span>
+                {locale === "es"
+                  ? `He leído y comprendido el ${content.title} en su totalidad. Acepto sus términos y entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita (UETA / E-SIGN).`
+                  : `I have read and understand the ${content.title} in its entirety. I accept its terms and understand that my electronic signature has the same legal effect as a handwritten signature (UETA / E-SIGN).`}
+              </span>
+            </label>
+
+            <div
+              style={{
+                marginTop: 14,
+                fontSize: 12,
+                fontWeight: 700,
+                color: INK_MUTE,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {locale === "es" ? "Método de firma" : "Signature method"}
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              <MethodToggleButton
+                active={method === "typed"}
+                onClick={() => setMethod("typed")}
+                label={locale === "es" ? "Escrita" : "Typed"}
+              />
+              <MethodToggleButton
+                active={method === "drawn"}
+                onClick={() => setMethod("drawn")}
+                label={locale === "es" ? "Dibujada" : "Drawn"}
+              />
+            </div>
+
+            <div
+              style={{
+                marginTop: 14,
+                fontSize: 12,
+                fontWeight: 700,
+                color: INK_MUTE,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}
+            >
+              {locale === "es"
+                ? "Escriba su nombre legal completo"
+                : "Type your full legal name"}
+            </div>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={
+                locale === "es" ? "Su nombre completo" : "Your full name"
+              }
+              style={{
+                width: "100%",
+                marginTop: 6,
+                padding: "10px 12px",
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+                fontSize: 16,
+                fontFamily: FONT,
+                color: INK,
+                fontStyle: "italic",
+              }}
+            />
+
+            {method === "drawn" ? (
+              <div style={{ marginTop: 12 }}>
+                <div
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: INK_MUTE,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    marginBottom: 6,
+                  }}
+                >
+                  {locale === "es"
+                    ? "Dibuje su firma debajo"
+                    : "Draw your signature below"}
+                </div>
+                <SignaturePad
+                  value={drawnDataUrl}
+                  onChange={setDrawnDataUrl}
+                  locale={locale}
+                />
+              </div>
+            ) : null}
+
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 11,
+                color: INK_LIGHT,
+                lineHeight: 1.45,
+              }}
+            >
+              {locale === "es"
+                ? "La fecha, la hora, la dirección IP y el dispositivo se registran automáticamente al firmar (registro de auditoría UETA)."
+                : "Date, time, IP address, and device are recorded automatically at signing (UETA audit log)."}
+            </div>
+
+            <div
+              style={{
+                marginTop: 16,
+                display: "flex",
+                gap: 10,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              <SecondaryButton onClick={onCancel}>
+                {tr("back", locale)}
+              </SecondaryButton>
+              <PrimaryButton
+                disabled={!canSubmit}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  try {
+                    const payload =
+                      method === "drawn" ? drawnDataUrl : name.trim();
+                    const result = await lmsApi.signHandbook(token, {
+                      locale,
+                      signatureMethod: method,
+                      signature: payload,
+                    });
+                    setSignedAt(result.signed_at);
+                  } catch (e) {
+                    setError(String((e as Error).message));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? (
+                  <Loader2 size={14} className="qleno-spin" />
+                ) : locale === "es" ? (
+                  "Firmar manual"
+                ) : (
+                  "Sign handbook"
+                )}
+              </PrimaryButton>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MethodToggleButton — pill-style segmented toggle for signature method.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function MethodToggleButton({
+  active,
+  onClick,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: "8px 14px",
+        borderRadius: 999,
+        fontSize: 13,
+        fontFamily: FONT,
+        fontWeight: 700,
+        cursor: "pointer",
+        background: active ? NAVY : SURFACE,
+        color: active ? "#fff" : INK,
+        border: `1px solid ${active ? NAVY : LINE}`,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SignaturePad — minimal HTML canvas signature capture. Exports a PNG
+// data URL via toDataURL() on every stroke end. Touch + mouse supported.
+// The "drawn signature on file" placeholder in the PDF renderer is the
+// v1 fallback; the raw data URL is still stored on the signed_document
+// row so the audit chain has the bytes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SignaturePad({
+  value,
+  onChange,
+  locale,
+}: {
+  value: string;
+  onChange: (dataUrl: string) => void;
+  locale: Locale;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
+
+  const getCtx = useCallback(() => {
+    const c = canvasRef.current;
+    if (!c) return null;
+    return c.getContext("2d");
+  }, []);
+
+  // Set up canvas DPI on mount.
+  useEffect(() => {
+    const c = canvasRef.current;
+    if (!c) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = c.getBoundingClientRect();
+    c.width = rect.width * dpr;
+    c.height = rect.height * dpr;
+    const ctx = c.getContext("2d");
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+      ctx.lineWidth = 2.2;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = INK;
+    }
+  }, []);
+
+  const pointFromEvent = (
+    e: React.MouseEvent | React.TouchEvent,
+  ): { x: number; y: number } | null => {
+    const c = canvasRef.current;
+    if (!c) return null;
+    const rect = c.getBoundingClientRect();
+    if ("touches" in e) {
+      const t = e.touches[0] ?? e.changedTouches[0];
+      if (!t) return null;
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top };
+    }
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const start = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    drawing.current = true;
+    lastPoint.current = pointFromEvent(e);
+  };
+  const move = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!drawing.current) return;
+    e.preventDefault();
+    const ctx = getCtx();
+    const p = pointFromEvent(e);
+    if (!ctx || !p || !lastPoint.current) return;
+    ctx.beginPath();
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.stroke();
+    lastPoint.current = p;
+  };
+  const end = () => {
+    if (!drawing.current) return;
+    drawing.current = false;
+    lastPoint.current = null;
+    const c = canvasRef.current;
+    if (c) onChange(c.toDataURL("image/png"));
+  };
+  const clear = () => {
+    const c = canvasRef.current;
+    const ctx = getCtx();
+    if (!c || !ctx) return;
+    ctx.clearRect(0, 0, c.width, c.height);
+    onChange("");
+  };
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        onMouseDown={start}
+        onMouseMove={move}
+        onMouseUp={end}
+        onMouseLeave={end}
+        onTouchStart={start}
+        onTouchMove={move}
+        onTouchEnd={end}
+        style={{
+          width: "100%",
+          height: 140,
+          background: PAGE_BG,
+          border: `1px dashed ${LINE}`,
+          borderRadius: 8,
+          touchAction: "none",
+          cursor: "crosshair",
+          display: "block",
+        }}
+      />
+      <div
+        style={{
+          marginTop: 6,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          fontSize: 11.5,
+          color: INK_LIGHT,
+        }}
+      >
+        <span>
+          {value
+            ? locale === "es"
+              ? "Firma capturada"
+              : "Signature captured"
+            : locale === "es"
+            ? "Use el dedo o el ratón para firmar"
+            : "Use your finger or mouse to sign"}
+        </span>
+        <button
+          type="button"
+          onClick={clear}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: INK_MUTE,
+            cursor: "pointer",
+            fontFamily: FONT,
+            fontSize: 12,
+            textDecoration: "underline",
+          }}
+        >
+          {locale === "es" ? "Borrar" : "Clear"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HandbookSignedConfirmation — post-sign success screen with auto-close.
+// Surfaces signed-at timestamp + signer name + method + Download button.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function HandbookSignedConfirmation({
+  locale,
+  signedAt,
+  signerName,
+  signatureMethod,
+  token,
+  onClose,
+}: {
+  locale: Locale;
+  signedAt: string;
+  signerName: string;
+  signatureMethod: "typed" | "drawn";
+  token: string | null;
+  onClose: () => Promise<void>;
+}) {
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void onClose();
+    }, 8000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  const dt = new Date(signedAt);
+  const formatted = `${dt.toLocaleDateString(
+    locale === "es" ? "es-MX" : "en-US",
+  )} ${dt.toLocaleTimeString(
+    locale === "es" ? "es-MX" : "en-US",
+    { hour: "2-digit", minute: "2-digit" },
+  )}`;
+
+  return (
+    <div
+      style={{
+        maxWidth: 520,
+        margin: "40px auto",
+        padding: "26px 24px",
+        background: SURFACE,
+        border: `1px solid ${LINE}`,
+        borderRadius: RADIUS,
+        textAlign: "center",
+        fontFamily: FONT,
+      }}
+    >
+      <CircleCheck
+        size={48}
+        style={{ color: SUCCESS, margin: "0 auto" }}
+      />
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 800,
+          color: INK,
+          marginTop: 12,
+        }}
+      >
+        {locale === "es" ? "Manual firmado" : "Handbook signed"}
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          color: INK_MUTE,
+          marginTop: 6,
+          lineHeight: 1.5,
+        }}
+      >
+        {locale === "es" ? "Firmado por" : "Signed by"}
+        <span style={{ fontWeight: 700, color: INK }}> {signerName}</span>
+        <br />
+        {formatted} ·{" "}
+        {signatureMethod === "drawn"
+          ? locale === "es"
+            ? "firma dibujada"
+            : "drawn signature"
+          : locale === "es"
+          ? "firma escrita"
+          : "typed signature"}
+      </div>
+      <div
+        style={{
+          marginTop: 20,
+          display: "flex",
+          gap: 10,
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <PrimaryButton
+          onClick={() => {
+            downloadHandbookPdf(token).catch((e) => {
+              alert(String((e as Error).message));
+            });
+          }}
+        >
+          <Download size={14} />
+          {locale === "es" ? "Descargar PDF" : "Download PDF"}
+        </PrimaryButton>
+        <SecondaryButton
+          onClick={() => {
+            void onClose();
+          }}
+        >
+          {locale === "es" ? "Volver al entrenamiento" : "Return to training"}
+        </SecondaryButton>
+      </div>
+      <div
+        style={{
+          marginTop: 16,
+          fontSize: 11,
+          color: INK_LIGHT,
+        }}
+      >
+        {locale === "es"
+          ? "Esta pantalla se cerrará automáticamente."
+          : "This screen will close automatically."}
       </div>
     </div>
   );
