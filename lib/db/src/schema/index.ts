@@ -94,3 +94,10 @@ export * from "./lms";
 // signed_documents, document_versions, signature_events,
 // completion_certificates, annual_ack_cycles, pending_re_ack.
 export * from "./lms-signatures";
+
+// [lms-onboarding-intake 2026-05-13] Operational onboarding intake form
+// captured on hire. Excludes SSN / W-4 / I-9 / direct deposit (those
+// live with ADP). Stores emergency contact, sizing, personal vehicle +
+// insurance for techs who drive, languages, preferred name + pronouns.
+// Multi-tenant via company_id; one row per (company_id, user_id).
+export * from "./lms-onboarding-intake";
