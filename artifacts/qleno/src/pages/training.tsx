@@ -321,6 +321,23 @@ const lmsApi = {
       ...args,
       affirmation: true,
     }),
+  getPendingReAcks: (token: string | null) =>
+    api<PendingReAckSummary>("GET", "/lms/annual-ack/me/pending", token),
+};
+
+type PendingReAckRow = {
+  id: number;
+  document_type: string;
+  new_version_hash: string;
+  trigger_reason: string;
+  triggered_at: string;
+  defer_until: string | null;
+};
+
+type PendingReAckSummary = {
+  active: PendingReAckRow[];
+  deferred: PendingReAckRow[];
+  total: number;
 };
 
 type HandbookEligibility = {
@@ -534,6 +551,8 @@ export default function TrainingPage() {
   const [signedDocs, setSignedDocs] = useState<SignedDocumentRow[]>([]);
   const [handbookEligibility, setHandbookEligibility] =
     useState<HandbookEligibility | null>(null);
+  const [pendingReAcks, setPendingReAcks] =
+    useState<PendingReAckSummary | null>(null);
 
   const curriculum = useMemo<Curriculum>(
     () => getCurriculum(learner?.companyId ?? null),
@@ -564,7 +583,7 @@ export default function TrainingPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [next, certs, docs, eligibility] = await Promise.all([
+      const [next, certs, docs, eligibility, pending] = await Promise.all([
         lmsApi.me(token),
         lmsApi.listMyCertificates(token).catch(() => [] as CertificateRow[]),
         lmsApi
@@ -573,11 +592,15 @@ export default function TrainingPage() {
         lmsApi
           .getHandbookEligibility(token)
           .catch(() => null as HandbookEligibility | null),
+        lmsApi
+          .getPendingReAcks(token)
+          .catch(() => null as PendingReAckSummary | null),
       ]);
       setState(next);
       setCertificates(certs);
       setSignedDocs(docs);
       setHandbookEligibility(eligibility);
+      setPendingReAcks(pending);
       // Sync locale from server if present
       if (next.enrollment.locale === "en" || next.enrollment.locale === "es") {
         setLocale(next.enrollment.locale);
@@ -717,6 +740,7 @@ export default function TrainingPage() {
           certByModule={certByModule}
           signedDocByType={signedDocByType}
           handbookEligibility={handbookEligibility}
+          pendingReAcks={pendingReAcks}
           token={token}
           onOpenModule={(moduleId) => setView({ kind: "module", moduleId })}
           onOpenFinal={() => setView({ kind: "final-intro" })}
@@ -1151,6 +1175,7 @@ function Home({
   certByModule,
   signedDocByType,
   handbookEligibility,
+  pendingReAcks,
   token,
   onOpenModule,
   onOpenFinal,
@@ -1169,6 +1194,7 @@ function Home({
   certByModule: Record<string, number>;
   signedDocByType: Record<string, number>;
   handbookEligibility: HandbookEligibility | null;
+  pendingReAcks: PendingReAckSummary | null;
   token: string | null;
   onOpenModule: (id: string) => void;
   onOpenFinal: () => void;
@@ -1188,6 +1214,8 @@ function Home({
   ).length;
   const pct = Math.round((passedCount / totalModules) * 100);
 
+  const activePendingCount = pendingReAcks?.active.length ?? 0;
+
   return (
     <div
       style={{
@@ -1196,6 +1224,14 @@ function Home({
         padding: "26px 18px",
       }}
     >
+      {activePendingCount > 0 ? (
+        <PendingReAckTile
+          locale={locale}
+          pending={pendingReAcks!}
+          onResign={onOpenSignHandbook}
+        />
+      ) : null}
+
       <div
         style={{
           marginBottom: 18,
@@ -3808,6 +3844,108 @@ function HandbookSignView({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PendingReAckTile — surfaces outstanding annual / force-resign re-acks.
+//
+// Shown at the top of the home view when GET /api/lms/annual-ack/me/pending
+// returns a non-empty `active` array. Currently the only annual document
+// is "handbook", so the CTA routes through the handbook signing flow. If
+// future documents are added to ANNUAL_DOCUMENT_TYPES, this tile gains a
+// per-document CTA — for now the single CTA is enough.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PendingReAckTile({
+  locale,
+  pending,
+  onResign,
+}: {
+  locale: Locale;
+  pending: PendingReAckSummary;
+  onResign: () => void;
+}) {
+  const count = pending.active.length;
+  const docTypes = Array.from(
+    new Set(pending.active.map((p) => p.document_type)),
+  );
+  const reasons = Array.from(
+    new Set(pending.active.map((p) => p.trigger_reason)),
+  );
+  const anyAnnual = reasons.includes("annual_cycle");
+  return (
+    <div
+      style={{
+        background: "#FFFBEB",
+        border: `1px solid #FDE68A`,
+        borderLeft: `4px solid ${WARN}`,
+        borderRadius: RADIUS,
+        padding: "14px 18px",
+        marginBottom: 18,
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "center",
+        gap: 14,
+        fontFamily: FONT,
+      }}
+    >
+      <AlertTriangle size={22} style={{ color: WARN }} />
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 14.5, color: INK }}>
+          {locale === "es"
+            ? count === 1
+              ? "Tiene un reconocimiento pendiente"
+              : `Tiene ${count} reconocimientos pendientes`
+            : count === 1
+            ? "You have a re-acknowledgment pending"
+            : `You have ${count} re-acknowledgments pending`}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 4,
+            lineHeight: 1.55,
+          }}
+        >
+          {anyAnnual
+            ? locale === "es"
+              ? "Política anual: vuelva a firmar para confirmar que comprende los términos actualizados."
+              : "Annual policy: re-sign to confirm you understand the current terms."
+            : locale === "es"
+            ? "Cambio de política: vuelva a firmar el documento actualizado para mantenerse en cumplimiento."
+            : "Policy update: re-sign the updated document to stay in compliance."}
+        </div>
+        <div
+          style={{
+            fontSize: 11,
+            color: INK_LIGHT,
+            marginTop: 4,
+          }}
+        >
+          {docTypes.map((t) => humanSignedDocType(t, locale)).join(" · ")}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onResign}
+        style={{
+          background: WARN,
+          color: "#fff",
+          border: 0,
+          padding: "8px 14px",
+          borderRadius: 8,
+          fontSize: 12.5,
+          fontWeight: 800,
+          fontFamily: FONT,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {locale === "es" ? "Volver a firmar →" : "Re-sign →"}
+      </button>
     </div>
   );
 }

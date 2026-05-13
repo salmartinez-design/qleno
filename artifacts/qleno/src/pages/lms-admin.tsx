@@ -145,6 +145,7 @@ export default function LmsAdminPage() {
   const [historyOpen, setHistoryOpen] = useState<RosterRow | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
+  const [cyclesOpen, setCyclesOpen] = useState(false);
 
   function toggleExpand(enrollmentId: number) {
     setExpanded((prev) => {
@@ -249,6 +250,23 @@ export default function LmsAdminPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setCyclesOpen(true)}
+              style={{
+                background: TEAL,
+                color: "#fff",
+                border: `1px solid ${TEAL}`,
+                padding: "8px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              Annual cycles
+            </button>
             <button
               type="button"
               onClick={() => setBulkPwOpen(true)}
@@ -389,6 +407,13 @@ export default function LmsAdminPage() {
           token={token}
           onClose={() => setBulkPwOpen(false)}
           onSaved={() => setBulkPwOpen(false)}
+        />
+      )}
+
+      {cyclesOpen && (
+        <AnnualCyclesDialog
+          token={token}
+          onClose={() => setCyclesOpen(false)}
         />
       )}
 
@@ -2324,6 +2349,443 @@ type CertificateRow = {
   revoked_at: string | null;
   revoked_reason: string | null;
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Annual cycles dialog (Phase 14 UI)
+//
+// Surfaces the existing /api/lms/annual-ack admin routes:
+//   - GET    /admin/cycles              list cycles for the tenant
+//   - POST   /admin/cycles              open a new cycle + sweep
+//   - PATCH  /admin/cycles/:id/close    close an open cycle
+//
+// Cycles default to the current calendar year + Dec 31 deadline (the
+// server computes both when omitted). The dialog deliberately doesn't
+// surface per-learner force-resign here — that's reachable via the
+// dedicated user row actions in a follow-up.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AnnualCycleRow = {
+  id: number;
+  cycle_year: number;
+  deadline_at: string;
+  required_documents: string[];
+  opened_at: string;
+  closed_at: string | null;
+  notes: string | null;
+};
+
+function AnnualCyclesDialog({
+  token,
+  onClose,
+}: {
+  token: string | null;
+  onClose: () => void;
+}) {
+  const [cycles, setCycles] = useState<AnnualCycleRow[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [openForm, setOpenForm] = useState<{ year: number; notes: string }>(
+    () => ({ year: new Date().getFullYear(), notes: "" }),
+  );
+
+  const refresh = async () => {
+    try {
+      const data = await api<AnnualCycleRow[]>(
+        "GET",
+        "/lms/annual-ack/admin/cycles",
+        token,
+      );
+      setCycles(data);
+      setErr(null);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const openCycle = async () => {
+    setBusy("open");
+    setErr(null);
+    try {
+      const body: Record<string, unknown> = { cycle_year: openForm.year };
+      if (openForm.notes.trim().length > 0) {
+        body.notes = openForm.notes.trim();
+      }
+      await api("POST", "/lms/annual-ack/admin/cycles", token, body);
+      await refresh();
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const closeCycle = async (cycleId: number) => {
+    if (!confirm("Close this cycle? Outstanding pending re-acks stay open until employees sign.")) return;
+    setBusy(`close-${cycleId}`);
+    setErr(null);
+    try {
+      await api(
+        "PATCH",
+        `/lms/annual-ack/admin/cycles/${cycleId}/close`,
+        token,
+      );
+      await refresh();
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Annual re-acknowledgment cycles"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 640,
+          width: "100%",
+          maxHeight: "92vh",
+          overflowY: "auto",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: INK }}>
+              Annual re-acknowledgment cycles
+            </div>
+            <div style={{ fontSize: 12.5, color: INK_MUTE, marginTop: 4 }}>
+              Open a cycle to push every active employee with an existing
+              handbook signature into a forced re-sign flow. They'll see a
+              tile on /training on their next login.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${LINE}`,
+              borderRadius: 8,
+              padding: "6px 8px",
+              cursor: "pointer",
+              color: INK_MUTE,
+              fontFamily: FONT,
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {err && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: `1px solid #FECACA`,
+              color: DANGER,
+              padding: 10,
+              borderRadius: 8,
+              fontSize: 12,
+              marginTop: 12,
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        {/* Open new cycle form */}
+        <div
+          style={{
+            marginTop: 18,
+            border: `1px solid ${LINE}`,
+            borderRadius: 8,
+            padding: 14,
+            background: LINE_SOFT,
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 800, color: INK }}>
+            Open a new cycle
+          </div>
+          <div style={{ fontSize: 12, color: INK_MUTE, marginTop: 4 }}>
+            Default deadline is Dec 31 of the cycle year. Documents default
+            to handbook only.
+          </div>
+          <div
+            style={{
+              marginTop: 10,
+              display: "flex",
+              gap: 10,
+              alignItems: "flex-end",
+              flexWrap: "wrap",
+            }}
+          >
+            <label style={{ fontSize: 12, fontWeight: 700, color: INK_MUTE }}>
+              Cycle year
+              <input
+                type="number"
+                min={2025}
+                max={2100}
+                value={openForm.year}
+                onChange={(e) =>
+                  setOpenForm((f) => ({ ...f, year: Number(e.target.value) }))
+                }
+                style={{
+                  display: "block",
+                  width: 110,
+                  marginTop: 4,
+                  padding: "8px 10px",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 8,
+                  fontFamily: FONT,
+                  fontSize: 14,
+                }}
+              />
+            </label>
+            <label
+              style={{
+                flex: 1,
+                minWidth: 180,
+                fontSize: 12,
+                fontWeight: 700,
+                color: INK_MUTE,
+              }}
+            >
+              Notes (optional)
+              <input
+                type="text"
+                value={openForm.notes}
+                onChange={(e) =>
+                  setOpenForm((f) => ({ ...f, notes: e.target.value }))
+                }
+                placeholder="e.g. Q4 2026 handbook refresh"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 4,
+                  padding: "8px 10px",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 8,
+                  fontFamily: FONT,
+                  fontSize: 14,
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={openCycle}
+              style={{
+                background: busy === "open" ? INK_LIGHT : TEAL,
+                color: "#fff",
+                border: 0,
+                padding: "8px 14px",
+                borderRadius: 8,
+                fontSize: 13,
+                fontWeight: 700,
+                fontFamily: FONT,
+                cursor: busy ? "default" : "pointer",
+              }}
+            >
+              {busy === "open" ? "Opening…" : "Open cycle"}
+            </button>
+          </div>
+        </div>
+
+        {/* Cycle list */}
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: INK }}>
+            Cycles
+          </div>
+          {cycles === null ? (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 18,
+                textAlign: "center",
+                color: INK_MUTE,
+              }}
+            >
+              <Loader2 size={16} className="qleno-admin-spin" />
+            </div>
+          ) : cycles.length === 0 ? (
+            <div
+              style={{
+                marginTop: 10,
+                padding: 14,
+                background: PAGE_BG,
+                border: `1px dashed ${LINE}`,
+                borderRadius: 8,
+                fontSize: 13,
+                color: INK_MUTE,
+              }}
+            >
+              No cycles yet. Open one above to fan out forced re-acknowledgments.
+            </div>
+          ) : (
+            <div
+              style={{
+                marginTop: 10,
+                display: "grid",
+                gap: 8,
+              }}
+            >
+              {cycles.map((c) => {
+                const closed = c.closed_at !== null;
+                const closeBusy = busy === `close-${c.id}`;
+                return (
+                  <div
+                    key={c.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr auto",
+                      alignItems: "center",
+                      gap: 12,
+                      padding: 12,
+                      border: `1px solid ${LINE}`,
+                      borderLeft: `4px solid ${closed ? INK_LIGHT : SUCCESS}`,
+                      borderRadius: 8,
+                      background: SURFACE,
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          fontWeight: 800,
+                          color: INK,
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        {c.cycle_year}
+                        <span
+                          style={{
+                            fontSize: 10.5,
+                            fontWeight: 800,
+                            color: closed ? INK_MUTE : SUCCESS,
+                            background: closed ? "#F1F5F9" : "#ECFDF5",
+                            padding: "2px 8px",
+                            borderRadius: 999,
+                            letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                          }}
+                        >
+                          {closed ? "Closed" : "Open"}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11.5,
+                          color: INK_MUTE,
+                          marginTop: 4,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        Deadline {humanDateTime(c.deadline_at)} · Opened{" "}
+                        {humanDateTime(c.opened_at)}
+                        {closed ? (
+                          <> · Closed {humanDateTime(c.closed_at!)}</>
+                        ) : null}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: INK_LIGHT,
+                          marginTop: 2,
+                        }}
+                      >
+                        Documents:{" "}
+                        {(c.required_documents ?? []).join(", ") || "—"}
+                      </div>
+                      {c.notes ? (
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: INK_MUTE,
+                            marginTop: 4,
+                            fontStyle: "italic",
+                          }}
+                        >
+                          {c.notes}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div>
+                      {!closed ? (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => closeCycle(c.id)}
+                          style={{
+                            background:
+                              closeBusy || busy !== null
+                                ? INK_LIGHT
+                                : "transparent",
+                            color:
+                              closeBusy || busy !== null ? "#fff" : DANGER,
+                            border: `1px solid ${
+                              closeBusy || busy !== null ? INK_LIGHT : DANGER
+                            }`,
+                            padding: "6px 12px",
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            fontFamily: FONT,
+                            cursor: busy ? "default" : "pointer",
+                          }}
+                        >
+                          {closeBusy ? "Closing…" : "Close cycle"}
+                        </button>
+                      ) : (
+                        <span style={{ fontSize: 11, color: INK_LIGHT }}>
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function LearnerCertificatesPanel({ row }: { row: RosterRow }) {
   const token = useAuthStore((s) => s.token);
