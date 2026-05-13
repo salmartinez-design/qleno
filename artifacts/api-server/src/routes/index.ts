@@ -76,6 +76,7 @@ import configRouter from "./config.js";
 import lmsRouter from "./lms.js";
 import lmsCertificatesRouter from "./lms-certificates.js";
 import lmsSignaturesRouter from "./lms-signatures.js";
+import lmsHandbookRouter from "./lms-handbook.js";
 
 const router: IRouter = Router();
 
@@ -156,5 +157,6 @@ router.use("/config", configRouter);
 router.use("/lms", lmsRouter);
 router.use("/lms/certificates", lmsCertificatesRouter);
 router.use("/lms/signatures", lmsSignaturesRouter);
+router.use("/lms/handbook", lmsHandbookRouter);
 
 export default router;
