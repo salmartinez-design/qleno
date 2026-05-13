@@ -536,6 +536,109 @@ const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// social_media (Phase 7, PR #8)
+//
+// One-sided employee acknowledgment (NOT co-signed). Designed to be
+// enforceable under federal labor law: NLRA Section 7 (29 U.S.C. 157)
+// protects the right of employees to discuss wages, working conditions,
+// and organizing concerns with coworkers and in public. The Phes policy
+// carves Section 7 activity OUT explicitly so the rest of the policy
+// stays enforceable. Also preserves the IL Right to Privacy in the
+// Workplace Act (820 ILCS 55) protection for off-duty private social
+// media activity.
+//
+// NOT in the four flagged docs for human translator review.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SOCIAL_MEDIA_EN: SignedDocumentLocaleContent = {
+  title: "Social Media Policy Acknowledgment",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "SOCIAL MEDIA POLICY ACKNOWLEDGMENT",
+    "Effective Date: January 1, 2026",
+    "",
+    "By signing this acknowledgment, I confirm that I have read and understand the Phes Social Media Policy contained in the 2026 Phes Employee Handbook and the Social Media training module. I commit to the following terms as a condition of my employment with Phes Cleaning Services:",
+    "",
+    "1. CLIENT CONFIDENTIALITY.",
+    "I will not post photographs or video of any Phes client home, taken during or based on a Phes shift, on any social-media platform, regardless of whether the client is in the image or whether the location appears identifiable. I will not post client names, addresses, neighborhoods, gate codes, alarm codes, or any other identifying detail. I will not post transcripts or paraphrased versions of conversations I overheard inside a client home. I will not post disparaging comments about a specific client where the client could reasonably figure out I meant them.",
+    "",
+    "2. PHES UNIFORM RESTRICTIONS.",
+    "When I appear in a Phes uniform (shirt, branded apron, or other Phes-branded item) in a public-facing photo or video, I am visibly representing Phes. I will not post such content showing me posing with alcohol, cannabis, or illegal drugs; posing with firearms or other weapons; posing while observably impaired; endorsing a product, service, candidate, or organization in a way that implies Phes is endorsing it; or disparaging Phes coworkers, supervisors, or clients. Out of uniform on my own time, this restriction does not apply.",
+    "",
+    "3. CLIENT SOLICITATION VIA SOCIAL MEDIA.",
+    "I will not use social media to solicit Phes clients for cleaning services. The same carve-outs as the Non-Solicitation Agreement apply: general advertising to the public at large is permitted, even if a Phes client happens to see it; inbound contact from a Phes client who finds me without me having approached them is permitted; direct messages or targeted comments to a specific Phes client are not permitted.",
+    "",
+    "4. NLRA SECTION 7 PROTECTION (CRITICAL CARVE-OUT).",
+    "Nothing in this policy restricts my federally protected right under Section 7 of the National Labor Relations Act (29 U.S.C. 157) to discuss my pay, hours, schedule, working conditions, safety concerns, or organizing activity with coworkers or in public. I understand that Phes will not discipline an employee for protected concerted activity. The restrictions in sections 1 through 3 above do NOT apply to Section 7 activity.",
+    "",
+    "5. ILLINOIS OFF-DUTY PRIVACY (820 ILCS 55).",
+    "I understand that under the Illinois Right to Privacy in the Workplace Act (820 ILCS 55), Phes will not demand access to my personal social-media accounts, will not require me to friend the office, and will not monitor my personal accounts. Phes will only act on social-media content that has been brought to its attention by another person.",
+    "",
+    "6. IMPERSONATION OF PHES.",
+    "I will not create a social-media account that appears to speak for Phes, use Phes branding without authorization, or pretend to be an official Phes representative online. A tasteful mention that I work at Phes on my personal account is fine.",
+    "",
+    "7. REPORTING HARASSMENT SEEN ONLINE.",
+    "If I see harassment or threats from a coworker on a public-facing social-media post, I may report it through the Code of Conduct reporting channels (office team, owner, Illinois Department of Human Rights, or EEOC). Good-faith reporting about online harassment is protected by the same anti-retaliation rules as in-person reporting.",
+    "",
+    "8. WHEN IN DOUBT, ASK FIRST.",
+    "If I am unsure whether a specific post would violate this policy, I will ask the office BEFORE posting, not after.",
+    "",
+    "9. AT-WILL EMPLOYMENT.",
+    "Nothing in this acknowledgment alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason.",
+    "",
+    "10. ELECTRONIC SIGNATURE CONSENT.",
+    "I consent to sign this acknowledgment electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Social Media Policy Acknowledgment.",
+  ].join("\n"),
+  notes: "Phase 7 PR #8 — Phes social media policy with NLRA Section 7 + IL 820 ILCS 55 carve-outs.",
+};
+
+const SOCIAL_MEDIA_ES: SignedDocumentLocaleContent = {
+  title: "Reconocimiento de la Política de Redes Sociales",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "RECONOCIMIENTO DE LA POLÍTICA DE REDES SOCIALES",
+    "Fecha Efectiva: 1 de enero de 2026",
+    "",
+    "Al firmar este reconocimiento, confirmo que he leído y entiendo la Política de Redes Sociales de Phes contenida en el Manual del Empleado de Phes 2026 y en el módulo de capacitación de Redes Sociales. Me comprometo a los siguientes términos como condición de mi empleo con Phes Cleaning Services:",
+    "",
+    "1. CONFIDENCIALIDAD DEL CLIENTE.",
+    "No publicaré fotografías ni videos de ningún hogar de cliente de Phes, tomados durante o basados en un turno de Phes, en ninguna plataforma de redes sociales, sin importar si el cliente está en la imagen o si la ubicación parece identificable. No publicaré nombres, direcciones, vecindarios, códigos de portón, códigos de alarma ni cualquier otro detalle identificador del cliente. No publicaré transcripciones ni versiones parafraseadas de conversaciones que escuché dentro del hogar de un cliente. No publicaré comentarios despectivos sobre un cliente específico donde el cliente razonablemente pudiera darse cuenta de que me refería a él.",
+    "",
+    "2. RESTRICCIONES DEL UNIFORME DE PHES.",
+    "Cuando aparezca en uniforme de Phes (camisa, delantal con marca u otro artículo con marca de Phes) en una foto o video público, estoy representando visiblemente a Phes. No publicaré contenido así mostrándome posando con alcohol, cannabis o drogas ilegales; posando con armas de fuego u otras armas; posando mientras estoy observablemente intoxicado; apoyando un producto, servicio, candidato u organización de manera que implique que Phes lo apoya; o desprestigiando a compañeros de Phes, supervisores o clientes. Fuera de uniforme en mi propio tiempo, esta restricción no aplica.",
+    "",
+    "3. SOLICITACIÓN DE CLIENTES A TRAVÉS DE REDES SOCIALES.",
+    "No usaré redes sociales para solicitar a clientes de Phes para servicios de limpieza. Aplican las mismas exclusiones que el Acuerdo de No Solicitación: la publicidad general al público en general está permitida, aunque un cliente de Phes la vea por casualidad; el contacto iniciado por un cliente de Phes que me encuentre sin que yo lo haya buscado está permitido; los mensajes directos o comentarios dirigidos a un cliente específico de Phes no están permitidos.",
+    "",
+    "4. PROTECCIÓN DE LA SECCIÓN 7 DE LA NLRA (EXCLUSIÓN CRÍTICA).",
+    "Nada en esta política restringe mi derecho federalmente protegido bajo la Sección 7 de la Ley Nacional de Relaciones Laborales (29 U.S.C. 157) para discutir mi pago, horas, horario, condiciones laborales, preocupaciones de seguridad o actividad de organización con compañeros o en público. Entiendo que Phes no disciplinará a un empleado por actividad concertada protegida. Las restricciones en las secciones 1 a 3 anteriores NO aplican a la actividad de la Sección 7.",
+    "",
+    "5. PRIVACIDAD FUERA DE SERVICIO EN ILLINOIS (820 ILCS 55).",
+    "Entiendo que bajo la Ley del Derecho a la Privacidad en el Lugar de Trabajo de Illinois (820 ILCS 55), Phes no exigirá acceso a mis cuentas personales de redes sociales, no me exigirá agregar a la oficina como amigo y no monitoreará mis cuentas personales. Phes solo actuará sobre contenido de redes sociales que haya sido llevado a su atención por otra persona.",
+    "",
+    "6. SUPLANTACIÓN DE PHES.",
+    "No crearé una cuenta de redes sociales que parezca hablar en nombre de Phes, usar la marca de Phes sin autorización ni hacerme pasar por un representante oficial de Phes en línea. Una mención discreta de que trabajo en Phes en mi cuenta personal está bien.",
+    "",
+    "7. REPORTAR ACOSO VISTO EN LÍNEA.",
+    "Si veo acoso o amenazas de un compañero en una publicación pública de redes sociales, puedo reportarlo a través de las vías de reporte del Código de Conducta (equipo de la oficina, dueño, Departamento de Derechos Humanos de Illinois o EEOC). El reporte de buena fe sobre acoso en línea está protegido por las mismas reglas de anti-represalias que el reporte presencial.",
+    "",
+    "8. EN CASO DE DUDA, PREGUNTE PRIMERO.",
+    "Si no estoy seguro de si una publicación específica violaría esta política, preguntaré a la oficina ANTES de publicar, no después.",
+    "",
+    "9. EMPLEO A VOLUNTAD.",
+    "Nada en este reconocimiento altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal.",
+    "",
+    "10. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "Doy mi consentimiento para firmar este reconocimiento electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Reconocimiento de la Política de Redes Sociales.",
+  ].join("\n"),
+  notes: "Phase 7 PR #8 — Phes social media policy, Spanish version. Not in the four flagged docs.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -556,7 +659,11 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
     en: NON_SOLICITATION_EN,
     es: NON_SOLICITATION_ES,
   },
-  // PR #8+ will add: supply_kit, social_media. Same shape, same conventions.
+  social_media: {
+    en: SOCIAL_MEDIA_EN,
+    es: SOCIAL_MEDIA_ES,
+  },
+  // PR #10 will add: supply_kit. Same shape, same conventions.
 };
 
 /**

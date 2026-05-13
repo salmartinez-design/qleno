@@ -51,6 +51,7 @@ export type ModuleId =
   | "code-of-conduct"
   | "video-photo-release"
   | "non-solicitation"
+  | "social-media"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -80,6 +81,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "code-of-conduct",
   "video-photo-release",
   "non-solicitation",
+  "social-media",
   "acknowledgment",
 ] as const;
 
@@ -122,6 +124,18 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * review (pendingTranslationReview: true). 12-month post-separation
  * limit on soliciting Phes clients; coworkers explicitly carved out
  * of the agreement; general advertising not deemed solicitation.
+ *
+ * social-media (Phase 7, PR #8) is a one-sided employee
+ * acknowledgment (not co-signed). 10-question comprehension quiz +
+ * separate signed acknowledgment at document_type 'social_media'.
+ * Critical NLRA Section 7 carve-out preserving the right of
+ * employees to discuss wages, working conditions, and concerted
+ * activity with coworkers and in public. Also preserves the
+ * Illinois Right to Privacy in the Workplace Act (820 ILCS 55)
+ * protection for off-duty private social-media activity.
+ * Restrictions target client confidentiality, in-uniform
+ * misrepresentation, and Phes-client solicitation (cross-refs the
+ * Non-Solicitation Agreement).
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -134,6 +148,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "code-of-conduct",
   "video-photo-release",
   "non-solicitation",
+  "social-media",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -408,6 +423,25 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-ns-08-remedy-injunctive": 1,
   "q-ns-09-co-signature": 1,
   "q-ns-10-inbound-clients-exception": 1,
+
+  // ── Module 11: social-media (10, Phase 7 PR #8) ─────────────────────────
+  // Phes Social Media Policy. NOT co-signed. Critical NLRA Section 7
+  // carve-out preserving employee rights to discuss wages, working
+  // conditions, and concerted activity. Also preserves the IL Right to
+  // Privacy in the Workplace Act (820 ILCS 55) protection for off-duty
+  // private social media. Restrictions target client confidentiality,
+  // in-uniform misrepresentation, and client solicitation (cross-refs
+  // the Non-Solicitation Agreement).
+  "q-sm-01-client-confidentiality": 1,
+  "q-sm-02-nlra-section-7": 1,
+  "q-sm-03-off-duty-private": 1,
+  "q-sm-04-uniform-misuse": 1,
+  "q-sm-05-client-solicitation": 1,
+  "q-sm-06-disparagement": 1,
+  "q-sm-07-impersonation": 1,
+  "q-sm-08-protected-concerted": 1,
+  "q-sm-09-harassment-reporting": 1,
+  "q-sm-10-client-photos": 1,
 });
 
 /**
@@ -499,6 +533,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-ns-05-il-freedom-to-work", "q-ns-06-during-employment-too",
       "q-ns-07-consideration", "q-ns-08-remedy-injunctive",
       "q-ns-09-co-signature", "q-ns-10-inbound-clients-exception",
+    ],
+    "social-media": [
+      "q-sm-01-client-confidentiality", "q-sm-02-nlra-section-7",
+      "q-sm-03-off-duty-private", "q-sm-04-uniform-misuse",
+      "q-sm-05-client-solicitation", "q-sm-06-disparagement",
+      "q-sm-07-impersonation", "q-sm-08-protected-concerted",
+      "q-sm-09-harassment-reporting", "q-sm-10-client-photos",
     ],
   });
 

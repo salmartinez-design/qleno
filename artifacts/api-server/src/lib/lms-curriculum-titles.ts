@@ -64,6 +64,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Non-Solicitation Agreement",
     es: "Acuerdo de No Solicitación",
   },
+  "social-media": {
+    en: "Social Media Policy",
+    es: "Política de Redes Sociales",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",

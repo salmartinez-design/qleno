@@ -2368,6 +2368,156 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 11. SOCIAL MEDIA POLICY (Phase 7, PR #8)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // One-sided employee acknowledgment (NOT co-signed). Designed to be
+  // enforceable under federal labor law: NLRA Section 7 (29 U.S.C. 157)
+  // protects the right of employees to discuss wages, working conditions,
+  // and organizing concerns with coworkers and in public. A social-media
+  // policy that chills protected concerted activity is unlawful even at a
+  // non-union shop. The Phes policy carves Section 7 activity OUT
+  // explicitly so the rest of the policy stays enforceable.
+  //
+  // Also preserves the IL Right to Privacy in the Workplace Act
+  // (820 ILCS 55) protection for off-duty private social media.
+  //
+  // Restrictions target three things:
+  //   1. Client confidentiality (no client home photos, no identifying
+  //      details, no overheard conversation transcripts).
+  //   2. In-uniform misrepresentation (no posting in Phes uniform doing
+  //      illegal / impaired / inappropriate things that imply Phes
+  //      endorsement).
+  //   3. Phes-client solicitation via social media (cross-refs the
+  //      Non-Solicitation Agreement; same scope, same carve-outs).
+  {
+    id: "social-media",
+    number: 11,
+    iconKind: "shield",
+    title: {
+      en: "Social Media Policy",
+      es: "Política de Redes Sociales",
+    },
+    subtitle: {
+      en: "What you can and cannot post about Phes, our clients, and yourself in Phes uniform. Your right to discuss pay and working conditions is fully preserved.",
+      es: "Lo que puede y no puede publicar sobre Phes, nuestros clientes y usted mismo en uniforme de Phes. Su derecho a discutir el pago y las condiciones laborales se preserva por completo.",
+    },
+    estimatedMinutes: 10,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Social media is part of how every Phes employee lives now. The policy is intentionally narrow. It does NOT police your personal accounts and does NOT restrict your right to talk about pay, working conditions, or organizing concerns. It DOES restrict three things: (1) sharing client information that you got because of your Phes job, (2) representing yourself in Phes uniform doing something illegal or impaired, and (3) using social media to solicit Phes clients (which is also covered by the Non-Solicitation Agreement). Read the carve-outs carefully so you know what is protected.",
+          es: "Por qué importa este módulo. Las redes sociales son parte de cómo vive todo empleado de Phes hoy. La política es intencionalmente estrecha. NO vigila sus cuentas personales y NO restringe su derecho a hablar sobre el pago, las condiciones laborales o las preocupaciones de organización. SÍ restringe tres cosas: (1) compartir información del cliente que obtuvo por su trabajo en Phes, (2) presentarse en uniforme de Phes haciendo algo ilegal o intoxicado, y (3) usar redes sociales para solicitar a clientes de Phes (lo que también está cubierto por el Acuerdo de No Solicitación). Lea las exclusiones con cuidado para que sepa lo que está protegido.",
+        },
+      },
+
+      { type: "h", text: { en: "What You May NOT Post About Clients", es: "Lo Que NO Puede Publicar Sobre Clientes" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Photos or video of any client home, taken during a Phes shift or based on what you saw on a Phes shift. This applies even if the client is not in the photo and even if you think the location cannot be identified.", es: "Fotos o video del hogar de cualquier cliente, tomados durante un turno de Phes o basados en lo que vio en un turno de Phes. Aplica aunque el cliente no esté en la foto y aunque crea que la ubicación no se puede identificar." },
+          { en: "Client names, addresses, neighborhoods, building names, gate codes, alarm codes, or any other identifying detail.", es: "Nombres, direcciones, vecindarios, nombres de edificios, códigos de portón, códigos de alarma o cualquier otro detalle identificador del cliente." },
+          { en: "Transcripts or paraphrased versions of conversations you overheard inside a client home.", es: "Transcripciones o versiones parafraseadas de conversaciones que escuchó dentro del hogar de un cliente." },
+          { en: "Photos of medical equipment, prescription bottles, custody documents, or anything visibly private that you saw on the job.", es: "Fotos de equipo médico, frascos de medicamentos recetados, documentos de custodia o cualquier cosa visiblemente privada que vio en el trabajo." },
+          { en: "Disparaging comments about a specific client, even with the name removed, where the client could reasonably figure out you meant them.", es: "Comentarios despectivos sobre un cliente específico, incluso con el nombre removido, donde el cliente razonablemente pudiera darse cuenta de que se refería a él." },
+        ],
+      },
+
+      { type: "h", text: { en: "What You May NOT Do in Phes Uniform", es: "Lo Que NO Puede Hacer en Uniforme de Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "When you appear in a Phes uniform (shirt, branded apron, etc.) in a public-facing photo or video, you are visibly representing Phes. The policy restricts what you do in that visible representation:",
+          es: "Cuando aparece en uniforme de Phes (camisa, delantal con marca, etc.) en una foto o video público, está representando visiblemente a Phes. La política restringe lo que hace en esa representación visible:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Posing with alcohol, cannabis, or illegal drugs while in Phes uniform.", es: "Posar con alcohol, cannabis o drogas ilegales mientras está en uniforme de Phes." },
+          { en: "Posing with firearms or other weapons while in Phes uniform.", es: "Posar con armas de fuego u otras armas mientras está en uniforme de Phes." },
+          { en: "Posing while impaired (the photo shows observable signs of impairment) while in Phes uniform.", es: "Posar mientras está intoxicado (la foto muestra signos observables de intoxicación) mientras está en uniforme de Phes." },
+          { en: "Endorsing a product, service, candidate, or organization in a way that implies Phes is endorsing it.", es: "Apoyar un producto, servicio, candidato u organización de manera que implique que Phes lo está apoyando." },
+          { en: "Posting content that disparages Phes coworkers, supervisors, or clients while in Phes uniform.", es: "Publicar contenido que desprestigie a compañeros de Phes, supervisores o clientes mientras está en uniforme de Phes." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Out of uniform on your own time, what you do is your business. The restriction is about the visible association with Phes, not about your private life.",
+          es: "Fuera del uniforme en su propio tiempo, lo que hace es asunto suyo. La restricción es sobre la asociación visible con Phes, no sobre su vida privada.",
+        },
+      },
+
+      { type: "h", text: { en: "Client Solicitation Through Social Media", es: "Solicitación de Clientes a Través de Redes Sociales" } },
+      {
+        type: "p",
+        text: {
+          en: "Using social media to solicit Phes clients for cleaning services is restricted by the Non-Solicitation Agreement (separate module) and is therefore also restricted by this policy. The same carve-outs apply:",
+          es: "Usar redes sociales para solicitar a clientes de Phes para servicios de limpieza está restringido por el Acuerdo de No Solicitación (módulo separado) y por lo tanto también está restringido por esta política. Aplican las mismas exclusiones:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "General advertising to the public at large is OK, even if a Phes client happens to see it.", es: "La publicidad general al público en general está bien, aunque un cliente de Phes la vea por casualidad." },
+          { en: "Inbound contact from a Phes client who found you on their own is OK to engage with.", es: "El contacto iniciado por el cliente de un cliente de Phes que lo encontró por su cuenta está bien para interactuar." },
+          { en: "DMing or commenting on a specific Phes client's account to offer cleaning is NOT OK.", es: "Enviar un DM o comentar en la cuenta de un cliente específico de Phes para ofrecer limpieza NO está bien." },
+        ],
+      },
+
+      { type: "h", text: { en: "Federal NLRA Section 7 Protection (Critical)", es: "Protección Federal de la Sección 7 de la NLRA (Crítico)" } },
+      {
+        type: "callout",
+        tone: "success",
+        text: {
+          en: "Nothing in this policy restricts your federally protected right under Section 7 of the National Labor Relations Act (29 U.S.C. 157) to discuss your pay, hours, schedule, working conditions, safety concerns, or organizing activity with coworkers or in public. You may post about how much Phes pays you. You may post about a workplace concern. You may engage in concerted activity with coworkers about terms and conditions of employment. The policy ABOVE does not apply to any of this and Phes will not discipline an employee for protected concerted activity.",
+          es: "Nada en esta política restringe su derecho federalmente protegido bajo la Sección 7 de la Ley Nacional de Relaciones Laborales (29 U.S.C. 157) para discutir su pago, horas, horario, condiciones laborales, preocupaciones de seguridad o actividad de organización con compañeros o en público. Puede publicar sobre cuánto le paga Phes. Puede publicar sobre una preocupación laboral. Puede participar en actividad concertada con compañeros sobre términos y condiciones de empleo. La política ANTERIOR no aplica a nada de esto y Phes no disciplinará a un empleado por actividad concertada protegida.",
+        },
+      },
+
+      { type: "h", text: { en: "Illinois Off-Duty Privacy (820 ILCS 55)", es: "Privacidad Fuera de Servicio en Illinois (820 ILCS 55)" } },
+      {
+        type: "p",
+        text: {
+          en: "The Illinois Right to Privacy in the Workplace Act (820 ILCS 55) prohibits Phes from demanding access to your personal social-media accounts and from disciplining you for lawful off-duty use of social media unless that use directly damages a legitimate business interest. Phes will not ask for your social-media passwords, will not require you to friend the office, and will not monitor your personal accounts.",
+          es: "La Ley del Derecho a la Privacidad en el Lugar de Trabajo de Illinois (820 ILCS 55) prohíbe a Phes exigir acceso a sus cuentas personales de redes sociales y disciplinarlo por uso legal fuera del trabajo de redes sociales, a menos que ese uso dañe directamente un interés comercial legítimo. Phes no le pedirá las contraseñas de sus redes sociales, no le exigirá agregar a la oficina como amigo y no monitoreará sus cuentas personales.",
+        },
+      },
+
+      { type: "h", text: { en: "Impersonation of Phes", es: "Suplantación de Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "You may not create a social-media account that appears to speak FOR Phes, use Phes branding without authorization, or pretend to be an official Phes representative online. If you want to highlight that you work at Phes on your personal account (a tasteful bio mention, a tagged photo), that is fine. What is not fine is creating a page that looks like a Phes-operated channel without office approval.",
+          es: "No puede crear una cuenta de redes sociales que parezca hablar EN NOMBRE DE Phes, usar la marca de Phes sin autorización ni hacerse pasar por un representante oficial de Phes en línea. Si quiere mencionar que trabaja en Phes en su cuenta personal (una mención discreta en la bio, una foto etiquetada), está bien. Lo que no está bien es crear una página que parezca un canal operado por Phes sin la aprobación de la oficina.",
+        },
+      },
+
+      { type: "h", text: { en: "Reporting Harassment Seen Online", es: "Reportar Acoso Visto en Línea" } },
+      {
+        type: "p",
+        text: {
+          en: "If you see harassment or threats from a coworker on a public-facing social-media post (whether or not you are the target), you may report it through the same Code of Conduct reporting channels: the office team, the owner, the Illinois Department of Human Rights, or the EEOC. Good-faith reporting is protected under the same anti-retaliation rules described in the Code of Conduct module.",
+          es: "Si ve acoso o amenazas de un compañero en una publicación pública de redes sociales (sea o no usted el blanco), puede reportarlo a través de las mismas vías del Código de Conducta: el equipo de la oficina, el dueño, el Departamento de Derechos Humanos de Illinois o la EEOC. El reporte de buena fe está protegido bajo las mismas reglas de anti-represalias descritas en el módulo del Código de Conducta.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Social Media Policy Acknowledgment that records your commitment. It is a one-sided acknowledgment (not co-signed). You can re-download the signed PDF anytime from your training page. If you have questions about whether a specific post would violate the policy, ask the office before posting, not after.",
+          es: "Después de este examen: firmará un Reconocimiento de la Política de Redes Sociales por separado que registra su compromiso. Es un reconocimiento unilateral (no co-firmado). Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación. Si tiene preguntas sobre si una publicación específica violaría la política, pregunte a la oficina antes de publicar, no después.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4503,6 +4653,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes. The inbound-contact carve-out applies: the client contacted you first, without you having approached them or done anything to invite the contact. You may discuss work with them.", es: "Sí. Aplica la exclusión de contacto iniciado por el cliente: el cliente lo contactó primero, sin que usted lo hubiera buscado ni hecho nada para invitar el contacto. Puede discutir el trabajo con él." },
       { en: "Only if you charge less than Phes.", es: "Solo si cobra menos que Phes." },
       { en: "Only after consulting an attorney.", es: "Solo después de consultar a un abogado." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 11: SOCIAL MEDIA POLICY (10 questions, Phase 7 PR #8)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-sm-01-client-confidentiality",
+    moduleId: "social-media",
+    prompt: {
+      en: "After a cleaning shift, you take a quick photo of yourself in front of a client's bookshelf and post it to your private Instagram with the caption 'Long day, beautiful house!' The client's full name and address are not in the post. Is this a violation of the social-media policy?",
+      es: "Después de un turno de limpieza, toma una foto rápida de usted frente al librero del cliente y la publica en su Instagram privado con la leyenda 'Día largo, casa hermosa!' El nombre completo y la dirección del cliente no están en la publicación. ¿Es una violación de la política?",
+    },
+    options: [
+      { en: "No, because the client's name is not visible.", es: "No, porque el nombre del cliente no es visible." },
+      { en: "Yes. Photos OF or INSIDE a client home, taken during or based on a Phes shift, are prohibited regardless of whether the client is named or the location seems unidentifiable.", es: "Sí. Las fotos DE o DENTRO del hogar del cliente, tomadas durante o basadas en un turno de Phes, están prohibidas sin importar si se nombra al cliente o si la ubicación parece no identificable." },
+      { en: "No, because it was a private account.", es: "No, porque era una cuenta privada." },
+      { en: "Yes, but only if the client complains.", es: "Sí, pero solo si el cliente se queja." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-02-nlra-section-7",
+    moduleId: "social-media",
+    prompt: {
+      en: "You post on Twitter that 'Phes pays $X/hour for residential cleaning' and tag two coworkers asking what they think. Does the social-media policy prohibit this post?",
+      es: "Publica en Twitter que 'Phes paga $X/hora por limpieza residencial' y etiqueta a dos compañeros preguntando qué piensan. ¿La política de redes sociales prohíbe esta publicación?",
+    },
+    options: [
+      { en: "Yes — discussing pay publicly violates Phes confidentiality.", es: "Sí — discutir pago públicamente viola la confidencialidad de Phes." },
+      { en: "No. Discussing pay, hours, schedule, and working conditions with coworkers or in public is protected under federal Section 7 of the National Labor Relations Act (29 U.S.C. 157). Phes will not discipline an employee for protected concerted activity.", es: "No. Discutir pago, horas, horario y condiciones laborales con compañeros o en público está protegido bajo la Sección 7 federal de la Ley Nacional de Relaciones Laborales (29 U.S.C. 157). Phes no disciplinará a un empleado por actividad concertada protegida." },
+      { en: "Only if you also tag the office.", es: "Solo si también etiqueta a la oficina." },
+      { en: "Only if you stay anonymous.", es: "Solo si se mantiene anónimo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-03-off-duty-private",
+    moduleId: "social-media",
+    prompt: {
+      en: "Phes asks you for your personal Instagram password so the office can verify what you post. Under Illinois law, does Phes have the right to demand this?",
+      es: "Phes le pide la contraseña de su Instagram personal para que la oficina pueda verificar lo que publica. Bajo la ley de Illinois, ¿tiene Phes el derecho de exigir esto?",
+    },
+    options: [
+      { en: "Yes — the social-media policy gives Phes that authority.", es: "Sí — la política de redes sociales le da a Phes esa autoridad." },
+      { en: "No. The Illinois Right to Privacy in the Workplace Act (820 ILCS 55) prohibits employers from demanding access to personal social-media accounts. Phes will not ask for passwords, will not require you to friend the office, and will not monitor personal accounts.", es: "No. La Ley del Derecho a la Privacidad en el Lugar de Trabajo de Illinois (820 ILCS 55) prohíbe a los empleadores exigir acceso a cuentas personales de redes sociales. Phes no pedirá contraseñas, no le exigirá agregar a la oficina como amigo y no monitoreará cuentas personales." },
+      { en: "Yes, but only with two weeks notice.", es: "Sí, pero solo con dos semanas de aviso." },
+      { en: "Only if the post involves alcohol.", es: "Solo si la publicación involucra alcohol." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-04-uniform-misuse",
+    moduleId: "social-media",
+    prompt: {
+      en: "You post a TikTok of yourself wearing your Phes branded apron, drinking a beer, with the caption 'Friday after work'. Is this a violation?",
+      es: "Publica un TikTok de usted mismo vistiendo su delantal con marca de Phes, bebiendo una cerveza, con la leyenda 'Viernes después del trabajo'. ¿Es una violación?",
+    },
+    options: [
+      { en: "No, because you're off-duty.", es: "No, porque está fuera de servicio." },
+      { en: "Yes. Posing with alcohol while visibly in Phes uniform is restricted because the visible association with Phes implies endorsement. Out of uniform on your own time, it would be fine.", es: "Sí. Posar con alcohol mientras está visiblemente en uniforme de Phes está restringido porque la asociación visible con Phes implica un respaldo. Fuera del uniforme en su propio tiempo, estaría bien." },
+      { en: "Only if your face is visible.", es: "Solo si su rostro es visible." },
+      { en: "No, because beer is legal.", es: "No, porque la cerveza es legal." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-05-client-solicitation",
+    moduleId: "social-media",
+    prompt: {
+      en: "You leave Phes. Two months later you DM a Phes client on Instagram offering to clean their home next Saturday. Which two policies does this violate?",
+      es: "Se va de Phes. Dos meses después le envía un DM a un cliente de Phes en Instagram ofreciendo limpiar su casa el próximo sábado. ¿Qué dos políticas viola esto?",
+    },
+    options: [
+      { en: "Drug & Alcohol Policy and Code of Conduct.", es: "Política de Drogas y Alcohol y Código de Conducta." },
+      { en: "Non-Solicitation Agreement (12-month restriction on soliciting Phes clients) AND Social Media Policy (DMing a specific Phes client to offer cleaning is also prohibited here).", es: "Acuerdo de No Solicitación (restricción de 12 meses para solicitar a clientes de Phes) Y Política de Redes Sociales (enviar un DM a un cliente específico de Phes para ofrecer limpieza también está prohibido aquí)." },
+      { en: "Video & Photo Release and Compensation policy.", es: "Autorización de Video y Foto y política de Compensación." },
+      { en: "None — you're no longer employed.", es: "Ninguna — ya no está empleado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-06-disparagement",
+    moduleId: "social-media",
+    prompt: {
+      en: "You post on Facebook 'one of our worst customers today, lady in Oak Lawn was rude as hell.' You did not name the client. Does this violate the policy?",
+      es: "Publica en Facebook 'una de nuestras peores clientes hoy, una señora en Oak Lawn fue muy grosera.' No nombró a la cliente. ¿Esto viola la política?",
+    },
+    options: [
+      { en: "No, because the name is not visible.", es: "No, porque el nombre no es visible." },
+      { en: "Yes. Disparaging comments about a specific client are prohibited even with the name removed, where the client could reasonably figure out you meant them. This is separate from your Section 7 right to discuss working conditions — that right doesn't extend to publicly demeaning a specific identifiable client.", es: "Sí. Los comentarios despectivos sobre un cliente específico están prohibidos incluso con el nombre removido, donde la cliente razonablemente pudiera darse cuenta de que se refería a ella. Esto es separado de su derecho de la Sección 7 a discutir condiciones laborales — ese derecho no se extiende a degradar públicamente a un cliente específico identificable." },
+      { en: "No, because it's a private feeling.", es: "No, porque es un sentimiento privado." },
+      { en: "Only if the client sees it directly.", es: "Solo si la cliente lo ve directamente." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-07-impersonation",
+    moduleId: "social-media",
+    prompt: {
+      en: "You create a new Facebook page called 'Phes Cleaning Oak Lawn' to share cleaning tips. You think it would be helpful for the community. The office did not approve it. Is this allowed?",
+      es: "Crea una nueva página de Facebook llamada 'Phes Cleaning Oak Lawn' para compartir consejos de limpieza. Cree que sería útil para la comunidad. La oficina no lo aprobó. ¿Está permitido?",
+    },
+    options: [
+      { en: "Yes, because cleaning tips are harmless.", es: "Sí, porque los consejos de limpieza son inofensivos." },
+      { en: "No. You may not create a social-media account that appears to speak FOR Phes or that uses Phes branding without authorization. A tasteful bio mention on your personal account is fine; an unofficial Phes-branded channel is not.", es: "No. No puede crear una cuenta de redes sociales que parezca hablar EN NOMBRE DE Phes ni que use la marca de Phes sin autorización. Una mención discreta en la bio en su cuenta personal está bien; un canal no oficial con marca de Phes no lo está." },
+      { en: "Yes, as long as you don't post about pay.", es: "Sí, mientras no publique sobre el pago." },
+      { en: "Only if you charge for memberships.", es: "Solo si cobra por membresías." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-08-protected-concerted",
+    moduleId: "social-media",
+    prompt: {
+      en: "You and three coworkers post a coordinated Twitter thread about a workplace safety concern at Phes — chemical handling without proper ventilation — and ask the public to support better conditions. The office is unhappy with the post. Is this protected?",
+      es: "Usted y tres compañeros publican un hilo coordinado en Twitter sobre una preocupación de seguridad laboral en Phes — manejo de químicos sin ventilación adecuada — y piden al público apoyar mejores condiciones. La oficina está molesta por la publicación. ¿Está protegido?",
+    },
+    options: [
+      { en: "No — it embarrasses Phes publicly.", es: "No — avergüenza a Phes públicamente." },
+      { en: "Yes. Concerted activity with coworkers about terms and conditions of employment (including safety) is protected by Section 7 of the National Labor Relations Act, regardless of whether it embarrasses the employer. Phes will not discipline you for this.", es: "Sí. La actividad concertada con compañeros sobre términos y condiciones de empleo (incluyendo seguridad) está protegida por la Sección 7 de la Ley Nacional de Relaciones Laborales, sin importar si avergüenza al empleador. Phes no lo disciplinará por esto." },
+      { en: "Only if a union is involved.", es: "Solo si un sindicato está involucrado." },
+      { en: "Only if the post is anonymous.", es: "Solo si la publicación es anónima." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-09-harassment-reporting",
+    moduleId: "social-media",
+    prompt: {
+      en: "You see a public Facebook comment by a Phes coworker calling another coworker a racial slur. What does the policy ask you to do?",
+      es: "Ve un comentario público de Facebook de un compañero de Phes llamando a otro compañero con un insulto racial. ¿Qué le pide la política que haga?",
+    },
+    options: [
+      { en: "Stay out of it. Social media is private.", es: "Manténgase al margen. Las redes sociales son privadas." },
+      { en: "Report it through the same Code of Conduct channels (office team, owner, IDHR, EEOC). Good-faith reports about online harassment are protected under the same anti-retaliation rules.", es: "Repórtelo a través de las mismas vías del Código de Conducta (equipo de la oficina, dueño, IDHR, EEOC). Los reportes de buena fe sobre acoso en línea están protegidos bajo las mismas reglas de anti-represalias." },
+      { en: "Reply publicly defending the targeted coworker.", es: "Responder públicamente defendiendo al compañero blanco del comentario." },
+      { en: "Screenshot it and post it to your own account.", es: "Tomar captura y publicarlo en su propia cuenta." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sm-10-client-photos",
+    moduleId: "social-media",
+    prompt: {
+      en: "Phes posts a recruiting graphic to its official Instagram showing a sparkling kitchen. Is THAT graphic a violation of this policy?",
+      es: "Phes publica un gráfico de reclutamiento en su Instagram oficial mostrando una cocina reluciente. ¿Ese gráfico es una violación de esta política?",
+    },
+    options: [
+      { en: "Yes — it shows a client home.", es: "Sí — muestra el hogar de un cliente." },
+      { en: "No. Phes-controlled official channels publishing content captured under the Video & Photo Release are governed by that release, not by this policy. This policy governs what EMPLOYEES post on PERSONAL channels.", es: "No. Los canales oficiales controlados por Phes que publican contenido capturado bajo la Autorización de Video y Foto se rigen por esa autorización, no por esta política. Esta política rige lo que los EMPLEADOS publican en canales PERSONALES." },
+      { en: "Only if the client is in the photo.", es: "Solo si el cliente está en la foto." },
+      { en: "Yes — kitchens are private.", es: "Sí — las cocinas son privadas." },
     ],
     correctIndex: 1,
   },
