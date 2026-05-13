@@ -375,6 +375,124 @@ describe("non_solicitation content shape (PR #7 spec checks)", () => {
   });
 });
 
+// Phase 6.5 amendment: trade-secret confidentiality + direct-payment ban +
+// strengthened reasonableness acknowledgment. Coworker non-solicit and
+// liquidated damages remain INTENTIONALLY OMITTED per IL Freedom to Work
+// Act enforceability concerns.
+describe("non_solicitation Phase 6.5 amendment (post-PR #7)", () => {
+  it("English Section 12 prohibits direct payments from clients with explicit tip carve-out", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("PROHIBITION ON DIRECT PAYMENTS FROM CLIENTS"),
+      "English must include the direct-payment-prohibition section header",
+    );
+    assert.ok(
+      en.includes("Customary cash tips offered by a client and noted on the Worksheet are not direct payments"),
+      "English must carve out customary cash tips from the direct-payment prohibition",
+    );
+  });
+
+  it("Spanish Section 12 prohibits direct payments from clients with explicit tip carve-out", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    assert.ok(
+      es.includes("PROHIBICIÓN DE PAGOS DIRECTOS DE CLIENTES"),
+      "Spanish must include the direct-payment-prohibition section header",
+    );
+    assert.ok(
+      es.includes("Las propinas en efectivo de costumbre"),
+      "Spanish must carve out customary cash tips from the direct-payment prohibition",
+    );
+  });
+
+  it("English Section 13 establishes indefinite trade-secret confidentiality scoped to the Illinois Trade Secrets Act (765 ILCS 1065)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("CONFIDENTIAL TRADE SECRETS (INDEFINITE DURATION)"),
+      "English must include the trade-secret confidentiality section header",
+    );
+    assert.ok(
+      en.includes("Illinois Trade Secrets Act (765 ILCS 1065)"),
+      "English must reference the Illinois Trade Secrets Act with the 765 ILCS 1065 citation",
+    );
+    assert.ok(
+      en.includes("the Phes client list"),
+      "English must enumerate the Phes client list as a trade secret",
+    );
+    assert.ok(
+      en.includes("pricing structures, pricing rules, and quote formulas"),
+      "English must enumerate pricing rules + quote formulas as a trade secret",
+    );
+  });
+
+  it("Spanish Section 13 establishes indefinite trade-secret confidentiality scoped to the Illinois Trade Secrets Act", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    assert.ok(
+      es.includes("SECRETOS COMERCIALES CONFIDENCIALES (DURACIÓN INDEFINIDA)"),
+      "Spanish must include the trade-secret confidentiality section header",
+    );
+    assert.ok(
+      es.includes("Ley de Secretos Comerciales de Illinois (765 ILCS 1065)"),
+      "Spanish must reference the IL Trade Secrets Act translation with the 765 ILCS 1065 citation",
+    );
+  });
+
+  it("English Section 13 carves out general knowledge and NLRA Section 7 protected concerted activity", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("does not restrict my general knowledge, skill, or experience"),
+      "English must preserve the general-knowledge carve-out",
+    );
+    assert.ok(
+      en.includes("Section 7 of the National Labor Relations Act"),
+      "English must preserve the NLRA Section 7 carve-out so wage / working-condition discussion stays protected",
+    );
+  });
+
+  it("Spanish Section 13 carves out NLRA Section 7 protected activity", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    assert.ok(
+      es.includes("Sección 7 federal de la Ley Nacional de Relaciones Laborales"),
+      "Spanish must preserve the NLRA Section 7 carve-out",
+    );
+  });
+
+  it("English Section 8 contains the strengthened express reasonableness acknowledgment", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("I expressly acknowledge"),
+      "English Section 8 must include the express reasonableness acknowledgment",
+    );
+    assert.ok(
+      en.includes("the consideration described in section 7 is adequate"),
+      "English Section 8 must include the explicit consideration-adequacy acknowledgment",
+    );
+  });
+
+  it("Spanish Section 8 contains the strengthened express reasonableness acknowledgment", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.non_solicitation!.es.contentHtml;
+    assert.ok(
+      es.includes("Reconozco expresamente"),
+      "Spanish Section 8 must include the express reasonableness acknowledgment",
+    );
+  });
+
+  it("Amendment INTENTIONALLY OMITS coworker non-solicitation (IL Freedom to Work Act enforceability concern)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("COWORKERS ARE NOT RESTRICTED"),
+      "English must preserve the coworker carve-out; adding a coworker non-solicit for hourly workers risks blue-penciling the whole agreement under IL Freedom to Work Act",
+    );
+  });
+
+  it("Amendment INTENTIONALLY OMITS liquidated damages (IL courts disfavor in hourly-worker non-solicits)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.non_solicitation!.en.contentHtml;
+    assert.ok(
+      en.includes("does not impose liquidated damages"),
+      "English must preserve the explicit liquidated-damages disclaimer; IL courts routinely strike these as penalty clauses",
+    );
+  });
+});
+
 describe("video_photo_release content shape (PR #6 spec checks)", () => {
   it("English entry is NOT flagged pendingTranslationReview (not in the four flagged docs)", () => {
     assert.equal(

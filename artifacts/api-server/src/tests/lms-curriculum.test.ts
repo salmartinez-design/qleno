@@ -102,7 +102,9 @@ describe("LMS curriculum — constants & catalog shape", () => {
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
     // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
-    // non-solicitation: 10 (Phase 6 spec, agreement-scope comprehension)
+    // non-solicitation: 13 (Phase 6 spec + Phase 6.5 amendment: original
+    //   10 + q-ns-11 direct-payment + q-ns-12 trade-secret +
+    //   q-ns-13 trade-secret-vs-Section-7)
     // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // phes-401k: 10 (Phase 8 spec, 401(k) plan-features comprehension)
     // all others: 15 (per original Phes spec)
@@ -111,7 +113,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
-      "non-solicitation": 10,
+      "non-solicitation": 13,
       "social-media": 10,
       "phes-401k": 10,
       compensation: 15,
@@ -129,8 +131,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 174 total (40 + 15*5 + 10 + 10 + 9 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 174);
+  it("ALL_QUESTION_IDS is 177 total (40 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 177);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

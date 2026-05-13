@@ -2358,6 +2358,60 @@ const BASE_MODULES: Module[] = [
         },
       },
 
+      { type: "h", text: { en: "No Direct Payments From Clients", es: "Sin Pagos Directos de Clientes" } },
+      {
+        type: "p",
+        text: {
+          en: "While you are employed at Phes, you will not accept payment, supply reimbursements, or any other monetary or in-kind compensation directly from a Phes client for cleaning work that should be billed through Phes. Customary cash tips offered by a client are not direct payments; record the tip on the Worksheet as described in the Phes Employee Handbook.",
+          es: "Mientras esté empleado en Phes, no aceptará pago, reembolsos de suministros ni ninguna otra compensación monetaria o en especie directamente de un cliente de Phes por trabajo de limpieza que deba facturarse a través de Phes. Las propinas en efectivo de costumbre que un cliente ofrezca no son pagos directos; registre la propina en la Hoja de Trabajo como se describe en el Manual del Empleado de Phes.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "If a client tries to pay you directly for the scheduled Phes job, decline and explain that all work is billed through the office.", es: "Si un cliente intenta pagarle directamente por el trabajo programado de Phes, rechácelo y explíquele que todo el trabajo se factura a través de la oficina." },
+          { en: "If a client asks for additional services outside the scheduled job, refer them to the office. The office books and bills the extra work through Phes.", es: "Si un cliente pide servicios adicionales fuera del trabajo programado, refiéralo a la oficina. La oficina reserva y factura el trabajo adicional a través de Phes." },
+          { en: "Accepting a direct payment is a separate violation: it breaks both the conflict-of-interest rule in the Code of Conduct and the Non-Solicitation Agreement.", es: "Aceptar un pago directo es una violación separada: rompe tanto la regla de conflicto de interés del Código de Conducta como el Acuerdo de No Solicitación." },
+        ],
+      },
+
+      { type: "h", text: { en: "Confidential Trade Secrets (Indefinite)", es: "Secretos Comerciales Confidenciales (Indefinido)" } },
+      {
+        type: "p",
+        text: {
+          en: "Some Phes information you learn on the job is a TRADE SECRET. The agreement asks you not to disclose, use, or transmit that information to anyone outside Phes, both during your employment and indefinitely after you leave. This obligation is governed by the Illinois Trade Secrets Act (765 ILCS 1065) and is scoped narrowly to information that meets that statute's definition of a trade secret. Examples:",
+          es: "Parte de la información de Phes que aprende en el trabajo es un SECRETO COMERCIAL. El acuerdo le pide no divulgar, usar ni transmitir esa información a nadie fuera de Phes, tanto durante su empleo como indefinidamente después de irse. Esta obligación se rige por la Ley de Secretos Comerciales de Illinois (765 ILCS 1065) y tiene un alcance estrecho a la información que cumple la definición de secreto comercial bajo esa ley. Ejemplos:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "The Phes client list and any associated client contact information.", es: "La lista de clientes de Phes y cualquier información de contacto del cliente asociada." },
+          { en: "Phes pricing structures, pricing rules, and quote formulas.", es: "Las estructuras de precios, reglas de precios y fórmulas de cotización de Phes." },
+          { en: "Internal cleaning procedures, checklists, and quality-control practices documented as proprietary.", es: "Procedimientos internos de limpieza, listas de verificación y prácticas de control de calidad documentadas como propietarias." },
+          { en: "Vendor and supplier relationships and the pricing terms negotiated with vendors.", es: "Las relaciones con proveedores y los términos de precios negociados con ellos." },
+          { en: "Route information and internal operational schedules.", es: "Información de rutas y horarios operativos internos." },
+          { en: "The Qleno platform's non-public features, internal business strategy, and financial projections disclosed to you because of your job.", es: "Las funciones no públicas de la plataforma Qleno, la estrategia comercial interna y las proyecciones financieras que se le hayan divulgado por su trabajo." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Importantly: this confidentiality obligation does NOT restrict your general knowledge, skill, or experience acquired during your employment, and it does NOT restrict your federally protected Section 7 right under the National Labor Relations Act to discuss your own pay, hours, schedule, or working conditions. It is narrowly aimed at Phes trade secrets, not at general experience or protected concerted activity.",
+          es: "Importante: esta obligación de confidencialidad NO restringe su conocimiento general, habilidad o experiencia adquiridos durante su empleo, y NO restringe su derecho federalmente protegido bajo la Sección 7 de la Ley Nacional de Relaciones Laborales a discutir su propio pago, horas, horario o condiciones laborales. Apunta de forma estrecha a los secretos comerciales de Phes, no a la experiencia general ni a la actividad concertada protegida.",
+        },
+      },
+
+      { type: "h", text: { en: "Express Reasonableness Acknowledgment", es: "Reconocimiento Expreso de Razonabilidad" } },
+      {
+        type: "p",
+        text: {
+          en: "By signing the agreement, you expressly acknowledge that the twelve-month duration, the clients-only scope, the inbound-contact carve-out, and the absence of any geographic territory restriction together make the agreement reasonable and necessary to protect Phes's legitimate business interests in client relationships and confidential information, and that the consideration Phes provides (paid training, scheduled shifts, paid time off, holiday pay, and the benefits described in the Compensation module) is adequate.",
+          es: "Al firmar el acuerdo, usted reconoce expresamente que la duración de doce meses, el alcance limitado a clientes, la exclusión de contacto iniciado por el cliente y la ausencia de cualquier restricción de territorio geográfico hacen, en conjunto, que el acuerdo sea razonable y necesario para proteger los intereses comerciales legítimos de Phes en las relaciones con los clientes y en la información confidencial, y que la consideración que Phes provee (capacitación pagada, turnos programados, tiempo libre pagado, pago por feriados y los beneficios descritos en el módulo de Compensación) es adecuada.",
+        },
+      },
+
       {
         type: "callout",
         tone: "info",
@@ -4880,6 +4934,51 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes. The inbound-contact carve-out applies: the client contacted you first, without you having approached them or done anything to invite the contact. You may discuss work with them.", es: "Sí. Aplica la exclusión de contacto iniciado por el cliente: el cliente lo contactó primero, sin que usted lo hubiera buscado ni hecho nada para invitar el contacto. Puede discutir el trabajo con él." },
       { en: "Only if you charge less than Phes.", es: "Solo si cobra menos que Phes." },
       { en: "Only after consulting an attorney.", es: "Solo después de consultar a un abogado." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-11-direct-payment-prohibition",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "At the end of a scheduled Phes job, a happy client offers to pay you $50 in cash directly so the office \"doesn't take a cut.\" What does the Non-Solicitation Agreement require you to do?",
+      es: "Al final de un trabajo programado de Phes, un cliente satisfecho le ofrece pagarle $50 en efectivo directamente para que la oficina \"no se quede con un porcentaje.\" ¿Qué requiere el Acuerdo de No Solicitación que haga?",
+    },
+    options: [
+      { en: "Accept it because the office didn't book this part.", es: "Aceptarlo porque la oficina no reservó esta parte." },
+      { en: "Decline the direct payment. All scheduled cleaning work for a Phes client must be booked through the office and billed by Phes. Customary cash tips noted on the Worksheet are still allowed; substituting a direct payment for billed work is not.", es: "Rechazar el pago directo. Todo trabajo de limpieza programado para un cliente de Phes debe reservarse a través de la oficina y ser facturado por Phes. Las propinas en efectivo de costumbre anotadas en la Hoja de Trabajo siguen permitidas; sustituir un pago directo por trabajo facturado no lo está." },
+      { en: "Accept it if you split it with the office afterward.", es: "Aceptarlo si lo comparte con la oficina después." },
+      { en: "Accept it only on Fridays.", es: "Aceptarlo solo los viernes." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-12-trade-secret-confidentiality",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "Two years after leaving Phes, you publish a blog post that lists Phes's specific pricing rules and quote formulas that you learned on the job. Is this a violation of the agreement?",
+      es: "Dos años después de irse de Phes, publica un artículo de blog que enumera las reglas de precios y fórmulas de cotización específicas de Phes que aprendió en el trabajo. ¿Esto es una violación del acuerdo?",
+    },
+    options: [
+      { en: "No, because you no longer work at Phes.", es: "No, porque ya no trabaja en Phes." },
+      { en: "Yes. Phes pricing structures, pricing rules, and quote formulas are trade secrets under the Illinois Trade Secrets Act (765 ILCS 1065). The confidentiality obligation under Section 13 runs indefinitely and applies to disclosure outside Phes.", es: "Sí. Las estructuras de precios, reglas de precios y fórmulas de cotización de Phes son secretos comerciales bajo la Ley de Secretos Comerciales de Illinois (765 ILCS 1065). La obligación de confidencialidad bajo la Sección 13 corre indefinidamente y aplica a la divulgación fuera de Phes." },
+      { en: "Only if the blog post names a specific client.", es: "Solo si el artículo nombra a un cliente específico." },
+      { en: "Only if Phes paid for the blog hosting.", es: "Solo si Phes pagó el alojamiento del blog." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-ns-13-trade-secret-vs-section-7",
+    moduleId: "non-solicitation",
+    prompt: {
+      en: "After leaving Phes, you tweet about how much Phes pays cleaning techs and tag two former coworkers asking what they thought of the pay. The post does not mention any client list, pricing rules, or internal procedures. Is this a violation of the indefinite confidentiality obligation?",
+      es: "Después de irse de Phes, tuitea sobre cuánto paga Phes a los técnicos de limpieza y etiqueta a dos antiguos compañeros preguntando qué pensaban del pago. La publicación no menciona ninguna lista de clientes, reglas de precios ni procedimientos internos. ¿Es una violación de la obligación de confidencialidad indefinida?",
+    },
+    options: [
+      { en: "Yes. Anything about Phes is confidential forever.", es: "Sí. Cualquier cosa sobre Phes es confidencial para siempre." },
+      { en: "No. The confidentiality clause is scoped to trade secrets under the Illinois Trade Secrets Act and does NOT restrict discussion of your own pay, hours, schedule, or working conditions, which is separately protected under Section 7 of the National Labor Relations Act.", es: "No. La cláusula de confidencialidad tiene un alcance limitado a los secretos comerciales bajo la Ley de Secretos Comerciales de Illinois y NO restringe la discusión de su propio pago, horas, horario o condiciones laborales, lo cual está separadamente protegido bajo la Sección 7 de la Ley Nacional de Relaciones Laborales." },
+      { en: "Yes, because you tagged coworkers.", es: "Sí, porque etiquetó a compañeros." },
+      { en: "Only if a current Phes employee likes the post.", es: "Solo si un empleado actual de Phes le da like." },
     ],
     correctIndex: 1,
   },
