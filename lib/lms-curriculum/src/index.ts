@@ -436,6 +436,12 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-ns-08-remedy-injunctive": 1,
   "q-ns-09-co-signature": 1,
   "q-ns-10-inbound-clients-exception": 1,
+  // Phase 6.5 amendment (post-PR #7): added q-ns-11/12/13 to verify
+  // comprehension of the new direct-payment prohibition (Section 12)
+  // and trade-secret confidentiality (Section 13).
+  "q-ns-11-direct-payment-prohibition": 1,
+  "q-ns-12-trade-secret-confidentiality": 1,
+  "q-ns-13-trade-secret-vs-section-7": 1,
 
   // ── Module 11: social-media (10, Phase 7 PR #8) ─────────────────────────
   // Phes Social Media Policy. NOT co-signed. Critical NLRA Section 7
@@ -565,6 +571,9 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-ns-05-il-freedom-to-work", "q-ns-06-during-employment-too",
       "q-ns-07-consideration", "q-ns-08-remedy-injunctive",
       "q-ns-09-co-signature", "q-ns-10-inbound-clients-exception",
+      "q-ns-11-direct-payment-prohibition",
+      "q-ns-12-trade-secret-confidentiality",
+      "q-ns-13-trade-secret-vs-section-7",
     ],
     "social-media": [
       "q-sm-01-client-confidentiality", "q-sm-02-nlra-section-7",

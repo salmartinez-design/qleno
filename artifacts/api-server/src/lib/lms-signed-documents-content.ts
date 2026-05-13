@@ -457,7 +457,7 @@ const NON_SOLICITATION_EN: SignedDocumentLocaleContent = {
     "Phes provides the following consideration in exchange for my acceptance of this Agreement: paid training, regular scheduled shifts, paid time off accruing under the Illinois Paid Leave for All Workers Act, holiday pay, and the other benefits described in the Compensation module of the Phes Employee Handbook. Continued employment past two years also constitutes adequate consideration under Illinois law.",
     "",
     "8. REASONABLE SCOPE.",
-    "I acknowledge that the twelve-month duration, the clients-only scope, the inbound-contact carve-out, and the absence of any geographic territory restriction collectively make this Agreement reasonable and necessary to protect Phes's legitimate business interest in client relationships, consistent with the Illinois Freedom to Work Act.",
+    "I expressly acknowledge that the twelve-month duration, the clients-only scope, the inbound-contact carve-out, and the absence of any geographic territory restriction collectively make this Agreement reasonable and necessary to protect Phes's legitimate business interests in client relationships and confidential information, and that the consideration described in section 7 is adequate, consistent with the Illinois Freedom to Work Act.",
     "",
     "9. REMEDIES.",
     "If Phes believes I have violated this Agreement, Phes may seek injunctive relief (a court order requiring me to stop the prohibited conduct) and may recover documented damages and reasonable attorney fees, as permitted by Illinois law. Phes does not impose liquidated damages or penalty clauses under this Agreement.",
@@ -468,15 +468,27 @@ const NON_SOLICITATION_EN: SignedDocumentLocaleContent = {
     "11. PHES REPRESENTATIVE CO-SIGNATURE.",
     "This Agreement is a two-way commitment. I agree to the twelve-month client non-solicit; Phes commits to the consideration described in section 7. The signed instrument is co-signed by the Phes representative. The co-signature appears on the final PDF after my signature.",
     "",
-    "12. AT-WILL EMPLOYMENT.",
+    "12. PROHIBITION ON DIRECT PAYMENTS FROM CLIENTS.",
+    "During my employment with Phes, I will not accept payment, supply reimbursements, or any other monetary or in-kind compensation directly from a Phes Client for cleaning work that should be billed through Phes. Customary cash tips offered by a client and noted on the Worksheet are not direct payments and remain permitted under the tipping rules described in the Phes Employee Handbook. All scheduled cleaning work performed for a Phes Client during my employment is to be booked through the office and billed by Phes. This Section 12 is in addition to, and does not replace, the conflict-of-interest rules in the Code of Conduct or the post-employment client non-solicitation in Section 1.",
+    "",
+    "13. CONFIDENTIAL TRADE SECRETS (INDEFINITE DURATION).",
+    "During my employment with Phes and indefinitely thereafter, I will not disclose, use, or transmit to any person or entity outside Phes any Phes trade secret. Trade secret under this Agreement means information that meets the definition of a trade secret under the Illinois Trade Secrets Act (765 ILCS 1065) and that I learned, accessed, or developed because of my employment with Phes, including: (a) the Phes client list and any associated client contact information; (b) Phes pricing structures, pricing rules, and quote formulas; (c) internal cleaning procedures, checklists, and quality-control practices documented by Phes as proprietary; (d) vendor and supplier relationships and the pricing terms negotiated with them; (e) route information and internal operational schedules; (f) internal software (including the Qleno platform) and non-public business strategy, financial projections, or planning information disclosed to me as part of my employment. This Section 13 does not restrict my general knowledge, skill, or experience acquired during my employment, my right under federal Section 7 of the National Labor Relations Act to discuss my own pay, hours, schedule, or working conditions, or any other federally protected activity.",
+    "",
+    "14. AT-WILL EMPLOYMENT.",
     "Nothing in this Agreement alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason. My obligations under this Agreement survive termination of employment.",
     "",
-    "13. ELECTRONIC SIGNATURE CONSENT.",
+    "15. ELECTRONIC SIGNATURE CONSENT.",
     "I consent to sign this Agreement electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
     "",
     "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Non-Solicitation Agreement.",
   ].join("\n"),
-  notes: "Phase 6 PR #7 — Phes non-solicitation agreement. 12 months, clients only, IL Freedom to Work Act compliant.",
+  notes:
+    "Phase 6 PR #7 — Phes non-solicitation agreement. 12 months, " +
+    "clients only, IL Freedom to Work Act compliant. Phase 6.5 amendment: " +
+    "added Section 12 direct-payment prohibition, Section 13 indefinite " +
+    "trade-secret confidentiality (scoped to IL Trade Secrets Act + NLRA " +
+    "Section 7 carve-out), and strengthened Section 8 reasonableness " +
+    "acknowledgment.",
 };
 
 const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
@@ -511,7 +523,7 @@ const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
     "Phes provee la siguiente consideración a cambio de mi aceptación de este Acuerdo: capacitación pagada, turnos programados regulares, tiempo libre pagado que se acumula bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois, pago por feriados y los demás beneficios descritos en el módulo de Compensación del Manual del Empleado de Phes. El empleo continuo por más de dos años también constituye consideración adecuada bajo la ley de Illinois.",
     "",
     "8. ALCANCE RAZONABLE.",
-    "Reconozco que la duración de doce meses, el alcance limitado a clientes, la exclusión de contacto iniciado por el cliente y la ausencia de cualquier restricción de territorio geográfico hacen, en conjunto, que este Acuerdo sea razonable y necesario para proteger el interés comercial legítimo de Phes en las relaciones con los clientes, consistente con la Ley de Libertad para Trabajar de Illinois.",
+    "Reconozco expresamente que la duración de doce meses, el alcance limitado a clientes, la exclusión de contacto iniciado por el cliente y la ausencia de cualquier restricción de territorio geográfico hacen, en conjunto, que este Acuerdo sea razonable y necesario para proteger los intereses comerciales legítimos de Phes en las relaciones con los clientes y en la información confidencial, y que la consideración descrita en la sección 7 es adecuada, consistente con la Ley de Libertad para Trabajar de Illinois.",
     "",
     "9. REMEDIOS.",
     "Si Phes cree que he violado este Acuerdo, Phes puede buscar alivio por orden judicial (una orden de la corte que me exija detener la conducta prohibida) y puede recuperar daños documentados y honorarios razonables de abogado, según lo permita la ley de Illinois. Phes no impone daños liquidados ni cláusulas de penalización bajo este Acuerdo.",
@@ -522,10 +534,16 @@ const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
     "11. CO-FIRMA DEL REPRESENTANTE DE PHES.",
     "Este Acuerdo es un compromiso de dos vías. Yo acepto la no solicitación de clientes de doce meses; Phes se compromete con la consideración descrita en la sección 7. El instrumento firmado es co-firmado por el representante de Phes. La co-firma aparece en el PDF final después de mi firma.",
     "",
-    "12. EMPLEO A VOLUNTAD.",
+    "12. PROHIBICIÓN DE PAGOS DIRECTOS DE CLIENTES.",
+    "Durante mi empleo con Phes, no aceptaré pago, reembolsos de suministros ni ninguna otra compensación monetaria o en especie directamente de un Cliente de Phes por trabajo de limpieza que deba facturarse a través de Phes. Las propinas en efectivo de costumbre que un cliente ofrezca y que se anoten en la Hoja de Trabajo no son pagos directos y siguen permitidas bajo las reglas de propinas descritas en el Manual del Empleado de Phes. Todo trabajo de limpieza programado realizado para un Cliente de Phes durante mi empleo debe reservarse a través de la oficina y ser facturado por Phes. Esta Sección 12 es adicional a, y no reemplaza, las reglas de conflicto de interés del Código de Conducta ni la no solicitación de clientes posterior al empleo en la Sección 1.",
+    "",
+    "13. SECRETOS COMERCIALES CONFIDENCIALES (DURACIÓN INDEFINIDA).",
+    "Durante mi empleo con Phes y de manera indefinida después, no divulgaré, usaré ni transmitiré a ninguna persona o entidad fuera de Phes ningún secreto comercial de Phes. Secreto comercial bajo este Acuerdo significa información que cumple la definición de secreto comercial bajo la Ley de Secretos Comerciales de Illinois (765 ILCS 1065) y que aprendí, accedí o desarrollé debido a mi empleo con Phes, incluyendo: (a) la lista de clientes de Phes y cualquier información de contacto del cliente asociada; (b) las estructuras de precios, reglas de precios y fórmulas de cotización de Phes; (c) procedimientos internos de limpieza, listas de verificación y prácticas de control de calidad documentadas por Phes como propietarias; (d) las relaciones con proveedores y los términos de precios negociados con ellos; (e) información de rutas y horarios operativos internos; (f) software interno (incluyendo la plataforma Qleno) e información no pública de estrategia comercial, proyecciones financieras o planeación que se me haya divulgado como parte de mi empleo. Esta Sección 13 no restringe mi conocimiento general, habilidad o experiencia adquiridos durante mi empleo, ni mi derecho bajo la Sección 7 federal de la Ley Nacional de Relaciones Laborales a discutir mi propio pago, horas, horario o condiciones laborales, ni ninguna otra actividad federalmente protegida.",
+    "",
+    "14. EMPLEO A VOLUNTAD.",
     "Nada en este Acuerdo altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal. Mis obligaciones bajo este Acuerdo sobreviven a la terminación del empleo.",
     "",
-    "13. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "15. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
     "Doy mi consentimiento para firmar este Acuerdo electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
     "",
     "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Acuerdo de No Solicitación.",

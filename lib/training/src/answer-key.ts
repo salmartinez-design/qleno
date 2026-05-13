@@ -200,6 +200,10 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-ns-08-remedy-injunctive": 1,
   "q-ns-09-co-signature": 1,
   "q-ns-10-inbound-clients-exception": 1,
+  // Phase 6.5 amendment — added q-ns-11/12/13.
+  "q-ns-11-direct-payment-prohibition": 1,
+  "q-ns-12-trade-secret-confidentiality": 1,
+  "q-ns-13-trade-secret-vs-section-7": 1,
 
   // ── Module 11: social-media (10, Phase 7 PR #8) ────────────────────────
   "q-sm-01-client-confidentiality": 1,
