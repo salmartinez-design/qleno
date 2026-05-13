@@ -47,7 +47,7 @@ import {
   REQUIRED_PRE_FINAL_SIGNED_DOCS,
   type LmsSignedDocument,
 } from "@workspace/db/schema";
-import { QUIZ_MODULE_IDS } from "@workspace/lms-curriculum";
+import { QUIZ_MODULE_IDS, FINAL_MODULE_ID } from "@workspace/lms-curriculum";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import {
   captureRequestMetadata,
@@ -116,6 +116,13 @@ interface EligibilityResult {
   missing_modules: string[];
   missing_signed_docs: string[];
   passed_modules: string[];
+  /**
+   * Phase 13 (PR #14): the final comprehensive exam is the third gate.
+   * Returns true iff the learner has a passed module_progress row with
+   * module_id === FINAL_MODULE_ID. The final exam itself is wired via
+   * routes/lms.ts /quiz/submit which already accepts the __final id.
+   */
+  final_exam_passed: boolean;
 }
 
 async function checkEligibility(
@@ -130,11 +137,16 @@ async function checkEligibility(
   const missingModules = [...QUIZ_MODULE_IDS].filter(
     (m) => !passedSet.has(m),
   );
+  const finalExamPassed = passedSet.has(FINAL_MODULE_ID);
   return {
-    eligible: missingModules.length === 0 && missingDocs.length === 0,
+    eligible:
+      missingModules.length === 0 &&
+      missingDocs.length === 0 &&
+      finalExamPassed,
     missing_modules: missingModules,
     missing_signed_docs: missingDocs,
     passed_modules: passed,
+    final_exam_passed: finalExamPassed,
   };
 }
 
