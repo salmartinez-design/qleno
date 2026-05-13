@@ -78,6 +78,7 @@ import lmsCertificatesRouter from "./lms-certificates.js";
 import lmsSignaturesRouter from "./lms-signatures.js";
 import lmsHandbookRouter from "./lms-handbook.js";
 import lmsAnnualAckRouter from "./lms-annual-ack.js";
+import lmsAdminAuditRouter from "./lms-admin-audit.js";
 
 const router: IRouter = Router();
 
@@ -160,5 +161,6 @@ router.use("/lms/certificates", lmsCertificatesRouter);
 router.use("/lms/signatures", lmsSignaturesRouter);
 router.use("/lms/handbook", lmsHandbookRouter);
 router.use("/lms/annual-ack", lmsAnnualAckRouter);
+router.use("/lms/admin-audit", lmsAdminAuditRouter);
 
 export default router;
