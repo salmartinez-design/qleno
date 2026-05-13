@@ -72,6 +72,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Phes 401(k) Retirement Plan",
     es: "Plan de Jubilación 401(k) de Phes",
   },
+  "supply-kit": {
+    en: "Supply Kit Responsibility",
+    es: "Responsabilidad del Kit de Suministros",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",

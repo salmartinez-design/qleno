@@ -2799,6 +2799,188 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 13. SUPPLY KIT RESPONSIBILITY (Phase 9, PR #10)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // One-sided employee acknowledgment (NOT co-signed). Establishes
+  // responsibility for Phes-provided cleaning supplies, uniform, keys,
+  // alarm codes, and any assigned hardware. Distinguishes reasonable
+  // wear-and-tear (Phes absorbs) from negligent damage or loss
+  // (employee may be billed). Critically: does NOT pre-authorize
+  // automatic payroll deductions — Illinois Wage Payment and Collection
+  // Act (820 ILCS 115) requires contemporaneous written authorization
+  // for any specific deduction, so the agreement reserves Phes's right
+  // to seek reimbursement and explains the IL deduction-authorization
+  // requirement.
+  {
+    id: "supply-kit",
+    number: 13,
+    iconKind: "spray",
+    title: {
+      en: "Supply Kit Responsibility",
+      es: "Responsabilidad del Kit de Suministros",
+    },
+    subtitle: {
+      en: "What Phes gives you to do the job, how to care for it, and what happens if something is lost or damaged through negligence.",
+      es: "Lo que Phes le entrega para hacer el trabajo, cómo cuidarlo, y qué pasa si algo se pierde o daña por negligencia.",
+    },
+    estimatedMinutes: 8,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Why this module matters. Phes provides the tools you need to do the job. The supply kit is Phes property loaned to you while you are employed. The agreement is short and practical: take reasonable care of the kit, report damage or loss promptly, return everything at separation. Normal wear is on Phes, not on you. Negligent damage or unreported loss may result in you being billed for replacement.",
+          es: "Por qué importa este módulo. Phes provee las herramientas que necesita para hacer el trabajo. El kit de suministros es propiedad de Phes prestada a usted mientras esté empleado. El acuerdo es corto y práctico: cuide razonablemente el kit, reporte daños o pérdidas a tiempo, devuelva todo al separarse. El desgaste normal está a cargo de Phes, no de usted. Los daños por negligencia o la pérdida no reportada pueden resultar en que se le facture el reemplazo.",
+        },
+      },
+
+      { type: "h", text: { en: "What Is in the Supply Kit", es: "Qué Está en el Kit de Suministros" } },
+      {
+        type: "p",
+        text: {
+          en: "The exact contents of your kit are listed on the Kit Inventory Sheet you receive on your first day. A typical Phes kit includes:",
+          es: "El contenido exacto de su kit está listado en la Hoja de Inventario del Kit que recibe el primer día. Un kit típico de Phes incluye:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Cleaning caddy, color-coded microfiber cloths, mop and bucket, vacuum (or vacuum allocation if assigned to a team vehicle), step stool.", es: "Caddy de limpieza, paños de microfibra codificados por color, trapeador y cubeta, aspiradora (o asignación de aspiradora si está asignado a un vehículo de equipo), banquito." },
+          { en: "Cleaning chemicals issued in their Phes-branded refillable bottles. Refills come from the office stock room.", es: "Productos químicos de limpieza entregados en sus botellas recargables con marca de Phes. Las recargas vienen del cuarto de suministros de la oficina." },
+          { en: "Phes-branded uniform (shirt, apron, name badge) and shoe covers.", es: "Uniforme con marca de Phes (camisa, delantal, gafete) y cubre-zapatos." },
+          { en: "Phes phone or tablet (if assigned for MaidCentral / Qleno access), keys, key cards, or alarm-code cards for recurring-visit clients.", es: "Teléfono o tableta de Phes (si se le asigna para acceso a MaidCentral / Qleno), llaves, tarjetas de acceso o tarjetas de códigos de alarma para clientes recurrentes." },
+        ],
+      },
+
+      { type: "h", text: { en: "What Is Phes Property and What Is Yours", es: "Qué es Propiedad de Phes y Qué es Suyo" } },
+      {
+        type: "p",
+        text: {
+          en: "Everything in the kit is PHES PROPERTY. It is loaned to you for the duration of your employment. You do not own any of it. What you DO own:",
+          es: "Todo en el kit es PROPIEDAD DE PHES. Se le presta durante el tiempo de su empleo. Usted no es dueño de nada de eso. Lo que SÍ le pertenece:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Tips from clients are yours (recorded on the Worksheet per the handbook).", es: "Las propinas de clientes son suyas (registradas en la Hoja de Trabajo según el manual)." },
+          { en: "Personal items you bring (your phone, your water bottle, your own car).", es: "Artículos personales que traiga (su teléfono, su botella de agua, su propio auto)." },
+          { en: "Your general knowledge, skill, and experience.", es: "Su conocimiento general, habilidad y experiencia." },
+        ],
+      },
+
+      { type: "h", text: { en: "Reasonable Wear vs Negligent Damage", es: "Desgaste Razonable vs Daño por Negligencia" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes absorbs REASONABLE WEAR AND TEAR that comes from using equipment as intended. Examples:",
+          es: "Phes absorbe el DESGASTE Y USO RAZONABLE que viene de usar el equipo como se pretende. Ejemplos:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Microfiber cloths fraying after months of use.", es: "Paños de microfibra que se deshilachan después de meses de uso." },
+          { en: "A vacuum belt wearing out from normal cleaning.", es: "Una banda de aspiradora que se desgasta por limpieza normal." },
+          { en: "Uniform fading from regular washing.", es: "Uniforme que se desvanece por el lavado regular." },
+          { en: "A mop head needing replacement after extended use.", es: "Una cabeza de trapeador que necesita reemplazo después de uso prolongado." },
+        ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "NEGLIGENT DAMAGE or LOSS is different. Examples:",
+          es: "El DAÑO POR NEGLIGENCIA o la PÉRDIDA es distinto. Ejemplos:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Leaving the vacuum in the rain in a client driveway, ruining it.", es: "Dejar la aspiradora en la lluvia en la entrada de un cliente, arruinándola." },
+          { en: "Loaning the Phes phone to a friend and it not coming back.", es: "Prestar el teléfono de Phes a un amigo y que no regrese." },
+          { en: "Losing a client's house key because it was off your keyring while you ran personal errands.", es: "Perder la llave de la casa de un cliente porque no estaba en su llavero mientras hacía mandados personales." },
+          { en: "Using a Phes vehicle off the clock for personal trips and getting into an accident.", es: "Usar un vehículo de Phes fuera del horario para viajes personales y tener un accidente." },
+        ],
+      },
+
+      { type: "h", text: { en: "Report Damage or Loss Promptly", es: "Reporte Daños o Pérdidas con Prontitud" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "If something in your kit is damaged, lost, or stops working, report it to the office BEFORE your next shift. The single biggest difference between a covered incident and a billed incident is whether you reported it. Phes can almost always resolve an honestly reported issue. Phes cannot resolve a hidden one.",
+          es: "Si algo en su kit se daña, se pierde o deja de funcionar, repórtelo a la oficina ANTES de su siguiente turno. La mayor diferencia entre un incidente cubierto y un incidente facturado es si lo reportó. Phes casi siempre puede resolver un asunto reportado honestamente. Phes no puede resolver uno oculto.",
+        },
+      },
+
+      { type: "h", text: { en: "Lost Client Key or Alarm Code", es: "Llave del Cliente o Código de Alarma Perdido" } },
+      {
+        type: "p",
+        text: {
+          en: "If you lose a client's key, key card, or alarm-code card, call the office IMMEDIATELY (not at the end of your shift, not the next day). The office will arrange a rekey or code change with the client. Phes pays for the rekey. The lost-key itself is not grounds for discipline; covering it up or delaying the report is.",
+          es: "Si pierde la llave de un cliente, una tarjeta de acceso o una tarjeta de código de alarma, llame a la oficina INMEDIATAMENTE (no al final del turno, no al día siguiente). La oficina coordinará un cambio de cerradura o de código con el cliente. Phes paga el cambio de cerradura. La llave perdida en sí no es motivo de disciplina; ocultarlo o retrasar el reporte sí lo es.",
+        },
+      },
+
+      { type: "h", text: { en: "No Personal Use, No Modifications", es: "Sin Uso Personal, Sin Modificaciones" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Do not use Phes supplies or equipment for personal cleaning at your own home or at a friend's home.", es: "No use suministros ni equipo de Phes para limpieza personal en su propia casa o en la casa de un amigo." },
+          { en: "Do not lend the Phes phone, tablet, vehicle, or keys to anyone, including coworkers off the clock.", es: "No preste el teléfono, tableta, vehículo o llaves de Phes a nadie, incluyendo compañeros fuera de turno." },
+          { en: "Do not modify or alter the equipment. If something is not working, get the office to issue a replacement.", es: "No modifique ni altere el equipo. Si algo no funciona, pida a la oficina que entregue un reemplazo." },
+          { en: "Do not buy substitute chemicals on your own initiative. Phes uses specific products for safety and consistency. Refills come from the office.", es: "No compre productos químicos sustitutos por su cuenta. Phes usa productos específicos por seguridad y consistencia. Las recargas vienen de la oficina." },
+        ],
+      },
+
+      { type: "h", text: { en: "Uniform Care", es: "Cuidado del Uniforme" } },
+      {
+        type: "p",
+        text: {
+          en: "Wash the uniform shirt and apron after each shift. Replace a torn uniform by asking the office (replacement is free for normal wear). Do not alter the uniform with paint, embroidery, or unofficial patches. If you have a religious or medical accommodation request related to the uniform, ask the office for the accommodation conversation.",
+          es: "Lave la camisa y el delantal del uniforme después de cada turno. Reemplace un uniforme roto pidiéndoselo a la oficina (el reemplazo es gratis por desgaste normal). No altere el uniforme con pintura, bordado ni parches no oficiales. Si tiene una solicitud de acomodación religiosa o médica relacionada con el uniforme, pida a la oficina la conversación de acomodación.",
+        },
+      },
+
+      { type: "h", text: { en: "Replacement and the Illinois Wage Payment and Collection Act", es: "Reemplazo y la Ley de Pago de Salarios y Recolección de Illinois" } },
+      {
+        type: "p",
+        text: {
+          en: "If something is damaged through negligence or unreported loss and Phes needs to bill you for replacement, here is how it works. Phes determines a replacement cost based on the documented item value. Phes notifies you in writing. If you agree to repayment, Phes and you SIGN A SEPARATE WRITTEN AUTHORIZATION (at that time, for that specific deduction) before any amount is taken from your paycheck. This is required by the Illinois Wage Payment and Collection Act, 820 ILCS 115, which prohibits employers from taking ANY deduction from wages without contemporaneous written authorization. Signing this Supply Kit Agreement does NOT pre-authorize automatic future deductions.",
+          es: "Si algo se daña por negligencia o se pierde sin reportar y Phes necesita facturarle un reemplazo, así funciona. Phes determina un costo de reemplazo basado en el valor documentado del artículo. Phes le notifica por escrito. Si acepta el pago, Phes y usted FIRMAN UNA AUTORIZACIÓN ESCRITA SEPARADA (en ese momento, para esa deducción específica) antes de que se tome cualquier monto de su pago. Esto es requerido por la Ley de Pago de Salarios y Recolección de Illinois, 820 ILCS 115, que prohíbe a los empleadores tomar CUALQUIER deducción del salario sin autorización escrita contemporánea. Firmar este Acuerdo del Kit de Suministros NO pre-autoriza deducciones futuras automáticas.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "If you do not agree to repayment, Phes may seek reimbursement through other lawful channels but will not unilaterally deduct from your paycheck. This protects you under Illinois law.",
+          es: "Si no acepta el pago, Phes puede buscar el reembolso a través de otras vías legales, pero no deducirá unilateralmente de su pago. Esto le protege bajo la ley de Illinois.",
+        },
+      },
+
+      { type: "h", text: { en: "Return at Separation", es: "Devolución al Separarse" } },
+      {
+        type: "p",
+        text: {
+          en: "On or before your last day with Phes (voluntary or involuntary), you will return ALL Phes property to the office: caddy, vacuum, supplies in their Phes-branded bottles, Phes phone or tablet, all client keys and access cards, the uniform shirt and apron, and any other Phes-issued item. Phes will inspect the returned items and apply the reasonable-wear vs negligent-damage standard described above. Failure to return Phes property may result in Phes seeking reimbursement at replacement cost, subject to the same Illinois Wage Payment and Collection Act limits on payroll deductions.",
+          es: "En o antes de su último día con Phes (voluntario o involuntario), devolverá TODA la propiedad de Phes a la oficina: el caddy, la aspiradora, los suministros en sus botellas con marca de Phes, el teléfono o tableta de Phes, todas las llaves y tarjetas de acceso de clientes, la camisa y el delantal del uniforme, y cualquier otro artículo emitido por Phes. Phes inspeccionará los artículos devueltos y aplicará el estándar de desgaste razonable vs daño por negligencia descrito arriba. No devolver la propiedad de Phes puede resultar en que Phes busque el reembolso al costo de reemplazo, sujeto a los mismos límites de la Ley de Pago de Salarios y Recolección de Illinois sobre deducciones de nómina.",
+        },
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "After this quiz: you will sign a separate Supply Kit Responsibility Acknowledgment that records your commitment. It is a one-sided acknowledgment (not co-signed). You can re-download the signed PDF anytime from your training page. The signature confirms that you understand the kit is Phes property, that you will report damage and loss, and that you understand any specific payroll deduction would require a separate written authorization at the time of the deduction.",
+          es: "Después de este examen: firmará un Reconocimiento de Responsabilidad del Kit de Suministros por separado que registra su compromiso. Es un reconocimiento unilateral (no co-firmado). Puede volver a descargar el PDF firmado en cualquier momento desde su página de capacitación. La firma confirma que entiende que el kit es propiedad de Phes, que reportará daños y pérdidas, y que entiende que cualquier deducción de nómina específica requeriría una autorización escrita separada al momento de la deducción.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5287,6 +5469,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes. Opt out anytime through My.ADP.com, the ADP Mobile Solutions App, or the Voice-Response System. You can re-enroll later whenever you want.", es: "Sí. Cancele en cualquier momento a través de My.ADP.com, la aplicación ADP Mobile Solutions o el sistema de respuesta por voz. Puede volver a inscribirse después cuando quiera." },
       { en: "Only during the first month after auto-enrollment.", es: "Solo durante el primer mes después de la inscripción automática." },
       { en: "Only if you are under age 21.", es: "Solo si tiene menos de 21 años." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 13: SUPPLY KIT RESPONSIBILITY (10 questions, Phase 9 PR #10)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-sk-01-property-of-phes",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "Who owns the items in your Phes supply kit (caddy, vacuum, chemicals in Phes-branded bottles, uniform, keys, Phes phone)?",
+      es: "¿Quién es dueño de los artículos de su kit de suministros de Phes (caddy, aspiradora, productos en botellas con marca de Phes, uniforme, llaves, teléfono de Phes)?",
+    },
+    options: [
+      { en: "You own them once you start using them.", es: "Usted los posee una vez que empiece a usarlos." },
+      { en: "Phes owns all of it. The kit is loaned to you for the duration of your employment.", es: "Phes es dueña de todo. El kit se le presta durante el tiempo de su empleo." },
+      { en: "You and Phes own them jointly.", es: "Usted y Phes son propietarios conjuntos." },
+      { en: "Whoever is assigned the route owns them.", es: "Quien tenga asignada la ruta los posee." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-02-reasonable-wear-vs-negligence",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "Your microfiber cloths are fraying after several months of regular use. Are you responsible for replacement cost?",
+      es: "Sus paños de microfibra se deshilachan después de varios meses de uso regular. ¿Es responsable del costo de reemplazo?",
+    },
+    options: [
+      { en: "Yes — anything that wears out is on you.", es: "Sí — cualquier cosa que se desgaste es responsabilidad suya." },
+      { en: "No. Reasonable wear and tear from using equipment as intended is absorbed by Phes. Negligent damage or loss is different.", es: "No. El desgaste razonable por usar el equipo como se pretende es absorbido por Phes. El daño por negligencia o la pérdida es distinto." },
+      { en: "Only if a client complains.", es: "Solo si un cliente se queja." },
+      { en: "Only if you have been at Phes less than one year.", es: "Solo si lleva menos de un año en Phes." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-03-report-damage-promptly",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You knock over the vacuum and crack the housing during a shift. What does the agreement ask you to do?",
+      es: "Tira la aspiradora y rompe la carcasa durante un turno. ¿Qué le pide el acuerdo que haga?",
+    },
+    options: [
+      { en: "Try to hide the damage and hope it isn't noticed.", es: "Tratar de ocultar el daño y esperar que no se note." },
+      { en: "Report the damage to the office BEFORE your next shift. Phes can almost always resolve an honestly reported issue. Phes cannot resolve a hidden one.", es: "Reportar el daño a la oficina ANTES de su siguiente turno. Phes casi siempre puede resolver un asunto reportado honestamente. Phes no puede resolver uno oculto." },
+      { en: "Take a photo and post it on Instagram.", es: "Tomar una foto y publicarla en Instagram." },
+      { en: "Buy a replacement out of pocket and swap it in.", es: "Comprar un reemplazo de su bolsillo y cambiarlo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-04-lost-key-procedure",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You realize during a shift that you have misplaced a client's house key. What does the agreement require?",
+      es: "Se da cuenta durante un turno de que perdió la llave de la casa de un cliente. ¿Qué requiere el acuerdo?",
+    },
+    options: [
+      { en: "Wait until your shift ends, then mention it to the office.", es: "Esperar hasta que termine su turno, luego mencionárselo a la oficina." },
+      { en: "Call the office IMMEDIATELY. Phes arranges a rekey or code change with the client and pays for it. The lost key itself is not grounds for discipline; covering it up or delaying the report is.", es: "Llamar a la oficina INMEDIATAMENTE. Phes coordina un cambio de cerradura o de código con el cliente y lo paga. La llave perdida en sí no es motivo de disciplina; ocultarlo o retrasar el reporte sí lo es." },
+      { en: "Have your spouse return the key on their way home.", es: "Que su cónyuge devuelva la llave de camino a casa." },
+      { en: "Make a copy and continue using the spare.", es: "Hacer una copia y seguir usando el repuesto." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-05-return-at-separation",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "It's your last day at Phes. The office wants the caddy, supplies, Phes phone, uniform, and client keys back. Is this in the agreement?",
+      es: "Es su último día en Phes. La oficina quiere de vuelta el caddy, suministros, teléfono de Phes, uniforme y llaves de clientes. ¿Está esto en el acuerdo?",
+    },
+    options: [
+      { en: "No. After your last day the kit is yours to keep.", es: "No. Después de su último día el kit es suyo para quedárselo." },
+      { en: "Yes. On or before your last day, you return ALL Phes property to the office. Phes inspects the returned items and applies the reasonable-wear vs negligent-damage standard.", es: "Sí. En o antes de su último día, devuelve TODA la propiedad de Phes a la oficina. Phes inspecciona los artículos devueltos y aplica el estándar de desgaste razonable vs daño por negligencia." },
+      { en: "Only if you are fired, not if you quit.", es: "Solo si lo despiden, no si renuncia." },
+      { en: "Only the keys; the rest is yours.", es: "Solo las llaves; el resto es suyo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-06-no-automatic-deduction",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "By signing the Supply Kit Agreement, are you pre-authorizing Phes to deduct money from your paycheck automatically for future damage or loss?",
+      es: "Al firmar el Acuerdo del Kit de Suministros, ¿está pre-autorizando a Phes a deducir dinero de su pago automáticamente por daños o pérdidas futuros?",
+    },
+    options: [
+      { en: "Yes. The signature gives Phes blanket authority for future deductions.", es: "Sí. La firma le da a Phes autoridad general para futuras deducciones." },
+      { en: "No. Under the Illinois Wage Payment and Collection Act (820 ILCS 115), any specific deduction requires a separate written authorization at the time of the deduction. Phes will notify you in writing first and a separate authorization must be signed before any amount is taken from your paycheck.", es: "No. Bajo la Ley de Pago de Salarios y Recolección de Illinois (820 ILCS 115), cualquier deducción específica requiere una autorización escrita separada al momento de la deducción. Phes le notificará por escrito primero y se debe firmar una autorización separada antes de que se tome cualquier monto de su pago." },
+      { en: "Only if the damage is over $500.", es: "Solo si el daño es mayor a $500." },
+      { en: "Only if you have been at Phes less than 90 days.", es: "Solo si lleva menos de 90 días en Phes." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-07-no-personal-use",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You finish a Phes job early. Can you bring the Phes vacuum and supplies home to clean your own apartment before returning to the office?",
+      es: "Termina un trabajo de Phes temprano. ¿Puede llevar la aspiradora y los suministros de Phes a casa para limpiar su propio apartamento antes de volver a la oficina?",
+    },
+    options: [
+      { en: "Yes, since you finished early.", es: "Sí, ya que terminó temprano." },
+      { en: "No. Phes supplies and equipment are for Phes work only. You may not use them for personal cleaning or lend them to anyone outside Phes.", es: "No. Los suministros y el equipo de Phes son solo para trabajo de Phes. No puede usarlos para limpieza personal ni prestarlos a nadie fuera de Phes." },
+      { en: "Yes, but only the chemicals, not the vacuum.", es: "Sí, pero solo los productos, no la aspiradora." },
+      { en: "Only if your apartment is on the route.", es: "Solo si su apartamento está en la ruta." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-08-no-modifications",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You think you could improve the cleaning chemistry by mixing your own substitute. Can you swap the Phes-issued chemicals for products you buy yourself?",
+      es: "Cree que podría mejorar la química de limpieza mezclando su propio sustituto. ¿Puede cambiar los productos químicos emitidos por Phes por productos que usted mismo compre?",
+    },
+    options: [
+      { en: "Yes, as long as it cleans better.", es: "Sí, mientras limpie mejor." },
+      { en: "No. Phes uses specific products for safety and consistency. Do not buy substitutes; do not modify or alter equipment. If something is not working, get the office to issue a replacement.", es: "No. Phes usa productos específicos por seguridad y consistencia. No compre sustitutos; no modifique ni altere el equipo. Si algo no funciona, pida a la oficina que entregue un reemplazo." },
+      { en: "Only if the substitute is the same brand.", es: "Solo si el sustituto es de la misma marca." },
+      { en: "Only with client approval.", es: "Solo con aprobación del cliente." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-09-uniform-care",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You want to add an embroidered name patch to your Phes apron because it looks nicer. Can you do that?",
+      es: "Quiere agregar un parche bordado con su nombre al delantal de Phes porque se ve mejor. ¿Puede hacerlo?",
+    },
+    options: [
+      { en: "Yes, personalization is encouraged.", es: "Sí, se anima la personalización." },
+      { en: "No. Do not alter the uniform with paint, embroidery, or unofficial patches. If you need accommodation related to the uniform (religious, medical), ask the office.", es: "No. No altere el uniforme con pintura, bordado ni parches no oficiales. Si necesita acomodación relacionada con el uniforme (religiosa, médica), pídala a la oficina." },
+      { en: "Only if the patch is small.", es: "Solo si el parche es pequeño." },
+      { en: "Only on the apron, not the shirt.", es: "Solo en el delantal, no en la camisa." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-sk-10-replacement-process",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "Phes determines that a damaged item must be replaced and you may be billed. What happens next under the Illinois Wage Payment and Collection Act?",
+      es: "Phes determina que un artículo dañado debe ser reemplazado y se le puede facturar. ¿Qué pasa después bajo la Ley de Pago de Salarios y Recolección de Illinois?",
+    },
+    options: [
+      { en: "Phes deducts the cost from your next paycheck automatically.", es: "Phes deduce el costo de su próximo pago automáticamente." },
+      { en: "Phes notifies you in writing with the documented cost. If you agree to repayment, Phes and you sign a separate written authorization for that specific deduction. If you do not agree, Phes may seek reimbursement through other lawful channels but will not unilaterally deduct from your paycheck.", es: "Phes le notifica por escrito con el costo documentado. Si acepta el pago, Phes y usted firman una autorización escrita separada para esa deducción específica. Si no acepta, Phes puede buscar el reembolso a través de otras vías legales, pero no deducirá unilateralmente de su pago." },
+      { en: "Phes withholds your tips until the cost is paid.", es: "Phes retiene sus propinas hasta que se pague el costo." },
+      { en: "The office files a small-claims case against you immediately.", es: "La oficina presenta una demanda en corte de reclamos menores contra usted inmediatamente." },
     ],
     correctIndex: 1,
   },

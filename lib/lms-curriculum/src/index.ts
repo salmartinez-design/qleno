@@ -53,6 +53,7 @@ export type ModuleId =
   | "non-solicitation"
   | "social-media"
   | "phes-401k"
+  | "supply-kit"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -84,6 +85,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "non-solicitation",
   "social-media",
   "phes-401k",
+  "supply-kit",
   "acknowledgment",
 ] as const;
 
@@ -148,6 +150,18 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * Safe Harbor match, profit-sharing vesting schedule, catch-up
  * contributions (50+ and 60-63 super catch-up), enrollment paths,
  * and the 10% early-withdrawal penalty.
+ *
+ * supply-kit (Phase 9, PR #10) is the last standalone signed-doc
+ * module. 10-question comprehension quiz + separate signed
+ * acknowledgment at document_type 'supply_kit'. Establishes the
+ * employee's responsibility for Phes-provided cleaning supplies,
+ * uniform, keys, and any assigned hardware. Distinguishes
+ * reasonable wear (Phes absorbs) from negligent damage (employee
+ * may be billed). Does NOT pre-authorize automatic payroll
+ * deductions — the Illinois Wage Payment and Collection Act
+ * (820 ILCS 115) requires contemporaneous written authorization
+ * for any specific deduction, so the agreement reserves Phes's
+ * right to seek reimbursement and references that requirement.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -162,6 +176,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "non-solicitation",
   "social-media",
   "phes-401k",
+  "supply-kit",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -480,6 +495,25 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-401-08-early-withdrawal-penalty": 1,
   "q-401-09-beneficiary-importance": 1,
   "q-401-10-opt-out-paths": 1,
+
+  // ── Module 13: supply-kit (10, Phase 9 PR #10) ──────────────────────────
+  // Phes Supply Kit Responsibility Agreement. NOT co-signed. Establishes
+  // employee responsibility for Phes-provided supplies, uniform, keys,
+  // and assigned hardware. Distinguishes reasonable wear (Phes absorbs)
+  // from negligent damage (employee may be billed). Does NOT
+  // pre-authorize payroll deductions; references IL Wage Payment and
+  // Collection Act (820 ILCS 115) which requires contemporaneous written
+  // authorization for any specific deduction.
+  "q-sk-01-property-of-phes": 1,
+  "q-sk-02-reasonable-wear-vs-negligence": 1,
+  "q-sk-03-report-damage-promptly": 1,
+  "q-sk-04-lost-key-procedure": 1,
+  "q-sk-05-return-at-separation": 1,
+  "q-sk-06-no-automatic-deduction": 1,
+  "q-sk-07-no-personal-use": 1,
+  "q-sk-08-no-modifications": 1,
+  "q-sk-09-uniform-care": 1,
+  "q-sk-10-replacement-process": 1,
 });
 
 /**
@@ -588,6 +622,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-401-05-vesting-immediate", "q-401-06-enrollment-paths",
       "q-401-07-catch-up-50-plus", "q-401-08-early-withdrawal-penalty",
       "q-401-09-beneficiary-importance", "q-401-10-opt-out-paths",
+    ],
+    "supply-kit": [
+      "q-sk-01-property-of-phes", "q-sk-02-reasonable-wear-vs-negligence",
+      "q-sk-03-report-damage-promptly", "q-sk-04-lost-key-procedure",
+      "q-sk-05-return-at-separation", "q-sk-06-no-automatic-deduction",
+      "q-sk-07-no-personal-use", "q-sk-08-no-modifications",
+      "q-sk-09-uniform-care", "q-sk-10-replacement-process",
     ],
   });
 

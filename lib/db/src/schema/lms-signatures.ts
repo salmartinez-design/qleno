@@ -517,7 +517,7 @@ export const REQUIRED_PRE_FINAL_SIGNED_DOCS = [
   "video_photo_release",
   "non_solicitation",
   "social_media",
-  // PR #10 will add: "supply_kit"
+  "supply_kit",
 ] as const;
 
 export type RequiredPreFinalSignedDoc =
