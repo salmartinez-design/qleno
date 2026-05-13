@@ -68,6 +68,7 @@ import {
   generateComprehensiveHandbookPdf,
   type SignedAckSummary,
 } from "../lib/lms-handbook-pdf.js";
+import { acknowledgePendingReAcksForSign } from "./lms-annual-ack.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -322,7 +323,21 @@ router.post("/sign", requireAuth, async (req, res) => {
         version_hash: version.version_hash,
       },
     });
-    await logAudit(req, "lms_handbook_signed", "lms_signed_document", signedDocumentId);
+
+    // Settle any outstanding annual / forced re-ack rows for this user
+    // and document. Tenant-scoped; runs even when no cycle is active
+    // because admin force-resign rows live outside cycles.
+    const acknowledgedCount = await acknowledgePendingReAcksForSign({
+      companyId,
+      userId,
+      documentType: HANDBOOK_DOCUMENT_TYPE,
+      signedDocumentId,
+      now,
+    });
+
+    await logAudit(req, "lms_handbook_signed", "lms_signed_document", signedDocumentId, null, {
+      pending_re_acks_settled: acknowledgedCount,
+    });
 
     return res.json({
       data: {
