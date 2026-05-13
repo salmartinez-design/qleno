@@ -87,8 +87,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
-  it("FINAL_TEST_SIZE is 50 (per Phes spec, 50 questions sampled from 75-pool)", () => {
-    assert.equal(FINAL_TEST_SIZE, 50);
+  it("FINAL_TEST_SIZE is 30 (Phase 13, PR #14: 30 sampled from the 187-question 13-module pool)", () => {
+    assert.equal(FINAL_TEST_SIZE, 30);
   });
 
   it("phes-policies has 40 questions (cleaning checklist + Deep Clean scope 2026-05-12)", () => {
@@ -412,10 +412,10 @@ describe("sampleFinalQuestionIds", () => {
     };
   }
 
-  it("returns the requested count by default (FINAL_TEST_SIZE = 50)", () => {
+  it("returns the requested count by default (FINAL_TEST_SIZE = 30)", () => {
     const ids = sampleFinalQuestionIds(undefined, seedRng(1));
     assert.equal(ids.length, FINAL_TEST_SIZE);
-    assert.equal(ids.length, 50);
+    assert.equal(ids.length, 30);
   });
 
   it("never exceeds the pool size when count > pool", () => {

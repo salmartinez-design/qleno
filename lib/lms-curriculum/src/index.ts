@@ -225,7 +225,16 @@ export function shouldShowLearnerGating(isOwner: boolean): boolean {
  * Restructure 2026-05-09: bumped from 15 → 50 to reflect the larger
  * 75-question pool (5 modules × 15 each).
  */
-export const FINAL_TEST_SIZE = 50;
+/**
+ * Phase 13 (PR #14): sampled to 30 from the now-187-question pool. The
+ * user spec calls for 25-30; we pick the upper bound so the test
+ * stretches across more modules (sampler is uniform random across all
+ * QUIZ_MODULE_IDS, so 30 gives a comfortable spread). Previously 50
+ * when the pool was 75; sample-to-pool ratio is now ~16 percent vs the
+ * earlier ~67 percent. The lower density is appropriate for a closing
+ * mixed test, not a re-test of every concept.
+ */
+export const FINAL_TEST_SIZE = 30;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Answer key — mirrors artifacts/qleno/src/lib/training/curriculum.ts.
