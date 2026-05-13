@@ -52,6 +52,7 @@ export type ModuleId =
   | "video-photo-release"
   | "non-solicitation"
   | "social-media"
+  | "phes-401k"
   | "acknowledgment";
 
 export type QuizModuleId = Exclude<ModuleId, "acknowledgment">;
@@ -82,6 +83,7 @@ export const MODULE_ORDER: readonly ModuleId[] = [
   "video-photo-release",
   "non-solicitation",
   "social-media",
+  "phes-401k",
   "acknowledgment",
 ] as const;
 
@@ -136,6 +138,16 @@ export const MODULE_ORDER: readonly ModuleId[] = [
  * Restrictions target client confidentiality, in-uniform
  * misrepresentation, and Phes-client solicitation (cross-refs the
  * Non-Solicitation Agreement).
+ *
+ * phes-401k (Phase 8, PR #9) is a benefits-education module.
+ * 10-question comprehension quiz; NO signed legal document; NOT
+ * gating the final exam. Covers the Phes 401(k) plan administered
+ * by ADP Retirement Services: auto-enrollment at 3%, eligibility
+ * (18 + 3 months of service), Safe Harbor Match (100% of first 3%
+ * + 50% of next 2%), immediate vesting of employee deferrals and
+ * Safe Harbor match, profit-sharing vesting schedule, catch-up
+ * contributions (50+ and 60-63 super catch-up), enrollment paths,
+ * and the 10% early-withdrawal penalty.
  */
 export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "phes-policies",
@@ -149,6 +161,7 @@ export const QUIZ_MODULE_IDS: readonly QuizModuleId[] = [
   "video-photo-release",
   "non-solicitation",
   "social-media",
+  "phes-401k",
 ] as const;
 
 /** Pass threshold per module (and for the final mixed test). 80%. */
@@ -442,6 +455,25 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-sm-08-protected-concerted": 1,
   "q-sm-09-harassment-reporting": 1,
   "q-sm-10-client-photos": 1,
+
+  // ── Module 12: phes-401k (10, Phase 8 PR #9) ────────────────────────────
+  // Phes 401(k) Plan administered by ADP Retirement Services. Educational
+  // module, NOT a signed legal document; does NOT gate the final exam.
+  // Plan facts sourced from the ADP Plan Highlights PDF (Plan ID 073781,
+  // sponsor PHES LLC). Quiz verifies comprehension of eligibility,
+  // auto-enrollment, Safe Harbor match, vesting, catch-up contributions,
+  // enrollment paths, early-withdrawal penalty, and beneficiary
+  // designation.
+  "q-401-01-eligibility": 1,
+  "q-401-02-auto-enroll-pct": 1,
+  "q-401-03-safe-harbor-formula": 0,
+  "q-401-04-match-at-5-pct": 2,
+  "q-401-05-vesting-immediate": 0,
+  "q-401-06-enrollment-paths": 1,
+  "q-401-07-catch-up-50-plus": 1,
+  "q-401-08-early-withdrawal-penalty": 1,
+  "q-401-09-beneficiary-importance": 1,
+  "q-401-10-opt-out-paths": 1,
 });
 
 /**
@@ -540,6 +572,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-sm-05-client-solicitation", "q-sm-06-disparagement",
       "q-sm-07-impersonation", "q-sm-08-protected-concerted",
       "q-sm-09-harassment-reporting", "q-sm-10-client-photos",
+    ],
+    "phes-401k": [
+      "q-401-01-eligibility", "q-401-02-auto-enroll-pct",
+      "q-401-03-safe-harbor-formula", "q-401-04-match-at-5-pct",
+      "q-401-05-vesting-immediate", "q-401-06-enrollment-paths",
+      "q-401-07-catch-up-50-plus", "q-401-08-early-withdrawal-penalty",
+      "q-401-09-beneficiary-importance", "q-401-10-opt-out-paths",
     ],
   });
 

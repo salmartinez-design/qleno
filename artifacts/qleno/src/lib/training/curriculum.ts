@@ -2518,6 +2518,233 @@ const BASE_MODULES: Module[] = [
       },
     ],
   },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 12. PHES 401(k) RETIREMENT PLAN (Phase 8, PR #9)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Benefits-EDUCATION module. NOT a signed legal document and does NOT gate
+  // the final exam. Plan facts sourced from the ADP Plan Highlights PDF
+  // (PHES LLC, Plan ID 073781). The completion certificate issues
+  // automatically when the quiz passes.
+  //
+  // Educational disclaimer (also in the module body): this content is
+  // general education, not financial, tax, or legal advice. ADP is the
+  // record keeper and is not affiliated with Phes as an employer. The Plan
+  // document governs in the event of any inconsistencies.
+  {
+    id: "phes-401k",
+    number: 12,
+    iconKind: "money",
+    title: {
+      en: "Phes 401(k) Retirement Plan",
+      es: "Plan de Jubilación 401(k) de Phes",
+    },
+    subtitle: {
+      en: "How your 401(k) works, how to enroll, contribution options, and the Phes Safe Harbor match.",
+      es: "Cómo funciona su 401(k), cómo inscribirse, opciones de contribución y la contribución de Safe Harbor de Phes.",
+    },
+    estimatedMinutes: 10,
+    blocks: [
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "This module is educational only. It is not financial, tax, or legal advice. ADP Retirement Services is the plan record keeper and is not affiliated with Phes as your employer. Plan features and benefits are subject to the Plan document, which governs in the event of any inconsistency with this module. Consult your own advisors for individual planning decisions.",
+          es: "Este módulo es solo educativo. No es asesoría financiera, fiscal ni legal. ADP Retirement Services es el administrador de registros del plan y no está afiliado a Phes como su empleador. Las características y los beneficios del plan están sujetos al documento del Plan, el cual prevalece en caso de cualquier inconsistencia con este módulo. Consulte a sus propios asesores para decisiones de planeación individual.",
+        },
+      },
+
+      { type: "h", text: { en: "Plan Basics", es: "Información Básica del Plan" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes sponsors a 401(k) retirement plan for its W-2 employees. The plan is administered by ADP Retirement Services. Plan name: PHES LLC - 401(K). Plan ID: 073781. Plan sponsor: PHES LLC. Record-keeper address: 71 Hanover Road, Florham Park, NJ 07932.",
+          es: "Phes patrocina un plan de jubilación 401(k) para sus empleados W-2. El plan es administrado por ADP Retirement Services. Nombre del plan: PHES LLC - 401(K). ID del plan: 073781. Patrocinador del plan: PHES LLC. Dirección del administrador de registros: 71 Hanover Road, Florham Park, NJ 07932.",
+        },
+      },
+
+      { type: "h", text: { en: "Who Is Eligible", es: "Quién es Elegible" } },
+      {
+        type: "p",
+        text: {
+          en: "You become eligible to participate when you meet BOTH of these requirements by the next plan entry date:",
+          es: "Es elegible para participar cuando cumple AMBOS de estos requisitos para la próxima fecha de entrada al plan:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Age 18 or older.", es: "18 años o más." },
+          { en: "3 months of service with Phes.", es: "3 meses de servicio con Phes." },
+        ],
+      },
+
+      { type: "h", text: { en: "Auto-Enrollment at 3 Percent", es: "Inscripción Automática al 3 Por Ciento" } },
+      {
+        type: "p",
+        text: {
+          en: "When you become eligible, you are AUTOMATICALLY enrolled in the Plan. Your default contribution is 3 percent of pay, deducted before tax, invested in the Plan's default fund. You can change the contribution percentage, change the fund, or opt out at any time.",
+          es: "Cuando se vuelve elegible, queda AUTOMÁTICAMENTE inscrito en el Plan. Su contribución predeterminada es 3 por ciento del pago, deducida antes de impuestos, invertida en el fondo predeterminado del Plan. Puede cambiar el porcentaje de contribución, cambiar el fondo o cancelar la inscripción en cualquier momento.",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Opt out or change your election: My.ADP.com, the ADP Mobile Solutions App, or the Voice-Response System.", es: "Cancelar la inscripción o cambiar su elección: My.ADP.com, la aplicación ADP Mobile Solutions, o el sistema de respuesta por voz." },
+          { en: "Re-enroll later anytime: if you opt out and later change your mind, you can enroll again whenever you want.", es: "Volver a inscribirse después en cualquier momento: si cancela la inscripción y luego cambia de opinión, puede volver a inscribirse cuando quiera." },
+        ],
+      },
+
+      { type: "h", text: { en: "How to Enroll (or Change Your Election)", es: "Cómo Inscribirse (o Cambiar Su Elección)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Text \"Enroll Now\" to 72408.", es: "Envíe un texto con \"Enroll Now\" al 72408." },
+          { en: "Visit My.ADP.com.", es: "Visite My.ADP.com." },
+          { en: "Use the ADP Mobile Solutions App.", es: "Use la aplicación ADP Mobile Solutions." },
+          { en: "Call 1-800-695-7526 (the Voice-Response System is available 24/7; live representatives are available Monday through Friday, 8:00 AM to 9:00 PM Eastern).", es: "Llame al 1-800-695-7526 (el sistema de respuesta por voz está disponible 24/7; los representantes en vivo están disponibles de lunes a viernes, de 8:00 AM a 9:00 PM hora del Este)." },
+        ],
+      },
+
+      { type: "h", text: { en: "Contribution Options", es: "Opciones de Contribución" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Before-tax (Traditional) contributions: 1 percent to 90 percent of pay.", es: "Contribuciones antes de impuestos (Tradicional): 1 por ciento a 90 por ciento del pago." },
+          { en: "After-tax (Roth) contributions: 1 percent to 90 percent of pay.", es: "Contribuciones después de impuestos (Roth): 1 por ciento a 90 por ciento del pago." },
+          { en: "Annual dollar limit to the Plan: $24,500.", es: "Límite anual en dólares al Plan: $24,500." },
+          { en: "Highly Compensated Employees may have lower limits.", es: "Los Empleados Altamente Compensados pueden tener límites más bajos." },
+        ],
+      },
+
+      { type: "h", text: { en: "Catch-Up Contributions (Age 50 and Older)", es: "Contribuciones de Recuperación (50 Años o Más)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Standard catch-up: if you will be age 50 or older by December 31, you may contribute an additional $8,000 per year above the standard limit.", es: "Recuperación estándar: si tendrá 50 años o más al 31 de diciembre, puede contribuir $8,000 adicionales al año por encima del límite estándar." },
+          { en: "Super catch-up: if you will be age 60 to 63 by December 31, you may contribute an additional $11,250 per year.", es: "Súper recuperación: si tendrá entre 60 y 63 años al 31 de diciembre, puede contribuir $11,250 adicionales al año." },
+          { en: "Required Roth on catch-up: if you earned more than $150,000 in Social Security wages (Box 3 of W-2) from Phes in the prior year, ALL of your catch-up contributions must be designated as Roth.", es: "Roth requerido en recuperación: si ganó más de $150,000 en salarios del Seguro Social (Casilla 3 del W-2) de Phes el año anterior, TODAS sus contribuciones de recuperación deben ser designadas como Roth." },
+        ],
+      },
+
+      { type: "h", text: { en: "Phes Safe Harbor Match (The Free Money)", es: "Contribución Safe Harbor de Phes (El Dinero Gratis)" } },
+      {
+        type: "callout",
+        tone: "success",
+        text: {
+          en: "Phes matches your contributions under a Safe Harbor formula: 100 percent of the first 3 percent of your salary deferral, plus 50 percent of the next 2 percent of your deferral. If you contribute 5 percent of your pay, Phes adds 4 percent of your pay on top of that. This match is in addition to your own contribution. You do not have to do anything special to receive it beyond contributing to the Plan.",
+          es: "Phes iguala sus contribuciones bajo una fórmula de Safe Harbor: 100 por ciento del primer 3 por ciento de su aplazamiento salarial, más 50 por ciento del siguiente 2 por ciento de su aplazamiento. Si contribuye 5 por ciento de su pago, Phes agrega 4 por ciento de su pago además de eso. Esta contribución es adicional a la suya. No tiene que hacer nada especial para recibirla, solo contribuir al Plan.",
+        },
+      },
+
+      { type: "h", text: { en: "Profit-Sharing Contributions (Discretionary)", es: "Contribuciones de Reparto de Utilidades (Discrecionales)" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes may make a profit-sharing contribution to the Plan each year. This is discretionary, meaning Phes decides each year whether to contribute and how much. Specific eligibility requirements apply. See the Summary Plan Description (SPD) for details.",
+          es: "Phes puede hacer una contribución de reparto de utilidades al Plan cada año. Esto es discrecional, lo que significa que Phes decide cada año si contribuir y cuánto. Aplican requisitos de elegibilidad específicos. Consulte el Resumen Descriptivo del Plan (SPD) para más detalles.",
+        },
+      },
+
+      { type: "h", text: { en: "Vesting (When the Money Is Yours)", es: "Adquisición de Derechos (Cuándo el Dinero es Suyo)" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Your own contributions: 100 percent vested immediately. The money is yours from day one.", es: "Sus propias contribuciones: 100 por ciento adquiridas inmediatamente. El dinero es suyo desde el primer día." },
+          { en: "Safe Harbor match: 100 percent vested immediately. The match is yours as soon as it lands in your account.", es: "Contribución Safe Harbor: 100 por ciento adquirida inmediatamente. La contribución es suya tan pronto como llega a su cuenta." },
+        ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "Profit-sharing contributions (if any) vest on a graded schedule based on years of service:",
+          es: "Las contribuciones de reparto de utilidades (si las hay) se adquieren en una escala progresiva basada en años de servicio:",
+        },
+      },
+      {
+        type: "table",
+        head: { en: ["Years of Service", "Vested Percentage"], es: ["Años de Servicio", "Porcentaje Adquirido"] },
+        rows: [
+          { en: ["0 to 1 year", "0 percent"], es: ["0 a 1 año", "0 por ciento"] },
+          { en: ["2 years", "20 percent"], es: ["2 años", "20 por ciento"] },
+          { en: ["3 years", "40 percent"], es: ["3 años", "40 por ciento"] },
+          { en: ["4 years", "60 percent"], es: ["4 años", "60 por ciento"] },
+          { en: ["5 years", "80 percent"], es: ["5 años", "80 por ciento"] },
+          { en: ["6 or more years", "100 percent"], es: ["6 o más años", "100 por ciento"] },
+        ],
+      },
+
+      { type: "h", text: { en: "Rollovers From a Previous Employer", es: "Transferencias de un Empleador Anterior" } },
+      {
+        type: "p",
+        text: {
+          en: "If you have savings in a previous employer's qualified retirement plan or a Rollover IRA, you can roll those balances into the Phes 401(k). This is available even if you have not yet met the age and service requirements to make new contributions. Consolidation makes tracking easier. To start, log into your account or use the ADP Mobile Solutions App and click the \"Consolidate Accounts\" tile. The rollover resource page is at achieve.adp.com.",
+          es: "Si tiene ahorros en un plan de jubilación calificado de un empleador anterior o en una IRA de Rollover, puede transferir esos saldos al 401(k) de Phes. Está disponible aunque aún no haya cumplido los requisitos de edad y servicio para hacer nuevas contribuciones. Consolidar facilita el seguimiento. Para empezar, ingrese a su cuenta o use la aplicación ADP Mobile Solutions y haga clic en el panel \"Consolidate Accounts\". La página de recursos sobre transferencias está en achieve.adp.com.",
+        },
+      },
+
+      { type: "h", text: { en: "Loans", es: "Préstamos" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Outstanding loans allowed: 1 at any time.", es: "Préstamos pendientes permitidos: 1 a la vez." },
+          { en: "Minimum loan amount: $500.", es: "Monto mínimo del préstamo: $500." },
+          { en: "Maximum repayment period: 5 years (longer if used to purchase your primary residence).", es: "Período máximo de pago: 5 años (más largo si se usa para comprar su residencia principal)." },
+          { en: "Interest rate: Prime plus 2 percent.", es: "Tasa de interés: Prime más 2 por ciento." },
+          { en: "A loan fee may apply. See Account > Plan Information > Participant Fee Disclosure > Individual Expenses on the ADP website.", es: "Puede aplicarse una tarifa de préstamo. Consulte Account > Plan Information > Participant Fee Disclosure > Individual Expenses en el sitio de ADP." },
+        ],
+      },
+
+      { type: "h", text: { en: "Withdrawals While Still Employed", es: "Retiros Mientras Sigue Empleado" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Rollover withdrawal (move balances out to another qualified plan or IRA).", es: "Retiro de transferencia (mover saldos a otro plan calificado o IRA)." },
+          { en: "Age 59 and a half withdrawal (penalty-free).", es: "Retiro a los 59 años y medio (sin penalización)." },
+          { en: "Hardship withdrawal (specific qualifying events; see Plan documents).", es: "Retiro por dificultad (eventos calificantes específicos; consulte los documentos del Plan)." },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "If you withdraw before age 59 and a half (other than a rollover), you generally pay a 10 percent early-withdrawal penalty IN ADDITION to federal and state income tax on the amount withdrawn. The Special Tax Notice on the retirement-plan website explains the consequences in detail.",
+          es: "Si retira antes de los 59 años y medio (que no sea una transferencia), generalmente paga una penalización por retiro temprano del 10 por ciento ADEMÁS del impuesto federal y estatal sobre el monto retirado. El Aviso Fiscal Especial en el sitio web del plan de jubilación explica las consecuencias en detalle.",
+        },
+      },
+
+      { type: "h", text: { en: "Naming a Beneficiary", es: "Nombrar a un Beneficiario" } },
+      {
+        type: "p",
+        text: {
+          en: "Your account passes to the beneficiary or beneficiaries you designate if you die before withdrawing the balance. You provide the beneficiary's name, date of birth, and Social Security Number when you make the designation. If you are married and want to name someone other than your spouse, you must print and submit the Spousal Consent Form available online.",
+          es: "Su cuenta pasa al beneficiario o beneficiarios que designe si fallece antes de retirar el saldo. Usted provee el nombre del beneficiario, su fecha de nacimiento y su número de Seguro Social al hacer la designación. Si está casado y quiere nombrar a alguien distinto de su cónyuge, debe imprimir y enviar el Formulario de Consentimiento Conyugal disponible en línea.",
+        },
+      },
+
+      { type: "h", text: { en: "Tools and Resources", es: "Herramientas y Recursos" } },
+      {
+        type: "bullets",
+        items: [
+          { en: "Save Smart automatically increases your contribution percentage by 1, 2, or 3 percentage points on a date you choose each year (before-tax contributions only).", es: "Save Smart aumenta automáticamente su porcentaje de contribución en 1, 2 o 3 puntos porcentuales en una fecha que usted elige cada año (solo contribuciones antes de impuestos)." },
+          { en: "Automatic Account Rebalancing keeps your current investment mix consistent with your strategy (quarterly, semi-annually, or annually).", es: "El Reequilibrio Automático de la Cuenta mantiene su mezcla de inversión actual consistente con su estrategia (trimestralmente, semestralmente o anualmente)." },
+          { en: "Quarterly Account Statement is in the My Account section after you log in.", es: "El Estado de Cuenta Trimestral está en la sección My Account después de iniciar sesión." },
+          { en: "Participant Advisory Services from Edelman Financial Engines: some components are free; the Professional Management program has an annual fee based on account balance. Enroll at My.ADP.com or call (844) 861-0028. Edelman Financial Engines is not affiliated with ADP.", es: "Servicios de Asesoría para Participantes de Edelman Financial Engines: algunos componentes son gratuitos; el programa Professional Management tiene una tarifa anual basada en el saldo de la cuenta. Inscríbase en My.ADP.com o llame al (844) 861-0028. Edelman Financial Engines no está afiliado a ADP." },
+          { en: "ADP Achieve Engagement Hub: planning tools and resources at achieve.adp.com.", es: "ADP Achieve Engagement Hub: herramientas y recursos de planeación en achieve.adp.com." },
+        ],
+      },
+
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "This module ends here. Passing the quiz issues a completion certificate that you can download anytime from your training page. There is no separate signed legal document for the 401(k) module. The Plan document and the Summary Plan Description (SPD), available through My.ADP.com, govern the actual operation of the plan and prevail over any conflict with this educational summary.",
+          es: "Este módulo termina aquí. Aprobar el examen emite un certificado de finalización que puede descargar en cualquier momento desde su página de capacitación. No hay un documento legal firmado separado para el módulo del 401(k). El documento del Plan y el Resumen Descriptivo del Plan (SPD), disponibles a través de My.ADP.com, rigen la operación real del plan y prevalecen sobre cualquier conflicto con este resumen educativo.",
+        },
+      },
+    ],
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -4807,6 +5034,160 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "No. Phes-controlled official channels publishing content captured under the Video & Photo Release are governed by that release, not by this policy. This policy governs what EMPLOYEES post on PERSONAL channels.", es: "No. Los canales oficiales controlados por Phes que publican contenido capturado bajo la Autorización de Video y Foto se rigen por esa autorización, no por esta política. Esta política rige lo que los EMPLEADOS publican en canales PERSONALES." },
       { en: "Only if the client is in the photo.", es: "Solo si el cliente está en la foto." },
       { en: "Yes — kitchens are private.", es: "Sí — las cocinas son privadas." },
+    ],
+    correctIndex: 1,
+  },
+
+  // ═════════════════════════════════════════════════════════════════════════════
+  // Module 12: PHES 401(k) RETIREMENT PLAN (10 questions, Phase 8 PR #9)
+  // ═════════════════════════════════════════════════════════════════════════════
+  {
+    id: "q-401-01-eligibility",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "When does an employee become eligible to participate in the Phes 401(k) Plan?",
+      es: "¿Cuándo se vuelve elegible un empleado para participar en el Plan 401(k) de Phes?",
+    },
+    options: [
+      { en: "On their first day of employment.", es: "El primer día de empleo." },
+      { en: "After turning age 18 AND completing 3 months of service, by the next plan entry date.", es: "Después de cumplir 18 años Y completar 3 meses de servicio, en la próxima fecha de entrada al plan." },
+      { en: "After 1 full year of employment.", es: "Después de 1 año completo de empleo." },
+      { en: "After they pass training.", es: "Después de pasar la capacitación." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-02-auto-enroll-pct",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "What is the auto-enrollment contribution percentage when you first become eligible?",
+      es: "¿Cuál es el porcentaje de contribución por inscripción automática cuando se vuelve elegible por primera vez?",
+    },
+    options: [
+      { en: "1 percent of pay.", es: "1 por ciento del pago." },
+      { en: "3 percent of pay, deducted before tax, invested in the Plan default fund. You can change it or opt out anytime.", es: "3 por ciento del pago, deducido antes de impuestos, invertido en el fondo predeterminado del Plan. Puede cambiarlo o cancelarlo en cualquier momento." },
+      { en: "5 percent of pay.", es: "5 por ciento del pago." },
+      { en: "10 percent of pay.", es: "10 por ciento del pago." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-03-safe-harbor-formula",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "What is the Phes Safe Harbor matching formula?",
+      es: "¿Cuál es la fórmula de la contribución Safe Harbor de Phes?",
+    },
+    options: [
+      { en: "100 percent of your first 3 percent of pay, plus 50 percent of the next 2 percent.", es: "100 por ciento de su primer 3 por ciento de pago, más 50 por ciento del siguiente 2 por ciento." },
+      { en: "50 percent of your first 6 percent of pay.", es: "50 por ciento de su primer 6 por ciento de pago." },
+      { en: "100 percent of your first 6 percent of pay.", es: "100 por ciento de su primer 6 por ciento de pago." },
+      { en: "Phes does not match employee contributions.", es: "Phes no iguala las contribuciones del empleado." },
+    ],
+    correctIndex: 0,
+  },
+  {
+    id: "q-401-04-match-at-5-pct",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "If you contribute 5 percent of your pay to the 401(k), how much does Phes add on top of that?",
+      es: "Si contribuye 5 por ciento de su pago al 401(k), ¿cuánto agrega Phes adicionalmente?",
+    },
+    options: [
+      { en: "2 percent of pay.", es: "2 por ciento del pago." },
+      { en: "3 percent of pay.", es: "3 por ciento del pago." },
+      { en: "4 percent of pay (the full 3 percent match on the first 3 percent plus 1 percent on the next 2 percent).", es: "4 por ciento del pago (la igualación completa del 3 por ciento sobre el primer 3 por ciento más 1 por ciento sobre el siguiente 2 por ciento)." },
+      { en: "5 percent of pay.", es: "5 por ciento del pago." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-401-05-vesting-immediate",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "Are your own contributions and the Safe Harbor match 100 percent yours from day one?",
+      es: "¿Sus propias contribuciones y la contribución Safe Harbor son 100 por ciento suyas desde el primer día?",
+    },
+    options: [
+      { en: "Yes. Employee contributions and the Safe Harbor match are 100 percent vested immediately.", es: "Sí. Las contribuciones del empleado y la contribución Safe Harbor están 100 por ciento adquiridas inmediatamente." },
+      { en: "No. They vest over 6 years.", es: "No. Se adquieren a lo largo de 6 años." },
+      { en: "Only after 5 years.", es: "Solo después de 5 años." },
+      { en: "Only at retirement.", es: "Solo al jubilarse." },
+    ],
+    correctIndex: 0,
+  },
+  {
+    id: "q-401-06-enrollment-paths",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "How do you enroll or change your 401(k) election?",
+      es: "¿Cómo se inscribe o cambia su elección del 401(k)?",
+    },
+    options: [
+      { en: "Wait for the office to enroll you.", es: "Espere a que la oficina lo inscriba." },
+      { en: "Text \"Enroll Now\" to 72408, visit My.ADP.com, use the ADP Mobile Solutions App, or call 1-800-695-7526.", es: "Envíe un texto con \"Enroll Now\" al 72408, visite My.ADP.com, use la aplicación ADP Mobile Solutions o llame al 1-800-695-7526." },
+      { en: "Fill out a paper form and mail it to ADP.", es: "Llene un formulario en papel y envíelo por correo a ADP." },
+      { en: "Wait until your 1-year anniversary.", es: "Espere hasta el aniversario de 1 año." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-07-catch-up-50-plus",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "You will be 52 by the end of the year. Can you contribute more than the standard $24,500 annual limit?",
+      es: "Cumplirá 52 antes de fin de año. ¿Puede contribuir más del límite anual estándar de $24,500?",
+    },
+    options: [
+      { en: "No. The limit is the same for everyone.", es: "No. El límite es el mismo para todos." },
+      { en: "Yes. Standard catch-up (age 50 and older by December 31) allows an additional $8,000 per year above the standard limit.", es: "Sí. La recuperación estándar (50 años o más al 31 de diciembre) permite $8,000 adicionales al año por encima del límite estándar." },
+      { en: "Yes. There is no upper limit for older participants.", es: "Sí. No hay límite superior para participantes mayores." },
+      { en: "Only if your spouse co-signs the election.", es: "Solo si su cónyuge co-firma la elección." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-08-early-withdrawal-penalty",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "You withdraw money from your 401(k) at age 45 (not a rollover). What is the tax consequence?",
+      es: "Retira dinero de su 401(k) a los 45 años (sin ser una transferencia). ¿Cuál es la consecuencia fiscal?",
+    },
+    options: [
+      { en: "No penalty; withdrawals are always penalty-free.", es: "Sin penalización; los retiros siempre son libres de penalización." },
+      { en: "Generally a 10 percent early-withdrawal penalty IN ADDITION to federal and state income tax on the amount withdrawn.", es: "Generalmente una penalización del 10 por ciento por retiro temprano ADEMÁS del impuesto federal y estatal sobre el monto retirado." },
+      { en: "You forfeit your entire account balance.", es: "Pierde el saldo completo de su cuenta." },
+      { en: "You can never withdraw before age 59 and a half.", es: "Nunca puede retirar antes de los 59 años y medio." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-09-beneficiary-importance",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "Why is it important to name a beneficiary on your 401(k) account?",
+      es: "¿Por qué es importante nombrar a un beneficiario en su cuenta 401(k)?",
+    },
+    options: [
+      { en: "It is required by law every year.", es: "Es requerido por ley cada año." },
+      { en: "Your account passes to the beneficiary or beneficiaries you designate if you die before withdrawing the balance.", es: "Su cuenta pasa al beneficiario o beneficiarios que designe si fallece antes de retirar el saldo." },
+      { en: "It increases your contribution rate automatically.", es: "Aumenta automáticamente su tasa de contribución." },
+      { en: "It changes your investment strategy.", es: "Cambia su estrategia de inversión." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-401-10-opt-out-paths",
+    moduleId: "phes-401k",
+    prompt: {
+      en: "Auto-enrollment kicked in but you do not want to contribute right now. Can you opt out, and how?",
+      es: "Se activó la inscripción automática pero no quiere contribuir ahora. ¿Puede cancelar la inscripción, y cómo?",
+    },
+    options: [
+      { en: "No. Once auto-enrolled, you cannot opt out.", es: "No. Una vez inscrito automáticamente, no puede cancelar." },
+      { en: "Yes. Opt out anytime through My.ADP.com, the ADP Mobile Solutions App, or the Voice-Response System. You can re-enroll later whenever you want.", es: "Sí. Cancele en cualquier momento a través de My.ADP.com, la aplicación ADP Mobile Solutions o el sistema de respuesta por voz. Puede volver a inscribirse después cuando quiera." },
+      { en: "Only during the first month after auto-enrollment.", es: "Solo durante el primer mes después de la inscripción automática." },
+      { en: "Only if you are under age 21.", es: "Solo si tiene menos de 21 años." },
     ],
     correctIndex: 1,
   },

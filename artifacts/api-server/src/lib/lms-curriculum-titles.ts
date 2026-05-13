@@ -68,6 +68,10 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Social Media Policy",
     es: "Política de Redes Sociales",
   },
+  "phes-401k": {
+    en: "Phes 401(k) Retirement Plan",
+    es: "Plan de Jubilación 401(k) de Phes",
+  },
   acknowledgment: {
     en: "Onboarding Acknowledgment",
     es: "Confirmación de Incorporación",

@@ -212,6 +212,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-sm-08-protected-concerted": 1,
   "q-sm-09-harassment-reporting": 1,
   "q-sm-10-client-photos": 1,
+
+  // ── Module 12: phes-401k (10, Phase 8 PR #9) ───────────────────────────
+  "q-401-01-eligibility": 1,
+  "q-401-02-auto-enroll-pct": 1,
+  "q-401-03-safe-harbor-formula": 0,
+  "q-401-04-match-at-5-pct": 2,
+  "q-401-05-vesting-immediate": 0,
+  "q-401-06-enrollment-paths": 1,
+  "q-401-07-catch-up-50-plus": 1,
+  "q-401-08-early-withdrawal-penalty": 1,
+  "q-401-09-beneficiary-importance": 1,
+  "q-401-10-opt-out-paths": 1,
 });
 
 /**
