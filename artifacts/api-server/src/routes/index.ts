@@ -80,6 +80,7 @@ import lmsHandbookRouter from "./lms-handbook.js";
 import lmsAnnualAckRouter from "./lms-annual-ack.js";
 import lmsSettingsRouter from "./lms-settings.js";
 import lmsAdminAuditRouter from "./lms-admin-audit.js";
+import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 
 const router: IRouter = Router();
 
@@ -164,5 +165,6 @@ router.use("/lms/handbook", lmsHandbookRouter);
 router.use("/lms/annual-ack", lmsAnnualAckRouter);
 router.use("/lms-settings", lmsSettingsRouter);
 router.use("/lms/admin-audit", lmsAdminAuditRouter);
+router.use("/lms/onboarding-intake", lmsOnboardingIntakeRouter);
 
 export default router;
