@@ -772,6 +772,69 @@ const SUPPLY_KIT_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Handbook — comprehensive final acknowledgment (Phase 11, PR #13)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// This is the canonical text the employee agrees to when they sign the
+// comprehensive handbook PDF. The PDF bundle also includes a cover page,
+// a summary of the full handbook content, and copies of every previously
+// signed standalone acknowledgment. Only the ack text below is hashed for
+// the audit chain. The PDF generator pulls the rest in by reference.
+
+const HANDBOOK_EN: SignedDocumentLocaleContent = {
+  title: "Phes Employee Handbook: Final Acknowledgment",
+  contentHtml: [
+    "## Acknowledgment of Receipt and Understanding",
+    "I acknowledge that I have received, read, and understood the Phes Cleaning Service Employee Handbook in its entirety. I understand the policies, procedures, and expectations described in it.",
+    "",
+    "## At-Will Employment",
+    "I understand and agree that my employment with Phes Cleaning Service is at-will. Either I or Phes may end the employment relationship at any time, with or without cause and with or without notice. No statement in this handbook, and no statement made by any Phes employee, creates a contract for continued employment or alters this at-will relationship.",
+    "",
+    "## Express Commission Consent",
+    "I expressly consent to the commission and compensation structure described in the Compensation module of this handbook. This includes the tiered residential rates (35 percent on Standard Cleans, 32 percent on Deep Cleans and Move In or Move Out cleans at the $80 per hour client rate), the commercial $20 per hour times allowed hours base, and any per-technician matrix overrides that have been set or that may be set in the future. I understand that my consent here applies to commission earnings paid by Phes and does not modify the at-will nature of my employment.",
+    "",
+    "## Wage Deduction Notice",
+    "I understand and acknowledge the wage deduction notices described in this handbook. This includes supply-kit responsibility, training pay during the introductory period, and the Quality Probation pay structure. I agree that authorized deductions will be made from my pay only in accordance with the Illinois Wage Payment and Collection Act (820 ILCS 115) and applicable federal law. Phes will not unilaterally deduct any amount from my pay without my separate written authorization at the time of the deduction.",
+    "",
+    "## Annual Re-Acknowledgment",
+    "I commit to re-acknowledging this handbook annually by December 31 of each year that I remain employed by Phes, or earlier if a material policy change occurs and Phes notifies me in writing. I understand this annual re-acknowledgment is a condition of continued employment.",
+    "",
+    "## Electronic Signature Consent",
+    "I consent to sign this acknowledgment electronically. I understand that my electronic signature has the same legal effect as a handwritten signature under the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accepted this Final Handbook Acknowledgment.",
+  ].join("\n"),
+  notes: "Phase 11 PR #13 — comprehensive Phes handbook final acknowledgment.",
+};
+
+const HANDBOOK_ES: SignedDocumentLocaleContent = {
+  title: "Manual del Empleado de Phes: Reconocimiento Final",
+  pendingTranslationReview: true,
+  contentHtml: [
+    "## Reconocimiento de Recepción y Comprensión",
+    "Reconozco que he recibido, leído y comprendido en su totalidad el Manual del Empleado de Phes Cleaning Service. Comprendo las políticas, procedimientos y expectativas descritas en él.",
+    "",
+    "## Empleo a Voluntad",
+    "Entiendo y acepto que mi empleo con Phes Cleaning Service es a voluntad. Yo o Phes podemos terminar la relación laboral en cualquier momento, con o sin causa y con o sin aviso. Ninguna declaración en este manual, ni hecha por ningún empleado de Phes, crea un contrato de empleo continuo ni altera esta relación a voluntad.",
+    "",
+    "## Consentimiento Expreso de Comisión",
+    "Doy expresamente mi consentimiento a la estructura de comisión y compensación descrita en el módulo de Compensación de este manual. Esto incluye las tarifas residenciales por niveles (35 por ciento en Limpiezas Estándar, 32 por ciento en Limpiezas Profundas y Move In o Move Out a la tarifa de $80 por hora al cliente), la base comercial de $20 por hora por horas asignadas, y cualquier ajuste de la matriz por técnico que se haya establecido o se establezca en el futuro. Entiendo que mi consentimiento aquí aplica a los pagos de comisión hechos por Phes y no modifica la naturaleza a voluntad de mi empleo.",
+    "",
+    "## Notificación de Deducción Salarial",
+    "Comprendo y reconozco las notificaciones de deducción salarial descritas en este manual. Esto incluye la responsabilidad del kit de suministros, el pago de capacitación durante el periodo introductorio, y la estructura de pago del Periodo de Prueba de Calidad. Acepto que las deducciones autorizadas se harán de mi pago solo conforme a la Ley de Pago y Cobranza de Salarios de Illinois (820 ILCS 115) y la ley federal aplicable. Phes no deducirá unilateralmente ningún monto de mi pago sin mi autorización escrita separada al momento de la deducción.",
+    "",
+    "## Reconocimiento Anual",
+    "Me comprometo a reconocer este manual anualmente antes del 31 de diciembre de cada año que continúe empleado por Phes, o antes si ocurre un cambio material de política y Phes me notifica por escrito. Entiendo que este reconocimiento anual es una condición de empleo continuo.",
+    "",
+    "## Consentimiento de Firma Electrónica",
+    "Doy mi consentimiento para firmar este reconocimiento electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Reconocimiento Final del Manual.",
+  ].join("\n"),
+  notes: "Phase 11 PR #13 — comprehensive Phes handbook final acknowledgment, Spanish.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -799,6 +862,10 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
   supply_kit: {
     en: SUPPLY_KIT_EN,
     es: SUPPLY_KIT_ES,
+  },
+  handbook: {
+    en: HANDBOOK_EN,
+    es: HANDBOOK_ES,
   },
   // All standalone signed-doc registry entries land in PR #10 (this PR).
   // PR #13 will add: handbook (final comprehensive signed handbook PDF).
