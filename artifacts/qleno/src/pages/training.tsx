@@ -165,6 +165,7 @@ type View =
   | { kind: "module"; moduleId: string }
   | { kind: "quiz"; moduleId: string }
   | { kind: "sign-document"; documentType: string }
+  | { kind: "onboarding-intake" }
   | { kind: "final-intro" }
   | { kind: "final-quiz" }
   | { kind: "ack" }
@@ -687,6 +688,7 @@ export default function TrainingPage() {
           onOpenSign={(documentType) =>
             setView({ kind: "sign-document", documentType })
           }
+          onOpenOnboardingIntake={() => setView({ kind: "onboarding-intake" })}
           onBypass={async (moduleId) => {
             await lmsApi.bypassModule(token, moduleId);
             await refresh();
@@ -800,6 +802,14 @@ export default function TrainingPage() {
             await refresh();
             setView({ kind: "home" });
           }}
+        />
+      )}
+      {view.kind === "onboarding-intake" && (
+        <OnboardingIntakeView
+          locale={locale}
+          token={token}
+          onCancel={() => setView({ kind: "home" })}
+          onSaved={() => setView({ kind: "home" })}
         />
       )}
       <ResponsiveStyles />
@@ -1102,6 +1112,7 @@ function Home({
   onOpenFinal,
   onOpenAck,
   onOpenSign,
+  onOpenOnboardingIntake,
   onBypass,
   onDownloadCert,
 }: {
@@ -1117,6 +1128,7 @@ function Home({
   onOpenFinal: () => void;
   onOpenAck: () => void;
   onOpenSign: (documentType: string) => void;
+  onOpenOnboardingIntake: () => void;
   onBypass: (moduleId: string) => Promise<void>;
   onDownloadCert: (certId: number) => Promise<void>;
 }) {
@@ -1182,6 +1194,11 @@ function Home({
           </div>
         </div>
       </div>
+
+      <OnboardingIntakeTile
+        locale={locale}
+        onOpen={onOpenOnboardingIntake}
+      />
 
       <div
         style={{
@@ -3421,5 +3438,629 @@ function ResponsiveStyles() {
         button, input { font-size: 14px !important; }
       }
     `}</style>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Onboarding Intake (Phase 10, PR #11)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Operational form Phes needs that ADP does NOT already cover. Excludes
+// SSN / W-4 / IL-W-4 / I-9 / direct deposit (those live with ADP).
+// Captures: preferred name + pronouns, personal email + cell, emergency
+// contact, languages spoken, uniform sizing, and (when the employee
+// drives a personal vehicle for Phes work) vehicle insurance + DL info.
+
+interface IntakeRow {
+  id: number;
+  preferred_name: string | null;
+  pronouns: string | null;
+  personal_email: string | null;
+  personal_cell_phone: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_relationship: string | null;
+  emergency_contact_phone: string | null;
+  languages_spoken: string | null;
+  shirt_size: string | null;
+  apron_size: string | null;
+  drives_personal_vehicle: boolean;
+  vehicle_insurance_company: string | null;
+  vehicle_insurance_policy_number: string | null;
+  vehicle_insurance_expires_at: string | null;
+  vehicle_license_plate: string | null;
+  drivers_license_state: string | null;
+  drivers_license_expires_at: string | null;
+  notes: string | null;
+  submitted_at: string | null;
+  updated_at: string;
+}
+
+function OnboardingIntakeTile({
+  locale,
+  onOpen,
+}: {
+  locale: Locale;
+  onOpen: () => void;
+}) {
+  const token = useAuthStore((s) => s.token);
+  const [intake, setIntake] = useState<IntakeRow | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const row = await api<IntakeRow | null>(
+          "GET",
+          "/lms/onboarding-intake/me",
+          token,
+        );
+        if (!cancelled) setIntake(row ?? null);
+      } catch {
+        if (!cancelled) setIntake(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  // Status determines the tile tone.
+  let status: "not-started" | "draft" | "submitted";
+  if (intake == null) status = "not-started";
+  else if (intake.submitted_at != null) status = "submitted";
+  else status = "draft";
+
+  const toneColor =
+    status === "submitted" ? SUCCESS : status === "draft" ? WARN : NAVY;
+  const titleEn =
+    status === "submitted"
+      ? "Onboarding intake: submitted"
+      : status === "draft"
+      ? "Onboarding intake: continue"
+      : "Onboarding intake: get started";
+  const titleEs =
+    status === "submitted"
+      ? "Información de incorporación: enviada"
+      : status === "draft"
+      ? "Información de incorporación: continuar"
+      : "Información de incorporación: empezar";
+  const subEn =
+    status === "submitted"
+      ? `Last updated ${intake?.updated_at ? new Date(intake.updated_at).toLocaleDateString() : ""}`
+      : "Emergency contact, sizing, languages, and vehicle details for techs who drive. Excludes SSN, W-4, and direct deposit (handled by ADP).";
+  const subEs =
+    status === "submitted"
+      ? `Última actualización: ${intake?.updated_at ? new Date(intake.updated_at).toLocaleDateString() : ""}`
+      : "Contacto de emergencia, tallas, idiomas y datos del vehículo para técnicos que conducen. No incluye SSN, W-4 ni depósito directo (los maneja ADP).";
+
+  return (
+    <div
+      style={{
+        marginBottom: 14,
+        background: SURFACE,
+        border: `1px solid ${LINE}`,
+        borderLeft: `3px solid ${toneColor}`,
+        borderRadius: 10,
+        padding: "14px 16px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: 12,
+        fontFamily: FONT,
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, color: INK, fontSize: 14 }}>
+          {locale === "en" ? titleEn : titleEs}
+        </div>
+        <div
+          style={{
+            marginTop: 4,
+            color: INK_MUTE,
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          {locale === "en" ? subEn : subEs}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onOpen}
+        style={{
+          background: NAVY,
+          color: "#fff",
+          border: 0,
+          padding: "8px 14px",
+          borderRadius: 8,
+          fontSize: 12,
+          fontWeight: 800,
+          cursor: "pointer",
+          fontFamily: FONT,
+          flexShrink: 0,
+        }}
+      >
+        {status === "submitted"
+          ? locale === "es"
+            ? "Editar"
+            : "Edit"
+          : locale === "es"
+          ? "Abrir"
+          : "Open"}
+      </button>
+    </div>
+  );
+}
+
+interface IntakeFormState {
+  preferred_name: string;
+  pronouns: string;
+  personal_email: string;
+  personal_cell_phone: string;
+  emergency_contact_name: string;
+  emergency_contact_relationship: string;
+  emergency_contact_phone: string;
+  languages_spoken: string;
+  shirt_size: string;
+  apron_size: string;
+  drives_personal_vehicle: boolean;
+  vehicle_insurance_company: string;
+  vehicle_insurance_policy_number: string;
+  vehicle_insurance_expires_at: string;
+  vehicle_license_plate: string;
+  drivers_license_state: string;
+  drivers_license_expires_at: string;
+  notes: string;
+}
+
+const EMPTY_INTAKE: IntakeFormState = {
+  preferred_name: "",
+  pronouns: "",
+  personal_email: "",
+  personal_cell_phone: "",
+  emergency_contact_name: "",
+  emergency_contact_relationship: "",
+  emergency_contact_phone: "",
+  languages_spoken: "",
+  shirt_size: "",
+  apron_size: "",
+  drives_personal_vehicle: false,
+  vehicle_insurance_company: "",
+  vehicle_insurance_policy_number: "",
+  vehicle_insurance_expires_at: "",
+  vehicle_license_plate: "",
+  drivers_license_state: "",
+  drivers_license_expires_at: "",
+  notes: "",
+};
+
+function OnboardingIntakeView({
+  locale,
+  token,
+  onCancel,
+  onSaved,
+}: {
+  locale: Locale;
+  token: string | null;
+  onCancel: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<IntakeFormState>(EMPTY_INTAKE);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const row = await api<IntakeRow | null>(
+          "GET",
+          "/lms/onboarding-intake/me",
+          token,
+        );
+        if (cancelled) return;
+        if (row) {
+          setForm({
+            preferred_name: row.preferred_name ?? "",
+            pronouns: row.pronouns ?? "",
+            personal_email: row.personal_email ?? "",
+            personal_cell_phone: row.personal_cell_phone ?? "",
+            emergency_contact_name: row.emergency_contact_name ?? "",
+            emergency_contact_relationship: row.emergency_contact_relationship ?? "",
+            emergency_contact_phone: row.emergency_contact_phone ?? "",
+            languages_spoken: row.languages_spoken ?? "",
+            shirt_size: row.shirt_size ?? "",
+            apron_size: row.apron_size ?? "",
+            drives_personal_vehicle: row.drives_personal_vehicle,
+            vehicle_insurance_company: row.vehicle_insurance_company ?? "",
+            vehicle_insurance_policy_number: row.vehicle_insurance_policy_number ?? "",
+            vehicle_insurance_expires_at: row.vehicle_insurance_expires_at ?? "",
+            vehicle_license_plate: row.vehicle_license_plate ?? "",
+            drivers_license_state: row.drivers_license_state ?? "",
+            drivers_license_expires_at: row.drivers_license_expires_at ?? "",
+            notes: row.notes ?? "",
+          });
+        }
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  async function submit() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api("POST", "/lms/onboarding-intake/save", token, form);
+      onSaved();
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function set<K extends keyof IntakeFormState>(
+    key: K,
+    value: IntakeFormState[K],
+  ) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  const required = (label: string) => (
+    <span>
+      {label}
+      <span style={{ color: DANGER, marginLeft: 3 }}>*</span>
+    </span>
+  );
+
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "26px 18px" }}>
+        <div style={{ color: INK_MUTE }}>
+          {locale === "es" ? "Cargando..." : "Loading..."}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        maxWidth: 720,
+        margin: "0 auto",
+        padding: "26px 18px",
+        fontFamily: FONT,
+        color: INK,
+      }}
+    >
+      <h1 style={{ fontSize: 22, fontWeight: 800, margin: "0 0 6px" }}>
+        {locale === "es"
+          ? "Información de Incorporación"
+          : "Onboarding Intake"}
+      </h1>
+      <p style={{ color: INK_MUTE, fontSize: 13, lineHeight: 1.55, margin: "0 0 18px" }}>
+        {locale === "es"
+          ? "La oficina necesita estos detalles operativos para despacharlo. Phes NO recoge aquí su SSN, formulario W-4, documentos I-9 ni depósito directo — esos los maneja ADP. Los campos marcados con * son obligatorios."
+          : "The office needs these operational details to dispatch you. Phes does NOT collect your SSN, W-4, I-9 documents, or direct deposit here — those are handled by ADP. Fields marked with * are required."}
+      </p>
+
+      <FormSection
+        title={locale === "es" ? "Sobre usted" : "About you"}
+      >
+        <Field
+          label={locale === "es" ? "Nombre preferido (opcional)" : "Preferred name (optional)"}
+          value={form.preferred_name}
+          onChange={(v) => set("preferred_name", v)}
+        />
+        <Field
+          label={locale === "es" ? "Pronombres (opcional)" : "Pronouns (optional)"}
+          value={form.pronouns}
+          onChange={(v) => set("pronouns", v)}
+        />
+        <Field
+          label={locale === "es" ? "Correo personal" : "Personal email"}
+          type="email"
+          value={form.personal_email}
+          onChange={(v) => set("personal_email", v)}
+        />
+        <Field
+          label={locale === "es" ? "Celular personal" : "Personal cell phone"}
+          type="tel"
+          value={form.personal_cell_phone}
+          onChange={(v) => set("personal_cell_phone", v)}
+        />
+      </FormSection>
+
+      <FormSection
+        title={locale === "es" ? "Contacto de emergencia" : "Emergency contact"}
+      >
+        <Field
+          label={required(locale === "es" ? "Nombre" : "Name")}
+          value={form.emergency_contact_name}
+          onChange={(v) => set("emergency_contact_name", v)}
+        />
+        <Field
+          label={required(locale === "es" ? "Relación" : "Relationship")}
+          value={form.emergency_contact_relationship}
+          onChange={(v) => set("emergency_contact_relationship", v)}
+        />
+        <Field
+          label={required(locale === "es" ? "Teléfono" : "Phone")}
+          type="tel"
+          value={form.emergency_contact_phone}
+          onChange={(v) => set("emergency_contact_phone", v)}
+        />
+      </FormSection>
+
+      <FormSection
+        title={locale === "es" ? "Detalles del trabajo" : "Job details"}
+      >
+        <Field
+          label={
+            locale === "es"
+              ? "Idiomas que habla (separados por comas)"
+              : "Languages spoken (comma-separated)"
+          }
+          value={form.languages_spoken}
+          onChange={(v) => set("languages_spoken", v)}
+          placeholder={locale === "es" ? "ej. inglés, español" : "e.g. english, spanish"}
+        />
+        <Field
+          label={locale === "es" ? "Talla de camisa" : "Shirt size"}
+          value={form.shirt_size}
+          onChange={(v) => set("shirt_size", v)}
+          placeholder="XS / S / M / L / XL / XXL / XXXL"
+        />
+        <Field
+          label={locale === "es" ? "Talla de delantal" : "Apron size"}
+          value={form.apron_size}
+          onChange={(v) => set("apron_size", v)}
+          placeholder="XS / S / M / L / XL / XXL / XXXL"
+        />
+      </FormSection>
+
+      <FormSection
+        title={
+          locale === "es"
+            ? "Vehículo personal para trabajo de Phes"
+            : "Personal vehicle for Phes work"
+        }
+      >
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 14,
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={form.drives_personal_vehicle}
+            onChange={(e) => set("drives_personal_vehicle", e.target.checked)}
+          />
+          <span>
+            {locale === "es"
+              ? "Usaré mi vehículo personal para trabajo de Phes"
+              : "I will use my personal vehicle for Phes work"}
+          </span>
+        </label>
+        {form.drives_personal_vehicle ? (
+          <>
+            <Field
+              label={locale === "es" ? "Compañía de seguro" : "Insurance company"}
+              value={form.vehicle_insurance_company}
+              onChange={(v) => set("vehicle_insurance_company", v)}
+            />
+            <Field
+              label={locale === "es" ? "Número de póliza" : "Policy number"}
+              value={form.vehicle_insurance_policy_number}
+              onChange={(v) => set("vehicle_insurance_policy_number", v)}
+            />
+            <Field
+              label={
+                locale === "es"
+                  ? "Fecha de expiración del seguro (AAAA-MM-DD)"
+                  : "Insurance expiration date (YYYY-MM-DD)"
+              }
+              type="date"
+              value={form.vehicle_insurance_expires_at}
+              onChange={(v) => set("vehicle_insurance_expires_at", v)}
+            />
+            <Field
+              label={locale === "es" ? "Placa" : "License plate"}
+              value={form.vehicle_license_plate}
+              onChange={(v) => set("vehicle_license_plate", v)}
+            />
+            <Field
+              label={
+                locale === "es"
+                  ? "Estado de la licencia de conducir (ej. IL)"
+                  : "Driver's license state (e.g. IL)"
+              }
+              value={form.drivers_license_state}
+              onChange={(v) => set("drivers_license_state", v)}
+              placeholder="IL"
+            />
+            <Field
+              label={
+                locale === "es"
+                  ? "Expiración de la licencia (AAAA-MM-DD)"
+                  : "Driver's license expiration (YYYY-MM-DD)"
+              }
+              type="date"
+              value={form.drivers_license_expires_at}
+              onChange={(v) => set("drivers_license_expires_at", v)}
+            />
+          </>
+        ) : null}
+      </FormSection>
+
+      <FormSection
+        title={locale === "es" ? "Notas adicionales (opcional)" : "Additional notes (optional)"}
+      >
+        <textarea
+          value={form.notes}
+          onChange={(e) => set("notes", e.target.value)}
+          rows={4}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: `1px solid ${LINE}`,
+            fontSize: 14,
+            fontFamily: FONT,
+            background: SURFACE,
+            color: INK,
+            resize: "vertical",
+          }}
+          placeholder={
+            locale === "es"
+              ? "Alergias, restricciones dietéticas, accesibilidad..."
+              : "Allergies, dietary restrictions, accessibility..."
+          }
+        />
+      </FormSection>
+
+      {err ? (
+        <div
+          style={{
+            margin: "12px 0",
+            padding: 12,
+            background: "#FEF2F2",
+            border: `1px solid #FECACA`,
+            color: DANGER,
+            borderRadius: 8,
+            fontSize: 13,
+          }}
+        >
+          {err}
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={saving}
+          style={{
+            background: saving ? INK_LIGHT : NAVY,
+            color: "#fff",
+            border: 0,
+            padding: "10px 18px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 800,
+            cursor: saving ? "not-allowed" : "pointer",
+            fontFamily: FONT,
+          }}
+        >
+          {saving
+            ? locale === "es"
+              ? "Guardando..."
+              : "Saving..."
+            : locale === "es"
+            ? "Guardar"
+            : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          style={{
+            background: SURFACE,
+            color: INK,
+            border: `1px solid ${LINE}`,
+            padding: "10px 18px",
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: FONT,
+          }}
+        >
+          {locale === "es" ? "Cancelar" : "Cancel"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FormSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: "12px 14px",
+        background: LINE_SOFT,
+        borderRadius: 10,
+        border: `1px solid ${LINE}`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 10,
+        }}
+      >
+        {title}
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+}: {
+  label: React.ReactNode;
+  value: string;
+  onChange: (v: string) => void;
+  type?: "text" | "email" | "tel" | "date";
+  placeholder?: string;
+}) {
+  return (
+    <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          padding: "8px 10px",
+          borderRadius: 6,
+          border: `1px solid ${LINE}`,
+          fontSize: 13,
+          fontFamily: FONT,
+          background: SURFACE,
+          color: INK,
+        }}
+      />
+    </label>
   );
 }

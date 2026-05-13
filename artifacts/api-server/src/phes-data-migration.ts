@@ -903,6 +903,43 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE INDEX IF NOT EXISTS lms_pending_re_ack_company_user_pending_idx ON lms_pending_re_ack(company_id, user_id, acknowledged_at)` },
     { label: "lms_pending_re_ack_document_type_idx",
       stmt: `CREATE INDEX IF NOT EXISTS lms_pending_re_ack_document_type_idx ON lms_pending_re_ack(document_type)` },
+
+    // [lms-onboarding-intake 2026-05-13 PR #11] Operational intake form.
+    // Excludes SSN / W-4 / I-9 / direct deposit (those live with ADP).
+    // Stores emergency contact, sizing, personal vehicle + insurance for
+    // techs who drive, languages, preferred name + pronouns.
+    { label: "CREATE lms_onboarding_intake", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_onboarding_intake (
+        id                                 SERIAL PRIMARY KEY,
+        company_id                         INTEGER NOT NULL REFERENCES companies(id),
+        user_id                            INTEGER NOT NULL REFERENCES users(id),
+        preferred_name                     TEXT,
+        pronouns                           TEXT,
+        personal_email                     TEXT,
+        personal_cell_phone                TEXT,
+        emergency_contact_name             TEXT,
+        emergency_contact_relationship     TEXT,
+        emergency_contact_phone            TEXT,
+        languages_spoken                   TEXT,
+        shirt_size                         TEXT,
+        apron_size                         TEXT,
+        drives_personal_vehicle            BOOLEAN NOT NULL DEFAULT FALSE,
+        vehicle_insurance_company          TEXT,
+        vehicle_insurance_policy_number    TEXT,
+        vehicle_insurance_expires_at       DATE,
+        vehicle_license_plate              TEXT,
+        drivers_license_state              TEXT,
+        drivers_license_expires_at         DATE,
+        notes                              TEXT,
+        submitted_at                       TIMESTAMPTZ,
+        created_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at                         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_onboarding_intake_company_user_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_onboarding_intake_company_user_uq ON lms_onboarding_intake(company_id, user_id)` },
+    { label: "lms_onboarding_intake_company_submitted_idx",
+      stmt: `CREATE INDEX IF NOT EXISTS lms_onboarding_intake_company_submitted_idx ON lms_onboarding_intake(company_id, submitted_at)` },
   ];
 
   for (const { label, stmt } of guards) {

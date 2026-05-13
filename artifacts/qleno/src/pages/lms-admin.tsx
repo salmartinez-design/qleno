@@ -656,6 +656,7 @@ function RosterTable({
                     <ModuleAttemptsGrid row={r} onBypass={onBypass} />
                     <LearnerCertificatesPanel row={r} />
                     <LearnerSignedDocumentsPanel row={r} />
+                    <LearnerOnboardingIntakePanel row={r} />
                   </td>
                 </tr>
               ) : null}
@@ -958,6 +959,7 @@ function RosterCards({
               <ModuleAttemptsGrid row={r} onBypass={onBypass} />
               <LearnerCertificatesPanel row={r} />
               <LearnerSignedDocumentsPanel row={r} />
+              <LearnerOnboardingIntakePanel row={r} />
             </div>
           ) : null}
         </article>
@@ -2998,6 +3000,294 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LearnerOnboardingIntakePanel — Phase 10 PR #11
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Read-only display of a learner's onboarding intake (operational
+// fields only — Phes does not store SSN, W-4, I-9, or direct deposit
+// here; those live with ADP). Renders the submitted / draft / not-
+// started state, then expands into a compact field grid.
+
+type IntakeRow = {
+  id: number;
+  preferred_name: string | null;
+  pronouns: string | null;
+  personal_email: string | null;
+  personal_cell_phone: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_relationship: string | null;
+  emergency_contact_phone: string | null;
+  languages_spoken: string | null;
+  shirt_size: string | null;
+  apron_size: string | null;
+  drives_personal_vehicle: boolean;
+  vehicle_insurance_company: string | null;
+  vehicle_insurance_policy_number: string | null;
+  vehicle_insurance_expires_at: string | null;
+  vehicle_license_plate: string | null;
+  drivers_license_state: string | null;
+  drivers_license_expires_at: string | null;
+  notes: string | null;
+  submitted_at: string | null;
+  updated_at: string;
+};
+
+function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
+  const token = useAuthStore((s) => s.token);
+  const [intake, setIntake] = useState<IntakeRow | null | undefined>(undefined);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api<IntakeRow | null>(
+          "GET",
+          `/lms/onboarding-intake/admin/learner/${row.user_id}`,
+          token,
+        );
+        if (!cancelled) setIntake(data ?? null);
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.user_id, token]);
+
+  async function handleExport() {
+    try {
+      const url = `${API_BASE}/lms/onboarding-intake/admin/export`;
+      const res = await fetch(url, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objectUrl;
+      a.download = `phes-onboarding-intake-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      console.error("[lms-admin] intake CSV export failed:", e);
+    }
+  }
+
+  if (err) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          padding: 10,
+          background: "#FEF2F2",
+          border: `1px solid #FECACA`,
+          color: DANGER,
+          borderRadius: 8,
+          fontSize: 12,
+        }}
+      >
+        Failed to load onboarding intake: {err}
+      </div>
+    );
+  }
+  if (intake === undefined) {
+    return (
+      <div
+        style={{
+          marginTop: 12,
+          fontSize: 12,
+          color: INK_MUTE,
+          fontStyle: "italic",
+        }}
+      >
+        Loading onboarding intake...
+      </div>
+    );
+  }
+
+  const status: "not-started" | "draft" | "submitted" =
+    intake == null
+      ? "not-started"
+      : intake.submitted_at != null
+      ? "submitted"
+      : "draft";
+
+  const tone =
+    status === "submitted" ? SUCCESS : status === "draft" ? "#BA7517" : INK_LIGHT;
+  const statusLabel =
+    status === "submitted"
+      ? "Submitted"
+      : status === "draft"
+      ? "Draft"
+      : "Not started";
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 8,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 800,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <FileSignature size={12} /> Onboarding Intake
+        </div>
+        <button
+          type="button"
+          onClick={handleExport}
+          title="Export tenant onboarding intake CSV"
+          style={{
+            background: NAVY,
+            color: "#fff",
+            border: 0,
+            padding: "5px 10px",
+            borderRadius: 6,
+            fontSize: 11,
+            fontWeight: 800,
+            cursor: "pointer",
+            fontFamily: FONT,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+          }}
+        >
+          <Download size={11} /> Export CSV
+        </button>
+      </div>
+
+      <div
+        style={{
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderLeft: `3px solid ${tone}`,
+          borderRadius: 8,
+          padding: "10px 12px",
+          fontSize: 12,
+        }}
+      >
+        <div style={{ fontWeight: 800, color: INK, marginBottom: 6 }}>
+          Status: {statusLabel}
+          {intake?.submitted_at ? (
+            <span style={{ color: INK_MUTE, fontWeight: 600, marginLeft: 6 }}>
+              · Submitted {humanDateTime(intake.submitted_at)}
+            </span>
+          ) : null}
+        </div>
+
+        {intake ? (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+              gap: 8,
+            }}
+          >
+            <IntakeField label="Preferred name" value={intake.preferred_name} />
+            <IntakeField label="Pronouns" value={intake.pronouns} />
+            <IntakeField label="Personal email" value={intake.personal_email} />
+            <IntakeField label="Personal cell" value={intake.personal_cell_phone} />
+            <IntakeField label="Emergency name" value={intake.emergency_contact_name} />
+            <IntakeField
+              label="Emergency relationship"
+              value={intake.emergency_contact_relationship}
+            />
+            <IntakeField label="Emergency phone" value={intake.emergency_contact_phone} />
+            <IntakeField label="Languages" value={intake.languages_spoken} />
+            <IntakeField label="Shirt size" value={intake.shirt_size} />
+            <IntakeField label="Apron size" value={intake.apron_size} />
+            <IntakeField
+              label="Drives personal vehicle"
+              value={intake.drives_personal_vehicle ? "Yes" : "No"}
+            />
+            {intake.drives_personal_vehicle ? (
+              <>
+                <IntakeField
+                  label="Insurance company"
+                  value={intake.vehicle_insurance_company}
+                />
+                <IntakeField
+                  label="Insurance policy #"
+                  value={intake.vehicle_insurance_policy_number}
+                />
+                <IntakeField
+                  label="Insurance expires"
+                  value={intake.vehicle_insurance_expires_at}
+                />
+                <IntakeField
+                  label="License plate"
+                  value={intake.vehicle_license_plate}
+                />
+                <IntakeField
+                  label="DL state"
+                  value={intake.drivers_license_state}
+                />
+                <IntakeField
+                  label="DL expires"
+                  value={intake.drivers_license_expires_at}
+                />
+              </>
+            ) : null}
+            {intake.notes ? (
+              <div style={{ gridColumn: "1 / -1" }}>
+                <IntakeField label="Notes" value={intake.notes} />
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div style={{ color: INK_MUTE, fontSize: 12 }}>
+            Learner has not started the intake yet.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function IntakeField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ fontSize: 12, color: INK, marginTop: 2 }}>
+        {value && value.toString().trim().length > 0 ? value : "(none)"}
       </div>
     </div>
   );
