@@ -5499,7 +5499,7 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Sus paños de microfibra se deshilachan después de varios meses de uso regular. ¿Es responsable del costo de reemplazo?",
     },
     options: [
-      { en: "Yes — anything that wears out is on you.", es: "Sí — cualquier cosa que se desgaste es responsabilidad suya." },
+      { en: "Yes, anything that wears out is on you.", es: "Sí, cualquier cosa que se desgaste es responsabilidad suya." },
       { en: "No. Reasonable wear and tear from using equipment as intended is absorbed by Phes. Negligent damage or loss is different.", es: "No. El desgaste razonable por usar el equipo como se pretende es absorbido por Phes. El daño por negligencia o la pérdida es distinto." },
       { en: "Only if a client complains.", es: "Solo si un cliente se queja." },
       { en: "Only if you have been at Phes less than one year.", es: "Solo si lleva menos de un año en Phes." },
