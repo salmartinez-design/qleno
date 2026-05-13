@@ -657,6 +657,121 @@ const SOCIAL_MEDIA_ES: SignedDocumentLocaleContent = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// supply_kit (Phase 9, PR #10)
+//
+// One-sided employee acknowledgment (NOT co-signed). Establishes
+// responsibility for Phes-provided cleaning supplies, uniform, keys,
+// and assigned hardware. Reasonable wear is on Phes; negligent damage
+// may be billed. CRITICAL: does NOT pre-authorize automatic payroll
+// deductions. Illinois Wage Payment and Collection Act (820 ILCS 115)
+// requires contemporaneous written authorization for any specific
+// deduction; this agreement explains that and reserves Phes's right
+// to seek reimbursement through other lawful channels.
+//
+// NOT in the four flagged docs for human translator review.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SUPPLY_KIT_EN: SignedDocumentLocaleContent = {
+  title: "Supply Kit Responsibility Acknowledgment",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "SUPPLY KIT RESPONSIBILITY ACKNOWLEDGMENT",
+    "Effective Date: January 1, 2026",
+    "",
+    "By signing this acknowledgment, I confirm that I have read and understand the Phes Supply Kit Responsibility Policy contained in the 2026 Phes Employee Handbook and the Supply Kit training module. I commit to the following terms as a condition of my employment with Phes Cleaning Services:",
+    "",
+    "1. PHES PROPERTY.",
+    "Every item Phes issues to me as part of my supply kit is the property of Phes Cleaning Services and is loaned to me for the duration of my employment. This includes the cleaning caddy, color-coded microfiber cloths, mop and bucket, any assigned vacuum, step stool, Phes-branded refillable chemical bottles and their contents, Phes-branded uniform (shirt, apron, name badge), shoe covers, any assigned Phes phone or tablet, and any client keys, key cards, or alarm-code cards I am issued.",
+    "",
+    "2. REASONABLE CARE.",
+    "I will exercise reasonable care of the supply kit. I will use the kit only for Phes work, store it safely, and not lend, sell, or transfer any item to anyone outside Phes.",
+    "",
+    "3. REASONABLE WEAR VERSUS NEGLIGENT DAMAGE.",
+    "I understand that REASONABLE WEAR AND TEAR from using the kit as intended (microfiber fraying, belt wear, uniform fading, mop heads needing replacement) is absorbed by Phes at no cost to me. NEGLIGENT DAMAGE OR LOSS (leaving equipment in the rain, lending the Phes phone, losing a client key while running personal errands, accident in a Phes vehicle off the clock) is different and may result in Phes billing me for replacement.",
+    "",
+    "4. PROMPT REPORTING.",
+    "If anything in my kit is damaged, lost, or stops working, I will report it to the office BEFORE my next shift. I understand that Phes can resolve almost any honestly reported issue and that covering up damage or loss is itself a violation of this Agreement and of the Code of Conduct.",
+    "",
+    "5. LOST CLIENT KEY OR ACCESS CARD.",
+    "If I lose a client's key, key card, or alarm-code card, I will call the office IMMEDIATELY rather than waiting until the end of my shift. Phes will arrange a rekey or code change with the client and pay for it. The lost key itself is not grounds for discipline; covering it up or delaying the report is.",
+    "",
+    "6. NO PERSONAL USE.",
+    "I will not use Phes supplies, equipment, vehicle, or uniform for personal work (cleaning my own home or a friend's home, side-gig work, or any other non-Phes purpose). I will not lend Phes property to anyone, including coworkers off the clock.",
+    "",
+    "7. NO MODIFICATIONS.",
+    "I will not modify or alter Phes equipment. I will not buy substitute cleaning chemicals on my own initiative. If a Phes-issued item is not working, I will ask the office for a replacement rather than swapping in something I obtained myself.",
+    "",
+    "8. UNIFORM CARE.",
+    "I will wash the Phes uniform shirt and apron after each shift. I will not alter the uniform with paint, embroidery, or unofficial patches. If I need a religious or medical accommodation related to the uniform, I will request it through the office accommodation process.",
+    "",
+    "9. RETURN OF PHES PROPERTY AT SEPARATION.",
+    "On or before my last day of employment with Phes (voluntary or involuntary), I will return ALL Phes property to the office: caddy, vacuum, supplies in their Phes-branded bottles, any Phes phone or tablet, all client keys and access cards, the uniform shirt and apron, and any other Phes-issued item. Phes will inspect the returned items and apply the reasonable-wear-versus-negligent-damage standard described in Section 3.",
+    "",
+    "10. ILLINOIS WAGE PAYMENT AND COLLECTION ACT (NO AUTOMATIC PAYROLL DEDUCTION).",
+    "I understand that signing this Agreement does NOT pre-authorize Phes to take any deduction from my paycheck for damaged or unreturned property. Under the Illinois Wage Payment and Collection Act, 820 ILCS 115, any specific deduction from my wages requires a separate written authorization signed by me AT THE TIME OF THE DEDUCTION, for that specific deduction. If Phes determines that a damaged or unreturned item must be replaced and that the cost may be billed to me, Phes will notify me in writing with the documented cost. If I agree to repayment, Phes and I will sign a separate written authorization before any amount is taken from my paycheck. If I do not agree to repayment, Phes may seek reimbursement through other lawful channels but will not unilaterally deduct from my paycheck.",
+    "",
+    "11. AT-WILL EMPLOYMENT.",
+    "Nothing in this acknowledgment alters my at-will employment status with Phes. Phes may terminate my employment at any time, with or without cause or notice, for any lawful reason.",
+    "",
+    "12. ELECTRONIC SIGNATURE CONSENT.",
+    "I consent to sign this acknowledgment electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Supply Kit Responsibility Acknowledgment.",
+  ].join("\n"),
+  notes: "Phase 9 PR #10 — Phes supply-kit responsibility acknowledgment. IL Wage Payment and Collection Act compliant (no automatic payroll deduction pre-authorization).",
+};
+
+const SUPPLY_KIT_ES: SignedDocumentLocaleContent = {
+  title: "Reconocimiento de Responsabilidad del Kit de Suministros",
+  contentHtml: [
+    "PHES CLEANING SERVICES",
+    "RECONOCIMIENTO DE RESPONSABILIDAD DEL KIT DE SUMINISTROS",
+    "Fecha Efectiva: 1 de enero de 2026",
+    "",
+    "Al firmar este reconocimiento, confirmo que he leído y entiendo la Política de Responsabilidad del Kit de Suministros de Phes contenida en el Manual del Empleado de Phes 2026 y en el módulo de capacitación del Kit de Suministros. Me comprometo a los siguientes términos como condición de mi empleo con Phes Cleaning Services:",
+    "",
+    "1. PROPIEDAD DE PHES.",
+    "Cada artículo que Phes me entrega como parte de mi kit de suministros es propiedad de Phes Cleaning Services y se me presta durante el tiempo de mi empleo. Esto incluye el caddy de limpieza, paños de microfibra codificados por color, trapeador y cubeta, cualquier aspiradora asignada, banquito, botellas recargables con marca de Phes y su contenido, uniforme con marca de Phes (camisa, delantal, gafete), cubre-zapatos, cualquier teléfono o tableta de Phes asignado, y cualquier llave, tarjeta de acceso o tarjeta de código de alarma del cliente que se me entregue.",
+    "",
+    "2. CUIDADO RAZONABLE.",
+    "Ejerceré el cuidado razonable del kit de suministros. Usaré el kit solo para trabajo de Phes, lo almacenaré con seguridad y no prestaré, venderé ni transferiré ningún artículo a nadie fuera de Phes.",
+    "",
+    "3. DESGASTE RAZONABLE FRENTE A DAÑO POR NEGLIGENCIA.",
+    "Entiendo que el DESGASTE Y USO RAZONABLE por usar el kit como se pretende (microfibras que se deshilachan, desgaste de bandas, uniforme que se desvanece, cabezas de trapeador que necesitan reemplazo) lo absorbe Phes sin costo para mí. El DAÑO POR NEGLIGENCIA O LA PÉRDIDA (dejar equipo en la lluvia, prestar el teléfono de Phes, perder la llave de un cliente mientras hago mandados personales, accidente en un vehículo de Phes fuera del horario) es distinto y puede resultar en que Phes me facture el reemplazo.",
+    "",
+    "4. REPORTE PRONTO.",
+    "Si algo en mi kit se daña, se pierde o deja de funcionar, lo reportaré a la oficina ANTES de mi siguiente turno. Entiendo que Phes puede resolver casi cualquier asunto reportado honestamente y que ocultar daños o pérdidas es en sí una violación de este Acuerdo y del Código de Conducta.",
+    "",
+    "5. LLAVE O TARJETA DE ACCESO DE CLIENTE PERDIDA.",
+    "Si pierdo la llave de un cliente, una tarjeta de acceso o una tarjeta de código de alarma, llamaré INMEDIATAMENTE a la oficina en lugar de esperar al final de mi turno. Phes coordinará un cambio de cerradura o de código con el cliente y lo pagará. La llave perdida en sí no es motivo de disciplina; ocultarlo o retrasar el reporte sí lo es.",
+    "",
+    "6. SIN USO PERSONAL.",
+    "No usaré los suministros, el equipo, el vehículo ni el uniforme de Phes para trabajo personal (limpiar mi propia casa o la casa de un amigo, trabajo paralelo o cualquier otro propósito no relacionado con Phes). No prestaré la propiedad de Phes a nadie, incluyendo compañeros fuera del turno.",
+    "",
+    "7. SIN MODIFICACIONES.",
+    "No modificaré ni alteraré el equipo de Phes. No compraré productos químicos de limpieza sustitutos por mi propia iniciativa. Si un artículo emitido por Phes no funciona, pediré a la oficina un reemplazo en lugar de cambiarlo por algo que yo haya obtenido.",
+    "",
+    "8. CUIDADO DEL UNIFORME.",
+    "Lavaré la camisa y el delantal del uniforme de Phes después de cada turno. No alteraré el uniforme con pintura, bordado ni parches no oficiales. Si necesito una acomodación religiosa o médica relacionada con el uniforme, la solicitaré a través del proceso de acomodación de la oficina.",
+    "",
+    "9. DEVOLUCIÓN DE LA PROPIEDAD DE PHES AL SEPARARSE.",
+    "En o antes de mi último día de empleo con Phes (voluntario o involuntario), devolveré TODA la propiedad de Phes a la oficina: caddy, aspiradora, suministros en sus botellas con marca de Phes, cualquier teléfono o tableta de Phes, todas las llaves y tarjetas de acceso de clientes, la camisa y el delantal del uniforme, y cualquier otro artículo emitido por Phes. Phes inspeccionará los artículos devueltos y aplicará el estándar de desgaste razonable frente a daño por negligencia descrito en la Sección 3.",
+    "",
+    "10. LEY DE PAGO DE SALARIOS Y RECOLECCIÓN DE ILLINOIS (SIN DEDUCCIÓN AUTOMÁTICA DE NÓMINA).",
+    "Entiendo que firmar este Acuerdo NO pre-autoriza a Phes a tomar ninguna deducción de mi pago por propiedad dañada o no devuelta. Bajo la Ley de Pago de Salarios y Recolección de Illinois, 820 ILCS 115, cualquier deducción específica de mis salarios requiere una autorización escrita separada firmada por mí AL MOMENTO DE LA DEDUCCIÓN, para esa deducción específica. Si Phes determina que un artículo dañado o no devuelto debe ser reemplazado y que el costo se me puede facturar, Phes me notificará por escrito con el costo documentado. Si acepto el pago, Phes y yo firmaremos una autorización escrita separada antes de que se tome cualquier monto de mi pago. Si no acepto el pago, Phes puede buscar el reembolso a través de otras vías legales, pero no deducirá unilateralmente de mi pago.",
+    "",
+    "11. EMPLEO A VOLUNTAD.",
+    "Nada en este reconocimiento altera mi estatus de empleo a voluntad con Phes. Phes puede terminar mi empleo en cualquier momento, con o sin causa o aviso, por cualquier razón legal.",
+    "",
+    "12. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
+    "Doy mi consentimiento para firmar este reconocimiento electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Reconocimiento de Responsabilidad del Kit de Suministros.",
+  ].join("\n"),
+  notes: "Phase 9 PR #10 — Phes supply-kit responsibility, Spanish version. Not in the four flagged docs.",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Registry
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -681,7 +796,12 @@ export const SIGNED_DOCUMENT_CONTENT: SignedDocumentRegistry = {
     en: SOCIAL_MEDIA_EN,
     es: SOCIAL_MEDIA_ES,
   },
-  // PR #10 will add: supply_kit. Same shape, same conventions.
+  supply_kit: {
+    en: SUPPLY_KIT_EN,
+    es: SUPPLY_KIT_ES,
+  },
+  // All standalone signed-doc registry entries land in PR #10 (this PR).
+  // PR #13 will add: handbook (final comprehensive signed handbook PDF).
 };
 
 /**

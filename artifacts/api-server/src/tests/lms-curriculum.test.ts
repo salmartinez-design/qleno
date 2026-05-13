@@ -33,7 +33,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("LMS curriculum — constants & catalog shape", () => {
-  it("MODULE_ORDER has all 13 modules in expected sequence (phes-401k added 2026-05-13 Phase 8)", () => {
+  it("MODULE_ORDER has all 14 modules in expected sequence (supply-kit added 2026-05-13 Phase 9)", () => {
     assert.deepEqual([...MODULE_ORDER], [
       "phes-policies",
       "compensation",
@@ -47,11 +47,12 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "non-solicitation",
       "social-media",
       "phes-401k",
+      "supply-kit",
       "acknowledgment",
     ]);
   });
 
-  it("QUIZ_MODULE_IDS contains exactly the 12 quiz modules (no acknowledgment)", () => {
+  it("QUIZ_MODULE_IDS contains exactly the 13 quiz modules (no acknowledgment)", () => {
     assert.deepEqual([...QUIZ_MODULE_IDS], [
       "phes-policies",
       "compensation",
@@ -65,6 +66,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "non-solicitation",
       "social-media",
       "phes-401k",
+      "supply-kit",
     ]);
   });
 
@@ -107,6 +109,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
     //   q-ns-13 trade-secret-vs-Section-7)
     // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // phes-401k: 10 (Phase 8 spec, 401(k) plan-features comprehension)
+    // supply-kit: 10 (Phase 9 spec, IL Wage Payment + responsibility)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
       "phes-policies": 40,
@@ -116,6 +119,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "non-solicitation": 13,
       "social-media": 10,
       "phes-401k": 10,
+      "supply-kit": 10,
       compensation: 15,
       "cleaning-best-practices": 15,
       maidcentral: 15,
@@ -131,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 177 total (40 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 177);
+  it("ALL_QUESTION_IDS is 187 total (40 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 187);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

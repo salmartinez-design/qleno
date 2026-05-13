@@ -55,6 +55,12 @@ describe("SIGNED_DOCUMENT_CONTENT registry", () => {
     assert.ok(SIGNED_DOCUMENT_CONTENT.social_media!.es);
   });
 
+  it("includes supply_kit (Phase 9 PR #10)", () => {
+    assert.ok(SIGNED_DOCUMENT_CONTENT.supply_kit);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.supply_kit!.en);
+    assert.ok(SIGNED_DOCUMENT_CONTENT.supply_kit!.es);
+  });
+
   it("every registered document has BOTH en and es entries", () => {
     for (const [type, entry] of Object.entries(SIGNED_DOCUMENT_CONTENT)) {
       assert.ok(entry?.en?.contentHtml, `${type}: missing en.contentHtml`);
@@ -166,6 +172,99 @@ describe("listRegisteredDocumentTypes", () => {
 
   it("includes social_media after PR #8", () => {
     assert.ok(listRegisteredDocumentTypes().includes("social_media"));
+  });
+
+  it("includes supply_kit after PR #10", () => {
+    assert.ok(listRegisteredDocumentTypes().includes("supply_kit"));
+  });
+});
+
+describe("supply_kit content shape (PR #10 spec checks)", () => {
+  it("English entry is NOT flagged pendingTranslationReview", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.supply_kit!.en.pendingTranslationReview ?? false,
+      false,
+    );
+  });
+
+  it("Spanish entry is NOT flagged pendingTranslationReview (not one of the four flagged docs)", () => {
+    assert.equal(
+      SIGNED_DOCUMENT_CONTENT.supply_kit!.es.pendingTranslationReview ?? false,
+      false,
+    );
+    assert.equal(isSpanishPendingTranslationReview("supply_kit"), false);
+  });
+
+  it("English Section 10 cites the Illinois Wage Payment and Collection Act (820 ILCS 115) and explicitly says signing does NOT pre-authorize automatic deductions", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.supply_kit!.en.contentHtml;
+    assert.ok(
+      en.includes("Illinois Wage Payment and Collection Act"),
+      "English must reference the Illinois Wage Payment and Collection Act",
+    );
+    assert.ok(
+      en.includes("820 ILCS 115"),
+      "English must include the 820 ILCS 115 citation",
+    );
+    assert.ok(
+      en.includes("does NOT pre-authorize"),
+      "English must explicitly state signing does NOT pre-authorize automatic payroll deductions",
+    );
+    assert.ok(
+      en.includes("separate written authorization"),
+      "English must reference the required separate written authorization at time of any specific deduction",
+    );
+  });
+
+  it("Spanish Section 10 cites 820 ILCS 115 with Spanish act name and explains no automatic deduction", () => {
+    const es = SIGNED_DOCUMENT_CONTENT.supply_kit!.es.contentHtml;
+    assert.ok(
+      es.includes("Ley de Pago de Salarios y Recolección de Illinois"),
+      "Spanish must reference the IL Wage Payment and Collection Act translation",
+    );
+    assert.ok(
+      es.includes("820 ILCS 115"),
+      "Spanish must include the 820 ILCS 115 citation",
+    );
+    assert.ok(
+      es.includes("NO pre-autoriza"),
+      "Spanish must explicitly state signing does NOT pre-authorize deductions",
+    );
+  });
+
+  it("English content distinguishes reasonable wear from negligent damage", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.supply_kit!.en.contentHtml;
+    assert.ok(
+      en.includes("REASONABLE WEAR AND TEAR"),
+      "English must call out reasonable wear and tear",
+    );
+    assert.ok(
+      en.includes("NEGLIGENT DAMAGE"),
+      "English must call out negligent damage",
+    );
+  });
+
+  it("English content requires return of ALL Phes property at separation", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.supply_kit!.en.contentHtml;
+    assert.ok(
+      en.includes("return ALL Phes property"),
+      "English must require return of ALL Phes property at separation",
+    );
+  });
+
+  it("English content prohibits personal use of Phes supplies/equipment/vehicle/uniform", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.supply_kit!.en.contentHtml;
+    assert.ok(
+      en.includes("NO PERSONAL USE"),
+      "English must include the no-personal-use section header",
+    );
+  });
+
+  it("English and Spanish content hash to DIFFERENT version hashes (legally distinct)", () => {
+    const en = SIGNED_DOCUMENT_CONTENT.supply_kit!.en.contentHtml;
+    const es = SIGNED_DOCUMENT_CONTENT.supply_kit!.es.contentHtml;
+    const hEn = hashContent(en, "en");
+    const hEs = hashContent(es, "es");
+    assert.notEqual(hEn, hEs);
   });
 });
 

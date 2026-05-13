@@ -228,6 +228,18 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-401-08-early-withdrawal-penalty": 1,
   "q-401-09-beneficiary-importance": 1,
   "q-401-10-opt-out-paths": 1,
+
+  // ── Module 13: supply-kit (10, Phase 9 PR #10) ─────────────────────────
+  "q-sk-01-property-of-phes": 1,
+  "q-sk-02-reasonable-wear-vs-negligence": 1,
+  "q-sk-03-report-damage-promptly": 1,
+  "q-sk-04-lost-key-procedure": 1,
+  "q-sk-05-return-at-separation": 1,
+  "q-sk-06-no-automatic-deduction": 1,
+  "q-sk-07-no-personal-use": 1,
+  "q-sk-08-no-modifications": 1,
+  "q-sk-09-uniform-care": 1,
+  "q-sk-10-replacement-process": 1,
 });
 
 /**
