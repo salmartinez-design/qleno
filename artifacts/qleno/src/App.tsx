@@ -80,6 +80,7 @@ const NotificationsPage   = lazy(() => import("@/pages/notifications"));
 const TrainingPage        = lazy(() => import("@/pages/training"));
 const LmsAdminPage         = lazy(() => import("@/pages/lms-admin"));
 const LmsAdminSettingsPage = lazy(() => import("@/pages/lms-admin-settings"));
+const LmsEmployeeJourneyPage = lazy(() => import("@/pages/lms-employee-journey"));
 const NotFound            = lazy(() => import("@/pages/not-found"));
 
 // [job-card-redesign] Dev-only visual test page — gated by PROD env.
@@ -189,6 +190,7 @@ function Router() {
 
         <Route path="/training" component={TrainingPage} />
         <Route path="/lms/admin/settings" component={LmsAdminSettingsPage} />
+        <Route path="/lms/admin/employee/:userId" component={LmsEmployeeJourneyPage} />
         <Route path="/lms/admin" component={LmsAdminPage} />
         <Route path="/lms" component={TrainingPage} />
 

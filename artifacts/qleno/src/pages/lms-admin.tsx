@@ -666,9 +666,31 @@ function RosterTable({
                   </button>
                 </Td>
                 <Td>
-                  <div style={{ fontWeight: 700, color: INK }}>
+                  {/* PR 2: link to Journey page. The roster row name is
+                      the primary entry point into the consolidated
+                      single-pane-of-glass view. */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setLocation(`/lms/admin/employee/${r.user_id}`)
+                    }
+                    style={{
+                      background: "transparent",
+                      border: 0,
+                      padding: 0,
+                      color: NAVY,
+                      fontWeight: 700,
+                      textAlign: "left",
+                      cursor: "pointer",
+                      fontFamily: FONT,
+                      textDecoration: "underline",
+                      textDecorationColor: LINE,
+                      textDecorationThickness: 1,
+                      textUnderlineOffset: 3,
+                    }}
+                  >
                     {r.tech_name}
-                  </div>
+                  </button>
                   <div
                     style={{
                       color: INK_LIGHT,
