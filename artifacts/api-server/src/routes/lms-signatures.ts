@@ -50,7 +50,9 @@ import {
 import {
   getOrCreateDocumentVersion,
   getTenantOwnerForSignature,
+  markVersionMaterial,
 } from "../lib/lms-signatures-db.js";
+import { sweepForDocumentType } from "./lms-annual-ack.js";
 import {
   getSignedDocumentContent,
   isSpanishPendingTranslationReview,
@@ -624,5 +626,134 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/material-change
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Owner / admin marks the current canonical content for a documentType
+// as material and fans out a forced re-acknowledgment to every employee
+// in the tenant whose active signed_document is on an OUTDATED version
+// hash. Users whose active signature already matches the current hash
+// are skipped — they signed the new version voluntarily and don't need
+// to be pushed back into the re-sign flow.
+//
+// Use case: an admin edits a signed-doc content file (e.g. Drug &
+// Alcohol Policy), ships the change, then calls this endpoint to flag
+// the new version as legally material and force everyone on the old
+// version to re-sign. Inserts pending_re_ack rows with trigger_reason
+// = 'material_content_change'.
+//
+// Body: { documentType: KnownSignedDocumentType, notes?: string }
+//
+// Returns: { document_type, version_id, version_hash, swept_user_ids,
+//   swept_count }
+
+router.post(
+  "/admin/material-change",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "User has no company assignment",
+        });
+      }
+      const adminId = req.auth!.userId;
+      const documentType: string | undefined = req.body?.documentType;
+      const notes: string | undefined =
+        typeof req.body?.notes === "string" && req.body.notes.length > 0
+          ? req.body.notes
+          : undefined;
+
+      if (!documentType || !KNOWN_TYPES.has(documentType)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "Unknown documentType",
+        });
+      }
+
+      // Get the current canonical content for the English version
+      // (English is the binding version per the brand legal pages).
+      // We materialize both locales' version rows below; English
+      // drives the response shape.
+      const enContent = getSignedDocumentContent(documentType, "en");
+      if (!enContent) {
+        return res.status(404).json({
+          error: "Not Found",
+          message: `No registered EN content for ${documentType}`,
+        });
+      }
+
+      // Materialize and mark both locales' version rows as material so
+      // the audit chain reflects the policy intent in both languages.
+      const enVersion = await getOrCreateDocumentVersion({
+        companyId,
+        documentType,
+        locale: "en",
+        contentHtml: enContent.contentHtml,
+        isMaterial: true,
+        notes,
+        createdByUserId: adminId,
+      });
+      await markVersionMaterial(companyId, enVersion.id);
+
+      const esContent = getSignedDocumentContent(documentType, "es");
+      if (esContent) {
+        const esVersion = await getOrCreateDocumentVersion({
+          companyId,
+          documentType,
+          locale: "es",
+          contentHtml: esContent.contentHtml,
+          isMaterial: true,
+          notes,
+          createdByUserId: adminId,
+        });
+        await markVersionMaterial(companyId, esVersion.id);
+      }
+
+      // Sweep users whose active signature is on an outdated hash.
+      const sweep = await sweepForDocumentType({
+        companyId,
+        documentType,
+        triggeredByUserId: adminId,
+        triggerReason: "material_content_change",
+        onlyOutdated: true,
+      });
+
+      await logAudit(
+        req,
+        "lms_material_change_triggered",
+        "lms_document_version",
+        enVersion.id,
+        null,
+        {
+          document_type: documentType,
+          swept_count: sweep.swept_user_ids.length,
+          notes: notes ?? null,
+        },
+      );
+
+      return res.json({
+        data: {
+          document_type: documentType,
+          version_id: enVersion.id,
+          version_hash: enVersion.version_hash,
+          swept_user_ids: sweep.swept_user_ids,
+          swept_count: sweep.swept_user_ids.length,
+        },
+      });
+    } catch (err) {
+      console.error("[lms-signatures] POST /admin/material-change error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to trigger material content change",
+      });
+    }
+  },
+);
 
 export default router;

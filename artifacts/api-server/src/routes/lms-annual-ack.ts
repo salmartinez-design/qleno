@@ -78,13 +78,28 @@ export async function sweepForDocumentType(args: {
   documentType: string;
   triggeredByUserId: number | null;
   triggerReason: TriggerReason;
+  /**
+   * When true, only users whose active signed_document carries a
+   * version_hash that does NOT match the current canonical hash get
+   * a pending_re_ack row. Used by the material-content-change sweep
+   * so already-up-to-date employees aren't pushed back into the
+   * re-sign flow.
+   */
+  onlyOutdated?: boolean;
 }): Promise<SweepResult> {
-  const { companyId, documentType, triggeredByUserId, triggerReason } = args;
+  const {
+    companyId,
+    documentType,
+    triggeredByUserId,
+    triggerReason,
+    onlyOutdated,
+  } = args;
 
   const activeSigners = await db
     .select({
       user_id: lmsSignedDocumentsTable.user_id,
       locale: lmsSignedDocumentsTable.locale,
+      current_version_hash: lmsSignedDocumentsTable.version_hash,
     })
     .from(lmsSignedDocumentsTable)
     .innerJoin(
@@ -121,6 +136,11 @@ export async function sweepForDocumentType(args: {
       isMaterial: triggerReason === "material_content_change",
       notes: content.notes,
     });
+
+    // Material-change sweep: skip users already on the current hash.
+    if (onlyOutdated && signer.current_version_hash === version.version_hash) {
+      continue;
+    }
 
     // Skip if user already has an unacknowledged row for this version.
     const existing = await db
