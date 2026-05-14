@@ -1527,9 +1527,34 @@ function ProgressDot({ pct }: { pct: number }) {
   );
 }
 
+// Item 13c (P1 sprint 2026-05-14): canonical display titles per
+// module id. Pre-fix, the helper just split-on-dash + capitalized,
+// which produced "Il Sexual Harassment" for `il-sexual-harassment`
+// instead of the proper "Illinois Sexual Harassment Prevention".
+// Audit any future module name changes against this map.
+const MODULE_DISPLAY_TITLES: Record<string, string> = {
+  "phes-policies": "Phes Policies & Procedures",
+  "compensation": "Compensation",
+  "cleaning-best-practices": "Cleaning Best Practices",
+  "maidcentral": "MaidCentral",
+  "products-tools": "Products & Tools",
+  "il-sexual-harassment": "Illinois Sexual Harassment Prevention",
+  "drug-alcohol": "Drug & Alcohol",
+  "code-of-conduct": "Code of Conduct",
+  "video-photo-release": "Video & Photo Release",
+  "non-solicitation": "Non-Solicitation",
+  "social-media": "Social Media",
+  "phes-401k": "Phes 401(k)",
+  "supply-kit": "Supply Kit Responsibility",
+  "__final": "Final Mixed Test",
+  "__handbook": "Comprehensive Handbook",
+  "acknowledgment": "Acknowledgment",
+};
+
 function humanModule(id: string | null): string {
   if (!id) return "—";
-  if (id === "__final") return "Final mixed test";
+  if (MODULE_DISPLAY_TITLES[id]) return MODULE_DISPLAY_TITLES[id];
+  // Fallback: split-on-dash + Title Case for unknown ids.
   return id
     .split("-")
     .map((w) => w[0]?.toUpperCase() + w.slice(1))
@@ -1976,7 +2001,12 @@ type AttemptRow = {
 };
 
 function humanModuleLabel(id: string): string {
-  if (id === "__final") return "Final mixed test";
+  // Item 13c (P1 sprint): delegate to the canonical humanModule
+  // helper so attempt-history headers don't show "Il Sexual
+  // Harassment" while the rest of the dashboard shows the proper
+  // "Illinois Sexual Harassment Prevention".
+  if (MODULE_DISPLAY_TITLES[id]) return MODULE_DISPLAY_TITLES[id];
+  if (id === "__final") return "Final Mixed Test";
   return id
     .split("-")
     .map((w) => w[0]?.toUpperCase() + w.slice(1))
@@ -4024,6 +4054,12 @@ const ThStyle: React.CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.06em",
   borderBottom: `1px solid ${LINE}`,
+  // Item 13a (P1 sprint 2026-05-14): the audit dashboard MODULES /
+  // FINAL columns truncated to "FINAI" on narrow desktops because
+  // there was no min-width and the text-transform widened the
+  // letters. Force whole-word display + a sane minimum width.
+  whiteSpace: "nowrap",
+  minWidth: 80,
 };
 
 const TdStyle: React.CSSProperties = {

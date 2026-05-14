@@ -181,9 +181,17 @@ async function getOrCreateEnrollment(
 }
 
 /**
- * Stamp `last_activity_at` for an enrollment. Called on every progress
- * write (start, autosave, submit, acknowledge) so the admin roster shows
- * a useful "last activity" timestamp.
+ * Stamp `last_activity_at` for an enrollment.
+ *
+ * Item 12 (P1 sprint 2026-05-14): the admin "Last activity" column
+ * needs to mean "is this person actually working through the LMS",
+ * not "did they crack the reader open and bounce". Pre-fix, every
+ * /module/start (reader open), /quiz/state PUT (autosave),
+ * /module/acknowledge, /grandfather, and /admin/bypass-module call
+ * stamped this — so Jose's roster card showed his last activity as
+ * Sexual Harassment 10:55 AM even though he had ZERO attempts on
+ * that module. Now ONLY /quiz/submit calls this helper. Every other
+ * caller of touchEnrollment was removed.
  */
 async function touchEnrollment(enrollmentId: number, now: Date = new Date()): Promise<void> {
   await db
@@ -466,7 +474,8 @@ router.post("/module/start", requireAuth, async (req, res) => {
       },
       now,
     });
-    await touchEnrollment(enrollment.id, now);
+    // Item 12 (P1 sprint): /module/start is a reader open, not a
+    // quiz attempt. Do NOT stamp last_activity_at here.
     return res.json({ data: row });
   } catch (err) {
     console.error("[lms] /module/start error:", err);
@@ -595,7 +604,8 @@ router.post("/quiz/state", requireAuth, async (req, res) => {
       })
       .returning();
 
-    await touchEnrollment(enrollment.id, now);
+    // Item 12 (P1 sprint): /quiz/state autosave is mid-attempt
+    // typing, not a submit. Do NOT stamp last_activity_at here.
     return res.json({ data: inserted[0] });
   } catch (err) {
     console.error("[lms] POST /quiz/state error:", err);
@@ -1020,7 +1030,8 @@ router.post("/module/acknowledge", requireAuth, async (req, res) => {
         .where(eq(lmsEnrollmentsTable.id, enrollment.id));
     }
 
-    await touchEnrollment(enrollment.id, now);
+    // Item 12 (P1 sprint): /module/acknowledge is a content-only
+    // signature, not a quiz submit. Do NOT stamp last_activity_at.
 
     // Phase 12: issue a completion certificate for content-only modules
     // (e.g. qleno-app, acknowledgment). No score because there's no quiz.
@@ -1160,7 +1171,10 @@ router.post("/grandfather", requireAuth, async (req, res) => {
       });
     }
 
-    await touchEnrollment(enrollment.id, now);
+    // Item 12 (P1 sprint): /grandfather is a one-time legacy data
+    // import, not employee activity. Do NOT stamp last_activity_at —
+    // a freshly grandfathered employee should still show "Not yet
+    // started" until they actually submit a quiz.
     await logAudit(
       req,
       "lms.grandfather",
@@ -1667,7 +1681,8 @@ router.post(
           ),
         );
 
-      await touchEnrollment(enrollment.id, now);
+      // Item 12 (P1 sprint): /admin/bypass-module is an admin action,
+      // not employee activity. Do NOT stamp last_activity_at.
 
       // PR #4 policy decision: bypass marks the quiz passed for
       // navigation purposes but does NOT issue a completion certificate
