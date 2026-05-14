@@ -6,18 +6,18 @@
  * HandbookCard render, and the owner preview popup). This spec adds
  * the missing scenarios from the final-sprint spec:
  *
- *   1. Fresh employee onboarding flow — visiting /lms loads modules
+ *   1. Fresh employee onboarding flow. Visiting /lms loads modules
  *      and the canonical "X/13 modules complete" denominator renders.
- *   2. Grandfathered employee with recompute banner — when the
- *      backend has flipped enrollment.status from completed → active
- *      and surfaces status_was_recomputed=true, the amber
- *      RecomputeBanner appears at top of /lms.
- *   3. Admin dashboard navigation + CSV export trigger — links
- *      between roster, audit dashboard, Journey page, Settings; CSV
- *      download fires.
- *   4. Language toggle preservation — switching EN/ES preserves
+ *   2. Grandfathered employee with recompute banner. When the backend
+ *      has flipped enrollment.status from completed to active and
+ *      surfaces status_was_recomputed=true, the amber RecomputeBanner
+ *      appears at top of /lms.
+ *   3. Admin dashboard navigation + CSV export. Confirms links between
+ *      roster, audit dashboard, Journey page, Settings; CSV download
+ *      fires.
+ *   4. Language toggle preservation. Switching EN to ES preserves
  *      module-position state mid-quiz / mid-content.
- *   5. Mobile viewport (375px iPhone simulation) — /training and
+ *   5. Mobile viewport (375px iPhone simulation). /training and
  *      /lms/admin render without horizontal overflow.
  *
  * Skip path: SKIP_LMS_ONBOARDING_E2E=1 skips the whole spec when the
@@ -55,7 +55,7 @@ async function login(
   await page.waitForURL(/\/(dashboard|lms|jobs|$)/, { timeout: 15_000 });
 }
 
-test.describe("LMS — fresh onboarding flow", () => {
+test.describe("LMS · fresh onboarding flow", () => {
   test.skip(SKIP, "SKIP_LMS_ONBOARDING_E2E=1");
 
   test("fresh employee sees the canonical X/13 denominator on /lms", async ({
@@ -87,7 +87,7 @@ test.describe("LMS — fresh onboarding flow", () => {
   });
 });
 
-test.describe("LMS — recompute banner for healed enrollments", () => {
+test.describe("LMS · recompute banner for healed enrollments", () => {
   test.skip(SKIP, "SKIP_LMS_ONBOARDING_E2E=1");
   test.skip(
     !GRANDFATHERED_EMAIL,
@@ -115,12 +115,12 @@ test.describe("LMS — recompute banner for healed enrollments", () => {
       await expect(banner).not.toBeVisible({ timeout: 5_000 });
     }
     // If the banner wasn't visible (e.g. user already dismissed it
-    // last session), the test still passes — no negative assertion is
+    // last session), the test still passes; no negative assertion is
     // needed because the localStorage-backed dismiss is sticky.
   });
 });
 
-test.describe("LMS — admin dashboard navigation + CSV", () => {
+test.describe("LMS · admin dashboard navigation + CSV", () => {
   test.skip(SKIP, "SKIP_LMS_ONBOARDING_E2E=1");
 
   test("owner traverses roster → audit dashboard → CSV download", async ({
@@ -140,7 +140,7 @@ test.describe("LMS — admin dashboard navigation + CSV", () => {
     await expect(
       page.getByRole("button", { name: /Bulk reset password/ }),
     ).toBeVisible();
-    // PR 9 (final sprint) — Settings button shows for owner only.
+    // PR 9 (final sprint): Settings button shows for owner only.
     await expect(
       page.getByRole("button", { name: /^Settings$/ }),
     ).toBeVisible();
@@ -197,7 +197,7 @@ test.describe("LMS — admin dashboard navigation + CSV", () => {
   });
 });
 
-test.describe("LMS — language toggle preservation", () => {
+test.describe("LMS · language toggle preservation", () => {
   test.skip(SKIP, "SKIP_LMS_ONBOARDING_E2E=1");
   test.skip(
     !EMPLOYEE_EMAIL,
@@ -225,7 +225,7 @@ test.describe("LMS — language toggle preservation", () => {
   });
 });
 
-test.describe("LMS — mobile viewport (375px iPhone)", () => {
+test.describe("LMS · mobile viewport (375px iPhone)", () => {
   test.skip(SKIP, "SKIP_LMS_ONBOARDING_E2E=1");
 
   test("training page renders without horizontal overflow at 375px", async ({
