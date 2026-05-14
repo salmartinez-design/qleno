@@ -146,6 +146,7 @@ export default function LmsAdminPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
   const [cyclesOpen, setCyclesOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
 
   function toggleExpand(enrollmentId: number) {
     setExpanded((prev) => {
@@ -250,6 +251,23 @@ export default function LmsAdminPage() {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setAuditOpen(true)}
+              style={{
+                background: SUCCESS,
+                color: "#fff",
+                border: `1px solid ${SUCCESS}`,
+                padding: "8px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              Audit dashboard
+            </button>
             <button
               type="button"
               onClick={() => setCyclesOpen(true)}
@@ -414,6 +432,13 @@ export default function LmsAdminPage() {
         <AnnualCyclesDialog
           token={token}
           onClose={() => setCyclesOpen(false)}
+        />
+      )}
+
+      {auditOpen && (
+        <AuditDashboardDialog
+          token={token}
+          onClose={() => setAuditOpen(false)}
         />
       )}
 
@@ -2784,6 +2809,589 @@ function AnnualCyclesDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Audit dashboard dialog (Phase 15 UI)
+//
+// Surfaces the existing /api/lms/admin-audit endpoints:
+//   - GET  /summary           tenant rollup totals + per-learner audit rows
+//   - GET  /summary.csv       RFC-4180 CSV export (download)
+//   - GET  /learner/:userId   single-learner deep view (lazy on expand)
+//
+// One-screen compliance posture for the tenant. Renders the five
+// dimensions per learner (modules, signed docs, final exam, handbook,
+// pending re-acks) plus the rollup totals at the top. CSV download
+// goes through fetch+blob+auth (same pattern as the certificate /
+// handbook downloads).
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AuditCompliance = {
+  modules_complete: boolean;
+  docs_complete: boolean;
+  final_passed: boolean;
+  handbook_signed: boolean;
+  pending_count: number;
+  overall: "complete" | "needs_resign" | "overdue" | "in_progress";
+};
+
+type AuditRosterRow = {
+  user_id: number;
+  full_name: string;
+  email: string;
+  role: string;
+  hire_date: string | null;
+  termination_date: string | null;
+  enrollment: {
+    id: number;
+    status: string;
+    enrolled_at: string;
+    deadline_at: string | null;
+    completed_at: string | null;
+    last_activity_at: string | null;
+  } | null;
+  passed_module_ids: string[];
+  signed_document_types: string[];
+  handbook_signed_at: string | null;
+  final_passed_at: string | null;
+  pending_re_acks: Array<{
+    id: number;
+    document_type: string;
+    trigger_reason: string;
+    triggered_at: string;
+    defer_until: string | null;
+  }>;
+  compliance: AuditCompliance;
+};
+
+type AuditSummary = {
+  totals: {
+    learners: number;
+    complete: number;
+    in_progress: number;
+    overdue: number;
+    needs_resign: number;
+    pending_re_acks: number;
+  };
+  rows: AuditRosterRow[];
+  quiz_module_ids: string[];
+  required_signed_docs: string[];
+};
+
+async function downloadAuditCsv(token: string | null): Promise<void> {
+  const url = `${API_BASE}/lms/admin-audit/summary.csv`;
+  const res = await fetch(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `GET /lms/admin-audit/summary.csv → ${res.status}: ${text}`,
+    );
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get("content-disposition") ?? "";
+  const match = /filename="([^"]+)"/.exec(disposition);
+  const filename =
+    match?.[1] ?? `phes-lms-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+}
+
+function AuditDashboardDialog({
+  token,
+  onClose,
+}: {
+  token: string | null;
+  onClose: () => void;
+}) {
+  const [summary, setSummary] = useState<AuditSummary | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | AuditCompliance["overall"]>(
+    "all",
+  );
+
+  const refresh = async () => {
+    try {
+      const data = await api<AuditSummary>(
+        "GET",
+        "/lms/admin-audit/summary",
+        token,
+      );
+      setSummary(data);
+      setErr(null);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const rows = useMemo(() => {
+    if (!summary) return [] as AuditRosterRow[];
+    if (filter === "all") return summary.rows;
+    return summary.rows.filter((r) => r.compliance.overall === filter);
+  }, [summary, filter]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="LMS audit dashboard"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 1100,
+          width: "100%",
+          maxHeight: "92vh",
+          overflowY: "auto",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: INK }}>
+              LMS audit dashboard
+            </div>
+            <div style={{ fontSize: 12.5, color: INK_MUTE, marginTop: 4 }}>
+              Compliance roster across every employee. Filter, drill in, and
+              export for HR / legal records.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={busy === "csv"}
+              onClick={async () => {
+                setBusy("csv");
+                setErr(null);
+                try {
+                  await downloadAuditCsv(token);
+                } catch (e) {
+                  setErr(String((e as Error).message));
+                } finally {
+                  setBusy(null);
+                }
+              }}
+              style={{
+                background: busy === "csv" ? INK_LIGHT : NAVY,
+                color: "#fff",
+                border: 0,
+                padding: "8px 12px",
+                borderRadius: 8,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: busy === "csv" ? "default" : "pointer",
+                fontFamily: FONT,
+              }}
+            >
+              {busy === "csv" ? "Preparing…" : "Download CSV"}
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{
+                background: "transparent",
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+                padding: "6px 8px",
+                cursor: "pointer",
+                color: INK_MUTE,
+                fontFamily: FONT,
+              }}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {err && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: `1px solid #FECACA`,
+              color: DANGER,
+              padding: 10,
+              borderRadius: 8,
+              fontSize: 12,
+              marginTop: 12,
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        {summary === null ? (
+          <div
+            style={{
+              padding: 40,
+              textAlign: "center",
+              color: INK_MUTE,
+            }}
+          >
+            <Loader2 size={20} className="qleno-admin-spin" />
+          </div>
+        ) : (
+          <>
+            {/* Tenant rollup tiles */}
+            <div
+              style={{
+                marginTop: 16,
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+                gap: 8,
+              }}
+            >
+              <RollupTile
+                label="Learners"
+                value={summary.totals.learners}
+                color={INK}
+                active={filter === "all"}
+                onClick={() => setFilter("all")}
+              />
+              <RollupTile
+                label="Complete"
+                value={summary.totals.complete}
+                color={SUCCESS}
+                active={filter === "complete"}
+                onClick={() => setFilter("complete")}
+              />
+              <RollupTile
+                label="In progress"
+                value={summary.totals.in_progress}
+                color={TEAL}
+                active={filter === "in_progress"}
+                onClick={() => setFilter("in_progress")}
+              />
+              <RollupTile
+                label="Overdue"
+                value={summary.totals.overdue}
+                color={DANGER}
+                active={filter === "overdue"}
+                onClick={() => setFilter("overdue")}
+              />
+              <RollupTile
+                label="Needs re-sign"
+                value={summary.totals.needs_resign}
+                color={WARN}
+                active={filter === "needs_resign"}
+                onClick={() => setFilter("needs_resign")}
+              />
+              <RollupTile
+                label="Pending re-acks"
+                value={summary.totals.pending_re_acks}
+                color={INK_MUTE}
+                active={false}
+                onClick={() => {}}
+              />
+            </div>
+
+            {/* Roster table */}
+            <div
+              style={{
+                marginTop: 16,
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+                overflow: "hidden",
+              }}
+            >
+              <table
+                style={{
+                  width: "100%",
+                  borderCollapse: "collapse",
+                  fontSize: 12.5,
+                  fontFamily: FONT,
+                }}
+              >
+                <thead>
+                  <tr style={{ background: LINE_SOFT }}>
+                    <th style={ThStyle}>Employee</th>
+                    <th style={ThStyle}>Status</th>
+                    <th style={ThStyle}>Modules</th>
+                    <th style={ThStyle}>Docs</th>
+                    <th style={ThStyle}>Final</th>
+                    <th style={ThStyle}>Handbook</th>
+                    <th style={ThStyle}>Pending</th>
+                    <th style={ThStyle}>Last activity</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        style={{
+                          textAlign: "center",
+                          padding: 24,
+                          color: INK_MUTE,
+                          fontSize: 12.5,
+                        }}
+                      >
+                        No learners match this filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    rows.map((r) => (
+                      <AuditRow
+                        key={r.user_id}
+                        row={r}
+                        totalModules={summary.quiz_module_ids.length}
+                        totalDocs={summary.required_signed_docs.length}
+                      />
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ThStyle: React.CSSProperties = {
+  textAlign: "left",
+  padding: "10px 12px",
+  fontSize: 11,
+  fontWeight: 800,
+  color: INK_MUTE,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  borderBottom: `1px solid ${LINE}`,
+};
+
+const TdStyle: React.CSSProperties = {
+  padding: "10px 12px",
+  fontSize: 12.5,
+  color: INK,
+  borderBottom: `1px solid ${LINE_SOFT}`,
+  verticalAlign: "top",
+};
+
+function RollupTile({
+  label,
+  value,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        background: active ? color : SURFACE,
+        color: active ? "#fff" : INK,
+        border: `1px solid ${active ? color : LINE}`,
+        borderRadius: 8,
+        padding: "10px 12px",
+        textAlign: "left",
+        cursor: "pointer",
+        fontFamily: FONT,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10.5,
+          fontWeight: 800,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: active ? "rgba(255,255,255,0.85)" : INK_MUTE,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 22,
+          fontWeight: 800,
+          color: active ? "#fff" : color,
+          fontVariantNumeric: "tabular-nums",
+          marginTop: 2,
+        }}
+      >
+        {value}
+      </div>
+    </button>
+  );
+}
+
+function AuditRow({
+  row,
+  totalModules,
+  totalDocs,
+}: {
+  row: AuditRosterRow;
+  totalModules: number;
+  totalDocs: number;
+}) {
+  const c = row.compliance;
+  const overallColor =
+    c.overall === "complete"
+      ? SUCCESS
+      : c.overall === "needs_resign"
+      ? WARN
+      : c.overall === "overdue"
+      ? DANGER
+      : TEAL;
+  const overallLabel =
+    c.overall === "complete"
+      ? "Complete"
+      : c.overall === "needs_resign"
+      ? "Needs re-sign"
+      : c.overall === "overdue"
+      ? "Overdue"
+      : "In progress";
+
+  return (
+    <tr>
+      <td style={TdStyle}>
+        <div style={{ fontWeight: 700, color: INK }}>{row.full_name}</div>
+        <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 2 }}>
+          {row.email} · {row.role}
+        </div>
+      </td>
+      <td style={TdStyle}>
+        <span
+          style={{
+            background: overallColor + "20",
+            color: overallColor,
+            padding: "3px 8px",
+            borderRadius: 999,
+            fontSize: 10.5,
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {overallLabel}
+        </span>
+      </td>
+      <td style={TdStyle}>
+        <CountCell
+          done={row.passed_module_ids.length}
+          total={totalModules}
+          full={c.modules_complete}
+        />
+      </td>
+      <td style={TdStyle}>
+        <CountCell
+          done={row.signed_document_types.length}
+          total={totalDocs}
+          full={c.docs_complete}
+        />
+      </td>
+      <td style={TdStyle}>
+        <CheckCell ok={c.final_passed} />
+      </td>
+      <td style={TdStyle}>
+        <CheckCell ok={c.handbook_signed} />
+      </td>
+      <td style={TdStyle}>
+        {c.pending_count > 0 ? (
+          <span
+            style={{
+              color: WARN,
+              fontWeight: 800,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {c.pending_count}
+          </span>
+        ) : (
+          <span style={{ color: INK_LIGHT }}>0</span>
+        )}
+      </td>
+      <td style={TdStyle}>
+        <span style={{ fontSize: 11.5, color: INK_MUTE }}>
+          {row.enrollment?.last_activity_at
+            ? humanDateTime(row.enrollment.last_activity_at)
+            : "—"}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function CountCell({
+  done,
+  total,
+  full,
+}: {
+  done: number;
+  total: number;
+  full: boolean;
+}) {
+  return (
+    <span
+      style={{
+        color: full ? SUCCESS : INK,
+        fontWeight: full ? 800 : 600,
+        fontVariantNumeric: "tabular-nums",
+      }}
+    >
+      {done}/{total}
+    </span>
+  );
+}
+
+function CheckCell({ ok }: { ok: boolean }) {
+  if (ok) {
+    return <CircleCheck size={16} style={{ color: SUCCESS }} />;
+  }
+  return (
+    <span
+      style={{
+        fontSize: 14,
+        color: INK_LIGHT,
+        fontWeight: 700,
+      }}
+    >
+      —
+    </span>
   );
 }
 
