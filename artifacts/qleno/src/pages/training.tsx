@@ -141,6 +141,14 @@ type LmsState = {
    * state + "sign these first" hint on the FinalStepCard.
    */
   missing_required_signed_docs?: string[];
+  /**
+   * Bug-fix sprint #2 (server): when the cached enrollment.status was
+   * 'completed' but the current truth gate (all modules + all 6 acks
+   * + handbook + final) fails, GET /me lazily heals the row to
+   * 'active' and surfaces this flag. The frontend uses it to render
+   * a non-alarming "we updated requirements" banner.
+   */
+  status_was_recomputed?: boolean;
 };
 
 type QuizStateRow = {
@@ -554,6 +562,33 @@ export default function TrainingPage() {
   const [pendingReAcks, setPendingReAcks] =
     useState<PendingReAckSummary | null>(null);
 
+  // Bug-fix sprint #1 — recompute banner.
+  //
+  // GET /api/lms/me sets `status_was_recomputed: true` when it has just
+  // lazily-healed a stale enrollment.status='completed' row back to
+  // 'active'. The banner is the friendly user-facing acknowledgment
+  // of that change. Dismissed once per user via localStorage so
+  // returning users don't see it every login.
+  const recomputeBannerKey = useMemo(() => {
+    const id = learner?.email ?? "anon";
+    return `qleno.lms.recompute-banner.dismissed.${id.toLowerCase()}`;
+  }, [learner?.email]);
+  const [bannerDismissed, setBannerDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(recomputeBannerKey) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissRecomputeBanner = () => {
+    try {
+      localStorage.setItem(recomputeBannerKey, "1");
+    } catch {
+      /* noop */
+    }
+    setBannerDismissed(true);
+  };
+
   const curriculum = useMemo<Curriculum>(
     () => getCurriculum(learner?.companyId ?? null),
     [learner?.companyId],
@@ -712,12 +747,28 @@ export default function TrainingPage() {
   const finalUnlocked = isFinalUnlocked(completedIds);
   const finalPassed = completedIds.includes(FINAL_MODULE_ID);
   const ackUnlocked = isModuleUnlocked("acknowledgment", completedIds);
-  const enrollmentDone = state.enrollment.status === "completed";
 
-  // Auto-route to done if everything's wrapped up
-  if (enrollmentDone && view.kind !== "done") {
-    setView({ kind: "done" });
-  }
+  // Bug-fix sprint #1: the previous auto-route to DoneView trusted
+  // enrollment.status === "completed" alone, which falsely fired
+  // whenever the cached status flag was stale (Jose-style: passed
+  // final under old curriculum, owes 8 new modules + 6 new acks).
+  // The auto-route is gone. DoneView still exists but is reachable
+  // only when every gate is satisfied. Home view always renders
+  // when fullyDone is false so the pending-ack tiles + handbook
+  // card stay accessible.
+  const allModulesPassed = (QUIZ_MODULE_IDS as readonly string[]).every((m) =>
+    completedIds.includes(m),
+  );
+  const allDocsSigned =
+    (state.missing_required_signed_docs ?? []).length === 0;
+  const handbookSigned = !!signedDocByType["handbook"];
+  const noPendingReAcks = (pendingReAcks?.active.length ?? 0) === 0;
+  const fullyDone =
+    allModulesPassed &&
+    finalPassed &&
+    allDocsSigned &&
+    handbookSigned &&
+    noPendingReAcks;
 
   return (
     <PageShell>
@@ -729,7 +780,14 @@ export default function TrainingPage() {
         daysRemaining={state.days_remaining}
         isOwner={!!state.is_owner}
       />
-      {view.kind === "home" && (
+      {view.kind === "home" && fullyDone && (
+        <DoneView
+          locale={locale}
+          tenantName={curriculum.tenantName}
+          onReturnHome={() => setLocation("/")}
+        />
+      )}
+      {view.kind === "home" && !fullyDone && (
         <Home
           curriculum={curriculum}
           state={state}
@@ -754,6 +812,10 @@ export default function TrainingPage() {
             await refresh();
           }}
           onDownloadCert={(certId) => downloadCertificatePdf(token, certId)}
+          showRecomputeBanner={
+            !!state.status_was_recomputed && !bannerDismissed
+          }
+          onDismissRecomputeBanner={dismissRecomputeBanner}
         />
       )}
       {view.kind === "module" && (
@@ -837,9 +899,14 @@ export default function TrainingPage() {
           learner={learner}
           onCancel={() => setView({ kind: "home" })}
           onSubmit={async (signature) => {
+            // Bug-fix sprint #1: don't blindly route to DoneView after
+            // the legacy acknowledgment view. The refresh + Home re-
+            // render path now decides whether to show DoneView based
+            // on fullyDone. Fall back to Home; the gate downstream
+            // picks the right surface.
             await lmsApi.acknowledge(token, "acknowledgment", signature);
             await refresh();
-            setView({ kind: "done" });
+            setView({ kind: "home" });
           }}
         />
       )}
@@ -1184,6 +1251,8 @@ function Home({
   onOpenSignHandbook,
   onBypass,
   onDownloadCert,
+  showRecomputeBanner,
+  onDismissRecomputeBanner,
 }: {
   curriculum: Curriculum;
   state: LmsState;
@@ -1203,6 +1272,8 @@ function Home({
   onOpenSignHandbook: () => void;
   onBypass: (moduleId: string) => Promise<void>;
   onDownloadCert: (certId: number) => Promise<void>;
+  showRecomputeBanner: boolean;
+  onDismissRecomputeBanner: () => void;
 }) {
   const isOwner = !!state.is_owner;
   const completed = state.progress
@@ -1224,6 +1295,13 @@ function Home({
         padding: "26px 18px",
       }}
     >
+      {showRecomputeBanner ? (
+        <RecomputeBanner
+          locale={locale}
+          onDismiss={onDismissRecomputeBanner}
+        />
+      ) : null}
+
       {activePendingCount > 0 ? (
         <PendingReAckTile
           locale={locale}
@@ -3857,6 +3935,81 @@ function HandbookSignView({
 // future documents are added to ANNUAL_DOCUMENT_TYPES, this tile gains a
 // per-document CTA — for now the single CTA is enough.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RecomputeBanner — surfaces the server-side completion recompute.
+//
+// Rendered at the top of /training home when GET /api/lms/me's response
+// carried status_was_recomputed = true. Tells the employee why their
+// "completed" splash disappeared in a non-alarming way and offers a
+// dismiss. Dismiss state lives in localStorage keyed by user so it
+// sticks across sessions without nagging.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function RecomputeBanner({
+  locale,
+  onDismiss,
+}: {
+  locale: Locale;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      style={{
+        background: "#FFFBEB",
+        border: `1px solid #FDE68A`,
+        borderLeft: `4px solid ${WARN}`,
+        borderRadius: RADIUS,
+        padding: "14px 18px",
+        marginBottom: 18,
+        display: "grid",
+        gridTemplateColumns: "auto 1fr auto",
+        alignItems: "center",
+        gap: 14,
+        fontFamily: FONT,
+      }}
+    >
+      <Info size={22} style={{ color: WARN }} />
+      <div>
+        <div style={{ fontWeight: 800, fontSize: 14.5, color: INK }}>
+          {locale === "es"
+            ? "Requisitos de capacitación actualizados"
+            : "Training requirements updated"}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 4,
+            lineHeight: 1.55,
+          }}
+        >
+          {locale === "es"
+            ? "Actualizamos recientemente los requisitos de capacitación. Tiene algunos elementos más por completar. Tómese su tiempo, no hay penalización, solo termine los pendientes a su propio ritmo."
+            : "We recently updated the training requirements. You have a few more items to complete. Take your time, there is no penalty, just check off the pending tiles below at your own pace."}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        style={{
+          background: "transparent",
+          color: INK_MUTE,
+          border: `1px solid ${LINE}`,
+          padding: "6px 12px",
+          borderRadius: 8,
+          fontSize: 12,
+          fontWeight: 700,
+          fontFamily: FONT,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {locale === "es" ? "Entendido" : "Got it"}
+      </button>
+    </div>
+  );
+}
 
 function PendingReAckTile({
   locale,
