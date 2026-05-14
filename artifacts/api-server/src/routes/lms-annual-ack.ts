@@ -73,10 +73,10 @@ interface SweepResult {
  *
  * Returns the user IDs that received a NEW pending row this call.
  */
-async function sweepForDocumentType(args: {
+export async function sweepForDocumentType(args: {
   companyId: number;
   documentType: string;
-  triggeredByUserId: number;
+  triggeredByUserId: number | null;
   triggerReason: TriggerReason;
 }): Promise<SweepResult> {
   const { companyId, documentType, triggeredByUserId, triggerReason } = args;

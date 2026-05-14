@@ -2918,6 +2918,7 @@ function AuditDashboardDialog({
   const [filter, setFilter] = useState<"all" | AuditCompliance["overall"]>(
     "all",
   );
+  const [drillUserId, setDrillUserId] = useState<number | null>(null);
 
   const refresh = async () => {
     try {
@@ -3172,6 +3173,7 @@ function AuditDashboardDialog({
                         row={r}
                         totalModules={summary.quiz_module_ids.length}
                         totalDocs={summary.required_signed_docs.length}
+                        onClick={() => setDrillUserId(r.user_id)}
                       />
                     ))
                   )}
@@ -3181,6 +3183,14 @@ function AuditDashboardDialog({
           </>
         )}
       </div>
+
+      {drillUserId !== null && (
+        <AuditLearnerDrawer
+          token={token}
+          userId={drillUserId}
+          onClose={() => setDrillUserId(null)}
+        />
+      )}
     </div>
   );
 }
@@ -3262,10 +3272,12 @@ function AuditRow({
   row,
   totalModules,
   totalDocs,
+  onClick,
 }: {
   row: AuditRosterRow;
   totalModules: number;
   totalDocs: number;
+  onClick: () => void;
 }) {
   const c = row.compliance;
   const overallColor =
@@ -3286,7 +3298,16 @@ function AuditRow({
       : "In progress";
 
   return (
-    <tr>
+    <tr
+      onClick={onClick}
+      style={{ cursor: "pointer" }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLTableRowElement).style.background = LINE_SOFT;
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLTableRowElement).style.background = "transparent";
+      }}
+    >
       <td style={TdStyle}>
         <div style={{ fontWeight: 700, color: INK }}>{row.full_name}</div>
         <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 2 }}>
@@ -3374,6 +3395,572 @@ function CountCell({
       }}
     >
       {done}/{total}
+    </span>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AuditLearnerDrawer — drill-down to a single employee's full audit chain.
+//
+// Fetches GET /api/lms/admin-audit/learner/:userId on mount and renders
+// enrollment, module progress, signed documents (active + superseded),
+// completion certificates, and pending re-acks. The compliance summary
+// from the same endpoint is shown at the top so the operator can read
+// the overall posture without scrolling.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AuditLearnerDetail = {
+  user: {
+    id: number;
+    full_name: string;
+    email: string;
+    role: string;
+    hire_date: string | null;
+    termination_date: string | null;
+  };
+  enrollment: {
+    id: number;
+    status: string;
+    enrolled_at: string;
+    deadline_at: string | null;
+    completed_at: string | null;
+    last_activity_at: string | null;
+  } | null;
+  module_progress: Array<{
+    module_id: string;
+    status: string;
+    best_score: number;
+    attempts: number;
+    passed_at: string | null;
+  }>;
+  signed_documents: Array<{
+    id: number;
+    document_type: string;
+    locale: string;
+    signed_at: string;
+    status: "active" | "superseded" | "revoked";
+    version_hash: string;
+    employee_signature_method: "drawn" | "typed";
+  }>;
+  certificates: Array<{
+    id: number;
+    module_id: string;
+    score: number | null;
+    passed: boolean;
+    locale: string;
+    issued_at: string;
+    revoked_at: string | null;
+  }>;
+  pending_re_acks: Array<{
+    id: number;
+    document_type: string;
+    trigger_reason: string;
+    triggered_at: string;
+    acknowledged_at: string | null;
+    defer_until: string | null;
+  }>;
+  compliance: AuditCompliance;
+};
+
+function AuditLearnerDrawer({
+  token,
+  userId,
+  onClose,
+}: {
+  token: string | null;
+  userId: number;
+  onClose: () => void;
+}) {
+  const [detail, setDetail] = useState<AuditLearnerDetail | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetail(null);
+    setErr(null);
+    (async () => {
+      try {
+        const data = await api<AuditLearnerDetail>(
+          "GET",
+          `/lms/admin-audit/learner/${userId}`,
+          token,
+        );
+        if (!cancelled) setDetail(data);
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, userId]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Learner audit detail"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.7)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 110,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 760,
+          width: "100%",
+          maxHeight: "92vh",
+          overflowY: "auto",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 8,
+            flexWrap: "wrap",
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ fontSize: 17, fontWeight: 800 }}>
+            {detail?.user.full_name ?? "Loading…"}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${LINE}`,
+              borderRadius: 8,
+              padding: "6px 8px",
+              cursor: "pointer",
+              color: INK_MUTE,
+              fontFamily: FONT,
+            }}
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {err && (
+          <div
+            style={{
+              background: "#FEF2F2",
+              border: `1px solid #FECACA`,
+              color: DANGER,
+              padding: 10,
+              borderRadius: 8,
+              fontSize: 12,
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        {detail === null && !err ? (
+          <div style={{ padding: 40, textAlign: "center", color: INK_MUTE }}>
+            <Loader2 size={18} className="qleno-admin-spin" />
+          </div>
+        ) : detail ? (
+          <>
+            <div style={{ fontSize: 12, color: INK_MUTE, marginBottom: 14 }}>
+              {detail.user.email} · {detail.user.role}
+              {detail.user.hire_date ? ` · hired ${detail.user.hire_date}` : ""}
+              {detail.user.termination_date
+                ? ` · terminated ${detail.user.termination_date}`
+                : ""}
+            </div>
+
+            <ComplianceSummary compliance={detail.compliance} />
+
+            <DrawerSection title="Enrollment">
+              {detail.enrollment ? (
+                <div style={{ fontSize: 12.5 }}>
+                  <DrawerLine
+                    label="Status"
+                    value={detail.enrollment.status}
+                  />
+                  <DrawerLine
+                    label="Enrolled"
+                    value={humanDateTime(detail.enrollment.enrolled_at)}
+                  />
+                  <DrawerLine
+                    label="Deadline"
+                    value={
+                      detail.enrollment.deadline_at
+                        ? humanDateTime(detail.enrollment.deadline_at)
+                        : "—"
+                    }
+                  />
+                  <DrawerLine
+                    label="Completed"
+                    value={
+                      detail.enrollment.completed_at
+                        ? humanDateTime(detail.enrollment.completed_at)
+                        : "—"
+                    }
+                  />
+                  <DrawerLine
+                    label="Last activity"
+                    value={
+                      detail.enrollment.last_activity_at
+                        ? humanDateTime(detail.enrollment.last_activity_at)
+                        : "—"
+                    }
+                  />
+                </div>
+              ) : (
+                <DrawerEmpty>No enrollment row.</DrawerEmpty>
+              )}
+            </DrawerSection>
+
+            <DrawerSection
+              title={`Module progress (${detail.module_progress.length})`}
+            >
+              {detail.module_progress.length === 0 ? (
+                <DrawerEmpty>No module progress yet.</DrawerEmpty>
+              ) : (
+                <table style={DrawerTable}>
+                  <thead>
+                    <tr style={{ background: LINE_SOFT }}>
+                      <th style={DrawerTh}>Module</th>
+                      <th style={DrawerTh}>Status</th>
+                      <th style={DrawerTh}>Best</th>
+                      <th style={DrawerTh}>Attempts</th>
+                      <th style={DrawerTh}>Passed at</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.module_progress.map((p) => (
+                      <tr key={p.module_id}>
+                        <td style={DrawerTd}>{p.module_id}</td>
+                        <td style={DrawerTd}>{p.status}</td>
+                        <td style={DrawerTd}>{p.best_score}</td>
+                        <td style={DrawerTd}>{p.attempts}</td>
+                        <td style={DrawerTd}>
+                          {p.passed_at ? humanDateTime(p.passed_at) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DrawerSection>
+
+            <DrawerSection
+              title={`Signed documents (${detail.signed_documents.length})`}
+            >
+              {detail.signed_documents.length === 0 ? (
+                <DrawerEmpty>No signed documents.</DrawerEmpty>
+              ) : (
+                <table style={DrawerTable}>
+                  <thead>
+                    <tr style={{ background: LINE_SOFT }}>
+                      <th style={DrawerTh}>Type</th>
+                      <th style={DrawerTh}>Signed</th>
+                      <th style={DrawerTh}>Locale</th>
+                      <th style={DrawerTh}>Method</th>
+                      <th style={DrawerTh}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.signed_documents.map((d) => (
+                      <tr key={d.id}>
+                        <td style={DrawerTd}>{d.document_type}</td>
+                        <td style={DrawerTd}>{humanDateTime(d.signed_at)}</td>
+                        <td style={DrawerTd}>{d.locale}</td>
+                        <td style={DrawerTd}>{d.employee_signature_method}</td>
+                        <td style={DrawerTd}>
+                          <DrawerStatusPill status={d.status} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DrawerSection>
+
+            <DrawerSection
+              title={`Certificates (${detail.certificates.length})`}
+            >
+              {detail.certificates.length === 0 ? (
+                <DrawerEmpty>No certificates issued.</DrawerEmpty>
+              ) : (
+                <table style={DrawerTable}>
+                  <thead>
+                    <tr style={{ background: LINE_SOFT }}>
+                      <th style={DrawerTh}>Module</th>
+                      <th style={DrawerTh}>Score</th>
+                      <th style={DrawerTh}>Issued</th>
+                      <th style={DrawerTh}>Locale</th>
+                      <th style={DrawerTh}>Revoked</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.certificates.map((c) => (
+                      <tr key={c.id}>
+                        <td style={DrawerTd}>{c.module_id}</td>
+                        <td style={DrawerTd}>{c.score ?? "—"}</td>
+                        <td style={DrawerTd}>{humanDateTime(c.issued_at)}</td>
+                        <td style={DrawerTd}>{c.locale}</td>
+                        <td style={DrawerTd}>
+                          {c.revoked_at
+                            ? humanDateTime(c.revoked_at)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DrawerSection>
+
+            <DrawerSection
+              title={`Pending re-acknowledgments (${detail.pending_re_acks.length})`}
+            >
+              {detail.pending_re_acks.length === 0 ? (
+                <DrawerEmpty>No pending re-acks (clean).</DrawerEmpty>
+              ) : (
+                <table style={DrawerTable}>
+                  <thead>
+                    <tr style={{ background: LINE_SOFT }}>
+                      <th style={DrawerTh}>Type</th>
+                      <th style={DrawerTh}>Reason</th>
+                      <th style={DrawerTh}>Triggered</th>
+                      <th style={DrawerTh}>Acknowledged</th>
+                      <th style={DrawerTh}>Defer until</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.pending_re_acks.map((p) => (
+                      <tr key={p.id}>
+                        <td style={DrawerTd}>{p.document_type}</td>
+                        <td style={DrawerTd}>{p.trigger_reason}</td>
+                        <td style={DrawerTd}>
+                          {humanDateTime(p.triggered_at)}
+                        </td>
+                        <td style={DrawerTd}>
+                          {p.acknowledged_at
+                            ? humanDateTime(p.acknowledged_at)
+                            : "—"}
+                        </td>
+                        <td style={DrawerTd}>
+                          {p.defer_until ? humanDateTime(p.defer_until) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </DrawerSection>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const DrawerTable: React.CSSProperties = {
+  width: "100%",
+  borderCollapse: "collapse",
+  fontSize: 11.5,
+  fontFamily: FONT,
+};
+const DrawerTh: React.CSSProperties = {
+  textAlign: "left",
+  padding: "6px 10px",
+  fontSize: 10,
+  fontWeight: 800,
+  color: INK_MUTE,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  borderBottom: `1px solid ${LINE}`,
+};
+const DrawerTd: React.CSSProperties = {
+  padding: "6px 10px",
+  fontSize: 11.5,
+  color: INK,
+  borderBottom: `1px solid ${LINE_SOFT}`,
+  verticalAlign: "top",
+};
+
+function DrawerSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 800,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: INK_MUTE,
+          marginBottom: 8,
+        }}
+      >
+        {title}
+      </div>
+      <div
+        style={{
+          border: `1px solid ${LINE}`,
+          borderRadius: 8,
+          overflow: "hidden",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function DrawerLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "120px 1fr",
+        padding: "6px 10px",
+        borderBottom: `1px solid ${LINE_SOFT}`,
+        fontSize: 12,
+      }}
+    >
+      <span style={{ color: INK_LIGHT }}>{label}</span>
+      <span style={{ color: INK }}>{value}</span>
+    </div>
+  );
+}
+
+function DrawerEmpty({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        fontSize: 12,
+        color: INK_LIGHT,
+        fontStyle: "italic",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function DrawerStatusPill({
+  status,
+}: {
+  status: "active" | "superseded" | "revoked";
+}) {
+  const color =
+    status === "active" ? SUCCESS : status === "revoked" ? DANGER : INK_MUTE;
+  return (
+    <span
+      style={{
+        background: color + "20",
+        color,
+        padding: "2px 6px",
+        borderRadius: 999,
+        fontSize: 10,
+        fontWeight: 800,
+        letterSpacing: "0.04em",
+        textTransform: "uppercase",
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function ComplianceSummary({ compliance }: { compliance: AuditCompliance }) {
+  const overallColor =
+    compliance.overall === "complete"
+      ? SUCCESS
+      : compliance.overall === "needs_resign"
+      ? WARN
+      : compliance.overall === "overdue"
+      ? DANGER
+      : TEAL;
+  const overallLabel =
+    compliance.overall === "complete"
+      ? "Complete"
+      : compliance.overall === "needs_resign"
+      ? "Needs re-sign"
+      : compliance.overall === "overdue"
+      ? "Overdue"
+      : "In progress";
+  return (
+    <div
+      style={{
+        background: overallColor + "10",
+        border: `1px solid ${overallColor}40`,
+        borderLeft: `4px solid ${overallColor}`,
+        borderRadius: 8,
+        padding: "10px 14px",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 14,
+        alignItems: "center",
+      }}
+    >
+      <span
+        style={{
+          background: overallColor,
+          color: "#fff",
+          padding: "3px 10px",
+          borderRadius: 999,
+          fontSize: 10.5,
+          fontWeight: 800,
+          letterSpacing: "0.04em",
+          textTransform: "uppercase",
+        }}
+      >
+        {overallLabel}
+      </span>
+      <ComplianceFlag label="Modules" ok={compliance.modules_complete} />
+      <ComplianceFlag label="Docs" ok={compliance.docs_complete} />
+      <ComplianceFlag label="Final" ok={compliance.final_passed} />
+      <ComplianceFlag label="Handbook" ok={compliance.handbook_signed} />
+      <span style={{ fontSize: 11.5, color: INK_MUTE }}>
+        Pending:{" "}
+        <strong style={{ color: compliance.pending_count > 0 ? WARN : INK }}>
+          {compliance.pending_count}
+        </strong>
+      </span>
+    </div>
+  );
+}
+
+function ComplianceFlag({ label, ok }: { label: string; ok: boolean }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        gap: 4,
+        alignItems: "center",
+        fontSize: 11.5,
+        color: ok ? SUCCESS : INK_LIGHT,
+      }}
+    >
+      {ok ? <CircleCheck size={14} /> : <X size={14} />}
+      <strong style={{ color: INK }}>{label}</strong>
     </span>
   );
 }

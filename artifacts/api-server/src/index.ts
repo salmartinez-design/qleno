@@ -6,6 +6,7 @@ import { runReminderCron, runReviewRequestCron } from "./services/notificationSe
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
+import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -59,6 +60,8 @@ function startNotificationCron() {
     const ctNow = new Date(ctMs);
     const ctH   = ctNow.getUTCHours();
     const ctDate = ctNow.toISOString().slice(0, 10);
+    const ctMonth = ctNow.getUTCMonth(); // 0-indexed; December = 11
+    const ctDay   = ctNow.getUTCDate();
 
     // 9 AM CT → reminder_3day (jobs in 3 days)
     if (ctH === 9 && fired["reminder_3day"] !== `${ctDate}-9`) {
@@ -80,6 +83,29 @@ function startNotificationCron() {
     if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
       fired["rate_lock_nightly"] = `${ctDate}-1`;
       runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
+    }
+    // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
+    // for every tenant. Idempotent: skips tenants with an existing
+    // cycle for the current calendar year.
+    if (
+      ctMonth === 11 &&
+      ctDay === 1 &&
+      ctH === 9 &&
+      fired["annual_cycle_auto_open"] !== `${ctDate}-9`
+    ) {
+      fired["annual_cycle_auto_open"] = `${ctDate}-9`;
+      runAnnualCycleAutoOpen()
+        .then((results) => {
+          const opened = results.filter((r) => r.status === "opened").length;
+          const skipped = results.filter((r) => r.status === "skipped_exists").length;
+          const errored = results.filter((r) => r.status === "error").length;
+          console.log(
+            `[cron] annual_cycle_auto_open: ${opened} opened, ${skipped} skipped, ${errored} errored`,
+          );
+        })
+        .catch((e: Error) =>
+          console.error("[cron] annual_cycle_auto_open error:", e),
+        );
     }
   };
 
