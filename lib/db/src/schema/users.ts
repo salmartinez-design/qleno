@@ -76,6 +76,16 @@ export const usersTable = pgTable("users", {
   invite_accepted_at: timestamp("invite_accepted_at"),
   onboarding_complete: boolean("onboarding_complete").default(false),
   is_active: boolean("is_active").notNull().default(true),
+  /**
+   * Item 3 (P0 sprint 2026-05-14): soft-delete for LMS cleanup.
+   * Distinct from `termination_date` (HR concept; sets the day someone
+   * stopped working) and from `is_active` (used by other Qleno
+   * surfaces). When set, the LMS roster + audit dashboard hide the
+   * row but cert / signature history is preserved for legal. Set by
+   * the owner via the per-employee admin drawer "Archive employee"
+   * action; never set by the system.
+   */
+  archived_at: timestamp("archived_at"),
   crew_id: integer("crew_id"),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),

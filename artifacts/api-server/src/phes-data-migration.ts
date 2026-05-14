@@ -656,6 +656,16 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE INDEX IF NOT EXISTS lms_enrollments_company_status_idx ON lms_enrollments(company_id, status)` },
     { label: "lms_enrollments_deadline_idx",
       stmt: `CREATE INDEX IF NOT EXISTS lms_enrollments_deadline_idx ON lms_enrollments(deadline_at)` },
+    // Item 4 (P0 sprint, 2026-05-14): countdown starts on first quiz
+    // attempt, not at enrollment time. Nullable so existing rows keep
+    // their current behavior until the next /quiz/submit recomputes.
+    { label: "lms_enrollments.deadline_started_at",
+      stmt: `ALTER TABLE lms_enrollments ADD COLUMN IF NOT EXISTS deadline_started_at TIMESTAMPTZ` },
+    // Item 3 (P0 sprint, 2026-05-14): LMS soft-delete on users.
+    // Hides the row from LMS roster + audit dashboard while preserving
+    // certificates, signatures, and attempt history for legal.
+    { label: "users.archived_at",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ` },
 
     { label: "CREATE lms_module_progress", stmt: `
       CREATE TABLE IF NOT EXISTS lms_module_progress (

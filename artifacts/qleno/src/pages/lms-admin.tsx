@@ -15,6 +15,7 @@ import { useAuthStore } from "@/lib/auth";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
 import {
   MODULE_ORDER,
+  QUIZ_MODULE_IDS,
   FINAL_MODULE_ID,
   maxAttemptsFor,
 } from "@workspace/lms-curriculum";
@@ -75,7 +76,8 @@ type RosterRow = {
   passed_count: number;
   total_modules: number;
   current_module: string | null;
-  days_remaining: number;
+  days_remaining: number | null;
+  deadline_started_at: string | null;
   deadline_at: string;
   completed_at: string | null;
   last_activity_at: string;
@@ -142,6 +144,12 @@ export default function LmsAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
   const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
+  // Item 3 (P0 sprint): owner-only LMS archive (soft-delete from
+  // roster + audit dashboard, preserves cert / sig history).
+  const [archiveOpen, setArchiveOpen] = useState<RosterRow | null>(null);
+  // Item 4 (P0 sprint): reset-deadline (clears deadline_started_at).
+  const [resetDeadlineOpen, setResetDeadlineOpen] =
+    useState<RosterRow | null>(null);
   const [historyOpen, setHistoryOpen] = useState<RosterRow | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
@@ -373,6 +381,9 @@ export default function LmsAdminPage() {
             onReset={setResetOpen}
             onHistory={setHistoryOpen}
             onBypass={bypassFor}
+            onArchive={setArchiveOpen}
+            onResetDeadline={setResetDeadlineOpen}
+            callerRole={auth?.role ?? null}
           />
         ) : (
           <RosterTable
@@ -383,6 +394,9 @@ export default function LmsAdminPage() {
             onReset={setResetOpen}
             onHistory={setHistoryOpen}
             onBypass={bypassFor}
+            onArchive={setArchiveOpen}
+            onResetDeadline={setResetDeadlineOpen}
+            callerRole={auth?.role ?? null}
           />
         )}
       </div>
@@ -416,6 +430,31 @@ export default function LmsAdminPage() {
           row={historyOpen}
           token={token}
           onClose={() => setHistoryOpen(null)}
+        />
+      )}
+
+      {archiveOpen && (
+        <ArchiveEmployeeDialog
+          row={archiveOpen}
+          token={token}
+          callerRole={auth?.role ?? null}
+          onClose={() => setArchiveOpen(null)}
+          onSaved={async () => {
+            setArchiveOpen(null);
+            await refresh();
+          }}
+        />
+      )}
+
+      {resetDeadlineOpen && (
+        <ResetDeadlineDialog
+          row={resetDeadlineOpen}
+          token={token}
+          onClose={() => setResetDeadlineOpen(null)}
+          onSaved={async () => {
+            setResetDeadlineOpen(null);
+            await refresh();
+          }}
         />
       )}
 
@@ -511,6 +550,9 @@ function RosterTable({
   onReset,
   onHistory,
   onBypass,
+  onArchive,
+  onResetDeadline,
+  callerRole,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -519,6 +561,9 @@ function RosterTable({
   onReset: (r: RosterRow) => void;
   onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  onArchive: (r: RosterRow) => void;
+  onResetDeadline: (r: RosterRow) => void;
+  callerRole: string | null;
 }) {
   return (
     <div
@@ -690,6 +735,57 @@ function RosterTable({
                     >
                       <RotateCcw size={11} /> Reset
                     </button>
+                    {/* Item 4 (P0 sprint): clears deadline_started_at
+                        so the countdown re-starts on next attempt. */}
+                    <button
+                      type="button"
+                      onClick={() => onResetDeadline(r)}
+                      title="Reset deadline (clears countdown until next quiz attempt)"
+                      style={{
+                        background: "transparent",
+                        color: INK_MUTE,
+                        border: `1px solid ${LINE}`,
+                        padding: "5px 10px",
+                        borderRadius: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        fontFamily: FONT,
+                        whiteSpace: "nowrap",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <CalendarClock size={11} /> Reset deadline
+                    </button>
+                    {/* Item 3 (P0 sprint): owner-only soft-delete from
+                        LMS surfaces. Preserves cert / signature
+                        history for legal. */}
+                    {callerRole === "owner" ? (
+                      <button
+                        type="button"
+                        onClick={() => onArchive(r)}
+                        title="Archive employee from LMS roster (preserves history)"
+                        style={{
+                          background: "transparent",
+                          color: DANGER,
+                          border: `1px solid ${DANGER}`,
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontFamily: FONT,
+                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <X size={11} /> Archive
+                      </button>
+                    ) : null}
                   </div>
                 </Td>
               </tr>
@@ -725,7 +821,13 @@ function ModuleAttemptsGrid({
   row: RosterRow;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
 }) {
-  const allIds: string[] = [...MODULE_ORDER, FINAL_MODULE_ID];
+  // Item 2 (P0 sprint): canonical denominator. We list the 13 quiz
+  // modules + the Final Mixed Test as a separate trailing card. The
+  // older content-only "acknowledgment" entry from MODULE_ORDER is
+  // not surfaced here — it doesn't exist in the current curriculum
+  // and the count needs to match the dashboard / training surfaces
+  // (which use QUIZ_MODULE_IDS).
+  const allIds: string[] = [...QUIZ_MODULE_IDS, FINAL_MODULE_ID];
   return (
     <div>
       <div
@@ -738,7 +840,7 @@ function ModuleAttemptsGrid({
           marginBottom: 8,
         }}
       >
-        Module attempts · Bypass any module
+        {QUIZ_MODULE_IDS.length} modules + Final test · Bypass any module
       </div>
       <div
         style={{
@@ -835,6 +937,9 @@ function RosterCards({
   onReset,
   onHistory,
   onBypass,
+  onArchive,
+  onResetDeadline,
+  callerRole,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -843,6 +948,9 @@ function RosterCards({
   onReset: (r: RosterRow) => void;
   onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  onArchive: (r: RosterRow) => void;
+  onResetDeadline: (r: RosterRow) => void;
+  callerRole: string | null;
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }} data-testid="roster-cards">
@@ -1093,15 +1201,39 @@ function StatusPill({ status }: { status: RosterRow["status"] }) {
   );
 }
 
-function DaysBadge({ days }: { days: number }) {
+function DaysBadge({ days }: { days: number | null }) {
   let tone = SUCCESS;
   let bg = "#ECFDF5";
-  let label = `${days} days`;
   let Icon: typeof CircleCheck = CircleCheck;
+  // Item 4 (P0 sprint): null = countdown hasn't started.
+  if (days === null) {
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: "#F1F5F9",
+          color: INK_MUTE,
+          border: `1px solid ${LINE}`,
+          padding: "3px 8px",
+          borderRadius: 999,
+          fontSize: 11,
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <CalendarClock size={11} /> Not yet started
+      </span>
+    );
+  }
+  // Item 13b (P0 sprint): "1 days" → "1 day" pluralization.
+  const isSingular = Math.abs(days) === 1;
+  let label = `${days} ${isSingular ? "day" : "days"}`;
   if (days < 0) {
     tone = DANGER;
     bg = "#FEF2F2";
-    label = `${Math.abs(days)} days overdue`;
+    label = `${Math.abs(days)} ${isSingular ? "day" : "days"} overdue`;
     Icon = AlertTriangle;
   } else if (days === 0) {
     tone = WARN;
@@ -1671,7 +1803,10 @@ function AttemptHistoryDialog({
     return map;
   }, [attempts]);
 
-  const moduleIds: string[] = [...MODULE_ORDER, FINAL_MODULE_ID];
+  // Item 2 (P0 sprint): use the canonical 13-quiz-module list, not
+  // MODULE_ORDER, so the attempt-history view's denominator matches
+  // the dashboard + admin grid.
+  const moduleIds: string[] = [...QUIZ_MODULE_IDS, FINAL_MODULE_ID];
 
   return (
     <div
@@ -2072,6 +2207,372 @@ function AttemptHistoryDialog({
 // subset of users in one call. Calls POST /api/users/bulk-reset-password.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Generate a random per-dialog password. "Phes" prefix + 6 random
+// alphanumerics (mixed case + digits). Regenerated on every dialog
+// open so the suggested default is never a real user password.
+// Item 1 (P0 sprint): the previous "Chicago23" hardcoded default
+// happened to be the owner's actual current password, which is the
+// kind of foot-gun we should never ship.
+function generateBulkResetPassword(): string {
+  const alphabet =
+    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+  let suffix = "";
+  for (let i = 0; i < 6; i++) {
+    suffix += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return `Phes${suffix}`;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ResetDeadlineDialog (Item 4, P0 sprint)
+//
+// Clears the enrollment's deadline_started_at so the countdown is
+// suppressed in the UI ("Not yet started") until the next quiz attempt
+// re-stamps it. Type-to-confirm gate matches the Reset Enrollment
+// dialog pattern.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ResetDeadlineDialog({
+  row,
+  token,
+  onClose,
+  onSaved,
+}: {
+  row: RosterRow;
+  token: string | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState("");
+  const expectedConfirm = "RESET";
+  const valid = confirm.trim().toUpperCase() === expectedConfirm;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reset deadline"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 460,
+          width: "100%",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, color: INK }}>
+          Reset deadline — {row.tech_name}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 6,
+            lineHeight: 1.55,
+          }}
+        >
+          Clears the deadline countdown. The countdown re-starts on this
+          employee's next quiz attempt with a fresh 7-day window. Use
+          this when an employee never logged in within their first
+          window and the office wants to give them a clean shot. To
+          extend an active deadline, use Extend instead.
+        </div>
+        <label
+          style={{
+            display: "block",
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Type RESET to confirm
+        </label>
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="RESET"
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            border: `1px solid ${LINE}`,
+            borderRadius: 8,
+            fontSize: 14,
+            fontFamily: FONT,
+          }}
+        />
+        {err && (
+          <div style={{ color: DANGER, fontSize: 12, marginTop: 8 }}>{err}</div>
+        )}
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              background: "transparent",
+              color: INK_MUTE,
+              border: `1px solid ${LINE}`,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: FONT,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await api("POST", "/lms/admin/reset-deadline", token, {
+                  enrollmentId: row.enrollment_id,
+                });
+                await onSaved();
+              } catch (e) {
+                setErr(String((e as Error).message));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              background: !valid || busy ? INK_LIGHT : NAVY,
+              color: "#fff",
+              border: 0,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: FONT,
+              cursor: !valid || busy ? "default" : "pointer",
+            }}
+          >
+            {busy ? "Resetting…" : "Reset deadline"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ArchiveEmployeeDialog (Item 3, P0 sprint)
+//
+// Owner-only soft-delete from LMS surfaces. Hides the user from the
+// roster + audit dashboard while preserving certificates, signed
+// documents, and quiz attempt history for legal. Type-to-confirm
+// requires the employee's exact name (not a generic word) — this is
+// destructive enough to warrant a real intentional act.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ArchiveEmployeeDialog({
+  row,
+  token,
+  callerRole,
+  onClose,
+  onSaved,
+}: {
+  row: RosterRow;
+  token: string | null;
+  callerRole: string | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState("");
+  const expected = row.tech_name.trim();
+  const valid = confirm.trim() === expected && expected.length > 0;
+  const isOwner = callerRole === "owner";
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Archive employee"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 480,
+          width: "100%",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, color: INK }}>
+          Archive employee — {row.tech_name}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 6,
+            lineHeight: 1.55,
+          }}
+        >
+          Hides this employee from the LMS roster + audit dashboard.
+          Their certificates, signatures, and quiz attempt history
+          stay in the database for legal. They will not be able to
+          log in to /training. Reversible — clear the column manually
+          to restore.
+        </div>
+        {!isOwner ? (
+          <div
+            style={{
+              marginTop: 14,
+              padding: 10,
+              background: "#FEF2F2",
+              border: `1px solid ${DANGER}`,
+              color: DANGER,
+              borderRadius: 8,
+              fontSize: 12,
+            }}
+          >
+            Owner role required.
+          </div>
+        ) : null}
+        <label
+          style={{
+            display: "block",
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Type the employee's name to confirm: <strong>{expected}</strong>
+        </label>
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder={expected}
+          disabled={busy || !isOwner}
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            border: `1px solid ${LINE}`,
+            borderRadius: 8,
+            fontSize: 14,
+            fontFamily: FONT,
+          }}
+        />
+        {err && (
+          <div style={{ color: DANGER, fontSize: 12, marginTop: 8 }}>{err}</div>
+        )}
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              background: "transparent",
+              color: INK_MUTE,
+              border: `1px solid ${LINE}`,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: FONT,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || busy || !isOwner}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await api("POST", `/users/${row.user_id}/lms-archive`, token);
+                await onSaved();
+              } catch (e) {
+                setErr(String((e as Error).message));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              background: !valid || busy || !isOwner ? INK_LIGHT : DANGER,
+              color: "#fff",
+              border: 0,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: FONT,
+              cursor: !valid || busy || !isOwner ? "default" : "pointer",
+            }}
+          >
+            {busy ? "Archiving…" : "Archive employee"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BulkPasswordDialog({
   rows,
   token,
@@ -2083,14 +2584,30 @@ function BulkPasswordDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [selected, setSelected] = useState<Set<number>>(
-    () => new Set(rows.map((r) => r.user_id)),
+  // Item 1b: owners excluded from default selection. Helper text
+  // already said this; selection state was contradicting it. Now the
+  // checkbox state matches the helper.
+  const nonOwnerIds = useMemo(
+    () =>
+      new Set(rows.filter((r) => r.role !== "owner").map((r) => r.user_id)),
+    [rows],
   );
-  const [newPassword, setNewPassword] = useState("Chicago23");
+  const [selected, setSelected] = useState<Set<number>>(
+    () => new Set(nonOwnerIds),
+  );
+  // Item 1a: random per-dialog default. Regenerated on every mount.
+  const [newPassword, setNewPassword] = useState<string>(() =>
+    generateBulkResetPassword(),
+  );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [doneCount, setDoneCount] = useState<number | null>(null);
+  // Item 1c: type-to-confirm guard. The owner must type the count of
+  // selected users (matches the Reset Enrollment dialog pattern).
+  const [confirm, setConfirm] = useState<string>("");
 
+  const expectedConfirm = String(selected.size);
+  const confirmOk = confirm.trim() === expectedConfirm && selected.size > 0;
   const allChecked = selected.size === rows.length;
   function toggleAll() {
     if (allChecked) setSelected(new Set());
@@ -2227,8 +2744,27 @@ function BulkPasswordDialog({
                 }}
               />
               <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 4 }}>
-                Default: <code>Chicago23</code>. Change for any single user later via the per-user reset.
+                A random suggested password is regenerated each time you open this dialog. Replace it with something you'll remember to share with the affected users. Change for any single user later via the per-user reset.
               </div>
+              <button
+                type="button"
+                onClick={() => setNewPassword(generateBulkResetPassword())}
+                disabled={busy}
+                style={{
+                  marginTop: 6,
+                  background: "transparent",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 6,
+                  padding: "4px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                  color: NAVY,
+                }}
+              >
+                Generate new
+              </button>
             </div>
 
             <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2311,6 +2847,43 @@ function BulkPasswordDialog({
               </div>
             )}
 
+            {/* Item 1c: type-to-confirm gate. Owner must type the count
+                of selected users (matches the Reset Enrollment dialog's
+                "Type RESET" pattern). */}
+            <div style={{ marginTop: 14 }}>
+              <label
+                style={{
+                  display: "block",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: INK_MUTE,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.06em",
+                }}
+              >
+                Type {expectedConfirm} to confirm
+              </label>
+              <input
+                type="text"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                disabled={busy}
+                placeholder={expectedConfirm}
+                style={{
+                  width: "100%",
+                  marginTop: 6,
+                  padding: "10px 12px",
+                  border: `1px solid ${LINE}`,
+                  borderRadius: 8,
+                  fontSize: 14,
+                  fontFamily: FONT,
+                }}
+              />
+              <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 4 }}>
+                This number matches the count of selected users above.
+              </div>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 18 }}>
               <button
                 type="button"
@@ -2333,7 +2906,12 @@ function BulkPasswordDialog({
               <button
                 type="button"
                 onClick={onSubmit}
-                disabled={busy || selected.size === 0 || newPassword.length < 6}
+                disabled={
+                  busy ||
+                  selected.size === 0 ||
+                  newPassword.length < 6 ||
+                  !confirmOk
+                }
                 style={{
                   background: NAVY,
                   color: "#fff",
@@ -2344,7 +2922,13 @@ function BulkPasswordDialog({
                   fontWeight: 700,
                   cursor: busy ? "default" : "pointer",
                   fontFamily: FONT,
-                  opacity: busy || selected.size === 0 || newPassword.length < 6 ? 0.6 : 1,
+                  opacity:
+                    busy ||
+                    selected.size === 0 ||
+                    newPassword.length < 6 ||
+                    !confirmOk
+                      ? 0.6
+                      : 1,
                 }}
               >
                 {busy ? "Resetting…" : `Reset ${selected.size} ${selected.size === 1 ? "user" : "users"}`}

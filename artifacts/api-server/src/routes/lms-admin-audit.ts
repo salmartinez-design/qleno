@@ -84,7 +84,9 @@ interface AuditRosterRow {
 async function loadAuditRoster(
   companyId: number,
 ): Promise<AuditRosterRow[]> {
-  // 1. All non-terminated users in the tenant.
+  // 1. All non-archived users in the tenant. Item 3 (P0 sprint):
+  // archived_at IS NOT NULL hides the user from the LMS roster +
+  // audit dashboard while preserving certs / signatures for legal.
   const users = await db
     .select({
       id: usersTable.id,
@@ -96,7 +98,12 @@ async function loadAuditRoster(
       termination_date: usersTable.termination_date,
     })
     .from(usersTable)
-    .where(eq(usersTable.company_id, companyId));
+    .where(
+      and(
+        eq(usersTable.company_id, companyId),
+        isNull(usersTable.archived_at),
+      ),
+    );
 
   if (users.length === 0) return [];
 
