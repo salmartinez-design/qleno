@@ -8,6 +8,7 @@ import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
 import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
+import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -151,6 +152,18 @@ app.listen(port, "0.0.0.0", () => {
       if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
         console.log(
           `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
+        );
+      }
+    })
+    .then(() => runLmsCertificateBackfill())
+    .then((r) => {
+      if (
+        r.certs_issued > 0 ||
+        r.tenant_mismatches_skipped > 0 ||
+        r.errors > 0
+      ) {
+        console.log(
+          `[lms-cert-backfill] scanned=${r.rows_scanned} issued=${r.certs_issued} tenant_skipped=${r.tenant_mismatches_skipped} errors=${r.errors}`,
         );
       }
     })

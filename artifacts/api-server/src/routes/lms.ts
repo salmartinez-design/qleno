@@ -988,8 +988,17 @@ router.post("/grandfather", requireAuth, async (req, res) => {
 
     const now = new Date();
     const enrollment = await getOrCreateEnrollment(companyId, userId, now);
+    const meta = captureRequestMetadata(req);
+    const deviceInfo = parseMinimalDeviceInfo(meta.user_agent);
+    const locale = enrollment.locale === "es" ? "es" : "en";
 
     // Seed progress rows for every legacy completed module that we recognize.
+    // Bug-fix sprint #3: ALSO issue a completion certificate for each
+    // legacy pass. Pre-fix, grandfather skipped cert issuance entirely,
+    // so techs imported from the old LMS showed "no certs" on the admin
+    // dashboard even after dozens of passes (Jose Ardila audit). Failure
+    // to issue a cert is logged + skipped, not fatal — matches the
+    // /quiz/submit non-fatal pattern at line 736.
     for (const m of completedModules) {
       if (!(MODULE_ORDER as readonly string[]).includes(m)) continue;
       await upsertModuleProgress({
@@ -1003,6 +1012,21 @@ router.post("/grandfather", requireAuth, async (req, res) => {
         },
         now,
       });
+      try {
+        await issueCertificate({
+          companyId,
+          userId,
+          moduleId: m,
+          score: 100,
+          passed: true,
+          locale,
+          ipAddress: meta.ip_address,
+          deviceInfo,
+          quizAttemptId: null,
+        });
+      } catch (err) {
+        console.error("[lms] grandfather cert issuance failed (non-fatal):", err);
+      }
     }
 
     // If the tech had previously acknowledged on the old LMS, port that over.
@@ -1350,6 +1374,26 @@ router.post(
         },
         now,
       });
+
+      // Bug-fix sprint #3: bypass now ALSO issues a completion certificate
+      // so the admin dashboard reflects the new pass. Non-fatal — matches
+      // /quiz/submit's try/catch pattern.
+      try {
+        const meta = captureRequestMetadata(req);
+        await issueCertificate({
+          companyId,
+          userId: targetUserId,
+          moduleId,
+          score: 100,
+          passed: true,
+          locale: enrollment.locale === "es" ? "es" : "en",
+          ipAddress: meta.ip_address,
+          deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
+          quizAttemptId: null,
+        });
+      } catch (err) {
+        console.error("[lms] bypass cert issuance failed (non-fatal):", err);
+      }
 
       // Bypassing the final mixed test completes the enrollment ONLY if
       // every other prerequisite is also satisfied. Otherwise we'd
