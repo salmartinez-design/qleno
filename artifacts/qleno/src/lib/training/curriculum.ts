@@ -3128,7 +3128,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
-    prompt: { en: "An absence becomes 'unexcused' only when (a) you no-call/no-show OR (b) all four leave buckets (PLAWA, PTO, Unpaid Personal Leave, Unpaid Absence Allowance) are exhausted. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' solo cuando (a) no llama / no se presenta, O (b) las cuatro cubetas (PLAWA, PTO, Licencia Personal No Pagada, Tolerancia de Ausencia No Pagada) están agotadas. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
+    prompt: { en: "An absence becomes 'unexcused' only when (a) you no-call/no-show OR (b) all three leave buckets (PLAWA, PTO, Unpaid Personal Leave) are exhausted. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' solo cuando (a) no llama / no se presenta, O (b) las tres cubetas de licencia (PLAWA, PTO, Licencia Personal No Pagada) están agotadas. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
     options: [
       { en: "Coaching conversation", es: "Conversación de orientación" },
       { en: "Written warning", es: "Advertencia por escrito" },
@@ -3158,18 +3158,6 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Walk in carefully without covers — just don't track dirt", es: "Entrar con cuidado sin cubrezapatos" },
       { en: "Don't enter — get fresh covers from your vehicle, or call office for a teammate to bring some", es: "No entrar — buscar cubrezapatos en el vehículo, o llamar a la oficina" },
       { en: "Ask the client if they mind", es: "Preguntar al cliente si le importa" },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-pp-14-phone-use",
-    moduleId: "phes-policies",
-    prompt: { en: "Mid-clean, your sister texts you about dinner plans. When do you respond?", es: "Durante la limpieza, su hermana le envía mensaje sobre la cena. ¿Cuándo responde?" },
-    options: [
-      { en: "Right away — it'll only take a second", es: "Ahora mismo — solo toma un segundo" },
-      { en: "Step into the bathroom for privacy and respond", es: "Entrar al baño por privacidad y responder" },
-      { en: "After the visit or during your break — personal phones are not allowed during a job", es: "Después de la visita o en su descanso — los teléfonos personales no se permiten durante un trabajo" },
-      { en: "Ask your partner to respond for you", es: "Pedirle a su compañero que responda por usted" },
     ],
     correctIndex: 2,
   },
@@ -3204,21 +3192,6 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-pp-17-office-exception",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You open today's job in the app and see a note from the office: 'Mrs. Johnson is a loyal client — please make the master bed today as a one-time courtesy.' Are you allowed to make the bed?",
-      es: "Abre el trabajo de hoy en la app y ve una nota de la oficina: 'La Sra. Johnson es cliente leal — por favor tienda la cama principal hoy como cortesía única.' ¿Puede tender la cama?",
-    },
-    options: [
-      { en: "No — standard guidelines never bend.", es: "No — las guías estándar nunca cambian." },
-      { en: "Yes — the office grants exceptions, and they communicate them via app notes or a direct message. Follow the note.", es: "Sí — la oficina otorga excepciones, y las comunica por notas en la app o mensaje directo. Siga la nota." },
-      { en: "Only if Mrs. Johnson asks me personally.", es: "Solo si la Sra. Johnson me pide en persona." },
-      { en: "Yes, but only if I call the office first to double-check.", es: "Sí, pero solo si llamo a la oficina primero para confirmar." },
-    ],
-    correctIndex: 1,
-  },
-  {
     id: "q-pp-18-bereavement",
     moduleId: "phes-policies",
     prompt: {
@@ -3227,7 +3200,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Up to 3 unpaid days off — use PLAWA to get paid.", es: "Hasta 3 días no pagados — use PLAWA para recibir pago." },
-      { en: "Up to 3 paid days at your regular rate (immediate family: spouse, child, parent, sibling).", es: "Hasta 3 días pagados a su tarifa regular (familia inmediata: cónyuge, hijo/a, padre/madre, hermano/a)." },
+      { en: "Up to 3 paid scheduled workdays at your regular rate, for immediate family (spouse, child, parent, or sibling).", es: "Hasta 3 días laborales programados pagados a su tarifa regular, para familia inmediata (cónyuge, hijo/a, padre/madre o hermano/a)." },
       { en: "Up to 5 paid days plus travel time.", es: "Hasta 5 días pagados más tiempo de viaje." },
       { en: "Phes does not offer bereavement leave.", es: "Phes no ofrece licencia por duelo." },
     ],
@@ -3309,17 +3282,17 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-pp-24-sick-doc",
+    id: "q-pp-24-plawa-foreseeable",
     moduleId: "phes-policies",
     prompt: {
-      en: "You're out with the flu for 4 consecutive workdays and use PLAWA. Does Phes require a doctor's note?",
-      es: "Está fuera con gripe por 4 días laborales consecutivos y usa PLAWA. ¿Phes requiere una nota médica?",
+      en: "You catch the flu and are out for 5 consecutive workdays. Each day, you give the 20-minute grace call. Since it is more than 4 consecutive PLAWA days, do you need advance approval?",
+      es: "Le da gripe y está fuera 5 días laborales consecutivos. Cada día da la llamada de gracia de 20 minutos. Como son más de 4 días consecutivos de PLAWA, ¿necesita aprobación previa?",
     },
     options: [
-      { en: "Yes — Phes requires a note for any absence of 3 days or more.", es: "Sí — Phes requiere una nota para cualquier ausencia de 3 días o más." },
-      { en: "No — Phes never requires a reason or a doctor's note to use PLAWA, regardless of how long the absence is. Phes policy is stricter than Illinois law on this point: we choose not to require documentation.", es: "No — Phes nunca exige una razón ni nota médica para usar PLAWA, sin importar la duración de la ausencia. La política de Phes es más estricta que la ley de Illinois en este punto: elegimos no exigir documentación." },
-      { en: "Only if the client complained about your absence.", es: "Solo si el cliente se quejó de su ausencia." },
-      { en: "Yes — flu absences specifically require a note.", es: "Sí — las ausencias por gripe específicamente requieren una nota." },
+      { en: "Yes. Any PLAWA absence over 4 days requires advance approval without exception.", es: "Sí. Cualquier ausencia de PLAWA mayor a 4 días requiere aprobación previa sin excepción." },
+      { en: "No. Advance approval only applies to FORESEEABLE absences (scheduled procedure, planned retreat, known appointment series). Sudden illness like the flu is unforeseeable. Just give the grace call each day. If you are sick a week with the flu and call each day, that is fine.", es: "No. La aprobación previa solo aplica a ausencias PREVISIBLES (procedimiento programado, retiro planeado, serie de citas conocida). Una enfermedad súbita como la gripe es imprevisible. Solo dé la llamada de gracia cada día. Si está enfermo una semana con gripe y llama cada día, está bien." },
+      { en: "Yes. You must submit a doctor's note before returning.", es: "Sí. Debe entregar una nota médica antes de regresar." },
+      { en: "No. PLAWA covers up to 3 days only. After day 3 the absence becomes unexcused.", es: "No. PLAWA cubre solo hasta 3 días. Después del día 3 la ausencia es injustificada." },
     ],
     correctIndex: 1,
   },
@@ -3331,7 +3304,7 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Ha usado las 40 horas de su PLAWA en este Año de Beneficios. Despierta enfermo y llama para faltar (con la llamada de gracia de 20 minutos). ¿Cómo se clasifica esta ausencia?",
     },
     options: [
-      { en: "Phes covers the absence with the next leave bucket in order — PTO, then Unpaid Personal Leave, then Unpaid Absence Allowance. It is NOT unexcused unless all four buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden — PTO, luego Licencia Personal No Pagada, luego Tolerancia de Ausencia No Pagada. NO es injustificada a menos que las cuatro cubetas estén agotadas o haya sido un no llamó / no se presentó." },
+      { en: "Phes covers the absence with the next leave bucket in order. PTO comes next, then Unpaid Personal Leave. It is NOT unexcused unless all three buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden. Sigue PTO, luego Licencia Personal No Pagada. NO es injustificada a menos que las tres cubetas estén agotadas o haya sido un no llamó / no se presentó." },
       { en: "Unexcused — once PLAWA is gone, every sick call counts toward discipline.", es: "Injustificada — una vez agotado el PLAWA, cada llamada por enfermedad cuenta hacia la disciplina." },
       { en: "PTO is automatically deducted, but if PTO is also gone you're unexcused.", es: "Se deduce PTO automáticamente, pero si el PTO también está agotado, queda como injustificada." },
       { en: "Phes terminates immediately for going over PLAWA.", es: "Phes termina inmediatamente por exceder el PLAWA." },
@@ -3347,7 +3320,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "None — you're out of leave, the day will be unexcused.", es: "Ninguna — está sin licencia, el día será injustificado." },
-      { en: "Unpaid Personal Leave (bucket #3 of 4): up to 40 hours / 5 days per year, available from day one, requires 7 days advance notice, same first-come-first-serve and max-2-off approval rules as PTO.", es: "Licencia Personal No Pagada (cubeta #3 de 4): hasta 40 horas / 5 días por año, disponible desde el primer día, requiere 7 días de aviso anticipado, mismas reglas de aprobación que el PTO (primero en llegar, máximo 2 libres)." },
+      { en: "Unpaid Personal Leave (bucket #3 of 3): up to 40 hours / 5 days per year, available from day one, requires 7 days advance notice, same first-come-first-serve and max-2-off approval rules as PTO.", es: "Licencia Personal No Pagada (cubeta #3 de 3): hasta 40 horas / 5 días por año, disponible desde el primer día, requiere 7 días de aviso anticipado, mismas reglas de aprobación que el PTO (primero en llegar, máximo 2 libres)." },
       { en: "Borrow PTO from a coworker.", es: "Pídale prestado PTO a un compañero." },
       { en: "Auto-promotion to overtime hours to cover the missed time.", es: "Promoción automática a horas extra para cubrir el tiempo perdido." },
     ],
@@ -3397,21 +3370,6 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Yes, but only for sick calls on weekends.", es: "Sí, pero solo para llamadas por enfermedad en fines de semana." },
     ],
     correctIndex: 1,
-  },
-  {
-    id: "q-pp-30-plawa-no-discipline",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You use 16 hours of PLAWA over the course of the year — every one with the proper 20-minute grace call. Can Phes count any of those absences toward the discipline scale?",
-      es: "Usa 16 horas de PLAWA durante el año — cada una con la llamada de gracia de 20 minutos. ¿Puede Phes contar alguna de esas ausencias hacia la escala de disciplina?",
-    },
-    options: [
-      { en: "No — using PLAWA with proper notice can NEVER count toward discipline. By law, it is protected leave; by Phes policy, we go even further: no reason needed, no note needed, no penalty.", es: "No — usar PLAWA con aviso apropiado NUNCA puede contar hacia la disciplina. Por ley, es licencia protegida; por política de Phes, vamos más lejos: sin razón requerida, sin nota, sin penalización." },
-      { en: "Yes — 16 hours in a year is excessive and triggers a written warning.", es: "Sí — 16 horas en un año es excesivo y activa una advertencia por escrito." },
-      { en: "Only if more than 2 absences land on a Monday or Friday.", es: "Solo si más de 2 ausencias caen en lunes o viernes." },
-      { en: "Yes, after the 3rd PLAWA day.", es: "Sí, después del 3er día de PLAWA." },
-    ],
-    correctIndex: 0,
   },
   {
     id: "q-pp-31-plawa-default",
@@ -3534,21 +3492,6 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-pp-39-trash-bag-limit",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You arrive at a job and the household has 8 full trash bags. What's the rule?",
-      es: "Llega a un trabajo y el hogar tiene 8 bolsas de basura llenas. ¿Cuál es la regla?",
-    },
-    options: [
-      { en: "Take them all — the client is paying for service.", es: "Llévelas todas — el cliente está pagando." },
-      { en: "Maximum 5 bags per visit. Take the first 5, document the rest with a note in the app, and call the office. We do not haul extra.", es: "Máximo 5 bolsas por visita. Tome las primeras 5, documente el resto con nota en la app, y llame a la oficina. No llevamos extra." },
-      { en: "Refuse to take any — let the client deal with it.", es: "Rehúse llevarse alguna — que el cliente se encargue." },
-      { en: "Take whatever fits in your car.", es: "Tome lo que quepa en su carro." },
-    ],
-    correctIndex: 1,
-  },
-  {
     id: "q-pp-40-no-price-discussion",
     moduleId: "phes-policies",
     prompt: {
@@ -3560,6 +3503,66 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Politely say 'I'll have the office reach out to discuss pricing,' then call the office team. Pricing is 100% the office's job — never negotiate, never accept cash discounts, never quote prices.", es: "Diga cortésmente 'la oficina los contactará para hablar del precio,' luego llame a el equipo de la oficina. El precio es 100% trabajo de la oficina — nunca negocie, nunca acepte descuentos en efectivo, nunca cotice." },
       { en: "Tell them Phes doesn't do discounts and finish the job in silence.", es: "Dígale que Phes no hace descuentos y termine el trabajo en silencio." },
       { en: "Quote a discount yourself to keep them happy.", es: "Cotice un descuento usted mismo para mantenerlos contentos." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-41-lifting-limit",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Phes employees never lift items over what weight alone?",
+      es: "Los empleados de Phes nunca levantan artículos solos por encima de qué peso?",
+    },
+    options: [
+      { en: "10 lbs. Anything heavier needs office approval.", es: "10 libras. Cualquier cosa más pesada requiere aprobación de la oficina." },
+      { en: "25 lbs. This includes furniture, large appliances, and packed boxes. Clean around heavy items. If a job requires moving something over 25 lbs, call the office. The rule protects you from injury and protects Phes from workers' compensation claims.", es: "25 libras. Esto incluye muebles, electrodomésticos grandes y cajas empacadas. Limpie alrededor de los artículos pesados. Si un trabajo requiere mover algo de más de 25 libras, llame a la oficina. La regla lo protege de lesiones y protege a Phes de reclamos de compensación al trabajador." },
+      { en: "50 lbs. Anything heavier requires a partner.", es: "50 libras. Cualquier cosa más pesada requiere un compañero." },
+      { en: "There is no weight limit if you lift with proper form.", es: "No hay límite de peso si levanta con la postura correcta." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-42-w2-tip-reporting",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "How are tips reported for tax purposes?",
+      es: "¿Cómo se reportan las propinas para fines fiscales?",
+    },
+    options: [
+      { en: "Cash tips are reported on your W-2 by Phes; booking-system tips you self-report.", es: "Las propinas en efectivo las reporta Phes en su W-2; las propinas del sistema de reservas las reporta usted mismo." },
+      { en: "All tips are tax-free.", es: "Todas las propinas están libres de impuestos." },
+      { en: "Tips received through the booking system are reported as wages on your W-2 (Phes reports them). Cash tips are yours to keep and are self-reported by you to the IRS.", es: "Las propinas recibidas a través del sistema de reservas se reportan como salarios en su W-2 (Phes las reporta). Las propinas en efectivo son suyas y usted mismo las reporta al IRS." },
+      { en: "Phes reports both cash and booking-system tips on your W-2.", es: "Phes reporta tanto las propinas en efectivo como las del sistema de reservas en su W-2." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-43-abandonment-window",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You missed your shift today without calling and you wake up the next morning. What is the rule about when to contact the office to avoid job abandonment?",
+      es: "Faltó a su turno hoy sin llamar y se despierta a la mañana siguiente. ¿Cuál es la regla para contactar a la oficina y evitar el abandono del empleo?",
+    },
+    options: [
+      { en: "The office will call you. Wait until they reach out.", es: "La oficina lo llamará. Espere hasta que se comuniquen con usted." },
+      { en: "Two windows apply. First, call the office BEFORE the 20-minute grace window ends on the day of the shift. If you missed that, you still have 24 hours after the missed shift to make contact. Failing both windows is JOB ABANDONMENT and results in immediate termination effective the date of the missed shift. The 24-hour window gives you a chance to explain genuine incapacity (medical emergency, accident, hospitalization).", es: "Aplican dos ventanas. Primero, llame a la oficina ANTES de que termine la ventana de gracia de 20 minutos el día del turno. Si la perdió, todavía tiene 24 horas después del turno perdido para hacer contacto. Fallar ambas ventanas es ABANDONO DEL EMPLEO y resulta en terminación inmediata efectiva en la fecha del turno perdido. La ventana de 24 horas le da la oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización)." },
+      { en: "You have 72 hours after the missed shift to explain.", es: "Tiene 72 horas después del turno perdido para explicar." },
+      { en: "Missing a shift without calling first is always automatic termination with no second chance.", es: "Perder un turno sin llamar siempre es terminación automática sin segunda oportunidad." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-44-move-in-empty-home",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You arrive at a Move-In / Move-Out clean and the home is still fully furnished with belongings throughout. What do you do?",
+      es: "Llega a una limpieza de Mudanza y la casa todavía está completamente amueblada con pertenencias por todas partes. ¿Qué hace?",
+    },
+    options: [
+      { en: "Start cleaning around the furniture. Move-In / Move-Out is the same as a Deep Clean.", es: "Empiece a limpiar alrededor de los muebles. Una Mudanza es igual a una Limpieza Profunda." },
+      { en: "STOP and call the office BEFORE starting. Move-In / Move-Out cleans assume an empty home. Scope and pricing change when there is furniture in the way. Do not begin a Move-In / Move-Out clean in a non-empty space without office approval.", es: "DETÉNGASE y llame a la oficina ANTES de empezar. Las limpiezas de Mudanza asumen una casa vacía. El alcance y el precio cambian cuando hay muebles en medio. No empiece una limpieza de Mudanza en un espacio no vacío sin aprobación de la oficina." },
+      { en: "Ask the client to move everything out, then start cleaning.", es: "Pídale al cliente que saque todo, luego empiece a limpiar." },
+      { en: "Charge the client extra on the spot and proceed.", es: "Cobre al cliente extra en sitio y proceda." },
     ],
     correctIndex: 1,
   },
