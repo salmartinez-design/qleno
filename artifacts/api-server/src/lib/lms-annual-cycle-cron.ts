@@ -18,7 +18,7 @@
  * nullable so cron-triggered rows show up clearly in audit queries
  * (`WHERE triggered_by_user_id IS NULL` finds them).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   lmsAnnualAckCyclesTable,
@@ -106,6 +106,7 @@ export async function runAnnualCycleAutoOpen(
       }
 
       let swept = 0;
+      const sweptUserIds = new Set<number>();
       for (const documentType of ANNUAL_DOCUMENT_TYPES) {
         const r = await sweepForDocumentType({
           companyId: company.id,
@@ -114,6 +115,36 @@ export async function runAnnualCycleAutoOpen(
           triggerReason: "annual_cycle",
         });
         swept += r.swept_user_ids.length;
+        for (const uid of r.swept_user_ids) sweptUserIds.add(uid);
+      }
+
+      // PR 5 (final sprint): notification fanout. Two surfaces.
+      //   1. Per-employee: the sweep above inserted lms_pending_re_ack
+      //      rows for every swept user. Each user's /training page
+      //      surfaces a PendingReAckTile that links to the re-sign
+      //      flow. That's the primary actionable channel.
+      //   2. Tenant-level: insert one notifications row keyed by the
+      //      cycle so the office team's notification panel shows the
+      //      event. The existing notifications table is company-scoped
+      //      (no target_user_id), so this is one row per tenant per
+      //      cycle, not per user. Body mentions the swept count so the
+      //      office knows how many employees were notified.
+      // Best-effort: a failure here MUST NOT roll back the cycle
+      // opening or the sweep, both already committed.
+      if (sweptUserIds.size > 0) {
+        try {
+          const title = `Annual training re-acknowledgment opened for ${cycleYear}`;
+          const body = `${sweptUserIds.size} ${sweptUserIds.size === 1 ? "employee" : "employees"} have been added to the ${cycleYear} annual re-acknowledgment cycle. They will see a re-sign tile on their training page. Deadline: December 31.`;
+          await db.execute(
+            drizzleSql`INSERT INTO notifications (company_id, type, title, body, link, meta)
+              VALUES (${company.id}, ${'annual_reack_opened'}, ${title}, ${body}, ${'/lms/admin'}, ${JSON.stringify({ cycle_year: cycleYear, cycle_id: inserted[0].id, swept_count: sweptUserIds.size })}::jsonb)`,
+          );
+        } catch (notifErr) {
+          console.error(
+            `[lms-annual-cycle-cron] notification fanout error company=${company.id}:`,
+            notifErr,
+          );
+        }
       }
 
       results.push({
