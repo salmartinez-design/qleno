@@ -22,6 +22,7 @@ import {
   type LmsDocumentVersion,
 } from "@workspace/db/schema";
 import { hashContent } from "./lms-signatures.js";
+import { fireMaterialChangeFanout } from "./lms-material-change.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tenant owner lookup (default co-signer for legal documents)
@@ -127,6 +128,20 @@ export async function getOrCreateDocumentVersion(args: {
     })
     .returning();
 
+  // PR 4 (final sprint): auto-trigger material change fanout when a
+  // NEW version row was just inserted with is_material=true. The
+  // existing POST /admin/material-change endpoint still works as an
+  // admin escape hatch; this ride-along is the "background worker"
+  // that fires automatically on every new material version write.
+  // Fire-and-forget: a slow / failing fanout never blocks the
+  // version insert.
+  if (inserted[0] && inserted[0].is_material) {
+    fireMaterialChangeFanout({
+      companyId: args.companyId,
+      documentType: args.documentType,
+      triggeredByUserId: args.createdByUserId ?? null,
+    });
+  }
   if (inserted[0]) return inserted[0];
 
   // Race: another caller inserted between our SELECT and INSERT.
@@ -212,7 +227,23 @@ export async function getDocumentVersionByHash(
 export async function markVersionMaterial(
   companyId: number,
   versionId: number,
+  triggeredByUserId: number | null = null,
 ): Promise<void> {
+  // Look up document_type before the update so we know what to fan
+  // out to in the worker.
+  const before = await db
+    .select({
+      document_type: lmsDocumentVersionsTable.document_type,
+      is_material: lmsDocumentVersionsTable.is_material,
+    })
+    .from(lmsDocumentVersionsTable)
+    .where(
+      and(
+        eq(lmsDocumentVersionsTable.id, versionId),
+        eq(lmsDocumentVersionsTable.company_id, companyId),
+      ),
+    )
+    .limit(1);
   await db
     .update(lmsDocumentVersionsTable)
     .set({ is_material: true })
@@ -222,6 +253,18 @@ export async function markVersionMaterial(
         eq(lmsDocumentVersionsTable.company_id, companyId),
       ),
     );
+  // PR 4 (final sprint): auto-trigger fanout when is_material flips
+  // from false → true. If it was already true the call is a no-op
+  // (sweepForDocumentType is idempotent so even a duplicate fire is
+  // harmless). Tenant-scoped via the company_id we pulled from the
+  // version row.
+  if (before[0] && !before[0].is_material) {
+    fireMaterialChangeFanout({
+      companyId,
+      documentType: before[0].document_type,
+      triggeredByUserId,
+    });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
