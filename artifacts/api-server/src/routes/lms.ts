@@ -63,6 +63,7 @@ import { SERVER_ANSWER_KEY } from "@workspace/training";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { addDays, daysUntil, fireLmsWebhook } from "../lib/lms-helpers.js";
+import { isEnrollmentTrulyComplete } from "../lib/lms-completion.js";
 import {
   captureRequestMetadata,
   parseMinimalDeviceInfo,
@@ -290,7 +291,7 @@ router.get("/me", requireAuth, async (req, res) => {
     const userId = req.auth!.userId;
     const now = new Date();
 
-    const enrollment = await getOrCreateEnrollment(companyId, userId, now);
+    let enrollment = await getOrCreateEnrollment(companyId, userId, now);
     const progress = await loadProgress(enrollment.id);
     const completed = completedModuleIds(progress);
 
@@ -310,6 +311,29 @@ router.get("/me", requireAuth, async (req, res) => {
     );
     unlocked[FINAL_MODULE_ID] =
       isFinalUnlocked(completed) && missingSignedDocs.length === 0;
+
+    // Bug-fix sprint #2: stale enrollment.status='completed' rows from
+    // earlier curriculum eras must not bypass the current gates. If the
+    // cached column lies, lazily heal it here AND set a one-shot flag
+    // so the frontend can show a friendly "we expanded the requirements"
+    // banner. The flag is computed; not persisted on the row.
+    let statusWasRecomputed = false;
+    if (enrollment.status === "completed") {
+      const truth = await isEnrollmentTrulyComplete(companyId, userId);
+      if (!truth.complete) {
+        await db
+          .update(lmsEnrollmentsTable)
+          .set({ status: "active", completed_at: null, updated_at: now })
+          .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+        enrollment = {
+          ...enrollment,
+          status: "active",
+          completed_at: null,
+          updated_at: now,
+        };
+        statusWasRecomputed = true;
+      }
+    }
 
     const limits: Record<string, number> = {};
     for (const m of MODULE_ORDER) limits[m] = MAX_MODULE_ATTEMPTS;
@@ -333,6 +357,7 @@ router.get("/me", requireAuth, async (req, res) => {
         is_owner: canBypass,
         missing_required_signed_docs: missingSignedDocs,
         can_bypass: canBypass,
+        status_was_recomputed: statusWasRecomputed,
       },
     });
   } catch (err) {
@@ -752,17 +777,27 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         attempted_at: now.toISOString(),
       };
       if (moduleId === FINAL_MODULE_ID) {
-        // The final mixed test passing finishes the course.
-        await db
-          .update(lmsEnrollmentsTable)
-          .set({
-            status: "completed",
-            completed_at: now,
-            updated_at: now,
-          })
-          .where(eq(lmsEnrollmentsTable.id, enrollment.id));
-        // fire-and-forget webhook; don't await
-        void fireLmsWebhook("all_complete", webhookPayload);
+        // Bug-fix sprint #2: passing the final exam alone is not enough
+        // to mark the enrollment "completed". The curriculum may have
+        // grown (new modules, new required acks) since this learner
+        // started, so we re-check the full truth gate before stamping.
+        const truth = await isEnrollmentTrulyComplete(companyId, userId);
+        if (truth.complete) {
+          await db
+            .update(lmsEnrollmentsTable)
+            .set({
+              status: "completed",
+              completed_at: now,
+              updated_at: now,
+            })
+            .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+          void fireLmsWebhook("all_complete", webhookPayload);
+        } else {
+          // Final pass recorded, but more prerequisites remain. Stay
+          // on the standard module_complete webhook so downstream
+          // consumers don't get a false "all_complete" signal.
+          void fireLmsWebhook("module_complete", webhookPayload);
+        }
       } else {
         void fireLmsWebhook("module_complete", webhookPayload);
       }
@@ -1316,13 +1351,19 @@ router.post(
         now,
       });
 
-      // Bypassing the final mixed test completes the enrollment, matching the
-      // natural pass path so the learner doesn't get stranded.
+      // Bypassing the final mixed test completes the enrollment ONLY if
+      // every other prerequisite is also satisfied. Otherwise we'd
+      // re-introduce the stale-status bug surfaced by Jose's audit
+      // (final passed back when there were 5 modules, still owes 8
+      // new modules + 6 acks today). Bug-fix sprint #2.
       if (moduleId === FINAL_MODULE_ID) {
-        await db
-          .update(lmsEnrollmentsTable)
-          .set({ status: "completed", completed_at: now, updated_at: now })
-          .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+        const truth = await isEnrollmentTrulyComplete(companyId, targetUserId);
+        if (truth.complete) {
+          await db
+            .update(lmsEnrollmentsTable)
+            .set({ status: "completed", completed_at: now, updated_at: now })
+            .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+        }
       }
 
       // Clear any in-flight autosave for this module so a re-open shows clean.
