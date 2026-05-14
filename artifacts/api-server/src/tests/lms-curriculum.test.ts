@@ -454,17 +454,20 @@ describe("sampleFinalQuestionIds", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("max attempt constants", () => {
-  it("MAX_MODULE_ATTEMPTS is 3 per spec (phes 2026-05-11)", () => {
-    assert.equal(MAX_MODULE_ATTEMPTS, 3);
+  it("MAX_MODULE_ATTEMPTS is 4 (phes pre-onboarding sprint 2026-05-14)", () => {
+    // Item 6 (P1 sprint 2026-05-14): bumped from 3 → 4 after Sal's
+    // audit found 21 attempts on Compensation for one tech (server
+    // wasn't enforcing the cap). Final exam stays at 4 for parity.
+    assert.equal(MAX_MODULE_ATTEMPTS, 4);
   });
 
   it("MAX_FINAL_ATTEMPTS is 4 per spec (phes 2026-05-11)", () => {
     assert.equal(MAX_FINAL_ATTEMPTS, 4);
   });
 
-  it("maxAttemptsFor returns 3 for every per-module quiz id", () => {
+  it("maxAttemptsFor returns 4 for every per-module quiz id", () => {
     for (const m of QUIZ_MODULE_IDS) {
-      assert.equal(maxAttemptsFor(m), 3, `expected 3 for ${m}`);
+      assert.equal(maxAttemptsFor(m), 4, `expected 4 for ${m}`);
     }
   });
 
@@ -472,11 +475,11 @@ describe("max attempt constants", () => {
     assert.equal(maxAttemptsFor(FINAL_MODULE_ID), 4);
   });
 
-  it("maxAttemptsFor returns 3 for the acknowledgment module (no quiz, but symmetric)", () => {
+  it("maxAttemptsFor returns 4 for the acknowledgment module (no quiz, but symmetric)", () => {
     // Acknowledgment is content-only; cap doesn't apply in /quiz/submit
-    // (different endpoint), but the helper still classifies it under the
-    // default 3-attempt bucket.
-    assert.equal(maxAttemptsFor("acknowledgment"), 3);
+    // (different endpoint), but the helper still classifies it under
+    // the default 4-attempt bucket.
+    assert.equal(maxAttemptsFor("acknowledgment"), 4);
   });
 });
 

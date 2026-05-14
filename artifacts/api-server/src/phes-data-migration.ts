@@ -667,6 +667,21 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.archived_at",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ` },
 
+    // Items 8 + 9 (P1 sprint, 2026-05-14): per-tenant LMS settings.
+    // Single row per company. First inhabitant: admin_bypass_allowed
+    // (default false). Future settings join the same row.
+    { label: "CREATE lms_settings", stmt: `
+      CREATE TABLE IF NOT EXISTS lms_settings (
+        id                    SERIAL PRIMARY KEY,
+        company_id            INTEGER NOT NULL REFERENCES companies(id),
+        admin_bypass_allowed  BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "lms_settings_company_uq",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_settings_company_uq ON lms_settings(company_id)` },
+
     { label: "CREATE lms_module_progress", stmt: `
       CREATE TABLE IF NOT EXISTS lms_module_progress (
         id               SERIAL PRIMARY KEY,

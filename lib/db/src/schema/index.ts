@@ -94,3 +94,4 @@ export * from "./lms";
 // signed_documents, document_versions, signature_events,
 // completion_certificates, annual_ack_cycles, pending_re_ack.
 export * from "./lms-signatures";
+export * from "./lms-settings";
