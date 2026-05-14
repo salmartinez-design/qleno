@@ -239,11 +239,20 @@ const lmsApi = {
     moduleId: string,
     answers: (number | null)[],
     questionIds?: string[],
+    // Item 7 (P1 sprint 2026-05-14): client-generated UUID. Sent on
+    // every submit; server dedupes a duplicate POST within 60s by
+    // returning the cached response of the first call. Pre-fix, a
+    // double-click or slow network created ghost attempts (Sal's
+    // audit found 11 0% submissions all timestamped 10:24 AM for
+    // one tech). Required field; if unset the server falls back to
+    // the racing behavior, so always pass a fresh value per attempt.
+    idempotencyKey?: string,
   ) =>
     api<SubmitResult>("POST", "/lms/quiz/submit", token, {
       moduleId,
       answers,
       questionIds,
+      idempotency_key: idempotencyKey,
     }),
   acknowledge: (
     token: string | null,
@@ -2678,6 +2687,18 @@ function QuizView({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Item 7 (P1 sprint): per-attempt UUID for server-side deduplication
+  // of double-click / slow-network ghost submits. Generated when the
+  // QuizView mounts; reset whenever moduleId changes (a new attempt =
+  // a new key). Stable across re-renders so a bouncing button doesn't
+  // generate multiple keys.
+  const idempotencyKeyRef = useRef<string>("");
+  if (!idempotencyKeyRef.current) {
+    idempotencyKeyRef.current =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `att-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -2948,6 +2969,13 @@ function QuizView({
               <PrimaryButton
                 disabled={busy || !allAnswered}
                 onClick={async () => {
+                  // Item 7 (P1 sprint): debounce — `busy` flips
+                  // synchronously here, so a second click within the
+                  // same render frame is ignored by the disabled
+                  // guard above. The idempotency_key acts as a
+                  // backstop when the click + network race lands
+                  // multiple POSTs at the server in the same tick.
+                  if (busy) return;
                   setBusy(true);
                   try {
                     const r = await lmsApi.submitQuiz(
@@ -2955,6 +2983,7 @@ function QuizView({
                       moduleId,
                       answers,
                       questionIds,
+                      idempotencyKeyRef.current,
                     );
                     setResult(r);
                   } catch (e) {

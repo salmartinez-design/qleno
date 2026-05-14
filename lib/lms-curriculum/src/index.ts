@@ -188,7 +188,13 @@ export const QUIZ_PASS_THRESHOLD = 0.8;
  * exempt from this gate via `/lms/admin/bypass-module`. Admins can also
  * extend the deadline or bypass on behalf of a learner from /lms/admin.
  */
-export const MAX_MODULE_ATTEMPTS = 3;
+// Item 6 (P0/P1 sprint 2026-05-14): per-module cap raised from 3 → 4
+// after Sal's audit found 21 attempts on Compensation for one tech
+// (server wasn't enforcing the cap; UI showed "3/3 at cap" but the
+// /quiz/submit handler accepted submissions anyway). Final exam cap
+// stays at 4 for parity. Server-side enforcement now lives in
+// /quiz/submit guarded by maxAttemptsFor().
+export const MAX_MODULE_ATTEMPTS = 4;
 export const MAX_FINAL_ATTEMPTS = 4;
 
 /** Max attempts allowed for a given module id (module or `__final`). */

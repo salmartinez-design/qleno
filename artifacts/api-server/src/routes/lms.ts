@@ -38,6 +38,7 @@ import {
   lmsModuleProgressTable,
   lmsQuizStateTable,
   lmsQuizAttemptsTable,
+  lmsSettingsTable,
   usersTable,
   type LmsEnrollment,
   type LmsModuleProgress,
@@ -90,6 +91,47 @@ const MAX_EXTEND_DAYS = 90;
 const QUIZ_MODULE_SET = new Set<string>(QUIZ_MODULE_IDS);
 /** Set of every legitimate module id, including the final-test pseudo-id. */
 const KNOWN_MODULE_IDS = new Set<string>([...MODULE_ORDER, FINAL_MODULE_ID]);
+
+// Item 7 (P1 sprint 2026-05-14): in-memory idempotency cache for
+// /quiz/submit. Frontend generates a UUID when the quiz starts and
+// sends it on submit; if the same key arrives twice within the
+// window, the second call returns the cached response of the first
+// instead of inserting a duplicate attempt. This kills the
+// double-click / slow-network ghost-attempt problem (Sal's audit
+// found 11 attempts at the same timestamp on Compensation for one
+// tech). 60-second window; per-(user_id, idempotency_key) keyed.
+const QUIZ_IDEMPOTENCY_TTL_MS = 60_000;
+interface CachedQuizResponse {
+  body: unknown;
+  expires_at: number;
+}
+const quizIdempotencyCache = new Map<string, CachedQuizResponse>();
+function rememberQuizResponse(
+  userId: number,
+  key: string,
+  body: unknown,
+): void {
+  // Evict expired entries opportunistically. Map is small (one entry
+  // per active quiz submission across all users, ~seconds) so a full
+  // sweep is cheap.
+  const now = Date.now();
+  for (const [k, v] of quizIdempotencyCache.entries()) {
+    if (v.expires_at <= now) quizIdempotencyCache.delete(k);
+  }
+  quizIdempotencyCache.set(`${userId}:${key}`, {
+    body,
+    expires_at: now + QUIZ_IDEMPOTENCY_TTL_MS,
+  });
+}
+function recallQuizResponse(userId: number, key: string): unknown | null {
+  const hit = quizIdempotencyCache.get(`${userId}:${key}`);
+  if (!hit) return null;
+  if (hit.expires_at <= Date.now()) {
+    quizIdempotencyCache.delete(`${userId}:${key}`);
+    return null;
+  }
+  return hit.body;
+}
 
 function isQuizModuleId(id: string): boolean {
   return QUIZ_MODULE_SET.has(id);
@@ -595,6 +637,22 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     const clientQuestionIds: string[] | undefined = Array.isArray(req.body?.questionIds)
       ? req.body.questionIds
       : undefined;
+    // Item 7 (P1 sprint): client-supplied UUID generated when the
+    // quiz attempt started. If the same key arrives twice within the
+    // 60-second window, return the cached response from the first
+    // call instead of inserting a duplicate attempt. Old clients that
+    // don't send the field skip the dedupe; this is forward-compatible.
+    const idempotencyKey: string | undefined =
+      typeof req.body?.idempotency_key === "string" &&
+      req.body.idempotency_key.length > 0
+        ? req.body.idempotency_key
+        : undefined;
+    if (idempotencyKey) {
+      const cached = recallQuizResponse(userId, idempotencyKey);
+      if (cached) {
+        return res.json(cached);
+      }
+    }
 
     if (typeof moduleId !== "string" || !KNOWN_MODULE_IDS.has(moduleId)) {
       return res
@@ -694,18 +752,37 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       req.auth!.role === "owner" ||
       req.auth!.role === "admin" ||
       req.auth!.role === "office";
+    // Item 6 (P1 sprint): re-read attempts directly from the DB
+    // immediately before the cap check. Pre-fix, we read from the
+    // `progress` array loaded above which became stale under racing
+    // double-clicks (Sal's audit found 21 attempts on Compensation
+    // for a tech where the cap was supposedly 3). The freshest
+    // attempts count comes from a count of lms_quiz_attempts rows
+    // for this enrollment + module; using that as the gate means a
+    // racing concurrent submit with the same idempotency_key gets
+    // dedup'd above (Item 7), and a different key still races but
+    // at least sees the most recent count.
+    const liveAttemptsRows = await db
+      .select({ id: lmsQuizAttemptsTable.id })
+      .from(lmsQuizAttemptsTable)
+      .where(
+        and(
+          eq(lmsQuizAttemptsTable.enrollment_id, enrollment.id),
+          eq(lmsQuizAttemptsTable.module_id, moduleId),
+        ),
+      );
+    const liveAttemptsCount = liveAttemptsRows.length;
     const existing = progress.find((p) => p.module_id === moduleId);
-    const attemptsSoFar = existing?.attempts ?? 0;
     const alreadyPassed = existing?.status === "passed";
     const maxAttempts = maxAttemptsFor(moduleId);
-    if (!canBypassCap && !alreadyPassed && attemptsSoFar >= maxAttempts) {
+    if (!canBypassCap && !alreadyPassed && liveAttemptsCount >= maxAttempts) {
       return res.status(403).json({
         error: "Forbidden",
         message:
           moduleId === FINAL_MODULE_ID
             ? `You've used all ${maxAttempts} final-exam attempts. Ask your admin to extend or bypass.`
-            : `You've used all ${maxAttempts} attempts on this module. Ask your admin to extend or bypass.`,
-        attempts_used: attemptsSoFar,
+            : `You've used all ${maxAttempts} attempts on this module. Contact your admin to reset this module.`,
+        attempts_used: liveAttemptsCount,
         max_attempts: maxAttempts,
       });
     }
@@ -835,8 +912,8 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       { module_id: moduleId, score: result.score },
     );
 
-    const attemptsAfter = attemptsSoFar + 1;
-    return res.json({
+    const attemptsAfter = liveAttemptsCount + 1;
+    const responseBody = {
       data: {
         score: result.score,
         passed: result.passed,
@@ -851,7 +928,14 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         attempts_remaining: Math.max(0, maxAttempts - attemptsAfter),
         certificate_id: issuedCertId,
       },
-    });
+    };
+    // Item 7: cache the response under the idempotency key so a
+    // duplicate POST within 60s returns the same body instead of
+    // racing into a second insert.
+    if (idempotencyKey) {
+      rememberQuizResponse(userId, idempotencyKey, responseBody);
+    }
+    return res.json(responseBody);
   } catch (err) {
     console.error("[lms] /quiz/submit error:", err);
     return res
@@ -1116,6 +1200,18 @@ router.get(
           .json({ error: "Bad Request", message: "User has no company assignment" });
       }
 
+      // Item 8 (P1 sprint): roster reads admin_bypass_allowed so the
+      // frontend can hide the Bypass button when admin is the caller
+      // and the setting is off. (Backend still enforces the gate.)
+      const settingsRow = await db
+        .select({
+          admin_bypass_allowed: lmsSettingsTable.admin_bypass_allowed,
+        })
+        .from(lmsSettingsTable)
+        .where(eq(lmsSettingsTable.company_id, companyId))
+        .limit(1);
+      const adminBypassAllowed = settingsRow[0]?.admin_bypass_allowed ?? false;
+
       const enrollments = await db
         .select({
           id: lmsEnrollmentsTable.id,
@@ -1239,7 +1335,10 @@ router.get(
         };
       });
 
-      return res.json({ data: rows });
+      return res.json({
+        data: rows,
+        meta: { admin_bypass_allowed: adminBypassAllowed },
+      });
     } catch (err) {
       console.error("[lms] /admin/learners error:", err);
       return res
@@ -1456,6 +1555,28 @@ router.post(
         return res
           .status(400)
           .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      // Item 8 (P1 sprint 2026-05-14): owners always allowed; admins +
+      // office only allowed when lms_settings.admin_bypass_allowed=true
+      // for this tenant. Default false because misclick risk on a long
+      // roster is real and bypass mutates the "Passed" record.
+      const callerRole = req.auth!.role;
+      if (callerRole !== "owner") {
+        const settings = await db
+          .select({
+            admin_bypass_allowed: lmsSettingsTable.admin_bypass_allowed,
+          })
+          .from(lmsSettingsTable)
+          .where(eq(lmsSettingsTable.company_id, companyId))
+          .limit(1);
+        const allowed = settings[0]?.admin_bypass_allowed ?? false;
+        if (!allowed) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message:
+              "Module bypass is owner-only. Ask the owner to enable admin bypass under LMS settings.",
+          });
+        }
       }
       const moduleId: string | undefined = req.body?.moduleId;
       if (typeof moduleId !== "string" || !KNOWN_MODULE_IDS.has(moduleId)) {

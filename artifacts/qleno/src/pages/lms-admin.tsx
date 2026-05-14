@@ -11,6 +11,7 @@
  * Visual style matches training.tsx (Plus Jakarta Sans, NAVY/TEAL palette).
  */
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
 import {
@@ -133,6 +134,7 @@ function useViewportIsMobile(): boolean {
 
 export default function LmsAdminPage() {
   const token = useAuthStore((s) => s.token);
+  const [, setLocation] = useLocation();
   const auth = useMemo(() => readRoleFromToken(token), [token]);
   const isAuthorized =
     auth?.role === "owner" ||
@@ -141,6 +143,11 @@ export default function LmsAdminPage() {
     auth?.role === "office";
   const isMobile = useViewportIsMobile();
   const [rows, setRows] = useState<RosterRow[] | null>(null);
+  // Item 8 (P1 sprint): owner-only bypass by default. Frontend reads
+  // the per-tenant `admin_bypass_allowed` flag from /api/lms-settings
+  // and passes it to ModuleAttemptsGrid so the Bypass button is
+  // hidden for admins when the toggle is off. Backend enforces too.
+  const [adminBypassAllowed, setAdminBypassAllowed] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
   const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
@@ -169,6 +176,19 @@ export default function LmsAdminPage() {
     try {
       const data = await api<RosterRow[]>("GET", "/lms/admin/learners", token);
       setRows(data);
+      // Settings fetch is fire-and-forget for the roster path. If the
+      // GET fails (admin without read perm, network blip), we leave
+      // adminBypassAllowed=false (the safe default).
+      try {
+        const settings = await api<{ admin_bypass_allowed: boolean }>(
+          "GET",
+          "/lms-settings",
+          token,
+        );
+        setAdminBypassAllowed(!!settings.admin_bypass_allowed);
+      } catch {
+        setAdminBypassAllowed(false);
+      }
       setError(null);
     } catch (e) {
       setError(String((e as Error).message));
@@ -310,6 +330,26 @@ export default function LmsAdminPage() {
             >
               Bulk reset password
             </button>
+            {/* Item 9 (P1 sprint): owner-only Settings page entry. */}
+            {auth?.role === "owner" ? (
+              <button
+                type="button"
+                onClick={() => setLocation("/lms/admin/settings")}
+                style={{
+                  background: "transparent",
+                  color: NAVY,
+                  border: `1px solid ${LINE}`,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Settings
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={refresh}
@@ -384,6 +424,7 @@ export default function LmsAdminPage() {
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
             callerRole={auth?.role ?? null}
+            adminBypassAllowed={adminBypassAllowed}
           />
         ) : (
           <RosterTable
@@ -397,6 +438,7 @@ export default function LmsAdminPage() {
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
             callerRole={auth?.role ?? null}
+            adminBypassAllowed={adminBypassAllowed}
           />
         )}
       </div>
@@ -553,6 +595,7 @@ function RosterTable({
   onArchive,
   onResetDeadline,
   callerRole,
+  adminBypassAllowed,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -564,6 +607,7 @@ function RosterTable({
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
   callerRole: string | null;
+  adminBypassAllowed: boolean;
 }) {
   return (
     <div
@@ -799,7 +843,7 @@ function RosterTable({
                       borderBottom: `1px solid ${LINE_SOFT}`,
                     }}
                   >
-                    <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+                    <ModuleAttemptsGrid row={r} onBypass={onBypass} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
                     <LearnerCertificatesPanel row={r} />
                     <LearnerSignedDocumentsPanel row={r} />
                   </td>
@@ -817,10 +861,25 @@ function RosterTable({
 function ModuleAttemptsGrid({
   row,
   onBypass,
+  callerRole,
+  adminBypassAllowed,
 }: {
   row: RosterRow;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  callerRole: string | null;
+  adminBypassAllowed: boolean;
 }) {
+  // Item 8 (P1 sprint): bypass visibility gate.
+  //   - Owner always sees Bypass.
+  //   - Admin only sees when admin_bypass_allowed setting is true.
+  //   - Office NEVER sees Bypass (was a backend-only path before).
+  const canSeeBypass =
+    callerRole === "owner" ||
+    (callerRole === "admin" && adminBypassAllowed);
+  // Type-to-confirm dialog state. The clicked moduleId is the
+  // expected confirm string — caller types the module name to
+  // enable the destructive button.
+  const [pendingBypass, setPendingBypass] = useState<string | null>(null);
   // Item 2 (P0 sprint): canonical denominator. We list the 13 quiz
   // modules + the Final Mixed Test as a separate trailing card. The
   // older content-only "acknowledgment" entry from MODULE_ORDER is
@@ -897,15 +956,18 @@ function ModuleAttemptsGrid({
                     : `${attempts}/${max} attempts${atCap ? " · at cap" : ""}`}
                 </div>
               </div>
-              {!passed ? (
+              {!passed && canSeeBypass ? (
                 <button
                   type="button"
-                  onClick={() => onBypass(row.user_id, moduleId)}
+                  onClick={() => setPendingBypass(moduleId)}
                   title="Bypass — mark as passed"
                   style={{
-                    background: NAVY,
-                    color: "#fff",
-                    border: 0,
+                    // Item 8 (P1 sprint): red ghost. Misclick risk on
+                    // a long roster is real; this is destructive
+                    // (mutates the "Passed" record on a learner).
+                    background: "transparent",
+                    color: DANGER,
+                    border: `1px solid ${DANGER}`,
                     padding: "5px 8px",
                     borderRadius: 6,
                     fontSize: 11,
@@ -925,6 +987,178 @@ function ModuleAttemptsGrid({
           );
         })}
       </div>
+      {pendingBypass !== null ? (
+        <BypassConfirmDialog
+          moduleId={pendingBypass}
+          onClose={() => setPendingBypass(null)}
+          onConfirm={async () => {
+            await onBypass(row.user_id, pendingBypass);
+            setPendingBypass(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BypassConfirmDialog (Item 8, P1 sprint 2026-05-14)
+//
+// Type-to-confirm gate before mutating a learner's module_progress
+// record to status='passed'. Owner / admin (when allowed) types the
+// uppercase module name to enable the destructive button. Mirrors
+// the Reset Enrollment dialog pattern.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BypassConfirmDialog({
+  moduleId,
+  onClose,
+  onConfirm,
+}: {
+  moduleId: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const expected = humanModule(moduleId).toUpperCase();
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = confirm.trim().toUpperCase() === expected;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Bypass module"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 460,
+          width: "100%",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div style={{ fontSize: 16, fontWeight: 800, color: INK }}>
+          Bypass {humanModule(moduleId)}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 6,
+            lineHeight: 1.55,
+          }}
+        >
+          Marks this module as PASSED for the learner without them
+          taking the quiz. Issues a completion certificate. The action
+          is logged with your name + role for legal. Only use when you
+          have a clear reason (technical error, accommodation,
+          documented prior credit).
+        </div>
+        <label
+          style={{
+            display: "block",
+            marginTop: 14,
+            fontSize: 12,
+            fontWeight: 700,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          Type the module name to confirm: <strong>{expected}</strong>
+        </label>
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder={expected}
+          disabled={busy}
+          style={{
+            width: "100%",
+            marginTop: 6,
+            padding: "10px 12px",
+            border: `1px solid ${LINE}`,
+            borderRadius: 8,
+            fontSize: 14,
+            fontFamily: FONT,
+          }}
+        />
+        {err && (
+          <div style={{ color: DANGER, fontSize: 12, marginTop: 8 }}>{err}</div>
+        )}
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            gap: 8,
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              background: "transparent",
+              color: INK_MUTE,
+              border: `1px solid ${LINE}`,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: FONT,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await onConfirm();
+              } catch (e) {
+                setErr(String((e as Error).message));
+              } finally {
+                setBusy(false);
+              }
+            }}
+            style={{
+              background: !valid || busy ? INK_LIGHT : DANGER,
+              color: "#fff",
+              border: 0,
+              padding: "8px 14px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+              fontFamily: FONT,
+              cursor: !valid || busy ? "default" : "pointer",
+            }}
+          >
+            {busy ? "Bypassing…" : "Bypass module"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -940,6 +1174,7 @@ function RosterCards({
   onArchive,
   onResetDeadline,
   callerRole,
+  adminBypassAllowed,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -951,6 +1186,7 @@ function RosterCards({
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
   callerRole: string | null;
+  adminBypassAllowed: boolean;
 }) {
   return (
     <div style={{ display: "grid", gap: 10 }} data-testid="roster-cards">
@@ -1113,7 +1349,7 @@ function RosterCards({
           </div>
           {expanded.has(r.enrollment_id) ? (
             <div style={{ marginTop: 6 }}>
-              <ModuleAttemptsGrid row={r} onBypass={onBypass} />
+              <ModuleAttemptsGrid row={r} onBypass={onBypass} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
               <LearnerCertificatesPanel row={r} />
               <LearnerSignedDocumentsPanel row={r} />
             </div>

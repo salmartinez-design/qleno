@@ -1,0 +1,130 @@
+/**
+ * LMS per-tenant settings (Items 8 + 9, P1 sprint 2026-05-14).
+ *
+ * Mounted at /api/lms-settings. Owner-only writes; owner / admin can
+ * read (admin needs to know what they can/cannot do, even if they
+ * can't change the toggle).
+ *
+ *   GET  /              fetch current settings (auto-creates default row)
+ *   PATCH /            update toggles (owner-only)
+ */
+import { Router } from "express";
+import { eq } from "drizzle-orm";
+import { db } from "@workspace/db";
+import {
+  lmsSettingsTable,
+  type LmsSettings,
+} from "@workspace/db/schema";
+import { requireAuth, requireRole } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
+
+const router = Router();
+
+async function getOrCreateSettings(companyId: number): Promise<LmsSettings> {
+  const existing = await db
+    .select()
+    .from(lmsSettingsTable)
+    .where(eq(lmsSettingsTable.company_id, companyId))
+    .limit(1);
+  if (existing[0]) return existing[0];
+
+  const inserted = await db
+    .insert(lmsSettingsTable)
+    .values({ company_id: companyId, admin_bypass_allowed: false })
+    .onConflictDoNothing({ target: lmsSettingsTable.company_id })
+    .returning();
+  if (inserted[0]) return inserted[0];
+
+  // Race: another caller created the row between our SELECT + INSERT.
+  const after = await db
+    .select()
+    .from(lmsSettingsTable)
+    .where(eq(lmsSettingsTable.company_id, companyId))
+    .limit(1);
+  if (!after[0]) {
+    throw new Error("Failed to create or fetch lms_settings row");
+  }
+  return after[0];
+}
+
+router.get(
+  "/",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "User has no company assignment",
+        });
+      }
+      const settings = await getOrCreateSettings(companyId);
+      return res.json({ data: settings });
+    } catch (err) {
+      console.error("[lms-settings] GET / error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to load LMS settings",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "User has no company assignment",
+        });
+      }
+      const existing = await getOrCreateSettings(companyId);
+
+      const patch: Partial<{ admin_bypass_allowed: boolean }> = {};
+      if (typeof req.body?.admin_bypass_allowed === "boolean") {
+        patch.admin_bypass_allowed = req.body.admin_bypass_allowed;
+      }
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "No valid setting provided",
+        });
+      }
+
+      const now = new Date();
+      const updated = await db
+        .update(lmsSettingsTable)
+        .set({ ...patch, updated_at: now })
+        .where(eq(lmsSettingsTable.company_id, companyId))
+        .returning();
+
+      await logAudit(
+        req,
+        "lms_settings.update",
+        "lms_settings",
+        existing.id,
+        {
+          admin_bypass_allowed: existing.admin_bypass_allowed,
+        },
+        patch,
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[lms-settings] PATCH / error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to update LMS settings",
+      });
+    }
+  },
+);
+
+export default router;
