@@ -276,7 +276,8 @@ const BASE_MODULES: Module[] = [
 
       { type: "h", text: { en: "Job Abandonment", es: "Abandono del Empleo" } },
       {
-        type: "p",
+        type: "callout",
+        tone: "warning",
         text: {
           en: "Failure to contact the office BEFORE the end of the 20-minute grace window on a scheduled shift, AND failure to make contact within 24 hours after the missed shift, constitutes JOB ABANDONMENT and results in immediate termination effective the date of the missed shift. The 24-hour post-shift contact window provides the employee an opportunity to explain genuine incapacity (medical emergency, accident, hospitalization). Documentation of genuine incapacity may result in reinstatement at office discretion.",
           es: "No contactar a la oficina ANTES del fin de la ventana de gracia de 20 minutos en un turno programado, Y no establecer contacto dentro de las 24 horas posteriores al turno perdido, constituye ABANDONO DEL EMPLEO y resulta en terminación inmediata efectiva en la fecha del turno perdido. La ventana de contacto de 24 horas después del turno brinda al empleado una oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización). La documentación de una incapacidad genuina puede resultar en reincorporación a discreción de la oficina.",
@@ -330,7 +331,7 @@ const BASE_MODULES: Module[] = [
           { en: "Notice: the 20-minute grace call only. No advance approval required.", es: "Aviso: solo la llamada de gracia de 20 minutos. No se requiere aprobación previa." },
           { en: "Cannot be denied for business needs. PLAWA is protected leave.", es: "No se puede negar por necesidades del negocio. PLAWA es licencia protegida." },
           { en: "PLAWA is AUTOMATIC when you have hours and give the grace call. You do not need to specifically request 'sick time' or give a reason. PLAWA covers you by default.", es: "PLAWA es AUTOMÁTICA cuando tiene horas y da la llamada de gracia. No necesita solicitar específicamente 'tiempo por enfermedad' ni dar una razón. PLAWA lo cubre por defecto." },
-          { en: "4 or more CONSECUTIVE PLAWA days requires advance approval if the absence is foreseeable.", es: "4 o más días consecutivos de PLAWA requieren aprobación previa si la ausencia es previsible." },
+          { en: "4 or more CONSECUTIVE PLAWA days requires advance approval if the absence is foreseeable. 'Foreseeable' means planned in advance: a scheduled medical procedure, a planned mental health retreat, or a known appointment series. Unforeseeable absences (sudden illness like the flu, family emergency, accident) do NOT require advance approval. Just give the grace call each day. If you are sick for a week with the flu and call each day, that is fine.", es: "4 o más días consecutivos de PLAWA requieren aprobación previa si la ausencia es previsible. 'Previsible' significa planeado con anticipación: un procedimiento médico programado, un retiro de salud mental planeado, o una serie de citas conocida. Las ausencias imprevisibles (enfermedad súbita como la gripe, emergencia familiar, accidente) NO requieren aprobación previa. Solo dé la llamada de gracia cada día. Si está enfermo una semana con la gripe y llama cada día, está bien." },
           { en: "If you run out of PLAWA: the office cascades to PTO (if eligible), then Unpaid Personal Leave (if approved in advance).", es: "Si se queda sin PLAWA: la oficina pasa a PTO (si es elegible), luego a Licencia Personal No Pagada (si se aprueba con anticipación)." },
           { en: "No retaliation for lawful PLAWA use. Phes cannot discipline, demote, fire, or penalize you for using PLAWA legally.", es: "Sin represalias por el uso legal de PLAWA. Phes no puede disciplinar, degradar, despedir ni penalizar por usar PLAWA legalmente." },
         ],
@@ -392,7 +393,7 @@ const BASE_MODULES: Module[] = [
           { en: "Workplace injury / workers' compensation absences.", es: "Ausencias por lesión laboral o compensación al trabajador." },
           { en: "Pregnancy-related medical needs or appointments.", es: "Necesidades o citas médicas relacionadas con el embarazo." },
           { en: "Lactation breaks.", es: "Pausas de lactancia." },
-          { en: "Bereavement (immediate family: spouse, child, parent, sibling).", es: "Duelo (familia inmediata: cónyuge, hijo/a, padre/madre, hermano/a)." },
+          { en: "Bereavement for immediate family, spouse, child, parent, or sibling (up to 3 paid scheduled workdays).", es: "Duelo por familia inmediata, cónyuge, hijo/a, padre/madre o hermano/a (hasta 3 días laborales programados pagados)." },
           { en: "Military leave and family military leave.", es: "Licencia militar y licencia militar familiar." },
           { en: "Court appearances as a crime victim, or for proceedings related to domestic violence, sexual violence, or other qualifying crimes (VESSA).", es: "Comparecencias judiciales como víctima de delito, o para procedimientos relacionados con violencia doméstica, violencia sexual u otros delitos calificantes (VESSA)." },
           { en: "Disability-related absences covered by reasonable accommodation.", es: "Ausencias relacionadas con discapacidad cubiertas por acomodación razonable." },
@@ -523,7 +524,7 @@ const BASE_MODULES: Module[] = [
           { en: "Closed-toe athletic shoes (solid black or solid white). No sandals. No Crocs. No open backs.", es: "Calzado deportivo cerrado (negro sólido o blanco sólido). Sin sandalias. Sin Crocs. Sin parte trasera abierta." },
           { en: "Shoe covers mandatory inside all client homes from the threshold. Change between homes. Never reuse.", es: "Cubrezapatos obligatorios dentro de todos los hogares de clientes desde el umbral. Cambielos entre hogares. Nunca los reutilice." },
           { en: "Hair tied back if shoulder-length or longer.", es: "Cabello recogido si llega al hombro o más largo." },
-          { en: "Jewelry minimal. No large rings or bracelets that scratch surfaces.", es: "Joyería mínima. Sin anillos ni pulseras grandes que rayen superficies." },
+          { en: "Jewelry should be minimal and safe for cleaning work. Specifically: no rings with raised stones, no dangling bracelets, no long necklaces, no large earrings. Small studs, plain wedding bands, and small chain necklaces tucked under your shirt are acceptable. The standard: nothing that can scratch surfaces or catch on equipment, fabric, or fixtures.", es: "La joyería debe ser mínima y segura para el trabajo de limpieza. Específicamente: sin anillos con piedras elevadas, sin pulseras colgantes, sin collares largos, sin aretes grandes. Aretes pequeños tipo poste, anillos de matrimonio sencillos y cadenas pequeñas guardadas dentro de la camisa son aceptables. El estándar: nada que pueda rayar superficies o engancharse con equipo, tela o accesorios." },
         ],
       },
       {
@@ -584,17 +585,15 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Bodily fluids (blood, vomit, urine, feces). Decline politely. The office can refer a biohazard service.", es: "Fluidos corporales (sangre, vómito, orina, heces). Rechácelo cortésmente. La oficina puede referir un servicio de biohazard." },
+          { en: "Bodily fluids and biohazards (blood, vomit, urine, feces, hoarding situations, infestations). Decline politely. The office can refer a biohazard service.", es: "Fluidos corporales y riesgos biológicos (sangre, vómito, orina, heces, situaciones de acumulación, infestaciones). Rechácelo cortésmente. La oficina puede referir un servicio de biohazard." },
           { en: "Inside the oven, refrigerator, or freezer (default scope). The office can add it; call.", es: "Dentro del horno, refrigerador o congelador (alcance estándar). La oficina lo puede agregar; llame." },
-          { en: "Pet waste, including litter boxes.", es: "Desechos de mascotas, incluyendo cajas de arena." },
+          { en: "Pet waste, including litter boxes and animal waste.", es: "Desechos de mascotas, incluyendo cajas de arena y desechos animales." },
           { en: "Cash transactions on site. All payment goes through the office.", es: "Transacciones en efectivo en sitio. Todo pago pasa por la oficina." },
           { en: "Climbing higher than the company-issued step stool. Never stand on furniture.", es: "Subir más alto que el banquito de la compañía. Nunca se pare en muebles." },
           { en: "Wash dishes.", es: "Lavar platos." },
           { en: "Make beds.", es: "Tender camas." },
           { en: "Move heavy furniture. We clean around it. Anything over 25 lbs we do not lift or relocate.", es: "Mover muebles pesados. Limpiamos alrededor. Nada que pese más de 25 lb se levanta o se mueve." },
           { en: "Clean window tracks.", es: "Limpiar rieles de ventanas." },
-          { en: "Carpet steam cleaning.", es: "Limpieza de alfombras a vapor." },
-          { en: "Biohazards, animal waste, hoarding situations, or infestations.", es: "Riesgos biológicos, desechos animales, situaciones de acumulación o infestaciones." },
           { en: "Outdoor cleaning, fireplaces, running errands.", es: "Limpieza al aire libre, chimeneas, recados." },
         ],
       },
@@ -641,8 +640,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Move-In / Move-Out cleans ASSUME the space is empty. If you arrive and the home is still furnished or has belongings throughout, call the office BEFORE starting. The scope and pricing change when there is furniture in the way.",
-          es: "Las limpiezas de Mudanza ASUMEN que el espacio está vacío. Si llega y la casa aún tiene muebles o pertenencias por todas partes, llame a la oficina ANTES de empezar. El alcance y el precio cambian cuando hay muebles en medio.",
+          en: "Important: Move-In / Move-Out cleans assume an empty home. If you arrive and the space is furnished or has belongings still in place, STOP. Call the office before starting. Scope and pricing change when there is furniture in the way. Do not begin a Move-In / Move-Out clean in a non-empty space without office approval.",
+          es: "Importante: las limpiezas de Mudanza asumen una casa vacía. Si llega y el espacio está amueblado o tiene pertenencias todavía en su lugar, DETÉNGASE. Llame a la oficina antes de empezar. El alcance y el precio cambian cuando hay muebles en medio. No empiece una limpieza de Mudanza en un espacio no vacío sin aprobación de la oficina.",
         },
       },
 
@@ -682,8 +681,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Pricing conversations are 100% the office's job. If a client tries to negotiate, asks for a discount, offers cash for an unscheduled service, or tries to renegotiate the service fee in front of you, politely say 'I will have the office reach out to discuss pricing' and call the office. Clients who try to negotiate outside pricing with techs risk losing service. Protect yourself: stay out of money conversations.",
-          es: "Las conversaciones sobre precios son 100% trabajo de la oficina. Si un cliente intenta negociar, pide descuento, ofrece efectivo por un servicio no agendado o intenta renegociar la tarifa frente a usted, diga cortésmente 'la oficina los contactará para discutir el precio' y llame a la oficina. Los clientes que intentan negociar fuera del precio con los técnicos arriesgan perder el servicio. Protéjase: manténgase fuera de conversaciones de dinero.",
+          en: "Pricing conversations are 100% the office's job. If a client tries to negotiate, asks for a discount, offers cash for an unscheduled service, or tries to renegotiate the service fee in front of you, politely say 'I will have the office reach out to discuss pricing' and call the office. If a client attempts to negotiate pricing with you, the office will follow up with them directly. Do not let it pull you into the conversation. Protect yourself: stay out of money conversations.",
+          es: "Las conversaciones sobre precios son 100% trabajo de la oficina. Si un cliente intenta negociar, pide descuento, ofrece efectivo por un servicio no agendado o intenta renegociar la tarifa frente a usted, diga cortésmente 'la oficina los contactará para discutir el precio' y llame a la oficina. Si un cliente intenta negociar el precio con usted, la oficina dará seguimiento directamente. No deje que la conversación lo arrastre. Protéjase: manténgase fuera de conversaciones de dinero.",
         },
       },
 
@@ -803,6 +802,16 @@ const BASE_MODULES: Module[] = [
         ],
       },
 
+      { type: "h", text: { en: "Lifting Limits", es: "Límites de Levantamiento" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Phes employees never lift items over 25 lbs alone. This includes furniture, large appliances, packed boxes, or anything else requiring two-person handling. Clean around heavy items. Do not attempt to move them. If a job requires moving something over 25 lbs, call the office. This rule protects you from injury and protects Phes from workers' compensation claims.",
+          es: "Los empleados de Phes nunca levantan artículos de más de 25 libras solos. Esto incluye muebles, electrodomésticos grandes, cajas empacadas o cualquier cosa que requiera dos personas. Limpie alrededor de los artículos pesados. No intente moverlos. Si un trabajo requiere mover algo de más de 25 libras, llame a la oficina. Esta regla lo protege de lesiones y protege a Phes de reclamos de compensación al trabajador.",
+        },
+      },
+
       { type: "h", text: { en: "Uniform Issuance", es: "Entrega de Uniformes" } },
       {
         type: "bullets",
@@ -887,6 +896,7 @@ const BASE_MODULES: Module[] = [
           { en: "Tips are 100% the employee's.", es: "Las propinas son 100% del empleado." },
           { en: "Cash tips: keep them.", es: "Propinas en efectivo: quédeselas." },
           { en: "Tips through the booking system are paid on the next paycheck.", es: "Las propinas a través del sistema de reservas se pagan en el siguiente cheque." },
+          { en: "Tips received through the booking system are reported as wages on your W-2.", es: "Las propinas recibidas a través del sistema de reservas se reportan como salarios en su W-2." },
           { en: "No kickback is owed to anyone.", es: "No se debe ningún porcentaje a nadie." },
           { en: "Tax responsibility: employees are responsible for reporting cash tips for tax purposes per IRS rules. Tips paid through the booking system are reported on your paycheck.", es: "Responsabilidad fiscal: los empleados son responsables de reportar las propinas en efectivo para fines fiscales conforme a las reglas del IRS. Las propinas pagadas a través del sistema de reservas se reportan en su cheque." },
         ],
