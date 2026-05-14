@@ -42,7 +42,7 @@ import {
   type LmsEnrollment,
   type LmsModuleProgress,
 } from "@workspace/db/schema";
-import { eq, and, sql, desc, inArray } from "drizzle-orm";
+import { eq, and, sql, desc, inArray, isNull } from "drizzle-orm";
 import {
   MODULE_ORDER,
   QUIZ_MODULE_IDS,
@@ -352,7 +352,11 @@ router.get("/me", requireAuth, async (req, res) => {
         enrollment,
         progress,
         unlocked,
-        days_remaining: daysUntil(enrollment.deadline_at, now),
+        // Item 4 (P0 sprint): null when the countdown hasn't started.
+        // Frontend renders "Not yet started" instead of a numeric chip.
+        days_remaining: enrollment.deadline_started_at
+          ? daysUntil(enrollment.deadline_at, now)
+          : null,
         limits,
         is_owner: canBypass,
         missing_required_signed_docs: missingSignedDocs,
@@ -626,6 +630,25 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     const enrollment = await getOrCreateEnrollment(companyId, userId, now);
     const progress = await loadProgress(enrollment.id);
     const completed = completedModuleIds(progress);
+
+    // Item 4 (P0 sprint 2026-05-14): countdown starts on the first
+    // quiz attempt, not at enrollment time. If deadline_started_at is
+    // null, set it now AND recompute deadline_at so the configured
+    // window is measured from "actually starting" rather than
+    // "passively enrolled".
+    if (!enrollment.deadline_started_at) {
+      const newDeadline = addDays(now, DEFAULT_DEADLINE_DAYS);
+      await db
+        .update(lmsEnrollmentsTable)
+        .set({
+          deadline_started_at: now,
+          deadline_at: newDeadline,
+          updated_at: now,
+        })
+        .where(eq(lmsEnrollmentsTable.id, enrollment.id));
+      enrollment.deadline_started_at = now;
+      enrollment.deadline_at = newDeadline;
+    }
 
     // Gate: per-module quizzes follow MODULE_ORDER; final test needs every
     // preceding module complete.
@@ -1100,6 +1123,8 @@ router.get(
           status: lmsEnrollmentsTable.status,
           enrolled_at: lmsEnrollmentsTable.enrolled_at,
           deadline_at: lmsEnrollmentsTable.deadline_at,
+          // Item 4 (P0 sprint): null = countdown hasn't started.
+          deadline_started_at: lmsEnrollmentsTable.deadline_started_at,
           completed_at: lmsEnrollmentsTable.completed_at,
           last_activity_at: lmsEnrollmentsTable.last_activity_at,
           first_name: usersTable.first_name,
@@ -1111,7 +1136,13 @@ router.get(
           usersTable,
           eq(usersTable.id, lmsEnrollmentsTable.user_id),
         )
-        .where(eq(lmsEnrollmentsTable.company_id, companyId))
+        .where(
+          and(
+            eq(lmsEnrollmentsTable.company_id, companyId),
+            // Item 3 (P0 sprint): hide archived users from the roster.
+            isNull(usersTable.archived_at),
+          ),
+        )
         .orderBy(desc(lmsEnrollmentsTable.last_activity_at));
 
       if (enrollments.length === 0) {
@@ -1192,8 +1223,15 @@ router.get(
           passed_count: passedCount,
           total_modules: totalModules,
           current_module: currentModule,
-          days_remaining: daysUntil(e.deadline_at, now),
+          // Item 4 (P0 sprint): when deadline_started_at is null, the
+          // countdown hasn't started yet. Surface days_remaining as
+          // null so the frontend renders "Not yet started" instead of
+          // a numeric badge derived from the placeholder deadline_at.
+          days_remaining: e.deadline_started_at
+            ? daysUntil(e.deadline_at, now)
+            : null,
           deadline_at: e.deadline_at,
+          deadline_started_at: e.deadline_started_at,
           completed_at: e.completed_at,
           last_activity_at: e.last_activity_at,
           enrolled_at: e.enrolled_at,
@@ -1297,6 +1335,94 @@ router.post(
       return res
         .status(500)
         .json({ error: "Internal Server Error", message: "Failed to extend deadline" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reset-deadline — Owner+Admin+Office (Item 4, P0 sprint)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Body: { enrollmentId }
+//
+// Clears deadline_started_at back to null AND nudges deadline_at to a
+// fresh "enrolled_at + DEFAULT_DEADLINE_DAYS" placeholder. Next quiz
+// submit re-stamps deadline_started_at + recomputes deadline_at from
+// that moment. Use case: a tech who never logged in within their first
+// window and the office wants to start the clock fresh on demand.
+//
+// Distinct from /admin/extend (which just adds N days to an existing
+// deadline). Reset is for "they never started yet, give them a fresh
+// shot"; Extend is for "they're partway through and need more time".
+router.post(
+  "/admin/reset-deadline",
+  requireAuth,
+  requireRole("owner", "admin", "office"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const enrollmentId = Number(req.body?.enrollmentId);
+      if (!Number.isFinite(enrollmentId) || enrollmentId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "enrollmentId is required" });
+      }
+
+      const existing = await db
+        .select()
+        .from(lmsEnrollmentsTable)
+        .where(
+          and(
+            eq(lmsEnrollmentsTable.id, enrollmentId),
+            eq(lmsEnrollmentsTable.company_id, companyId),
+          ),
+        )
+        .limit(1);
+      if (!existing[0]) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "Enrollment not found" });
+      }
+
+      const now = new Date();
+      const placeholder = addDays(now, DEFAULT_DEADLINE_DAYS);
+
+      const updated = await db
+        .update(lmsEnrollmentsTable)
+        .set({
+          deadline_started_at: null,
+          deadline_at: placeholder,
+          status: existing[0].status === "expired" ? "active" : existing[0].status,
+          updated_at: now,
+          last_activity_at: now,
+        })
+        .where(eq(lmsEnrollmentsTable.id, enrollmentId))
+        .returning();
+
+      await logAudit(
+        req,
+        "lms.admin.reset_deadline",
+        "lms_enrollment",
+        enrollmentId,
+        {
+          deadline_at: existing[0].deadline_at,
+          deadline_started_at: existing[0].deadline_started_at,
+        },
+        { deadline_at: placeholder, deadline_started_at: null },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[lms] /admin/reset-deadline error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to reset deadline",
+      });
     }
   },
 );

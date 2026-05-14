@@ -83,8 +83,24 @@ export const lmsEnrollmentsTable = pgTable(
     /**
      * 7 days out from `enrolled_at` by default. Admin can extend (bounded
      * 1–90 days from now) via POST /lms/admin/extend.
+     *
+     * Item 4 (P0 sprint): the countdown that uses this column should
+     * not start until `deadline_started_at` is also set. Until then,
+     * the deadline_at value is a placeholder; the UI surfaces "Not yet
+     * started" instead of a days-remaining badge.
      */
     deadline_at: timestamp("deadline_at", { withTimezone: true }).notNull(),
+    /**
+     * Stamped on the FIRST quiz attempt (any module). Until set, the
+     * employee hasn't engaged with the LMS at all and the deadline
+     * countdown is suppressed in the UI. On first stamping, the
+     * /quiz/submit handler also recomputes deadline_at = first_attempt
+     * + the configured window (default 7 days). Admin's "Reset
+     * deadline" action clears this back to null.
+     */
+    deadline_started_at: timestamp("deadline_started_at", {
+      withTimezone: true,
+    }),
     completed_at: timestamp("completed_at", { withTimezone: true }),
     /**
      * Stamped on every progress write (module start, quiz autosave, quiz

@@ -132,7 +132,7 @@ type LmsState = {
   enrollment: EnrollmentRow;
   progress: ModuleProgressRow[];
   unlocked: Record<string, boolean>;
-  days_remaining: number;
+  days_remaining: number | null;
   limits?: Record<string, number>;
   is_owner?: boolean;
   /**
@@ -1105,11 +1105,25 @@ function Header({
 function DeadlineBadge({ days, locale }: { days: number; locale: Locale }) {
   let tone = SUCCESS;
   let bg = "#ECFDF5";
-  let label = `${days} ${tr("daysRemaining", locale)}`;
+  // Item 13b (P0 sprint): "1 days" → "1 day" pluralization across
+  // every countdown chip. The translation key is "days remaining"
+  // plural by default; override when abs(days) === 1.
+  const isSingular = Math.abs(days) === 1;
+  const dayWord = isSingular
+    ? locale === "es"
+      ? "día restante"
+      : "day remaining"
+    : tr("daysRemaining", locale);
+  const overdueWord = isSingular
+    ? locale === "es"
+      ? "día de retraso"
+      : "day overdue"
+    : tr("daysOverdue", locale);
+  let label = `${days} ${dayWord}`;
   if (days < 0) {
     tone = DANGER;
     bg = "#FEF2F2";
-    label = `${Math.abs(days)} ${tr("daysOverdue", locale)}`;
+    label = `${Math.abs(days)} ${overdueWord}`;
   } else if (days === 0) {
     tone = WARN;
     bg = "#FFFBEB";
@@ -1279,11 +1293,21 @@ function Home({
   const completed = state.progress
     .filter((p) => p.status === "passed")
     .map((p) => p.module_id);
-  const totalModules = MODULE_ORDER.length;
+  // Item 2 (P0 sprint): canonical denominator is QUIZ_MODULE_IDS (13
+  // graded modules), NOT MODULE_ORDER (which includes the
+  // acknowledgment content-only entry — used to make the denominator
+  // 14 and disagree with admin/handbook surfaces). The Final Mixed
+  // Test and the Final Handbook are tracked in their own buckets,
+  // not folded into the modules count.
+  const totalModules = QUIZ_MODULE_IDS.length;
   const passedCount = completed.filter((c) =>
-    (MODULE_ORDER as readonly string[]).includes(c),
+    (QUIZ_MODULE_IDS as readonly string[]).includes(c),
   ).length;
   const pct = Math.round((passedCount / totalModules) * 100);
+  // Item 2 — separate buckets for the Final Test + Final Handbook so
+  // the progress card surfaces all three states together.
+  const finalTestPassed = completed.includes(FINAL_MODULE_ID);
+  const handbookSignedFlag = !!signedDocByType["handbook"];
 
   const activePendingCount = pendingReAcks?.active.length ?? 0;
 
@@ -1337,7 +1361,7 @@ function Home({
               : "Completa cada módulo en orden. Los exámenes requieren 80% para aprobar."}
           </div>
         </div>
-        <div style={{ minWidth: 140 }}>
+        <div style={{ minWidth: 200 }}>
           <ProgressBar pct={pct} />
           <div
             style={{
@@ -1350,7 +1374,54 @@ function Home({
             }}
           >
             {passedCount}/{totalModules}{" "}
-            {locale === "en" ? "modules" : "módulos"}
+            {locale === "en" ? "modules complete" : "módulos completos"}
+          </div>
+          {/* Item 2 (P0 sprint): Final Test + Handbook are separate
+              buckets, never collapsed into the modules count. Three
+              rows so HR / legal can defend a single number for each. */}
+          <div
+            style={{
+              fontSize: 11,
+              color: INK_LIGHT,
+              marginTop: 4,
+              fontWeight: 600,
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+            }}
+          >
+            <span style={{ color: finalTestPassed ? SUCCESS : INK_LIGHT }}>
+              {finalTestPassed ? "✓" : "○"}
+            </span>
+            {locale === "en"
+              ? finalTestPassed
+                ? "Final test: passed"
+                : "Final test: not passed"
+              : finalTestPassed
+              ? "Examen final: aprobado"
+              : "Examen final: no aprobado"}
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: INK_LIGHT,
+              marginTop: 2,
+              fontWeight: 600,
+              display: "flex",
+              gap: 6,
+              alignItems: "center",
+            }}
+          >
+            <span style={{ color: handbookSignedFlag ? SUCCESS : INK_LIGHT }}>
+              {handbookSignedFlag ? "✓" : "○"}
+            </span>
+            {locale === "en"
+              ? handbookSignedFlag
+                ? "Handbook: signed"
+                : "Handbook: not signed"
+              : handbookSignedFlag
+              ? "Manual: firmado"
+              : "Manual: no firmado"}
           </div>
         </div>
       </div>
@@ -3400,8 +3471,8 @@ function HandbookCard({
               ? "Último paso. Firme el manual integral para completar la incorporación."
               : "Final step. Sign the comprehensive handbook to complete onboarding."
             : locale === "es"
-            ? "Termine los módulos, los reconocimientos y el examen final para desbloquear el manual."
-            : "Finish the modules, signed acknowledgments, and final exam to unlock the handbook."}
+            ? `Termine los ${QUIZ_MODULE_IDS.length} módulos + el Examen Final Mixto + los reconocimientos firmados para desbloquear el manual.`
+            : `All ${QUIZ_MODULE_IDS.length} modules + Final Mixed Test + signed acknowledgments must be complete before signing the handbook.`}
         </div>
         {!signed && !eligible && eligibility ? (
           <HandbookGateHint eligibility={eligibility} locale={locale} />
@@ -3548,10 +3619,12 @@ function HandbookSignView({
 }) {
   const [content, setContent] = useState<SignedDocumentContent | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const suggested = learner
-    ? `${learner.firstName} ${learner.lastName}`.trim()
-    : "";
-  const [name, setName] = useState(suggested);
+  // Item 5 (P0 sprint): the typed-signature field on the Final Handbook
+  // is the legal point of the page. Pre-filling it with learner's first
+  // name (or any name) defeats the affirmative-action requirement of
+  // UETA / E-SIGN. Start empty; the employee must type their full
+  // legal name to enable the Sign button.
+  const [name, setName] = useState("");
   const [affirmed, setAffirmed] = useState(false);
   const [scrolledToEnd, setScrolledToEnd] = useState(false);
   const [busy, setBusy] = useState(false);

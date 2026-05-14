@@ -552,4 +552,102 @@ router.get("/:id/payroll-history", requireAuth, requireRole("owner", "admin", "o
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /:id/lms-archive — Owner only (Item 3, P0 sprint 2026-05-14)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Soft-deletes a user from LMS surfaces (roster + audit dashboard) by
+// setting `archived_at`. Preserves their certificates, signed
+// documents, and quiz attempt history for legal. Distinct from DELETE
+// /users/:id (which is the existing hard-delete) and from
+// PUT /users/:id with termination_date (HR concept). Tenant-scoped.
+//
+// Use case: phantom learners that don't match the active Maid Central
+// roster. Owner archives them so the LMS audit dashboard count
+// matches reality, but the historical compliance trail is intact.
+//
+// Body: {} (no params; archive flag is derivable from server time)
+//
+// Reversible: an archived user can be restored by a separate
+// /:id/lms-restore endpoint (or by manually nulling the column).
+router.post(
+  "/:id/lms-archive",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const callerCompanyId = req.auth!.companyId;
+      if (callerCompanyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const target = await db
+        .select({
+          id: usersTable.id,
+          company_id: usersTable.company_id,
+          email: usersTable.email,
+          role: usersTable.role,
+          archived_at: usersTable.archived_at,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0] || target[0].company_id !== callerCompanyId) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "User not found in tenant" });
+      }
+      if (target[0].role === "owner") {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Cannot archive an owner account" });
+      }
+      if (target[0].id === req.auth!.userId) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Cannot archive yourself" });
+      }
+      if (target[0].archived_at) {
+        return res.json({
+          data: { id: target[0].id, archived_at: target[0].archived_at },
+        });
+      }
+
+      const now = new Date();
+      const updated = await db
+        .update(usersTable)
+        .set({ archived_at: now })
+        .where(eq(usersTable.id, targetId))
+        .returning({
+          id: usersTable.id,
+          archived_at: usersTable.archived_at,
+        });
+
+      await logAudit(
+        req,
+        "users.lms_archive",
+        "user",
+        targetId,
+        null,
+        { email: target[0].email, archived_at: now.toISOString() },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[users] /:id/lms-archive error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to archive user" });
+    }
+  },
+);
+
 export default router;
