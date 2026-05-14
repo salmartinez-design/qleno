@@ -7,6 +7,7 @@ import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
 import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
+import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -145,6 +146,14 @@ app.listen(port, "0.0.0.0", () => {
   // still run on every startup — they're idempotent.
   seedIfNeeded()
     .then(() => runPhesDataMigration())
+    .then(() => runLmsCompletionBackfill())
+    .then((r) => {
+      if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
+        console.log(
+          `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
+        );
+      }
+    })
     .catch((err) => {
       console.error("[startup] Background init error:", err);
     });
