@@ -139,7 +139,7 @@ export async function generateComprehensiveHandbookPdf(
   // ── Final Acknowledgment + Signature ───────────────────────────────────
   // The final ack content can wrap to multiple pages. Renders the canonical
   // contentBody text, then the signature block on the last page.
-  drawFinalAcknowledgment(doc, fontRegular, fontBold, input);
+  await drawFinalAcknowledgment(doc, fontRegular, fontBold, input);
 
   // ── Watermark + audit footer on every page ─────────────────────────────
   const pages = doc.getPages();
@@ -417,12 +417,12 @@ function drawIncludedAcks(
   }
 }
 
-function drawFinalAcknowledgment(
+async function drawFinalAcknowledgment(
   doc: PDFDocument,
   fontRegular: PDFFont,
   fontBold: PDFFont,
   input: ComprehensiveHandbookInput,
-): void {
+): Promise<void> {
   const isEn = input.locale === "en";
   const title = isEn
     ? "Final Handbook Acknowledgment"
@@ -483,16 +483,17 @@ function drawFinalAcknowledgment(
     drawSectionHeader(page, title, fontBold);
     y = PAGE_HEIGHT - 130;
   }
-  drawSignatureBlock(page, fontRegular, fontBold, input, y);
+  await drawSignatureBlock(doc, page, fontRegular, fontBold, input, y);
 }
 
-function drawSignatureBlock(
+async function drawSignatureBlock(
+  doc: PDFDocument,
   page: PDFPage,
   fontRegular: PDFFont,
   fontBold: PDFFont,
   input: ComprehensiveHandbookInput,
   topY: number,
-): void {
+): Promise<void> {
   const isEn = input.locale === "en";
   const blockTop = Math.min(topY - 24, 240);
 
@@ -527,22 +528,56 @@ function drawSignatureBlock(
       color: COLORS.ink,
     });
   } else {
-    // Drawn signatures arrive as data URLs. Rendering them is complex
-    // (PNG decode → embedJpg/embedPng). Keep it simple: render the legal
-    // name in italic-style fallback. The raw data-URL is still stored
-    // in lms_signed_documents for audit. Future enhancement: embed the
-    // PNG image. For now, print the name + flag the method.
-    page.drawText(input.employeeName, {
-      x: MARGIN,
-      y: sigY,
-      size: 18,
-      font: fontBold,
-      color: COLORS.ink,
-    });
-    page.drawText(
-      isEn ? "(drawn signature on file)" : "(firma dibujada en archivo)",
-      { x: MARGIN, y: sigY - 16, size: 9, font: fontRegular, color: COLORS.inkLight },
-    );
+    // Drawn signatures arrive as data URLs (data:image/png;base64,... or
+    // data:image/jpeg;base64,...). Decode the base64 payload, embed via
+    // pdf-lib, scale to fit the signature row, and draw above the
+    // printed name. On decode failure (malformed URL, unknown MIME),
+    // fall back to the legal-name text so the PDF always renders.
+    const signaturePayload = input.employeeSignature;
+    let embedded = false;
+    try {
+      const commaIndex = signaturePayload.indexOf(",");
+      if (signaturePayload.startsWith("data:") && commaIndex > 0) {
+        const meta = signaturePayload.slice(5, commaIndex);
+        const base64 = signaturePayload.slice(commaIndex + 1);
+        const bytes = Buffer.from(base64, "base64");
+        const img = meta.includes("image/png")
+          ? await doc.embedPng(bytes)
+          : await doc.embedJpg(bytes);
+        const maxW = PAGE_WIDTH - MARGIN * 2;
+        const scale = Math.min(maxW / img.width, 56 / img.height, 1);
+        page.drawImage(img, {
+          x: MARGIN,
+          y: sigY - 20,
+          width: img.width * scale,
+          height: img.height * scale,
+        });
+        embedded = true;
+      }
+    } catch {
+      // fall through to text fallback below.
+    }
+    if (!embedded) {
+      page.drawText(input.employeeName, {
+        x: MARGIN,
+        y: sigY,
+        size: 18,
+        font: fontBold,
+        color: COLORS.ink,
+      });
+      page.drawText(
+        isEn
+          ? "(drawn signature could not render — raw bytes on file)"
+          : "(la firma dibujada no se pudo renderizar — bytes originales en archivo)",
+        {
+          x: MARGIN,
+          y: sigY - 16,
+          size: 9,
+          font: fontRegular,
+          color: COLORS.inkLight,
+        },
+      );
+    }
   }
 
   // Legal name + date row.
