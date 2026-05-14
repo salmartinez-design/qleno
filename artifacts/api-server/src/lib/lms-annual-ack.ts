@@ -56,6 +56,16 @@ export function defaultCycleDeadline(cycleYear: number): Date {
   return new Date(Date.UTC(cycleYear, 11, 31, 23, 59, 59, 999));
 }
 
+/**
+ * For the given `now`, return the calendar year the December cron
+ * should open. Always the UTC year of `now`. Exposed for unit testing
+ * — the actual cron lives in `lib/lms-annual-cycle-cron.ts` and pulls
+ * in DB modules at import time.
+ */
+export function cycleYearForAutoOpen(now: Date = new Date()): number {
+  return now.getUTCFullYear();
+}
+
 export function isValidCycleYear(input: unknown): input is number {
   return (
     typeof input === "number" &&
