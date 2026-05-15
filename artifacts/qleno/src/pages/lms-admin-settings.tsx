@@ -50,6 +50,8 @@ interface LmsSettings {
   id: number;
   company_id: number;
   admin_bypass_allowed: boolean;
+  admin_add_employee_allowed: boolean;
+  admin_edit_employee_allowed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -234,9 +236,23 @@ export default function LmsAdminSettingsPage() {
           >
             <SettingRow
               title="Allow administrators to bypass modules"
-              description="When OFF (default), only the owner sees the Bypass button on the per-employee admin row. When ON, both owner AND admin role see it. Same type-to-confirm guard regardless of role. Office role NEVER sees it. The backend enforces this gate too — flipping the toggle off immediately revokes admin bypass."
+              description="When OFF (default), only the owner sees the Bypass button on the per-employee admin row. When ON, both owner AND admin role see it. Same type-to-confirm guard regardless of role. Office role NEVER sees it. The backend enforces this gate too. Flipping the toggle off immediately revokes admin bypass."
               checked={settings.admin_bypass_allowed}
               onChange={(v) => patchSetting({ admin_bypass_allowed: v })}
+              disabled={busy}
+            />
+            <SettingRow
+              title="Allow administrators to add employees"
+              description="When OFF (default), only the owner sees the Add Employee button on the LMS roster. When ON, admins can also onboard new hires. The new hire is created scoped to this tenant; cross-tenant creation is impossible. Office role never sees the button."
+              checked={settings.admin_add_employee_allowed}
+              onChange={(v) => patchSetting({ admin_add_employee_allowed: v })}
+              disabled={busy}
+            />
+            <SettingRow
+              title="Allow administrators to edit employees"
+              description="When OFF (default), only the owner sees the Edit button on each roster row. When ON, admins can also update name, email, role, or hire date. Email and role changes are written to the audit log explicitly so the office team can review them later."
+              checked={settings.admin_edit_employee_allowed}
+              onChange={(v) => patchSetting({ admin_edit_employee_allowed: v })}
               disabled={busy}
             />
           </div>

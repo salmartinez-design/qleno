@@ -1,10 +1,17 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable } from "@workspace/db/schema";
+import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable, lmsSettingsTable, lmsEnrollmentsTable } from "@workspace/db/schema";
 import { eq, and, sql, avg, count, desc, isNull } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import {
+  generateLmsTempPassword,
+  isValidEmail,
+  isValidIsoDate,
+  LMS_ADD_ALLOWED_ROLES,
+  LMS_EDIT_ALLOWED_ROLES,
+} from "../lib/lms-employee-helpers.js";
 
 const router = Router();
 
@@ -646,6 +653,374 @@ router.post(
       return res
         .status(500)
         .json({ error: "Internal Server Error", message: "Failed to archive user" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LMS-scoped Add/Edit Employee endpoints (sprint 2026-05-15)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Distinct from the general POST / and PUT /:id endpoints above:
+//   - Owner is always allowed; admin requires the per-tenant
+//     `admin_add_employee_allowed` / `admin_edit_employee_allowed`
+//     toggle. Office is NEVER allowed (matches the bypass-button gate).
+//   - POST /lms-add generates the Phes+6char temp password server-side,
+//     hashes it, creates the user, auto-creates an LMS enrollment, and
+//     returns the plaintext temp password in the response (one-time
+//     visible to the admin who created the user).
+//   - PATCH /:id/lms-edit edits a narrow whitelist of fields (name,
+//     email, role, hire_date) and logs a before/after diff. Role
+//     changes are logged separately so they're easy to grep.
+//   - Tenant isolation enforced at the query level: every insert /
+//     update / select forces `company_id = req.auth.companyId`, and
+//     PATCH refuses if the target user doesn't belong to the caller's
+//     company. No path supports cross-tenant access.
+
+async function adminGateAllowed(
+  companyId: number,
+  callerRole: string,
+  setting: "admin_add_employee_allowed" | "admin_edit_employee_allowed",
+): Promise<boolean> {
+  if (callerRole === "owner") return true;
+  if (callerRole !== "admin") return false;
+  const rows = await db
+    .select({
+      add: lmsSettingsTable.admin_add_employee_allowed,
+      edit: lmsSettingsTable.admin_edit_employee_allowed,
+    })
+    .from(lmsSettingsTable)
+    .where(eq(lmsSettingsTable.company_id, companyId))
+    .limit(1);
+  if (!rows[0]) return false;
+  return setting === "admin_add_employee_allowed" ? rows[0].add : rows[0].edit;
+}
+
+router.post(
+  "/lms-add",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const callerRole = req.auth!.role;
+      const ok = await adminGateAllowed(
+        companyId,
+        callerRole,
+        "admin_add_employee_allowed",
+      );
+      if (!ok) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message:
+            "Adding employees is owner-only. Ask the owner to enable admin add under LMS settings.",
+        });
+      }
+
+      const first_name = typeof req.body?.first_name === "string"
+        ? req.body.first_name.trim() : "";
+      const last_name = typeof req.body?.last_name === "string"
+        ? req.body.last_name.trim() : "";
+      const emailRaw = typeof req.body?.email === "string"
+        ? req.body.email.trim().toLowerCase() : "";
+      const role = typeof req.body?.role === "string" ? req.body.role : "technician";
+      const hire_date = req.body?.hire_date;
+
+      if (!first_name) {
+        return res.status(400).json({ error: "Bad Request", message: "First name is required" });
+      }
+      if (!last_name) {
+        return res.status(400).json({ error: "Bad Request", message: "Last name is required" });
+      }
+      if (!isValidEmail(emailRaw)) {
+        return res.status(400).json({ error: "Bad Request", message: "Valid email is required" });
+      }
+      if (!LMS_ADD_ALLOWED_ROLES.has(role)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "Role must be technician, team_lead, or admin",
+        });
+      }
+      if (hire_date != null && !isValidIsoDate(hire_date)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "hire_date must be YYYY-MM-DD",
+        });
+      }
+
+      // Duplicate-email check is GLOBAL (the email column has a UNIQUE
+      // constraint in the schema), but we also explicitly probe within
+      // the tenant first to return a friendly error rather than a 500
+      // on the underlying insert.
+      const existing = await db
+        .select({ id: usersTable.id, company_id: usersTable.company_id })
+        .from(usersTable)
+        .where(eq(usersTable.email, emailRaw))
+        .limit(1);
+      if (existing[0]) {
+        return res.status(409).json({
+          error: "Conflict",
+          message: "An account with that email already exists",
+        });
+      }
+
+      const tempPassword = generateLmsTempPassword();
+      const password_hash = await bcrypt.hash(tempPassword, 10);
+
+      const inserted = await db
+        .insert(usersTable)
+        .values({
+          company_id: companyId,
+          email: emailRaw,
+          password_hash,
+          first_name,
+          last_name,
+          role: role as any,
+          hire_date: hire_date ?? null,
+          is_active: true,
+        })
+        .returning();
+      const newUser = inserted[0];
+
+      // Auto-enroll in the LMS so the new hire appears on the roster on
+      // first /lms visit. Inlined rather than importing from lms.ts to
+      // keep the dependency direction one-way (users.ts is leaf).
+      const now = new Date();
+      const DEADLINE_DAYS = 30;
+      const deadlineAt = new Date(now.getTime() + DEADLINE_DAYS * 86_400_000);
+      await db
+        .insert(lmsEnrollmentsTable)
+        .values({
+          company_id: companyId,
+          user_id: newUser.id,
+          status: "active",
+          enrolled_at: now,
+          deadline_at: deadlineAt,
+          last_activity_at: now,
+        })
+        .onConflictDoNothing();
+
+      await logAudit(
+        req,
+        "lms.admin.add_employee",
+        "user",
+        newUser.id,
+        null,
+        {
+          email: newUser.email,
+          first_name: newUser.first_name,
+          last_name: newUser.last_name,
+          role: newUser.role,
+          hire_date: newUser.hire_date,
+        },
+      );
+
+      const { password_hash: _, ...safeUser } = newUser;
+      return res.status(201).json({
+        data: {
+          user: safeUser,
+          temp_password: tempPassword,
+        },
+      });
+    } catch (err) {
+      console.error("[users] /lms-add error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to add employee",
+      });
+    }
+  },
+);
+
+router.patch(
+  "/:id/lms-edit",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const callerRole = req.auth!.role;
+      const ok = await adminGateAllowed(
+        companyId,
+        callerRole,
+        "admin_edit_employee_allowed",
+      );
+      if (!ok) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message:
+            "Editing employees is owner-only. Ask the owner to enable admin edit under LMS settings.",
+        });
+      }
+
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const target = await db
+        .select()
+        .from(usersTable)
+        .where(and(
+          eq(usersTable.id, targetId),
+          eq(usersTable.company_id, companyId),
+        ))
+        .limit(1);
+      if (!target[0]) {
+        return res.status(404).json({
+          error: "Not Found",
+          message: "User not found in tenant",
+        });
+      }
+      if (target[0].role === "owner") {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "Cannot edit an owner account via this endpoint",
+        });
+      }
+
+      const patch: {
+        first_name?: string;
+        last_name?: string;
+        email?: string;
+        role?: string;
+        hire_date?: string | null;
+      } = {};
+
+      if (req.body?.first_name !== undefined) {
+        if (typeof req.body.first_name !== "string" || !req.body.first_name.trim()) {
+          return res.status(400).json({ error: "Bad Request", message: "first_name cannot be empty" });
+        }
+        patch.first_name = req.body.first_name.trim();
+      }
+      if (req.body?.last_name !== undefined) {
+        if (typeof req.body.last_name !== "string" || !req.body.last_name.trim()) {
+          return res.status(400).json({ error: "Bad Request", message: "last_name cannot be empty" });
+        }
+        patch.last_name = req.body.last_name.trim();
+      }
+      if (req.body?.email !== undefined) {
+        const next = typeof req.body.email === "string" ? req.body.email.trim().toLowerCase() : "";
+        if (!isValidEmail(next)) {
+          return res.status(400).json({ error: "Bad Request", message: "Valid email is required" });
+        }
+        if (next !== target[0].email) {
+          const dupe = await db
+            .select({ id: usersTable.id })
+            .from(usersTable)
+            .where(eq(usersTable.email, next))
+            .limit(1);
+          if (dupe[0]) {
+            return res.status(409).json({
+              error: "Conflict",
+              message: "An account with that email already exists",
+            });
+          }
+          patch.email = next;
+        }
+      }
+      if (req.body?.role !== undefined) {
+        if (typeof req.body.role !== "string" || !LMS_EDIT_ALLOWED_ROLES.has(req.body.role)) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "Role must be technician, team_lead, admin, or office",
+          });
+        }
+        patch.role = req.body.role;
+      }
+      if (req.body?.hire_date !== undefined) {
+        if (req.body.hire_date === null || req.body.hire_date === "") {
+          patch.hire_date = null;
+        } else if (isValidIsoDate(req.body.hire_date)) {
+          patch.hire_date = req.body.hire_date;
+        } else {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "hire_date must be YYYY-MM-DD or null",
+          });
+        }
+      }
+
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "No editable field provided",
+        });
+      }
+
+      const before = {
+        first_name: target[0].first_name,
+        last_name: target[0].last_name,
+        email: target[0].email,
+        role: target[0].role,
+        hire_date: target[0].hire_date,
+      };
+      const after = { ...before, ...patch };
+
+      const updated = await db
+        .update(usersTable)
+        .set(patch as any)
+        .where(and(
+          eq(usersTable.id, targetId),
+          eq(usersTable.company_id, companyId),
+        ))
+        .returning();
+
+      await logAudit(
+        req,
+        "lms.admin.edit_employee",
+        "user",
+        targetId,
+        before,
+        after,
+      );
+
+      // Role change writes its own audit row so the security trail is
+      // grep-able. Role changes alter permissions and we want a single
+      // canonical action name for those audits.
+      if (patch.role && patch.role !== before.role) {
+        await logAudit(
+          req,
+          "lms.admin.role_changed",
+          "user",
+          targetId,
+          { role: before.role },
+          { role: patch.role },
+        );
+      }
+
+      // Email change writes a notification-intent row so the office
+      // team can see the new email got a heads-up. The actual send
+      // path is gated by COMMS_ENABLED; we log the intent regardless.
+      if (patch.email && patch.email !== before.email) {
+        await logAudit(
+          req,
+          "lms.admin.email_changed_notify_intent",
+          "user",
+          targetId,
+          { email: before.email },
+          { email: patch.email },
+        );
+      }
+
+      const { password_hash: _, ...safeUser } = updated[0];
+      return res.json({ data: safeUser });
+    } catch (err) {
+      console.error("[users] /:id/lms-edit error:", err);
+      return res.status(500).json({
+        error: "Internal Server Error",
+        message: "Failed to edit employee",
+      });
     }
   },
 );

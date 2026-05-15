@@ -30,7 +30,12 @@ async function getOrCreateSettings(companyId: number): Promise<LmsSettings> {
 
   const inserted = await db
     .insert(lmsSettingsTable)
-    .values({ company_id: companyId, admin_bypass_allowed: false })
+    .values({
+      company_id: companyId,
+      admin_bypass_allowed: false,
+      admin_add_employee_allowed: false,
+      admin_edit_employee_allowed: false,
+    })
     .onConflictDoNothing({ target: lmsSettingsTable.company_id })
     .returning();
   if (inserted[0]) return inserted[0];
@@ -87,9 +92,19 @@ router.patch(
       }
       const existing = await getOrCreateSettings(companyId);
 
-      const patch: Partial<{ admin_bypass_allowed: boolean }> = {};
+      const patch: Partial<{
+        admin_bypass_allowed: boolean;
+        admin_add_employee_allowed: boolean;
+        admin_edit_employee_allowed: boolean;
+      }> = {};
       if (typeof req.body?.admin_bypass_allowed === "boolean") {
         patch.admin_bypass_allowed = req.body.admin_bypass_allowed;
+      }
+      if (typeof req.body?.admin_add_employee_allowed === "boolean") {
+        patch.admin_add_employee_allowed = req.body.admin_add_employee_allowed;
+      }
+      if (typeof req.body?.admin_edit_employee_allowed === "boolean") {
+        patch.admin_edit_employee_allowed = req.body.admin_edit_employee_allowed;
       }
       if (Object.keys(patch).length === 0) {
         return res.status(400).json({
@@ -98,10 +113,24 @@ router.patch(
         });
       }
 
+      // Item 12 (onboarding-readiness sprint 2026-05-15): drop fields
+      // that match the current value so we don't bump updated_at on a
+      // pure no-op save. Audit log row is also suppressed when nothing
+      // actually changed.
+      const diff: typeof patch = {};
+      for (const k of Object.keys(patch) as Array<keyof typeof patch>) {
+        if (patch[k] !== existing[k]) {
+          (diff as any)[k] = patch[k];
+        }
+      }
+      if (Object.keys(diff).length === 0) {
+        return res.json({ data: existing });
+      }
+
       const now = new Date();
       const updated = await db
         .update(lmsSettingsTable)
-        .set({ ...patch, updated_at: now })
+        .set({ ...diff, updated_at: now })
         .where(eq(lmsSettingsTable.company_id, companyId))
         .returning();
 
@@ -112,8 +141,10 @@ router.patch(
         existing.id,
         {
           admin_bypass_allowed: existing.admin_bypass_allowed,
+          admin_add_employee_allowed: existing.admin_add_employee_allowed,
+          admin_edit_employee_allowed: existing.admin_edit_employee_allowed,
         },
-        patch,
+        diff,
       );
 
       return res.json({ data: updated[0] });

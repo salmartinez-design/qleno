@@ -784,6 +784,20 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     const liveAttemptsCount = liveAttemptsRows.length;
     const existing = progress.find((p) => p.module_id === moduleId);
     const alreadyPassed = existing?.status === "passed";
+    // Item 11 (onboarding-readiness sprint 2026-05-15): once passed,
+    // the quiz is locked. Prevents the Pass → Fail → Pass overwrite
+    // that surfaced in Jose's audit. Owner / admin retains the
+    // existing bypass-module path for legitimate overrides; this gate
+    // only fires for the learner-driven re-attempt path.
+    if (alreadyPassed && !canBypassCap) {
+      return res.status(403).json({
+        error: "Forbidden",
+        message:
+          "This module is already passed. Ask your admin to reset the module if you want to retake it.",
+        attempts_used: liveAttemptsCount,
+        already_passed: true,
+      });
+    }
     const maxAttempts = maxAttemptsFor(moduleId);
     if (!canBypassCap && !alreadyPassed && liveAttemptsCount >= maxAttempts) {
       return res.status(403).json({
@@ -1276,20 +1290,21 @@ router.get(
       }
 
       const now = new Date();
-      // Total modules used in the % progress calc = count of MODULE_ORDER
-      // (every module a learner must clear). The final mixed test is
-      // a separate gate and is NOT in this percentage.
-      const totalModules = MODULE_ORDER.length;
+      // Item 3 (onboarding-readiness sprint 2026-05-15): canonical
+      // denominator is the 13 QUIZ_MODULE_IDS, NOT MODULE_ORDER (14,
+      // which still includes the content-only acknowledgment slot).
+      // The final mixed test and the final handbook are separate
+      // gates and are NOT in this percentage.
+      const totalModules = QUIZ_MODULE_IDS.length;
+      const QUIZ_SET = new Set<string>(QUIZ_MODULE_IDS as readonly string[]);
 
       const rows = enrollments.map((e) => {
         const progress = progressByEnrollment.get(e.id) ?? [];
-        // Count only modules in MODULE_ORDER toward the percentage — the
-        // final mixed test is a SEPARATE gate. Without this filter a learner
-        // who passed all 6 modules + the final test reported 7/6 = 117%.
+        // Count only QUIZ_MODULE_IDS toward the percentage. The final
+        // mixed test is a SEPARATE gate (without this filter a learner
+        // who passed all 13 modules + the final test reported 14/13).
         const passedCount = progress.filter(
-          (p) =>
-            p.status === "passed" &&
-            (MODULE_ORDER as readonly string[]).includes(p.module_id),
+          (p) => p.status === "passed" && QUIZ_SET.has(p.module_id),
         ).length;
         const passedRatio = totalModules > 0 ? passedCount / totalModules : 0;
         const completed = progress

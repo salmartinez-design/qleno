@@ -148,6 +148,11 @@ export default function LmsAdminPage() {
   // and passes it to ModuleAttemptsGrid so the Bypass button is
   // hidden for admins when the toggle is off. Backend enforces too.
   const [adminBypassAllowed, setAdminBypassAllowed] = useState<boolean>(false);
+  // Sprint 2026-05-15: owner-only add/edit by default. Same gating
+  // pattern as bypass — admins only see the buttons when the matching
+  // setting is on. Office never sees them.
+  const [adminAddAllowed, setAdminAddAllowed] = useState<boolean>(false);
+  const [adminEditAllowed, setAdminEditAllowed] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [extendOpen, setExtendOpen] = useState<RosterRow | null>(null);
   const [resetOpen, setResetOpen] = useState<RosterRow | null>(null);
@@ -162,6 +167,8 @@ export default function LmsAdminPage() {
   const [bulkPwOpen, setBulkPwOpen] = useState(false);
   const [cyclesOpen, setCyclesOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
+  const [addEmpOpen, setAddEmpOpen] = useState(false);
+  const [editEmpOpen, setEditEmpOpen] = useState<RosterRow | null>(null);
 
   function toggleExpand(enrollmentId: number) {
     setExpanded((prev) => {
@@ -180,14 +187,22 @@ export default function LmsAdminPage() {
       // GET fails (admin without read perm, network blip), we leave
       // adminBypassAllowed=false (the safe default).
       try {
-        const settings = await api<{ admin_bypass_allowed: boolean }>(
+        const settings = await api<{
+          admin_bypass_allowed: boolean;
+          admin_add_employee_allowed: boolean;
+          admin_edit_employee_allowed: boolean;
+        }>(
           "GET",
           "/lms-settings",
           token,
         );
         setAdminBypassAllowed(!!settings.admin_bypass_allowed);
+        setAdminAddAllowed(!!settings.admin_add_employee_allowed);
+        setAdminEditAllowed(!!settings.admin_edit_employee_allowed);
       } catch {
         setAdminBypassAllowed(false);
+        setAdminAddAllowed(false);
+        setAdminEditAllowed(false);
       }
       setError(null);
     } catch (e) {
@@ -313,6 +328,28 @@ export default function LmsAdminPage() {
             >
               Annual cycles
             </button>
+            {/* Sprint 2026-05-15: owner always; admin when
+                admin_add_employee_allowed is on. Office never sees. */}
+            {auth?.role === "owner" ||
+            (auth?.role === "admin" && adminAddAllowed) ? (
+              <button
+                type="button"
+                onClick={() => setAddEmpOpen(true)}
+                style={{
+                  background: TEAL,
+                  color: "#fff",
+                  border: `1px solid ${TEAL}`,
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                Add Employee
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setBulkPwOpen(true)}
@@ -423,8 +460,10 @@ export default function LmsAdminPage() {
             onBypass={bypassFor}
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
+            onEdit={setEditEmpOpen}
             callerRole={auth?.role ?? null}
             adminBypassAllowed={adminBypassAllowed}
+            adminEditAllowed={adminEditAllowed}
           />
         ) : (
           <RosterTable
@@ -437,8 +476,10 @@ export default function LmsAdminPage() {
             onBypass={bypassFor}
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
+            onEdit={setEditEmpOpen}
             callerRole={auth?.role ?? null}
             adminBypassAllowed={adminBypassAllowed}
+            adminEditAllowed={adminEditAllowed}
           />
         )}
       </div>
@@ -523,6 +564,29 @@ export default function LmsAdminPage() {
         />
       )}
 
+      {addEmpOpen && (
+        <AddEmployeeDialog
+          token={token}
+          onClose={() => setAddEmpOpen(false)}
+          onSaved={async () => {
+            setAddEmpOpen(false);
+            await refresh();
+          }}
+        />
+      )}
+
+      {editEmpOpen && (
+        <EditEmployeeDialog
+          row={editEmpOpen}
+          token={token}
+          onClose={() => setEditEmpOpen(null)}
+          onSaved={async () => {
+            setEditEmpOpen(null);
+            await refresh();
+          }}
+        />
+      )}
+
       <style>{`
         @keyframes qleno-admin-spin { to { transform: rotate(360deg); } }
         .qleno-admin-spin { animation: qleno-admin-spin 1s linear infinite; }
@@ -594,8 +658,10 @@ function RosterTable({
   onBypass,
   onArchive,
   onResetDeadline,
+  onEdit,
   callerRole,
   adminBypassAllowed,
+  adminEditAllowed,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -606,9 +672,13 @@ function RosterTable({
   onBypass: (userId: number, moduleId: string) => Promise<void>;
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
+  onEdit: (r: RosterRow) => void;
   callerRole: string | null;
   adminBypassAllowed: boolean;
+  adminEditAllowed: boolean;
 }) {
+  const canEdit =
+    callerRole === "owner" || (callerRole === "admin" && adminEditAllowed);
   return (
     <div
       style={{
@@ -825,6 +895,30 @@ function RosterTable({
                     >
                       <CalendarClock size={11} /> Reset deadline
                     </button>
+                    {/* Sprint 2026-05-15: owner-default Edit Employee.
+                        Admin sees it when admin_edit_employee_allowed
+                        is on. Office never sees it. */}
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => onEdit(r)}
+                        title="Edit employee name, email, role, or hire date"
+                        style={{
+                          background: "transparent",
+                          color: NAVY,
+                          border: `1px solid ${LINE}`,
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontFamily: FONT,
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Edit
+                      </button>
+                    ) : null}
                     {/* Item 3 (P0 sprint): owner-only soft-delete from
                         LMS surfaces. Preserves cert / signature
                         history for legal. */}
@@ -1195,8 +1289,10 @@ function RosterCards({
   onBypass,
   onArchive,
   onResetDeadline,
+  onEdit,
   callerRole,
   adminBypassAllowed,
+  adminEditAllowed,
 }: {
   rows: RosterRow[];
   expanded: Set<number>;
@@ -1207,9 +1303,13 @@ function RosterCards({
   onBypass: (userId: number, moduleId: string) => Promise<void>;
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
+  onEdit: (r: RosterRow) => void;
   callerRole: string | null;
   adminBypassAllowed: boolean;
+  adminEditAllowed: boolean;
 }) {
+  const canEdit =
+    callerRole === "owner" || (callerRole === "admin" && adminEditAllowed);
   return (
     <div style={{ display: "grid", gap: 10 }} data-testid="roster-cards">
       {rows.map((r) => (
@@ -1350,6 +1450,25 @@ function RosterCards({
               >
                 <RotateCcw size={11} /> Reset
               </button>
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={() => onEdit(r)}
+                  style={{
+                    background: "transparent",
+                    color: NAVY,
+                    border: `1px solid ${LINE}`,
+                    padding: "6px 10px",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                  }}
+                >
+                  Edit
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => onExtend(r)}
@@ -2857,6 +2976,1027 @@ function ArchiveEmployeeDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddEmployeeDialog (sprint 2026-05-15)
+//
+// Owner-default, admin-when-allowed. Posts to POST /api/users/lms-add which
+// (a) creates a tenant-scoped users row, (b) auto-enrolls the user in the
+// LMS, (c) returns a one-time-visible temp password the office team can
+// share with the new hire. EN/ES copy throughout.
+// ─────────────────────────────────────────────────────────────────────────────
+function AddEmployeeDialog({
+  token,
+  onClose,
+  onSaved,
+}: {
+  token: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Default hire date = today (local time). The user can pick any past or
+  // future date; we don't constrain.
+  const today = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }, []);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"technician" | "admin">("technician");
+  const [hireDate, setHireDate] = useState(today);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    user: { id: number; email: string; first_name: string; last_name: string };
+    temp_password: string;
+  } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [lang, setLang] = useState<"en" | "es">("en");
+
+  const T = lang === "es"
+    ? {
+        title: "Agregar empleado",
+        subtitle:
+          "Crea una cuenta nueva, inscrita automáticamente en el LMS de Phes.",
+        firstName: "Nombre",
+        lastName: "Apellido",
+        email: "Correo electrónico",
+        role: "Rol",
+        roleTech: "Técnico",
+        roleAdmin: "Administrador de grupo",
+        hireDate: "Fecha de contratación",
+        cancel: "Cancelar",
+        submit: "Crear empleado",
+        submitting: "Creando…",
+        successTitle: "Empleado creado",
+        successHint:
+          "La contraseña temporal del nuevo integrante es la mostrada abajo. La oficina entrega las credenciales en persona y debe rotarla después del primer inicio de sesión.",
+        tempPassword: "Contraseña temporal",
+        copy: "Copiar",
+        copied: "¡Copiado!",
+        close: "Cerrar",
+        shareHelp:
+          "El equipo de oficina puede entregar estos datos al nuevo integrante en persona o por mensaje seguro.",
+      }
+    : {
+        title: "Add Employee",
+        subtitle:
+          "Create a new tenant-scoped account, auto-enrolled in the Phes LMS.",
+        firstName: "First name",
+        lastName: "Last name",
+        email: "Email",
+        role: "Role",
+        roleTech: "Technician",
+        roleAdmin: "Group Administrator",
+        hireDate: "Hire date",
+        cancel: "Cancel",
+        submit: "Create employee",
+        submitting: "Creating…",
+        successTitle: "Employee created",
+        successHint:
+          "The new hire's temporary password is shown below. The office team delivers credentials in person and should rotate the password after first sign-in.",
+        tempPassword: "Temporary password",
+        copy: "Copy",
+        copied: "Copied",
+        close: "Close",
+        shareHelp:
+          "The office team can hand this off to the new hire in person or via a secure message.",
+      };
+
+  const valid =
+    firstName.trim().length > 0 &&
+    lastName.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    /^\d{4}-\d{2}-\d{2}$/.test(hireDate);
+
+  async function onSubmit() {
+    if (!valid || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await fetch(`${API_BASE}/users/lms-add`, {
+        method: "POST",
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          email: email.trim().toLowerCase(),
+          role,
+          hire_date: hireDate,
+        }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        try {
+          const parsed = JSON.parse(text);
+          throw new Error(parsed.message || parsed.error || `HTTP ${res.status}`);
+        } catch {
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+      }
+      const json = await res.json();
+      setResult(json.data);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyPw() {
+    if (!result) return;
+    try {
+      await navigator.clipboard.writeText(result.temp_password);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard API gated by user permission on some browsers;
+      // the password is still visible on screen, so this is non-fatal.
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderRadius: RADIUS,
+          padding: 22,
+          maxWidth: 520,
+          width: "100%",
+          maxHeight: "90vh",
+          overflow: "auto",
+          fontFamily: FONT,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 8,
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 18, color: INK }}>
+            {T.title}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <LangChip lang={lang} setLang={setLang} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={T.close}
+              style={{
+                background: "transparent",
+                border: 0,
+                cursor: "pointer",
+                color: INK_MUTE,
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+        <div style={{ fontSize: 13, color: INK_MUTE, marginTop: 4 }}>
+          {T.subtitle}
+        </div>
+
+        {result ? (
+          <div style={{ marginTop: 16 }}>
+            <div
+              style={{
+                padding: "10px 12px",
+                background: "#ECFDF5",
+                border: `1px solid ${SUCCESS}`,
+                borderRadius: 8,
+                color: SUCCESS,
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              {T.successTitle}: {result.user.first_name} {result.user.last_name} ({result.user.email})
+            </div>
+            <div
+              style={{
+                marginTop: 14,
+                fontSize: 12,
+                fontWeight: 700,
+                color: INK_MUTE,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              {T.tempPassword}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                padding: "10px 12px",
+                border: `1px solid ${LINE}`,
+                background: "#F8FAFC",
+                borderRadius: 8,
+                display: "flex",
+                gap: 10,
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <code
+                style={{
+                  fontFamily:
+                    "ui-monospace, SFMono-Regular, Menlo, monospace",
+                  fontSize: 15,
+                  color: INK,
+                  fontWeight: 700,
+                  userSelect: "all",
+                }}
+              >
+                {result.temp_password}
+              </code>
+              <button
+                type="button"
+                onClick={copyPw}
+                style={{
+                  background: NAVY,
+                  color: "#fff",
+                  border: 0,
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {copied ? T.copied : T.copy}
+              </button>
+            </div>
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 12,
+                color: INK_MUTE,
+                lineHeight: 1.55,
+              }}
+            >
+              {T.successHint}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 11,
+                color: INK_LIGHT,
+                lineHeight: 1.55,
+              }}
+            >
+              {T.shareHelp}
+            </div>
+            <div
+              style={{
+                marginTop: 16,
+                display: "flex",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                type="button"
+                onClick={onSaved}
+                style={{
+                  background: TEAL,
+                  color: "#fff",
+                  border: 0,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {T.close}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <Field label={T.firstName}>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label={T.lastName}>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+            <Field label={T.email}>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={busy}
+                style={inputStyle}
+              />
+            </Field>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <Field label={T.role}>
+                <select
+                  value={role}
+                  onChange={(e) =>
+                    setRole(e.target.value as "technician" | "admin")
+                  }
+                  disabled={busy}
+                  style={inputStyle}
+                >
+                  <option value="technician">{T.roleTech}</option>
+                  <option value="admin">{T.roleAdmin}</option>
+                </select>
+              </Field>
+              <Field label={T.hireDate}>
+                <input
+                  type="date"
+                  value={hireDate}
+                  onChange={(e) => setHireDate(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            {err && (
+              <div
+                style={{
+                  background: "#FEF2F2",
+                  border: `1px solid #FECACA`,
+                  color: DANGER,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {err}
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 6,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  background: "transparent",
+                  color: INK_MUTE,
+                  border: `1px solid ${LINE}`,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {T.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={!valid || busy}
+                style={{
+                  background: !valid || busy ? "#CBD5E1" : TEAL,
+                  color: "#fff",
+                  border: 0,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: !valid || busy ? "not-allowed" : "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {busy ? T.submitting : T.submit}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EditEmployeeDialog (sprint 2026-05-15)
+//
+// PATCH /api/users/:id/lms-edit. Editable: name, email, role, hire date.
+// Read-only: user id, created date, last activity (passed through from the
+// roster row). Save disabled until at least one field actually changes.
+// EN/ES copy throughout.
+// ─────────────────────────────────────────────────────────────────────────────
+function EditEmployeeDialog({
+  row,
+  token,
+  onClose,
+  onSaved,
+}: {
+  row: RosterRow;
+  token: string | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  // Seed the form from the roster row. We don't have email / hire_date
+  // on RosterRow — fetch them lazily from GET /api/users/:id (which is
+  // tenant-scoped on the backend, so admins of one tenant can't read
+  // another tenant's user).
+  const [loading, setLoading] = useState(true);
+  const [initial, setInitial] = useState<{
+    first_name: string;
+    last_name: string;
+    email: string;
+    role: string;
+    hire_date: string;
+    id: number;
+    created_at: string | null;
+  } | null>(null);
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<string>("technician");
+  const [hireDate, setHireDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [lang, setLang] = useState<"en" | "es">("en");
+
+  const T = lang === "es"
+    ? {
+        title: "Editar empleado",
+        subtitle:
+          "Actualiza el nombre, correo, rol o fecha de contratación. Los cambios se registran en el log de auditoría.",
+        firstName: "Nombre",
+        lastName: "Apellido",
+        email: "Correo electrónico",
+        role: "Rol",
+        roleTech: "Técnico",
+        roleLead: "Líder de equipo",
+        roleAdmin: "Administrador de grupo",
+        roleOffice: "Oficina",
+        hireDate: "Fecha de contratación",
+        userId: "ID de usuario",
+        createdAt: "Cuenta creada",
+        lastActivity: "Última actividad en el LMS",
+        cancel: "Cancelar",
+        submit: "Guardar cambios",
+        submitting: "Guardando…",
+        saved: "Cambios guardados.",
+        notice:
+          "Cambios al correo notificarán al nuevo correo. Cambios al rol se registran como evento de seguridad.",
+        loading: "Cargando…",
+      }
+    : {
+        title: "Edit Employee",
+        subtitle:
+          "Update name, email, role, or hire date. All changes write to the audit log.",
+        firstName: "First name",
+        lastName: "Last name",
+        email: "Email",
+        role: "Role",
+        roleTech: "Technician",
+        roleLead: "Team lead",
+        roleAdmin: "Group Administrator",
+        roleOffice: "Office",
+        hireDate: "Hire date",
+        userId: "User ID",
+        createdAt: "Account created",
+        lastActivity: "Last LMS activity",
+        cancel: "Cancel",
+        submit: "Save changes",
+        submitting: "Saving…",
+        saved: "Changes saved.",
+        notice:
+          "Email changes send a heads-up to the new address. Role changes are logged as a security event.",
+        loading: "Loading…",
+      };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/users/${row.user_id}`, {
+          headers: {
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+          },
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        if (cancelled) return;
+        const seed = {
+          first_name: data.first_name ?? "",
+          last_name: data.last_name ?? "",
+          email: data.email ?? "",
+          role: data.role ?? "technician",
+          hire_date: data.hire_date ?? "",
+          id: data.id,
+          created_at: data.created_at ?? null,
+        };
+        setInitial(seed);
+        setFirstName(seed.first_name);
+        setLastName(seed.last_name);
+        setEmail(seed.email);
+        setRole(seed.role);
+        setHireDate(seed.hire_date || "");
+      } catch (e) {
+        if (!cancelled) setErr(String((e as Error).message));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [row.user_id, token]);
+
+  const dirty =
+    initial != null &&
+    (firstName.trim() !== initial.first_name ||
+      lastName.trim() !== initial.last_name ||
+      email.trim().toLowerCase() !== initial.email.toLowerCase() ||
+      role !== initial.role ||
+      (hireDate || "") !== (initial.hire_date || ""));
+
+  const valid =
+    firstName.trim().length > 0 &&
+    lastName.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
+    (hireDate === "" || /^\d{4}-\d{2}-\d{2}$/.test(hireDate));
+
+  async function onSubmit() {
+    if (!dirty || !valid || busy || !initial) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const patch: Record<string, unknown> = {};
+      if (firstName.trim() !== initial.first_name) {
+        patch.first_name = firstName.trim();
+      }
+      if (lastName.trim() !== initial.last_name) {
+        patch.last_name = lastName.trim();
+      }
+      if (email.trim().toLowerCase() !== initial.email.toLowerCase()) {
+        patch.email = email.trim().toLowerCase();
+      }
+      if (role !== initial.role) patch.role = role;
+      if ((hireDate || "") !== (initial.hire_date || "")) {
+        patch.hire_date = hireDate || null;
+      }
+
+      const res = await fetch(`${API_BASE}/users/${row.user_id}/lms-edit`, {
+        method: "PATCH",
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        try {
+          const parsed = JSON.parse(text);
+          throw new Error(parsed.message || parsed.error || `HTTP ${res.status}`);
+        } catch {
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+      }
+      setSavedAt(Date.now());
+      setTimeout(() => onSaved(), 700);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          border: `1px solid ${LINE}`,
+          borderRadius: RADIUS,
+          padding: 22,
+          maxWidth: 520,
+          width: "100%",
+          maxHeight: "90vh",
+          overflow: "auto",
+          fontFamily: FONT,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "baseline",
+            gap: 8,
+          }}
+        >
+          <div style={{ fontWeight: 800, fontSize: 18, color: INK }}>
+            {T.title}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <LangChip lang={lang} setLang={setLang} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              style={{
+                background: "transparent",
+                border: 0,
+                cursor: "pointer",
+                color: INK_MUTE,
+              }}
+            >
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+        <div style={{ fontSize: 13, color: INK_MUTE, marginTop: 4 }}>
+          {T.subtitle}
+        </div>
+
+        {loading ? (
+          <div
+            style={{
+              padding: 30,
+              textAlign: "center",
+              color: INK_MUTE,
+            }}
+          >
+            <Loader2 size={20} className="qleno-admin-spin" />
+            <div style={{ marginTop: 8, fontSize: 12 }}>{T.loading}</div>
+          </div>
+        ) : initial ? (
+          <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <Field label={T.firstName}>
+                <input
+                  type="text"
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+              <Field label={T.lastName}>
+                <input
+                  type="text"
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+            <Field label={T.email}>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                disabled={busy}
+                style={inputStyle}
+              />
+            </Field>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 12,
+              }}
+            >
+              <Field label={T.role}>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                >
+                  <option value="technician">{T.roleTech}</option>
+                  <option value="team_lead">{T.roleLead}</option>
+                  <option value="admin">{T.roleAdmin}</option>
+                  <option value="office">{T.roleOffice}</option>
+                </select>
+              </Field>
+              <Field label={T.hireDate}>
+                <input
+                  type="date"
+                  value={hireDate}
+                  onChange={(e) => setHireDate(e.target.value)}
+                  disabled={busy}
+                  style={inputStyle}
+                />
+              </Field>
+            </div>
+
+            <div
+              style={{
+                marginTop: 4,
+                padding: "10px 12px",
+                background: "#F8FAFC",
+                border: `1px solid ${LINE}`,
+                borderRadius: 8,
+                fontSize: 12,
+                color: INK_MUTE,
+                display: "grid",
+                gap: 4,
+              }}
+            >
+              <div>
+                <span style={{ fontWeight: 700, color: INK_MUTE }}>
+                  {T.userId}:
+                </span>{" "}
+                {initial.id}
+              </div>
+              {initial.created_at ? (
+                <div>
+                  <span style={{ fontWeight: 700, color: INK_MUTE }}>
+                    {T.createdAt}:
+                  </span>{" "}
+                  {humanDateTime(initial.created_at)}
+                </div>
+              ) : null}
+              <div>
+                <span style={{ fontWeight: 700, color: INK_MUTE }}>
+                  {T.lastActivity}:
+                </span>{" "}
+                {humanDateTime(row.last_activity_at)}
+              </div>
+            </div>
+
+            <div
+              style={{
+                fontSize: 11,
+                color: INK_LIGHT,
+                lineHeight: 1.55,
+              }}
+            >
+              {T.notice}
+            </div>
+
+            {err && (
+              <div
+                style={{
+                  background: "#FEF2F2",
+                  border: `1px solid #FECACA`,
+                  color: DANGER,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {err}
+              </div>
+            )}
+            {savedAt && !err && (
+              <div
+                style={{
+                  background: "#ECFDF5",
+                  border: `1px solid ${SUCCESS}`,
+                  color: SUCCESS,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  fontSize: 12,
+                  fontWeight: 700,
+                }}
+              >
+                {T.saved}
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 6,
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={busy}
+                style={{
+                  background: "transparent",
+                  color: INK_MUTE,
+                  border: `1px solid ${LINE}`,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {T.cancel}
+              </button>
+              <button
+                type="button"
+                onClick={onSubmit}
+                disabled={!dirty || !valid || busy}
+                style={{
+                  background: !dirty || !valid || busy ? "#CBD5E1" : NAVY,
+                  color: "#fff",
+                  border: 0,
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: !dirty || !valid || busy ? "not-allowed" : "pointer",
+                  fontFamily: FONT,
+                }}
+              >
+                {busy ? T.submitting : T.submit}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              marginTop: 14,
+              background: "#FEF2F2",
+              border: `1px solid #FECACA`,
+              color: DANGER,
+              padding: 12,
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            {err || "Failed to load employee."}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Shared field wrapper for AddEmployee / EditEmployee dialogs.
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label style={{ display: "block" }}>
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+      </div>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  display: "block",
+  width: "100%",
+  padding: "8px 10px",
+  border: `1px solid ${LINE}`,
+  borderRadius: 6,
+  fontSize: 14,
+  fontFamily: FONT,
+  color: INK,
+  background: "#fff",
+  boxSizing: "border-box",
+};
+
+// Compact EN/ES toggle reused by Add/Edit dialogs.
+function LangChip({
+  lang,
+  setLang,
+}: {
+  lang: "en" | "es";
+  setLang: (l: "en" | "es") => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "inline-flex",
+        border: `1px solid ${LINE}`,
+        borderRadius: 999,
+        overflow: "hidden",
+        fontFamily: FONT,
+      }}
+    >
+      {(["en", "es"] as const).map((v) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => setLang(v)}
+          aria-pressed={lang === v}
+          style={{
+            background: lang === v ? NAVY : "transparent",
+            color: lang === v ? "#fff" : INK_MUTE,
+            border: 0,
+            padding: "3px 10px",
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+            fontFamily: FONT,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {v}
+        </button>
+      ))}
     </div>
   );
 }
