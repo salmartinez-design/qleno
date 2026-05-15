@@ -102,6 +102,7 @@ async function loadAuditRoster(
       and(
         eq(usersTable.company_id, companyId),
         isNull(usersTable.archived_at),
+        eq(usersTable.is_sandbox, false),
       ),
     );
 

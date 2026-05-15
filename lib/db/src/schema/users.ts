@@ -86,6 +86,17 @@ export const usersTable = pgTable("users", {
    * action; never set by the system.
    */
   archived_at: timestamp("archived_at"),
+  /**
+   * QA sandbox flag (2026-05-15 sprint). Currently set on a single
+   * Phes account (training.sandbox@phes.io, user_id=446) — repurposed
+   * from a Dispatch audit fixture. Sandbox rows are excluded from
+   * every tenant-wide aggregate (active counts, audit dashboard
+   * status cards, annual re-ack cron) so audits and demos don't
+   * pollute production metrics. The roster view filters them in the
+   * server SELECT; surface them only when the caller explicitly opts
+   * in via a `?includeSandbox=true` query param.
+   */
+  is_sandbox: boolean("is_sandbox").notNull().default(false),
   crew_id: integer("crew_id"),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),

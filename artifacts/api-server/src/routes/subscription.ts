@@ -35,17 +35,19 @@ router.get("/me", requireAuth, async (req, res) => {
     const company = (compRows as any).rows?.[0];
     if (!company) return res.status(404).json({ error: "Not found" });
 
-    // Count active technicians using is_active field
+    // Count active technicians (excludes archived + sandbox).
     const techRows = await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM users
-      WHERE company_id=${companyId} AND role='technician' AND is_active=true
+      WHERE company_id=${companyId} AND role='technician'
+        AND is_active=true AND archived_at IS NULL AND is_sandbox=false
     `);
     const activeTechs = (techRows as any).rows?.[0]?.count ?? 0;
 
-    // Count active office staff
+    // Count active office staff (excludes archived + sandbox).
     const officeRows = await db.execute(sql`
       SELECT COUNT(*)::int AS count FROM users
-      WHERE company_id=${companyId} AND role IN ('office','admin') AND is_active=true
+      WHERE company_id=${companyId} AND role IN ('office','admin')
+        AND is_active=true AND archived_at IS NULL AND is_sandbox=false
     `);
     const activeOffice = (officeRows as any).rows?.[0]?.count ?? 0;
 
