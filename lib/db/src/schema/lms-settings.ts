@@ -36,6 +36,22 @@ export const lmsSettingsTable = pgTable(
     admin_bypass_allowed: boolean("admin_bypass_allowed")
       .notNull()
       .default(false),
+    /**
+     * When true, admins can use the "Add Employee" UI on /lms/admin
+     * to onboard new hires. When false (default), only owner can.
+     * Backend enforces the gate; frontend hides the button when off.
+     */
+    admin_add_employee_allowed: boolean("admin_add_employee_allowed")
+      .notNull()
+      .default(false),
+    /**
+     * When true, admins can use the per-row Edit button on /lms/admin
+     * to modify employee name / email / role / hire date. When false
+     * (default), only owner can.
+     */
+    admin_edit_employee_allowed: boolean("admin_edit_employee_allowed")
+      .notNull()
+      .default(false),
     created_at: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

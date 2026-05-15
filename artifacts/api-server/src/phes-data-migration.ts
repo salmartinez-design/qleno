@@ -681,6 +681,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "lms_settings_company_uq",
       stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_settings_company_uq ON lms_settings(company_id)` },
+    // Add/Edit Employee admin toggles (2026-05-15). Mirror the
+    // admin_bypass_allowed pattern. Default false so the gate stays
+    // owner-only until the tenant owner enables it.
+    { label: "lms_settings.admin_add_employee_allowed",
+      stmt: `ALTER TABLE lms_settings ADD COLUMN IF NOT EXISTS admin_add_employee_allowed BOOLEAN NOT NULL DEFAULT FALSE` },
+    { label: "lms_settings.admin_edit_employee_allowed",
+      stmt: `ALTER TABLE lms_settings ADD COLUMN IF NOT EXISTS admin_edit_employee_allowed BOOLEAN NOT NULL DEFAULT FALSE` },
 
     { label: "CREATE lms_module_progress", stmt: `
       CREATE TABLE IF NOT EXISTS lms_module_progress (
