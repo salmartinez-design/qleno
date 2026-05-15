@@ -1475,6 +1475,85 @@ async function runPhesPasswordResetChicago23(): Promise<void> {
   );
 }
 
+/**
+ * Onboarding-readiness sprint 2026-05-15 (Item 10):
+ * Archive the 10 phantom LMS learners that aren't on the active
+ * Maid Central roster. Soft-delete via users.archived_at; cert /
+ * signature history is preserved.
+ *
+ * Matching strategy: case-insensitive (first_name, last_name)
+ * pair OR exact email match. Idempotent — once archived_at is set,
+ * we skip. Each match is logged so Sal can see exactly which user
+ * rows were touched.
+ *
+ * delia.martinez.former@phes.internal is matched by email
+ * (the literal "former" disambiguates from any active Delia).
+ */
+const PHANTOM_LEARNERS_2026_05_15: Array<
+  { first: string; last: string } | { email: string }
+> = [
+  { first: "Alma", last: "Salinas" },
+  { first: "Ana", last: "Valdez" },
+  { first: "Diana", last: "Vasquez" },
+  { first: "Guadalupe", last: "Mejia" },
+  { first: "Juan", last: "Salazar" },
+  { first: "Juliana", last: "Loredo" },
+  { first: "Norma", last: "Puga" },
+  { first: "Rosa", last: "Gallegos" },
+  { first: "Tatiana", last: "Merchan" },
+  { email: "delia.martinez.former@phes.internal" },
+];
+
+async function runPhantomLearnerArchive(): Promise<void> {
+  const tagged: number[] = [];
+  const alreadyArchived: number[] = [];
+  const notFound: string[] = [];
+
+  for (const entry of PHANTOM_LEARNERS_2026_05_15) {
+    const label = "email" in entry
+      ? entry.email
+      : `${entry.first} ${entry.last}`;
+    const where = "email" in entry
+      ? sql`LOWER(email) = LOWER(${entry.email})`
+      : sql`LOWER(first_name) = LOWER(${entry.first}) AND LOWER(last_name) = LOWER(${entry.last})`;
+
+    const matches = await db.execute<{
+      id: number;
+      archived_at: Date | null;
+      email: string;
+    }>(sql`
+      SELECT id, archived_at, email
+      FROM users
+      WHERE ${where} AND role != 'owner'
+    `);
+
+    const rows = (matches as any).rows ?? matches;
+    if (!rows.length) {
+      notFound.push(label);
+      continue;
+    }
+
+    for (const row of rows as Array<{ id: number; archived_at: Date | null; email: string }>) {
+      if (row.archived_at) {
+        alreadyArchived.push(row.id);
+        continue;
+      }
+      await db.execute(sql`
+        UPDATE users
+        SET archived_at = NOW()
+        WHERE id = ${row.id}
+      `);
+      tagged.push(row.id);
+    }
+  }
+
+  console.log(
+    `[phantom-archive] tagged=${tagged.length} (ids: ${tagged.join(", ") || "none"}) ` +
+      `already_archived=${alreadyArchived.length} not_found=${notFound.length}` +
+      (notFound.length ? ` (${notFound.join(" | ")})` : ""),
+  );
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -1482,6 +1561,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPhesPasswordResetChicago23();
   } catch (err: any) {
     console.warn("[phes-migration] chicago23-password-reset — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runPhantomLearnerArchive();
+  } catch (err: any) {
+    console.warn("[phes-migration] phantom-learner-archive — non-fatal:", err?.message ?? err);
   }
 
   try {

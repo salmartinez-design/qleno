@@ -12,15 +12,30 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   generateLmsTempPassword,
+  generateRandomLmsTempPassword,
   isValidEmail,
   isValidIsoDate,
   LMS_ADD_ALLOWED_ROLES,
+  LMS_DEFAULT_TEMP_PASSWORD,
   LMS_EDIT_ALLOWED_ROLES,
 } from "../lib/lms-employee-helpers.js";
 
-describe("generateLmsTempPassword", () => {
+describe("generateLmsTempPassword (onboarding-readiness sprint 2026-05-15)", () => {
+  it("returns the literal Sal-mandated default 'chicago23'", () => {
+    assert.equal(generateLmsTempPassword(), LMS_DEFAULT_TEMP_PASSWORD);
+    assert.equal(LMS_DEFAULT_TEMP_PASSWORD, "chicago23");
+  });
+
+  it("is stable across calls (literal, not random)", () => {
+    const set = new Set<string>();
+    for (let i = 0; i < 50; i++) set.add(generateLmsTempPassword());
+    assert.equal(set.size, 1, "literal default should never vary");
+  });
+});
+
+describe("generateRandomLmsTempPassword (retained for future callers)", () => {
   it("returns a string with the Phes prefix and 6-char suffix (10 total)", () => {
-    const pw = generateLmsTempPassword();
+    const pw = generateRandomLmsTempPassword();
     assert.equal(pw.length, 10);
     assert.equal(pw.slice(0, 4), "Phes");
   });
@@ -28,12 +43,12 @@ describe("generateLmsTempPassword", () => {
   it("uses only the ambiguous-char-free alphabet (no 0, 1, I, l, O, o)", () => {
     const banned = new Set(["0", "1", "I", "l", "O", "o"]);
     for (let i = 0; i < 200; i++) {
-      const pw = generateLmsTempPassword();
+      const pw = generateRandomLmsTempPassword();
       const suffix = pw.slice(4);
       for (const ch of suffix) {
         assert.ok(
           !banned.has(ch),
-          `generateLmsTempPassword produced banned char '${ch}' in suffix '${suffix}'`,
+          `random temp pw produced banned char '${ch}' in suffix '${suffix}'`,
         );
       }
     }
@@ -41,7 +56,7 @@ describe("generateLmsTempPassword", () => {
 
   it("returns a different value across calls (best-effort entropy check)", () => {
     const seen = new Set<string>();
-    for (let i = 0; i < 100; i++) seen.add(generateLmsTempPassword());
+    for (let i = 0; i < 100; i++) seen.add(generateRandomLmsTempPassword());
     assert.ok(seen.size >= 95, `expected near-100 unique pws, got ${seen.size}`);
   });
 });

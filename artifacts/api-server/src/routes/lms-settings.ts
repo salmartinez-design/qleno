@@ -113,10 +113,24 @@ router.patch(
         });
       }
 
+      // Item 12 (onboarding-readiness sprint 2026-05-15): drop fields
+      // that match the current value so we don't bump updated_at on a
+      // pure no-op save. Audit log row is also suppressed when nothing
+      // actually changed.
+      const diff: typeof patch = {};
+      for (const k of Object.keys(patch) as Array<keyof typeof patch>) {
+        if (patch[k] !== existing[k]) {
+          (diff as any)[k] = patch[k];
+        }
+      }
+      if (Object.keys(diff).length === 0) {
+        return res.json({ data: existing });
+      }
+
       const now = new Date();
       const updated = await db
         .update(lmsSettingsTable)
-        .set({ ...patch, updated_at: now })
+        .set({ ...diff, updated_at: now })
         .where(eq(lmsSettingsTable.company_id, companyId))
         .returning();
 
@@ -130,7 +144,7 @@ router.patch(
           admin_add_employee_allowed: existing.admin_add_employee_allowed,
           admin_edit_employee_allowed: existing.admin_edit_employee_allowed,
         },
-        patch,
+        diff,
       );
 
       return res.json({ data: updated[0] });

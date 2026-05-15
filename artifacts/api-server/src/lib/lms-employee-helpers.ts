@@ -11,14 +11,32 @@
  */
 
 /**
- * Generate a per-call temp password matching the Phes+6char
- * pattern used by the existing bulk-reset dialog. The alphabet
- * intentionally excludes characters that look alike at small
- * font sizes (`I`, `O`, `l`, `o`, `0`, `1`) to reduce dictation
- * errors when the office team reads the password to a new hire
- * over the phone.
+ * Default temp password for the LMS Add Employee flow.
+ *
+ * Onboarding-readiness sprint 2026-05-15: Sal explicitly asked for
+ * literal `chicago23` (lowercase) on the new-hire path for the two
+ * techs starting 2026-05-15. Outbound notifications are globally
+ * paused; credentials are hand-delivered. Sal will rotate every new
+ * account immediately post-go-live.
+ *
+ * Note: the prior implementation generated a per-call `Phes+6char`
+ * value via a no-confusing-chars alphabet. That helper is retained
+ * below for any future surface that wants the random fallback (and
+ * for the bulk-reset dialog, which keeps its own copy).
  */
+export const LMS_DEFAULT_TEMP_PASSWORD = "chicago23";
+
 export function generateLmsTempPassword(): string {
+  return LMS_DEFAULT_TEMP_PASSWORD;
+}
+
+/**
+ * Random-suffix helper kept for callers that don't want the literal.
+ * Currently unused on the Add Employee path (see Sal's pre-onboarding
+ * directive above). Alphabet excludes `0/1/I/l/O/o` to reduce
+ * dictation errors when the office team reads the password.
+ */
+export function generateRandomLmsTempPassword(): string {
   const alphabet =
     "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
   let suffix = "";

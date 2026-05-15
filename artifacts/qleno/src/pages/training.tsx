@@ -3629,6 +3629,57 @@ function HandbookGateHint({
 // return to home. The Download button on HandbookCard pulls it on demand.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Item 5 (onboarding-readiness sprint 2026-05-15): the handbook
+// content source includes `## Section heading` lines as the only
+// markdown construct. Rendering the whole string in a `pre-wrap`
+// div leaked the literal `##` characters. This component splits on
+// blank lines into paragraphs and renders any `## Foo` line as an
+// <h2>. Content is server-controlled (no user-supplied markup), so
+// inline string handling is safe.
+function HandbookBody({ source }: { source: string }) {
+  const blocks = source.split(/\n{2,}/);
+  return (
+    <>
+      {blocks.map((raw, i) => {
+        const trimmed = raw.trim();
+        if (!trimmed) return null;
+        if (trimmed.startsWith("## ")) {
+          return (
+            <h2
+              key={i}
+              style={{
+                fontFamily: FONT,
+                fontWeight: 800,
+                fontSize: 15,
+                color: INK,
+                margin: "16px 0 6px",
+                letterSpacing: "-0.01em",
+              }}
+            >
+              {trimmed.replace(/^##\s+/, "")}
+            </h2>
+          );
+        }
+        return (
+          <p
+            key={i}
+            style={{
+              fontFamily: FONT,
+              margin: "0 0 10px",
+              color: INK,
+              fontSize: 13.5,
+              lineHeight: 1.65,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {trimmed}
+          </p>
+        );
+      })}
+    </>
+  );
+}
+
 function HandbookSignView({
   locale,
   setLocale,
@@ -3821,11 +3872,10 @@ function HandbookSignView({
                 fontSize: 13.5,
                 color: INK,
                 lineHeight: 1.65,
-                whiteSpace: "pre-wrap",
                 fontFamily: FONT,
               }}
             >
-              {content.contentHtml}
+              <HandbookBody source={content.contentHtml} />
             </div>
 
             <div

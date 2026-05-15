@@ -3037,7 +3037,7 @@ function AddEmployeeDialog({
         submitting: "Creando…",
         successTitle: "Empleado creado",
         successHint:
-          "Comparte la contraseña temporal con el nuevo integrante. Solo se muestra una vez; copia ahora.",
+          "La contraseña temporal del nuevo integrante es la mostrada abajo. La oficina entrega las credenciales en persona y debe rotarla después del primer inicio de sesión.",
         tempPassword: "Contraseña temporal",
         copy: "Copiar",
         copied: "¡Copiado!",
@@ -3061,7 +3061,7 @@ function AddEmployeeDialog({
         submitting: "Creating…",
         successTitle: "Employee created",
         successHint:
-          "Share the temporary password with the new hire. It is shown once; copy it now.",
+          "The new hire's temporary password is shown below. The office team delivers credentials in person and should rotate the password after first sign-in.",
         tempPassword: "Temporary password",
         copy: "Copy",
         copied: "Copied",
