@@ -1265,6 +1265,8 @@ router.get(
             eq(lmsEnrollmentsTable.company_id, companyId),
             // Item 3 (P0 sprint): hide archived users from the roster.
             isNull(usersTable.archived_at),
+            // 2026-05-15 sprint: hide the QA sandbox account.
+            eq(usersTable.is_sandbox, false),
           ),
         )
         .orderBy(desc(lmsEnrollmentsTable.last_activity_at));

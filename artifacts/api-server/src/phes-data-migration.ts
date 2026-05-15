@@ -55,6 +55,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     // function runs once per user, the timestamp is set and the user is
     // never auto-reset again — even on subsequent deploys.
     { label: "users.password_reset_to_chicago23_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_to_chicago23_at TIMESTAMPTZ" },
+    { label: "users.is_sandbox", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN NOT NULL DEFAULT FALSE" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
@@ -1554,6 +1555,116 @@ async function runPhantomLearnerArchive(): Promise<void> {
   );
 }
 
+/**
+ * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
+ *
+ * Dispatch created an audit fixture user during Phase 6 — repurpose it
+ * as the permanent QA sandbox so future audits, demos, and regression
+ * tests have a stable home that doesn't pollute production metrics.
+ *
+ * Match strategy: prefer email match on the legacy audit address,
+ * fall back to user_id=446 (the value Dispatch documented). Idempotent
+ * via the `email = 'training.sandbox@phes.io'` AND `is_sandbox = true`
+ * guard — re-runs after first success are a no-op.
+ *
+ * LMS progress data is wiped so the sandbox starts clean every time
+ * we run the migration on a fresh restore. `lms_signature_events` is
+ * preserved (audit trail; legal). The sandbox password is left at
+ * whatever bcrypt the audit fixture used; Sal rotates it manually
+ * from the admin UI before each use per docs/qa-sandbox-account.md.
+ */
+async function runSandboxAccountRepurpose(): Promise<void> {
+  const LEGACY_EMAIL = "audit.test.persona3@phes.io";
+  const NEW_EMAIL = "training.sandbox@phes.io";
+  const FALLBACK_ID = 446;
+
+  const lookup = await db.execute<{ id: number; email: string; is_sandbox: boolean }>(sql`
+    SELECT id, email, is_sandbox FROM users
+    WHERE email = ${LEGACY_EMAIL} OR email = ${NEW_EMAIL} OR id = ${FALLBACK_ID}
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((lookup as any).rows ?? lookup)[0] as
+    | { id: number; email: string; is_sandbox: boolean }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[sandbox-repurpose] skip — no matching user (looked for email=${LEGACY_EMAIL}, ${NEW_EMAIL}, or id=${FALLBACK_ID})`,
+    );
+    return;
+  }
+
+  const userId = row.id;
+  const alreadyDone = row.email === NEW_EMAIL && row.is_sandbox;
+
+  if (alreadyDone) {
+    console.log(`[sandbox-repurpose] skip — user_id=${userId} already repurposed`);
+    return;
+  }
+
+  // Wipe LMS progress for this user. Order matters — children before
+  // parents. enrollment_id FK on lms_module_progress / lms_quiz_attempts
+  // / lms_quiz_state cascades when we delete the enrollment row, but
+  // we delete explicitly to keep the row counts in the log auditable.
+  const wipeCounts: Record<string, number> = {};
+  const wipe = async (label: string, stmt: any) => {
+    const result = await db.execute(stmt);
+    const count = (result as any).rowCount ?? 0;
+    wipeCounts[label] = count;
+  };
+
+  await wipe(
+    "lms_module_progress",
+    sql`DELETE FROM lms_module_progress
+        WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${userId})`,
+  );
+  await wipe(
+    "lms_quiz_attempts",
+    sql`DELETE FROM lms_quiz_attempts
+        WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${userId})`,
+  );
+  await wipe(
+    "lms_quiz_state",
+    sql`DELETE FROM lms_quiz_state
+        WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${userId})`,
+  );
+  await wipe(
+    "lms_signed_documents",
+    sql`DELETE FROM lms_signed_documents WHERE user_id = ${userId}`,
+  );
+  await wipe(
+    "lms_completion_certificates",
+    sql`DELETE FROM lms_completion_certificates WHERE user_id = ${userId}`,
+  );
+  await wipe(
+    "lms_pending_re_ack",
+    sql`DELETE FROM lms_pending_re_ack WHERE user_id = ${userId}`,
+  );
+  await wipe(
+    "lms_enrollments",
+    sql`DELETE FROM lms_enrollments WHERE user_id = ${userId}`,
+  );
+
+  await db.execute(sql`
+    UPDATE users
+    SET email = ${NEW_EMAIL},
+        first_name = 'Training',
+        last_name = 'Sandbox',
+        is_sandbox = TRUE,
+        archived_at = NULL,
+        is_active = TRUE
+    WHERE id = ${userId}
+  `);
+
+  const wipeSummary = Object.entries(wipeCounts)
+    .map(([table, count]) => `${table}=${count}`)
+    .join(" ");
+  console.log(
+    `[sandbox-repurpose] user_id=${userId} renamed ${LEGACY_EMAIL} → ${NEW_EMAIL} (is_sandbox=true); wiped: ${wipeSummary}`,
+  );
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -1567,6 +1678,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPhantomLearnerArchive();
   } catch (err: any) {
     console.warn("[phes-migration] phantom-learner-archive — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runSandboxAccountRepurpose();
+  } catch (err: any) {
+    console.warn("[phes-migration] sandbox-repurpose — non-fatal:", err?.message ?? err);
   }
 
   try {

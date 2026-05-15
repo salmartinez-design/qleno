@@ -113,6 +113,10 @@ export async function sweepForDocumentType(args: {
         eq(lmsSignedDocumentsTable.status, "active"),
         eq(usersTable.company_id, companyId),
         isNull(usersTable.termination_date),
+        isNull(usersTable.archived_at),
+        // 2026-05-15 sprint: never sweep the QA sandbox into the
+        // annual re-ack pending list.
+        eq(usersTable.is_sandbox, false),
       ),
     );
 
