@@ -261,6 +261,18 @@ export const lmsQuizAttemptsTable = pgTable(
     attempted_at: timestamp("attempted_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Phes admin-view-consistency sprint (2026-05-15). When true, the
+     * attempt is excluded from the visible-attempts count + the
+     * non-superseded best-score recomputation. Set by the supersession
+     * backfill migration on legacy rows that predate the per-module
+     * attempt cap, and by future cap-enforcement on write if the cap
+     * ever changes mid-flight. Immutable history is preserved (no
+     * DELETE), but cap math now respects it.
+     */
+    superseded: boolean("superseded").notNull().default(false),
+    superseded_reason: text("superseded_reason"),
+    superseded_at: timestamp("superseded_at", { withTimezone: true }),
   },
   (t) => ({
     idx_enrollment_module_attempted: index(

@@ -46,6 +46,10 @@ import {
   type ComplianceFlags,
   type AuditCsvRowInput,
 } from "../lib/lms-admin-audit.js";
+import {
+  computeEmployeeFinalStatus,
+  computeEmployeeFinalStatusBatch,
+} from "../lib/lms-status.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -198,15 +202,24 @@ async function loadAuditRoster(
     pendingByUser.set(p.user_id, arr);
   }
 
+  // Phes admin-view-consistency sprint (2026-05-15): the audit
+  // dashboard's per-row pass set + compliance flags now come from the
+  // SSoT. The roster's own SELECTs above are kept (they feed the
+  // per-row metadata the dashboard renders), but the COUNT-style
+  // fields are sourced from the same `computeEmployeeFinalStatusBatch`
+  // call the roster endpoint uses, so the two views can't disagree.
+  const ssotByUser = await computeEmployeeFinalStatusBatch(userIds, companyId);
+
   // 5. Assemble rows + compute compliance.
   const rows: AuditRosterRow[] = users.map((u) => {
     const enrollment = enrollmentByUser.get(u.id) ?? null;
-    const passed = passedByUser.get(u.id) ?? [];
     const signed = signedByUser.get(u.id) ?? [];
     const pending = pendingByUser.get(u.id) ?? [];
     const handbookAt = handbookSignedAtByUser.get(u.id) ?? null;
     const finalAt = finalPassedAtByUser.get(u.id) ?? null;
-    const compliance = computeCompliance({
+    const ssot = ssotByUser.get(u.id);
+    const passed = ssot?.passedModuleIds ?? passedByUser.get(u.id) ?? [];
+    const compliance = ssot?.compliance ?? computeCompliance({
       passed_module_ids: passed,
       signed_document_types: signed,
       handbook_signed: handbookAt !== null,
@@ -464,24 +477,17 @@ router.get(
         )
         .orderBy(desc(lmsPendingReAckTable.triggered_at));
 
-      const passedModuleIds = progress
-        .filter((p) => p.status === "passed")
-        .map((p) => p.module_id);
-      const activeSignedTypes = signedDocs
-        .filter((d) => d.status === "active")
-        .map((d) => d.document_type);
-      const handbookRow = signedDocs.find(
-        (d) => d.document_type === HANDBOOK_DOCUMENT_TYPE && d.status === "active",
-      );
-      const finalProgress = progress.find(
-        (p) => p.module_id === FINAL_MODULE_ID && p.status === "passed",
-      );
-      const openPending = pending.filter((p) => p.acknowledged_at === null);
-      const compliance = computeCompliance({
-        passed_module_ids: passedModuleIds,
-        signed_document_types: activeSignedTypes,
-        handbook_signed: !!handbookRow,
-        pending_re_ack_count: openPending.length,
+      // Phes admin-view-consistency sprint (2026-05-15): the per-learner
+      // detail page now reads its derived fields (passed module set,
+      // compliance flags, final-exam state) from the SSoT instead of
+      // re-deriving them inline. Without this, Roster + Audit Dashboard
+      // + Employee Journey diverged on Jose's record.
+      const ssot = await computeEmployeeFinalStatus(targetUserId, companyId);
+      const compliance = ssot?.compliance ?? computeCompliance({
+        passed_module_ids: [],
+        signed_document_types: [],
+        handbook_signed: false,
+        pending_re_ack_count: 0,
         deadline_at: enrollment?.deadline_at ?? null,
       });
 
@@ -503,6 +509,7 @@ router.get(
           certificates,
           pending_re_acks: pending,
           compliance,
+          status: ssot,
         },
       });
     } catch (err) {
