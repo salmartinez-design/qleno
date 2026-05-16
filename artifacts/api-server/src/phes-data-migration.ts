@@ -56,6 +56,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     // never auto-reset again — even on subsequent deploys.
     { label: "users.password_reset_to_chicago23_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_reset_to_chicago23_at TIMESTAMPTZ" },
     { label: "users.is_sandbox", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_sandbox BOOLEAN NOT NULL DEFAULT FALSE" },
+    // Phes admin-view-consistency sprint (2026-05-15). Supersession
+    // columns on lms_quiz_attempts. Backfilled by runSupersessionBackfill
+    // for legacy Phes data that predates the per-module cap.
+    { label: "lms_quiz_attempts.superseded", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE" },
+    { label: "lms_quiz_attempts.superseded_reason", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded_reason TEXT" },
+    { label: "lms_quiz_attempts.superseded_at", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
@@ -1665,6 +1671,228 @@ async function runSandboxAccountRepurpose(): Promise<void> {
   );
 }
 
+/**
+ * Phes admin-view-consistency sprint (2026-05-15) — Item 2.
+ *
+ * Marks legacy quiz attempts beyond the cap as superseded. For each
+ * (user_id, module_id) pair in Phes, keep the 4 most recent attempts
+ * (ORDER BY attempted_at DESC) active and flag the remainder as
+ * superseded with reason 'exceeded_cap_legacy_backfill'.
+ *
+ * Idempotent — guards on WHERE superseded=false so a re-run is a no-op.
+ *
+ * Also recomputes lms_module_progress.attempts to the non-superseded
+ * count, so the admin roster's per-row "attempts" column shows the
+ * correct cap-relative value instead of the raw historical count.
+ *
+ * Phes only (company_id=1). Other tenants are out of scope until the
+ * 2nd-tenant readiness sprint.
+ */
+const PHES_COMPANY_ID = 1;
+
+async function runSupersessionBackfill(): Promise<void> {
+  const cap = 4;
+  const candidates = await db.execute<{
+    enrollment_id: number;
+    module_id: string;
+    user_id: number;
+    total: number;
+  }>(sql`
+    SELECT
+      qa.enrollment_id,
+      qa.module_id,
+      e.user_id,
+      COUNT(*)::int AS total
+    FROM lms_quiz_attempts qa
+    INNER JOIN lms_enrollments e ON e.id = qa.enrollment_id
+    WHERE qa.company_id = ${PHES_COMPANY_ID}
+      AND qa.superseded = FALSE
+    GROUP BY qa.enrollment_id, qa.module_id, e.user_id
+    HAVING COUNT(*) > ${cap}
+  `);
+  const rows = ((candidates as any).rows ?? candidates) as Array<{
+    enrollment_id: number;
+    module_id: string;
+    user_id: number;
+    total: number;
+  }>;
+
+  if (rows.length === 0) {
+    console.log("[supersession-backfill] tenant=1 users=0 attempts_superseded=0");
+    return;
+  }
+
+  let totalSuperseded = 0;
+  const touchedUsers = new Set<number>();
+  for (const row of rows) {
+    const result = await db.execute(sql`
+      UPDATE lms_quiz_attempts
+      SET
+        superseded = TRUE,
+        superseded_reason = 'exceeded_cap_legacy_backfill',
+        superseded_at = NOW()
+      WHERE id IN (
+        SELECT id FROM lms_quiz_attempts
+        WHERE enrollment_id = ${row.enrollment_id}
+          AND module_id = ${row.module_id}
+          AND superseded = FALSE
+        ORDER BY attempted_at DESC
+        OFFSET ${cap}
+      )
+    `);
+    const n = (result as any).rowCount ?? 0;
+    totalSuperseded += n;
+    if (n > 0) touchedUsers.add(row.user_id);
+  }
+
+  // Sync lms_module_progress.attempts to the non-superseded count so
+  // the admin roster's "X/Y attempts" cell respects the cap.
+  if (totalSuperseded > 0) {
+    await db.execute(sql`
+      UPDATE lms_module_progress mp
+      SET attempts = sub.live_count
+      FROM (
+        SELECT
+          qa.enrollment_id,
+          qa.module_id,
+          COUNT(*)::int AS live_count
+        FROM lms_quiz_attempts qa
+        WHERE qa.company_id = ${PHES_COMPANY_ID}
+          AND qa.superseded = FALSE
+        GROUP BY qa.enrollment_id, qa.module_id
+      ) sub
+      WHERE mp.enrollment_id = sub.enrollment_id
+        AND mp.module_id = sub.module_id
+        AND mp.company_id = ${PHES_COMPANY_ID}
+    `);
+  }
+
+  console.log(
+    `[supersession-backfill] tenant=${PHES_COMPANY_ID} users=${touchedUsers.size} attempts_superseded=${totalSuperseded}`,
+  );
+}
+
+/**
+ * Phes admin-view-consistency sprint (2026-05-15) — Item 3.
+ *
+ * Normalizes lms_module_progress rows where best_score >= 80 but
+ * status != 'passed'. The Final Mixed Test bug surfaced this: Jose's
+ * row had best_score=100 with status='in_progress'. The defensive
+ * rule in the SSoT covers the read path; this migration corrects the
+ * persisted data so downstream queries (and any cache layers) see
+ * the right value too.
+ *
+ * Idempotent — WHERE clause filters out rows already at 'passed'.
+ * Phes only (company_id=1).
+ */
+async function runStatusRecompute(): Promise<void> {
+  const result = await db.execute(sql`
+    UPDATE lms_module_progress
+    SET
+      status = 'passed',
+      passed_at = COALESCE(passed_at, NOW())
+    WHERE company_id = ${PHES_COMPANY_ID}
+      AND best_score >= 80
+      AND status != 'passed'
+  `);
+  const n = (result as any).rowCount ?? 0;
+  console.log(`[status-recompute] tenant=${PHES_COMPANY_ID} rows_updated=${n}`);
+}
+
+/**
+ * Phes admin-view-consistency sprint (2026-05-15) — Item 4.
+ *
+ * Hard-deletes the two phantom users Dispatch found in the audit:
+ *   - 447: crosstenant@evil.test, company_id=1, active. Origin unknown
+ *          (not from Dispatch's fixture work).
+ *   - 448: pwn@x.test (renamed by audit cleanup to AUDIT_CLEANUP/
+ *          PLEASE_DELETE), is_active=false.
+ *
+ * Guard: if either user has any active signed_document with a real
+ * signature, SKIP that user and log a warning. Legal trail can't be
+ * deleted. Dispatch reported neither user advanced past sign-up, so
+ * we expect zero blocked rows.
+ *
+ * Cascade order: children first, then users. Cascading FKs handle
+ * most of it, but we delete explicitly so the row counts are auditable.
+ */
+const PHANTOM_USER_IDS = [447, 448] as const;
+
+async function runPhantomUserCleanup(): Promise<void> {
+  const deleted: number[] = [];
+  const blocked: number[] = [];
+  const notFound: number[] = [];
+
+  for (const id of PHANTOM_USER_IDS) {
+    const userRows = await db.execute<{
+      id: number;
+      email: string;
+      company_id: number | null;
+    }>(sql`
+      SELECT id, email, company_id FROM users WHERE id = ${id}
+    `);
+    const row = ((userRows as any).rows ?? userRows)[0];
+    if (!row) {
+      notFound.push(id);
+      continue;
+    }
+    if (row.company_id !== PHES_COMPANY_ID) {
+      // Not Phes — out of scope. Don't touch.
+      blocked.push(id);
+      continue;
+    }
+
+    const signedRows = await db.execute<{ count: number }>(sql`
+      SELECT COUNT(*)::int AS count FROM lms_signed_documents
+      WHERE user_id = ${id} AND status = 'active'
+    `);
+    const signedCount =
+      ((signedRows as any).rows ?? signedRows)[0]?.count ?? 0;
+    if (signedCount > 0) {
+      console.warn(
+        `[phantom-user-cleanup] user_id=${id} skipped — ${signedCount} active signed_document(s); legal trail preserved`,
+      );
+      blocked.push(id);
+      continue;
+    }
+
+    // Children first.
+    await db.execute(
+      sql`DELETE FROM lms_quiz_attempts WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${id})`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_quiz_state WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${id})`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_module_progress WHERE enrollment_id IN (SELECT id FROM lms_enrollments WHERE user_id = ${id})`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_completion_certificates WHERE user_id = ${id}`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_pending_re_ack WHERE user_id = ${id}`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_signature_events WHERE user_id = ${id}`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_signed_documents WHERE user_id = ${id}`,
+    );
+    await db.execute(
+      sql`DELETE FROM lms_enrollments WHERE user_id = ${id}`,
+    );
+    await db.execute(sql`DELETE FROM audit_log WHERE user_id = ${id}`);
+
+    await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
+    deleted.push(id);
+  }
+
+  console.log(
+    `[phantom-user-cleanup] deleted_user_ids=${JSON.stringify(deleted)} ` +
+      `blocked=${JSON.stringify(blocked)} not_found=${JSON.stringify(notFound)}`,
+  );
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -1684,6 +1912,24 @@ export async function runPhesDataMigration(): Promise<void> {
     await runSandboxAccountRepurpose();
   } catch (err: any) {
     console.warn("[phes-migration] sandbox-repurpose — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runSupersessionBackfill();
+  } catch (err: any) {
+    console.warn("[phes-migration] supersession-backfill — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runStatusRecompute();
+  } catch (err: any) {
+    console.warn("[phes-migration] status-recompute — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runPhantomUserCleanup();
+  } catch (err: any) {
+    console.warn("[phes-migration] phantom-user-cleanup — non-fatal:", err?.message ?? err);
   }
 
   try {

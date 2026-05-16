@@ -64,6 +64,7 @@ import { SERVER_ANSWER_KEY } from "@workspace/training";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { addDays, daysUntil, fireLmsWebhook } from "../lib/lms-helpers.js";
+import { computeEmployeeFinalStatusBatch } from "../lib/lms-status.js";
 import { isEnrollmentTrulyComplete } from "../lib/lms-completion.js";
 import {
   captureRequestMetadata,
@@ -779,6 +780,11 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         and(
           eq(lmsQuizAttemptsTable.enrollment_id, enrollment.id),
           eq(lmsQuizAttemptsTable.module_id, moduleId),
+          // Phes admin-view-consistency sprint (2026-05-15): legacy
+          // attempts beyond the cap are flagged superseded by the
+          // backfill migration so cap math now respects only the
+          // attempts that actually count.
+          eq(lmsQuizAttemptsTable.superseded, false),
         ),
       );
     const liveAttemptsCount = liveAttemptsRows.length;
@@ -1292,40 +1298,26 @@ router.get(
       }
 
       const now = new Date();
-      // Item 3 (onboarding-readiness sprint 2026-05-15): canonical
-      // denominator is the 13 QUIZ_MODULE_IDS, NOT MODULE_ORDER (14,
-      // which still includes the content-only acknowledgment slot).
-      // The final mixed test and the final handbook are separate
-      // gates and are NOT in this percentage.
-      const totalModules = QUIZ_MODULE_IDS.length;
-      const QUIZ_SET = new Set<string>(QUIZ_MODULE_IDS as readonly string[]);
+      // Phes admin-view-consistency sprint (2026-05-15): roster reads
+      // its aggregate fields (passed_count, progress_pct, current_module,
+      // final_exam_passed, handbook_signed) from the SSoT instead of
+      // rolling its own filter. The per-module `modules` map still comes
+      // from raw module_progress so the admin UI can render the per-row
+      // "2/4 attempts" cells without a second round trip.
+      const ssotByUser = await computeEmployeeFinalStatusBatch(
+        enrollments.map((e) => e.user_id),
+        companyId,
+      );
 
       const rows = enrollments.map((e) => {
         const progress = progressByEnrollment.get(e.id) ?? [];
-        // Count only QUIZ_MODULE_IDS toward the percentage. The final
-        // mixed test is a SEPARATE gate (without this filter a learner
-        // who passed all 13 modules + the final test reported 14/13).
-        const passedCount = progress.filter(
-          (p) => p.status === "passed" && QUIZ_SET.has(p.module_id),
-        ).length;
+        const ssot = ssotByUser.get(e.user_id);
+        const passedCount = ssot?.modulesPassed ?? 0;
+        const totalModules = ssot?.modulesTotal ?? QUIZ_MODULE_IDS.length;
         const passedRatio = totalModules > 0 ? passedCount / totalModules : 0;
-        const completed = progress
-          .filter((p) => p.status === "passed")
-          .map((p) => p.module_id);
-
-        let currentModule: string | null = null;
-        for (const m of MODULE_ORDER) {
-          if (!completed.includes(m)) {
-            currentModule = m;
-            break;
-          }
-        }
-        if (currentModule === null && isFinalUnlocked(completed)) {
-          currentModule = FINAL_MODULE_ID;
-        }
 
         // Per-module attempt + status snapshot keyed by module_id so the
-        // admin UI can render "2/3 attempts" or "passed" without an extra
+        // admin UI can render "2/4 attempts" or "passed" without an extra
         // round trip. Includes `__final` if the learner has touched it.
         const modules: Record<
           string,
@@ -1349,7 +1341,9 @@ router.get(
           progress_pct: Math.round(passedRatio * 100),
           passed_count: passedCount,
           total_modules: totalModules,
-          current_module: currentModule,
+          current_module: ssot?.currentModuleId ?? null,
+          final_exam_passed: ssot?.finalExamStatus === "passed",
+          handbook_signed: ssot?.handbookSigned ?? false,
           // Item 4 (P0 sprint): when deadline_started_at is null, the
           // countdown hasn't started yet. Surface days_remaining as
           // null so the frontend renders "Not yet started" instead of
