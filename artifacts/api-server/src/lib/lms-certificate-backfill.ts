@@ -21,7 +21,7 @@
  * Runs on every cold start in the seedIfNeeded → runPhesDataMigration
  * → runLmsCompletionBackfill → runLmsCertificateBackfill chain.
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gte, isNull, or } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   lmsModuleProgressTable,
@@ -79,7 +79,21 @@ export async function runLmsCertificateBackfill(): Promise<CertificateBackfillRe
       usersTable,
       eq(lmsEnrollmentsTable.user_id, usersTable.id),
     )
-    .where(eq(lmsModuleProgressTable.status, "passed"));
+    // Defensive predicate (Maribel-class bug fix, 2026-05-17): mirror
+    // the SSoT in lms-status-pure.ts:96. Without this, rows that hit the
+    // cold-start race window (best_score>=80 but status hasn't been
+    // recomputed yet) would be skipped by the backfill and never get
+    // their cert.
+    //
+    // Also exclude sandbox (is_sandbox=true) so QA test data doesn't
+    // generate real certs in production tables.
+    .where(and(
+      or(
+        eq(lmsModuleProgressTable.status, "passed"),
+        gte(lmsModuleProgressTable.best_score, 80),
+      ),
+      eq(usersTable.is_sandbox, false),
+    ));
 
   result.rows_scanned = passedRows.length;
   if (passedRows.length === 0) return result;

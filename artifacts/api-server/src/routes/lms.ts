@@ -853,14 +853,24 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     const quizAttemptId = attemptInsert[0]?.id ?? null;
 
     // Update module_progress: bump attempts, update best_score, set passed_at
-    // if this attempt cleared the bar (and the module wasn't already passed).
+    // if this attempt cleared the bar.
+    //
+    // 2026-05-17 fix: once a module is 'passed', stay passed. Previously
+    // `status: passedNow ? "passed" : "failed"` would overwrite a passed
+    // row to 'failed' if an admin / owner (canBypassCap=true) retook a
+    // previously-passed module and scored below threshold. best_score is
+    // preserved via GREATEST() in upsertModuleProgress (line 266) so the
+    // read-side defensive rule (best_score >= 80) still reports passed,
+    // but strict-status downstream gates (handbook eligibility, truly-
+    // complete check) would regress.
     const passedNow = result.passed;
+    const stayPassed = existing?.status === "passed";
     await upsertModuleProgress({
       companyId,
       enrollmentId: enrollment.id,
       moduleId,
       patch: {
-        status: passedNow ? "passed" : "failed",
+        status: passedNow || stayPassed ? "passed" : "failed",
         best_score: result.score,
         attempts: 1, // sql adds, not assigns — see helper
         last_attempt_at: now,

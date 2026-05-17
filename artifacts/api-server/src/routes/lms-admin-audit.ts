@@ -134,7 +134,13 @@ async function loadAuditRoster(
   const passedByUser = new Map<number, string[]>();
   const finalPassedAtByUser = new Map<number, Date>();
   for (const p of progressRows) {
-    if (p.status !== "passed") continue;
+    // Defensive predicate (Maribel-class bug fix, 2026-05-17): mirror
+    // the SSoT in lms-status-pure.ts:96. The map is the fallback path
+    // when the SSoT batch (line 211) is unavailable for a user — today
+    // that's dead code, but if it ever fires, the fallback must agree
+    // with the SSoT, not enforce stricter status-only filtering.
+    const bestScore = (p.best_score ?? 0) as number;
+    if (p.status !== "passed" && bestScore < 80) continue;
     const enrollment = enrollments.find((e) => e.id === p.enrollment_id);
     if (!enrollment) continue;
     const arr = passedByUser.get(enrollment.user_id) ?? [];
