@@ -212,9 +212,25 @@ async function loadProgress(enrollmentId: number): Promise<LmsModuleProgress[]> 
     .where(eq(lmsModuleProgressTable.enrollment_id, enrollmentId));
 }
 
-/** Module ids that have status='passed'. */
+/**
+ * Module ids the learner has effectively passed.
+ *
+ * Hotfix 2026-05-17 (Maribel Castillo report): the read path (SSoT
+ * in lib/lms-status.ts) treats `best_score >= 80` as passed regardless
+ * of the stored `status` field. The write-path lock check has to honor
+ * the SAME rule, otherwise the frontend shows a module unlocked
+ * (because the SSoT-backed roster says the prereq is passed) while
+ * `POST /lms/quiz/submit` rejects with 403 "locked". The status
+ * recompute migration normalizes legacy rows; this helper closes the
+ * window for any row that lands in a weird state going forward.
+ */
 function completedModuleIds(progress: readonly LmsModuleProgress[]): string[] {
-  return progress.filter((p) => p.status === "passed").map((p) => p.module_id);
+  const passPercent = Math.round(QUIZ_PASS_THRESHOLD * 100);
+  return progress
+    .filter(
+      (p) => p.status === "passed" || (p.best_score ?? 0) >= passPercent,
+    )
+    .map((p) => p.module_id);
 }
 
 /**
