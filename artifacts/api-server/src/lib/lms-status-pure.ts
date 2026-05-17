@@ -79,6 +79,38 @@ export interface ComputeStatusInput {
   now?: Date;
 }
 
+/**
+ * Defensive-passed predicate — the SINGLE rule that every read path
+ * AND every write-path gate must use to decide "is this module passed?"
+ *
+ * Returns true if either:
+ *   - The persisted status field is 'passed', OR
+ *   - The best_score has crossed the pass threshold (>= 80)
+ *
+ * Why both clauses: the persisted status field can lag behind reality
+ * in two scenarios:
+ *   1. Cold-start race window: the recompute migration hasn't reached
+ *      this row yet, so best_score=85 but status='in_progress'.
+ *   2. Admin retake: status gets clobbered to 'failed' when an admin
+ *      retakes a previously-passed module and scores low. best_score
+ *      is preserved via GREATEST() but status regresses.
+ *
+ * The handbook eligibility gate, the truly-complete check, the cert
+ * backfill, the admin roster, and the SSoT all share this rule. Any
+ * gate that uses strict status='passed' alone is the Maribel-class
+ * bug pattern.
+ *
+ * Exported so route handlers can call the same predicate the SSoT
+ * uses; the unit test asserts this single source of truth.
+ */
+export function isModulePassed(row: {
+  status: string;
+  best_score: number | null;
+}): boolean {
+  if (row.status === "passed") return true;
+  return (row.best_score ?? 0) >= PASS_PERCENT;
+}
+
 export function computeStatusFromData(
   input: ComputeStatusInput,
 ): EmployeeFinalStatus {

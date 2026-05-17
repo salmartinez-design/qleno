@@ -36,7 +36,7 @@
  * lms-certificates.ts).
  */
 import { Router } from "express";
-import { and, eq, desc, inArray } from "drizzle-orm";
+import { and, eq, desc, gte, inArray, or } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   lmsSignedDocumentsTable,
@@ -100,13 +100,21 @@ async function getPassedModuleIds(
     )
     .limit(1);
   if (!enrollment[0]) return [];
+  // Defensive predicate (Maribel-class bug fix, 2026-05-17): mirror the
+  // SSoT rule in lms-status-pure.ts:96 — a module counts as passed if the
+  // best_score crossed 80% OR the status field says 'passed'. Strict
+  // status-only filtering caused the same false-lock pattern that PR #126
+  // closed for routes/lms.ts:217 (completedModuleIds).
   const rows = await db
     .select({ module_id: lmsModuleProgressTable.module_id })
     .from(lmsModuleProgressTable)
     .where(
       and(
         eq(lmsModuleProgressTable.enrollment_id, enrollment[0].id),
-        eq(lmsModuleProgressTable.status, "passed"),
+        or(
+          eq(lmsModuleProgressTable.status, "passed"),
+          gte(lmsModuleProgressTable.best_score, 80),
+        ),
       ),
     );
   return rows.map((r) => r.module_id);

@@ -75,17 +75,25 @@ export async function isEnrollmentTrulyComplete(
     };
   }
 
-  // All passed module_progress rows for this enrollment.
+  // All passed module_progress rows for this enrollment. Defensive
+  // predicate (Maribel-class bug fix, 2026-05-17): mirror the SSoT in
+  // lms-status-pure.ts:96 — a module counts as passed if the best_score
+  // crossed 80% OR the status field says 'passed'. Without this, a
+  // learner whose recompute migration hasn't reached their row yet, or
+  // whose status was clobbered by an admin retake, would not be counted
+  // as truly complete even though Roster / Audit Dashboard / Employee
+  // Journey all show them done.
   const progressRows = await db
     .select({
       module_id: lmsModuleProgressTable.module_id,
       status: lmsModuleProgressTable.status,
+      best_score: lmsModuleProgressTable.best_score,
     })
     .from(lmsModuleProgressTable)
     .where(eq(lmsModuleProgressTable.enrollment_id, enrollment.id));
 
   const passedModuleIds = progressRows
-    .filter((r) => r.status === "passed")
+    .filter((r) => r.status === "passed" || (r.best_score ?? 0) >= 80)
     .map((r) => r.module_id);
 
   // Active signed_document rows the user holds for the required types

@@ -1692,6 +1692,11 @@ const PHES_COMPANY_ID = 1;
 
 async function runSupersessionBackfill(): Promise<void> {
   const cap = 4;
+  // 2026-05-17: JOIN to users with is_sandbox=false so the QA sandbox
+  // account (user 446) doesn't get its real test attempts superseded as
+  // if they were a Phes employee's legacy data. Sandbox writes flow
+  // through the same tables but should not be counted in tenant-wide
+  // migration aggregates.
   const candidates = await db.execute<{
     enrollment_id: number;
     module_id: string;
@@ -1705,8 +1710,10 @@ async function runSupersessionBackfill(): Promise<void> {
       COUNT(*)::int AS total
     FROM lms_quiz_attempts qa
     INNER JOIN lms_enrollments e ON e.id = qa.enrollment_id
+    INNER JOIN users u ON u.id = e.user_id
     WHERE qa.company_id = ${PHES_COMPANY_ID}
       AND qa.superseded = FALSE
+      AND u.is_sandbox = FALSE
     GROUP BY qa.enrollment_id, qa.module_id, e.user_id
     HAVING COUNT(*) > ${cap}
   `);
@@ -1746,7 +1753,8 @@ async function runSupersessionBackfill(): Promise<void> {
   }
 
   // Sync lms_module_progress.attempts to the non-superseded count so
-  // the admin roster's "X/Y attempts" cell respects the cap.
+  // the admin roster's "X/Y attempts" cell respects the cap. Sandbox
+  // excluded from the sub-query for the same reason as above.
   if (totalSuperseded > 0) {
     await db.execute(sql`
       UPDATE lms_module_progress mp
@@ -1757,8 +1765,11 @@ async function runSupersessionBackfill(): Promise<void> {
           qa.module_id,
           COUNT(*)::int AS live_count
         FROM lms_quiz_attempts qa
+        INNER JOIN lms_enrollments e ON e.id = qa.enrollment_id
+        INNER JOIN users u ON u.id = e.user_id
         WHERE qa.company_id = ${PHES_COMPANY_ID}
           AND qa.superseded = FALSE
+          AND u.is_sandbox = FALSE
         GROUP BY qa.enrollment_id, qa.module_id
       ) sub
       WHERE mp.enrollment_id = sub.enrollment_id
@@ -1786,14 +1797,21 @@ async function runSupersessionBackfill(): Promise<void> {
  * Phes only (company_id=1).
  */
 async function runStatusRecompute(): Promise<void> {
+  // 2026-05-17: exclude sandbox via JOIN. Sandbox writes flow through
+  // the same table; recompute should only normalize real Phes employee
+  // rows so QA test data stays at whatever state the test left it in.
   const result = await db.execute(sql`
-    UPDATE lms_module_progress
+    UPDATE lms_module_progress mp
     SET
       status = 'passed',
-      passed_at = COALESCE(passed_at, NOW())
-    WHERE company_id = ${PHES_COMPANY_ID}
-      AND best_score >= 80
-      AND status != 'passed'
+      passed_at = COALESCE(mp.passed_at, NOW())
+    FROM lms_enrollments e, users u
+    WHERE mp.enrollment_id = e.id
+      AND e.user_id = u.id
+      AND mp.company_id = ${PHES_COMPANY_ID}
+      AND u.is_sandbox = FALSE
+      AND mp.best_score >= 80
+      AND mp.status != 'passed'
   `);
   const n = (result as any).rowCount ?? 0;
   console.log(`[status-recompute] tenant=${PHES_COMPANY_ID} rows_updated=${n}`);

@@ -870,7 +870,15 @@ export default function TrainingPage() {
             state.progress.find((p) => p.module_id === view.moduleId)?.attempts ?? 0
           }
           isOwner={!!state.is_owner}
-          onCancel={() => setView({ kind: "module", moduleId: view.moduleId })}
+          onCancel={async () => {
+            // 2026-05-17: refresh /me before navigating away so the
+            // module list reflects the latest attempts count + status.
+            // Previously the badge could show "X/4 attempts" stale after
+            // a failed-cap-hit submit because state.progress was the
+            // /me snapshot from page load.
+            await refresh();
+            setView({ kind: "module", moduleId: view.moduleId });
+          }}
           onPassed={async () => {
             await refresh();
             setView({ kind: "home" });
@@ -894,7 +902,12 @@ export default function TrainingPage() {
             state.progress.find((p) => p.module_id === FINAL_MODULE_ID)?.attempts ?? 0
           }
           isOwner={!!state.is_owner}
-          onCancel={() => setView({ kind: "home" })}
+          onCancel={async () => {
+            // 2026-05-17: refresh /me before navigating away (same
+            // reason as the per-module QuizView onCancel above).
+            await refresh();
+            setView({ kind: "home" });
+          }}
           onPassed={async () => {
             await refresh();
             setView({ kind: "home" });
@@ -2675,7 +2688,9 @@ function QuizView({
   token: string | null;
   priorAttempts: number;
   isOwner: boolean;
-  onCancel: () => void;
+  // 2026-05-17: onCancel may be async so parent can refresh /me before
+  // routing away (closes stale-attempts-badge bug).
+  onCancel: () => void | Promise<void>;
   onPassed: () => Promise<void>;
 }) {
   const isFinal = moduleId === FINAL_MODULE_ID;

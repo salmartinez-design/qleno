@@ -128,49 +128,72 @@ function startFollowUpCron() {
 }
 
 // ── Startup ──────────────────────────────────────────────────────────────────
-// Start listening immediately so health checks pass, then seed in the background
-app.listen(port, "0.0.0.0", () => {
-  console.log("Server running on port", process.env.PORT || 3000);
-  // [DR runbook 2026-04-30] Static reminder visible on every cold
-  // start. Surfaces backup-state in Railway logs without requiring
-  // a RAILWAY_API_TOKEN credential we'd then have to manage. The
-  // intent is to keep "verify backups quarterly" in the operator's
-  // eyeline, not to give live timestamp data — Railway Hobby's
-  // backup state changes maybe twice a year.
-  // Procedure + RPO/RTO targets: docs/disaster-recovery.md
-  console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
-  const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
-  // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
-  // Railway restart cascades caused 5x concurrent engine runs on the
-  // 2026-04-22 overnight cron, creating 270 duplicate rows. The engine now
-  // only fires via the 2 AM cron registered below. Seed + PHES data migration
-  // still run on every startup — they're idempotent.
-  seedIfNeeded()
-    .then(() => runPhesDataMigration())
-    .then(() => runLmsCompletionBackfill())
-    .then((r) => {
-      if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
-        console.log(
-          `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
-        );
-      }
-    })
-    .then(() => runLmsCertificateBackfill())
-    .then((r) => {
-      if (
-        r.certs_issued > 0 ||
-        r.tenant_mismatches_skipped > 0 ||
-        r.errors > 0
-      ) {
-        console.log(
-          `[lms-cert-backfill] scanned=${r.rows_scanned} issued=${r.certs_issued} tenant_skipped=${r.tenant_mismatches_skipped} errors=${r.errors}`,
-        );
-      }
-    })
-    .catch((err) => {
-      console.error("[startup] Background init error:", err);
-    });
-  if (recurringEngineEnabled) {
+// 2026-05-17 (read/write divergence cleanup): migrations now run BEFORE
+// app.listen(). Previous order accepted traffic immediately and ran
+// migrations as a background .then() chain. That left a window of
+// seconds–minutes where /quiz/submit and /handbook/sign could land
+// against partially-migrated rows (e.g. status='in_progress' but the
+// recompute hadn't reached the row yet). The race surfaced after PR #125
+// + PR #126 and is closed by sequencing migrations ahead of listen.
+//
+// Each migration is wrapped in its own try/catch with the existing
+// non-fatal logging so a single migration failure does NOT prevent
+// boot — exactly matches the previous .catch() behaviour, just earlier
+// in the lifecycle. Crons + smoke tests still start inside the listen
+// callback (after listen), unchanged.
+async function startup() {
+  try {
+    await seedIfNeeded();
+  } catch (err: any) {
+    console.error("[startup] seedIfNeeded — non-fatal:", err?.message ?? err);
+  }
+  try {
+    await runPhesDataMigration();
+  } catch (err: any) {
+    console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+  }
+  try {
+    const r = await runLmsCompletionBackfill();
+    if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
+      console.log(
+        `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
+      );
+    }
+  } catch (err: any) {
+    console.error("[startup] runLmsCompletionBackfill — non-fatal:", err?.message ?? err);
+  }
+  try {
+    const r = await runLmsCertificateBackfill();
+    if (
+      r.certs_issued > 0 ||
+      r.tenant_mismatches_skipped > 0 ||
+      r.errors > 0
+    ) {
+      console.log(
+        `[lms-cert-backfill] scanned=${r.rows_scanned} issued=${r.certs_issued} tenant_skipped=${r.tenant_mismatches_skipped} errors=${r.errors}`,
+      );
+    }
+  } catch (err: any) {
+    console.error("[startup] runLmsCertificateBackfill — non-fatal:", err?.message ?? err);
+  }
+
+  app.listen(port, "0.0.0.0", () => {
+    console.log("Server running on port", process.env.PORT || 3000);
+    // [DR runbook 2026-04-30] Static reminder visible on every cold
+    // start. Surfaces backup-state in Railway logs without requiring
+    // a RAILWAY_API_TOKEN credential we'd then have to manage. The
+    // intent is to keep "verify backups quarterly" in the operator's
+    // eyeline, not to give live timestamp data — Railway Hobby's
+    // backup state changes maybe twice a year.
+    // Procedure + RPO/RTO targets: docs/disaster-recovery.md
+    console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
+    const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
+    // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
+    // Railway restart cascades caused 5x concurrent engine runs on the
+    // 2026-04-22 overnight cron, creating 270 duplicate rows. The engine now
+    // only fires via the 2 AM cron registered below. Seed + PHES data migration
+    // already completed above (await chain before listen).
+    if (recurringEngineEnabled) {
     startRecurringJobCron();
     console.log("[recurring-engine] Cron started");
   } else {
@@ -235,4 +258,12 @@ app.listen(port, "0.0.0.0", () => {
       });
     }, 3000);
   }
+  });
+}
+
+// Kick off startup. Any unhandled rejection here is fatal — we never
+// got to app.listen, so there's nothing to serve.
+startup().catch((err) => {
+  console.error("[startup] FATAL:", err);
+  process.exit(1);
 });
