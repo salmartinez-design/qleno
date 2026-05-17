@@ -1881,7 +1881,14 @@ async function runPhantomUserCleanup(): Promise<void> {
     await db.execute(
       sql`DELETE FROM lms_enrollments WHERE user_id = ${id}`,
     );
-    await db.execute(sql`DELETE FROM audit_log WHERE user_id = ${id}`);
+    // audit_log has admin_user_id + target_user_id (no user_id column). The
+    // original WHERE user_id = $id query threw `column "user_id" does not
+    // exist`, which the outer try/catch swallowed as non-fatal — meaning the
+    // DELETE FROM users below never ran. Phantom users 447/448 survived
+    // every boot until this fix landed.
+    await db.execute(
+      sql`DELETE FROM audit_log WHERE admin_user_id = ${id} OR target_user_id = ${id}`,
+    );
 
     await db.execute(sql`DELETE FROM users WHERE id = ${id}`);
     deleted.push(id);
