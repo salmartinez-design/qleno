@@ -161,10 +161,10 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Every Phes cleaning is backed by a 24-hour guarantee. If a client calls within 24 hours unhappy with anything in their home, the original technician(s) return to correct it within that 24-hour window.", es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas. Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa, los técnicos originales regresan a corregirlo dentro de esa ventana de 24 horas." },
-          { en: "If the original tech completes the re-clean: full commission is EARNED. The re-clean visit is part of the original commission, no additional pay.", es: "Si el técnico original completa la re-limpieza: se GANA la comisión completa. La visita de re-limpieza es parte de la comisión original, sin pago adicional." },
-          { en: "If the original tech refuses the re-clean without a lawful or protected reason: that job converts to $18.00 per hour for on-site time. Quality Verification failed, so the commission was never fully earned. This is NOT a retroactive penalty.", es: "Si el técnico original se niega a la re-limpieza sin razón legal o protegida: ese trabajo se convierte a $18.00 por hora por el tiempo en sitio. La Verificación de Calidad falló, por lo que la comisión nunca se ganó completamente. Esto NO es una penalidad retroactiva." },
-          { en: "If the original tech cannot return: Phes may dispatch a recovery technician at $20.00 per hour with a 3-hour minimum (paid 3 hours even if the job takes less time).", es: "Si el técnico original no puede regresar: Phes puede despachar un técnico de recuperación a $20.00 por hora con un mínimo de 3 horas (se pagan 3 horas aunque el trabajo tome menos tiempo)." },
+          { en: "Every Phes cleaning is backed by a 24-hour guarantee. If a client calls within 24 hours unhappy with anything in their home, the original technician(s) return to correct the documented shortfall within that 24-hour window. Re-clean visits are scope-limited: techs only address the specific areas or tasks the client identified, not the whole home.", es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas. Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa, los técnicos originales regresan a corregir la deficiencia documentada dentro de esa ventana de 24 horas. Las visitas de re-limpieza son de alcance limitado: los técnicos solo atienden las áreas o tareas específicas que el cliente identificó, no toda la casa." },
+          { en: "If the original tech completes the re-clean: Quality Verification is satisfied. Full commission is EARNED on the original job. The re-clean visit is part of the original commission — no additional pay — but the tech is guaranteed a 3-hour minimum on the re-clean visit regardless of how long the shortfall fix actually takes.", es: "Si el técnico original completa la re-limpieza: la Verificación de Calidad se cumple. Se GANA la comisión completa del trabajo original. La visita de re-limpieza es parte de la comisión original — sin pago adicional — pero el técnico tiene garantizado un mínimo de 3 horas en la visita de re-limpieza sin importar cuánto tome corregir la deficiencia." },
+          { en: "If the original tech refuses the re-clean without a lawful or protected reason: Quality Verification fails. Commission is not earned on the original job. Compensation for that job defaults to the on-site hourly rate of $18.00 per hour for time actually worked. This is the default rate kicking in when the contingent commission is never earned, not a retroactive penalty.", es: "Si el técnico original se niega a la re-limpieza sin razón legal o protegida: la Verificación de Calidad falla. No se gana comisión en el trabajo original. La compensación de ese trabajo se rige por la tarifa por hora en sitio de $18.00 por el tiempo realmente trabajado. Esta es la tarifa por defecto que aplica cuando la comisión contingente nunca se gana, no una penalidad retroactiva." },
+          { en: "If the original tech cannot return: Phes may dispatch a recovery technician at $20.00 per hour with a 3-hour minimum (paid 3 hours even if the shortfall fix takes less time). The recovery tech only addresses the documented shortfall, not the whole job.", es: "Si el técnico original no puede regresar: Phes puede despachar un técnico de recuperación a $20.00 por hora con un mínimo de 3 horas (se pagan 3 horas aunque corregir la deficiencia tome menos tiempo). El técnico de recuperación solo atiende la deficiencia documentada, no todo el trabajo." },
           { en: "Refusing a valid re-clean is INSUBORDINATION and may result in discipline up to and including immediate termination.", es: "Negarse a una re-limpieza válida es INSUBORDINACIÓN y puede resultar en disciplina hasta e incluyendo la terminación inmediata." },
         ],
       },
@@ -173,8 +173,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "A three-hour pay minimum is guaranteed for any dispatched job, provided the employee remains on-site and working for the duration of the service, unless sent home early by management.",
-          es: "Se garantiza un mínimo de pago de tres horas para cualquier trabajo despachado, siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano.",
+          en: "For original dispatched jobs (the first visit to a client's home for a scheduled service), a three-hour pay minimum is guaranteed provided the employee remains on-site and working for the duration of the service, unless sent home early by management. For Fix-It re-clean visits and recovery-tech dispatches, the three-hour minimum is unconditional: the tech is paid 3 hours even if the documented shortfall is corrected in less time. See the Fix-It Rule above for re-clean pay specifics.",
+          es: "Para trabajos despachados originales (la primera visita al hogar del cliente para un servicio programado), se garantiza un mínimo de pago de tres horas siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano. Para visitas de Fix-It y despachos de técnico de recuperación, el mínimo de tres horas es incondicional: al técnico se le pagan 3 horas aunque la deficiencia documentada se corrija en menos tiempo. Vea la Regla de Corrección arriba para los detalles de pago de re-limpieza.",
         },
       },
 
@@ -306,8 +306,8 @@ const BASE_MODULES: Module[] = [
         rows: [
           { en: ["1", "Any Reason Leave (PLAWA)", "40 / year", "After 90 days", "Grace call only", "No. Protected.", "No"],
             es: ["1", "Licencia por Cualquier Razón (PLAWA)", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No. Protegida.", "No"] },
-          { en: ["2", "PTO", "40 to 80 / year", "After 1 year", "7 days advance", "Yes. Business needs.", "Yes"],
-            es: ["2", "PTO", "40 a 80 / año", "Después de 1 año", "7 días anticipados", "Sí. Necesidades del negocio.", "Sí"] },
+          { en: ["2", "PTO", "40 (yr 1) / 80 (yr 2+)", "After 1 year", "7 days advance", "Yes. Business needs.", "Yes"],
+            es: ["2", "PTO", "40 (año 1) / 80 (año 2+)", "Después de 1 año", "7 días anticipados", "Sí. Necesidades del negocio.", "Sí"] },
           { en: ["3", "Unpaid Personal Leave", "40 / year (5 days)", "Day one", "7 days advance", "Yes. Business needs.", "No"],
             es: ["3", "Licencia Personal No Pagada", "40 / año (5 días)", "Primer día", "7 días anticipados", "Sí. Necesidades del negocio.", "No"] },
         ],
@@ -393,7 +393,7 @@ const BASE_MODULES: Module[] = [
           { en: "Workplace injury / workers' compensation absences.", es: "Ausencias por lesión laboral o compensación al trabajador." },
           { en: "Pregnancy-related medical needs or appointments.", es: "Necesidades o citas médicas relacionadas con el embarazo." },
           { en: "Lactation breaks.", es: "Pausas de lactancia." },
-          { en: "Bereavement for immediate family, spouse, child, parent, or sibling (up to 3 paid scheduled workdays).", es: "Duelo por familia inmediata, cónyuge, hijo/a, padre/madre o hermano/a (hasta 3 días laborales programados pagados)." },
+          { en: "Bereavement (see the Bereavement Leave subsection below for the full rule, eligible relationships, documentation, and FBLA entitlements).", es: "Duelo (vea la subsección Licencia por Duelo más abajo para la regla completa, relaciones elegibles, documentación y derechos bajo FBLA)." },
           { en: "Military leave and family military leave.", es: "Licencia militar y licencia militar familiar." },
           { en: "Court appearances as a crime victim, or for proceedings related to domestic violence, sexual violence, or other qualifying crimes (VESSA).", es: "Comparecencias judiciales como víctima de delito, o para procedimientos relacionados con violencia doméstica, violencia sexual u otros delitos calificantes (VESSA)." },
           { en: "Disability-related absences covered by reasonable accommodation.", es: "Ausencias relacionadas con discapacidad cubiertas por acomodación razonable." },
@@ -413,8 +413,23 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Up to 3 paid scheduled workdays for an immediate family member's death (spouse, child, parent, sibling). Notify the office as soon as practicable. Extended family is handled case-by-case as unpaid time off; ask the office.",
-          es: "Hasta 3 días laborales programados pagados por la muerte de un familiar inmediato (cónyuge, hijo/a, padre/madre, hermano/a). Notifique a la oficina lo antes posible. Los familiares extendidos se manejan caso por caso como tiempo libre no pagado; consulte con la oficina.",
+          en: "Phes provides up to three (3) paid scheduled workdays per qualifying death for the loss of an immediate family member, defined as: spouse or domestic partner; child or stepchild; parent or stepparent; sibling; or mother- or father-in-law. Notify the office as soon as practicable. Phes will request reasonable documentation (an obituary, funeral program, or similar) only when needed for payroll records; you are not required to provide medical or cause-of-death information. Bereavement absences are a protected category and never count toward the discipline scale, regardless of tenure or available leave balance.",
+          es: "Phes provee hasta tres (3) días laborales programados pagados por cada fallecimiento calificado por la pérdida de un familiar inmediato, definido como: cónyuge o pareja doméstica; hijo/a o hijastro/a; padre/madre o padrastro/madrastra; hermano/a; o suegro/a. Notifique a la oficina lo antes posible. Phes solicitará documentación razonable (un obituario, programa fúnebre o similar) solo cuando sea necesario para registros de nómina; no se le requiere proveer información médica ni causa de muerte. Las ausencias por duelo son una categoría protegida y nunca cuentan hacia la escala de disciplina, sin importar el tiempo de empleo o el saldo de licencia disponible.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Bereavement leave for individuals outside this list — extended family, close friends, or chosen family — is handled case-by-case as unpaid time off subject to office approval.",
+          es: "La licencia por duelo para individuos fuera de esta lista — familia extendida, amigos cercanos o familia elegida — se maneja caso por caso como tiempo libre no pagado sujeto a aprobación de la oficina.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Illinois Family Bereavement Leave Act (FBLA). In addition to the paid bereavement above, eligible employees may take up to ten (10) workdays of unpaid leave per twelve-month period under FBLA for qualifying events including the death of a covered family member, stillbirth, miscarriage, failed adoption or surrogacy, an unsuccessful round of assisted reproduction, or a diagnosis that negatively impacts pregnancy or fertility. If you think FBLA may apply, contact the office and we will walk through the formal request process. Phes will not retaliate for any lawful FBLA request.",
+          es: "Ley de Licencia Familiar por Duelo de Illinois (FBLA). Además del duelo pagado anterior, los empleados elegibles pueden tomar hasta diez (10) días laborales de licencia no pagada por periodo de doce meses bajo FBLA por eventos calificados incluyendo la muerte de un familiar cubierto, mortinato, aborto espontáneo, adopción o subrogación fallida, una ronda fallida de reproducción asistida, o un diagnóstico que afecte negativamente el embarazo o la fertilidad. Si cree que FBLA puede aplicar, contacte a la oficina y le guiaremos por el proceso formal de solicitud. Phes no tomará represalias por ninguna solicitud legal de FBLA.",
         },
       },
 
@@ -449,8 +464,30 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Employees affected by domestic or sexual violence may use employer-issued devices to document incidents. Phes will not retaliate and will provide access to such records upon request.",
-          es: "Los empleados afectados por violencia doméstica o sexual pueden usar dispositivos provistos por el empleador para documentar incidentes. Phes no tomará represalias y proveerá acceso a tales registros cuando se soliciten.",
+          en: "The Illinois Victims' Economic Security and Safety Act (VESSA) provides eligible Phes employees with protections related to domestic violence, sexual violence, gender violence, and other crimes of violence affecting the employee or a family or household member.",
+          es: "La Ley de Seguridad Económica y Seguridad para Víctimas de Illinois (VESSA) provee a los empleados elegibles de Phes protecciones relacionadas con violencia doméstica, violencia sexual, violencia de género y otros delitos de violencia que afecten al empleado o a un familiar o miembro del hogar.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Eligible employees may take up to twelve (12) workweeks of unpaid leave in any twelve-month period for any of the following: medical or psychological care, counseling, victim services, legal assistance (including obtaining an order of protection), safety planning, relocation, court appearances, or other activity reasonably necessary to address the violence. VESSA leave may run concurrently with other applicable federal, state, or Phes leave when the law permits.",
+          es: "Los empleados elegibles pueden tomar hasta doce (12) semanas laborales de licencia no pagada en cualquier periodo de doce meses por cualquiera de los siguientes: atención médica o psicológica, consejería, servicios para víctimas, asistencia legal (incluyendo obtener una orden de protección), planificación de seguridad, reubicación, comparecencias judiciales u otra actividad razonablemente necesaria para abordar la violencia. La licencia VESSA puede correr concurrentemente con otra licencia federal, estatal o de Phes aplicable cuando la ley lo permita.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Provide Phes at least 48 hours advance notice of intent to take VESSA leave when practicable. Phes will request only the minimum documentation required by law (a sworn statement from the employee is sufficient under VESSA in most cases) and will keep all information confidential to the extent permitted by law. Employees affected by domestic or sexual violence may also use employer-issued devices to document incidents; Phes will provide access to such records upon request.",
+          es: "Provea a Phes al menos 48 horas de aviso anticipado de la intención de tomar licencia VESSA cuando sea posible. Phes solicitará solo la documentación mínima requerida por la ley (una declaración jurada del empleado es suficiente bajo VESSA en la mayoría de los casos) y mantendrá toda la información confidencial en la medida permitida por la ley. Los empleados afectados por violencia doméstica o sexual también pueden usar dispositivos provistos por el empleador para documentar incidentes; Phes proveerá acceso a tales registros cuando se soliciten.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Phes will not retaliate, discipline, demote, terminate, or otherwise penalize any employee for exercising VESSA rights or for requesting reasonable accommodations related to being a victim of violence.",
+          es: "Phes no tomará represalias, disciplinará, degradará, terminará ni penalizará de otra forma a ningún empleado por ejercer derechos VESSA ni por solicitar acomodaciones razonables relacionadas con ser víctima de violencia.",
         },
       },
 
@@ -465,8 +502,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Eligibility: holiday pay starts AFTER 90 days of employment. Any holiday in the first 90 days is unpaid for that employee, even if it is an observed Phes holiday.", es: "Elegibilidad: el pago por feriado comienza DESPUÉS de 90 días de empleo. Cualquier feriado en los primeros 90 días no se paga, incluso si es un feriado observado por Phes." },
-          { en: "Paid holidays are compensated at 8 hours at the employee's regular rate, unless otherwise required by law.", es: "Los feriados pagados se compensan a 8 horas a la tarifa regular del empleado, a menos que la ley exija otra cosa." },
+          { en: "Eligibility: the 8-hour holiday top-up pay begins AFTER 90 days of employment. Employees in their first 90 days who actually work a holiday are paid regular wages for the time worked, but receive no additional holiday top-up. Employees in their first 90 days who do not work the holiday simply have an unscheduled, unpaid day.", es: "Elegibilidad: el pago adicional de 8 horas por feriado comienza DESPUÉS de 90 días de empleo. Los empleados en sus primeros 90 días que efectivamente trabajan un feriado reciben el salario regular por el tiempo trabajado, pero no reciben el pago adicional por feriado. Los empleados en sus primeros 90 días que no trabajan el feriado simplemente tienen un día no programado y no pagado." },
+          { en: "Eligible employees (past their 90th day) who do not work the holiday are paid the holiday top-up at 8 hours at their regular rate. Eligible employees who do work the holiday are paid for the time worked plus the 8-hour top-up, unless otherwise required by law.", es: "Los empleados elegibles (pasados sus 90 días) que no trabajan el feriado reciben el pago adicional por feriado a 8 horas a su tarifa regular. Los empleados elegibles que sí trabajan el feriado reciben el pago por el tiempo trabajado más el pago adicional de 8 horas, a menos que la ley exija otra cosa." },
         ],
       },
 
@@ -479,7 +516,7 @@ const BASE_MODULES: Module[] = [
           { en: "EMPLOYEE'S CHOICE: (a) take the day off in your birth month with 8 hours of pay, OR (b) work and receive 8 hours of additional pay on top of regular earnings for that day.", es: "ELECCIÓN DEL EMPLEADO: (a) tome el día libre en su mes de cumpleaños con 8 horas de pago, O (b) trabaje y reciba 8 horas de pago adicional sobre las ganancias regulares de ese día." },
           { en: "Must be requested 7 days in advance through the two-step process.", es: "Debe solicitarse con 7 días de anticipación a través del proceso de dos pasos." },
           { en: "Subject to office approval: first-come-first-serve, max 2 off per day, business needs can override.", es: "Sujeto a aprobación de la oficina: primero en llegar, máximo 2 libres por día, las necesidades del negocio pueden anular." },
-          { en: "Cannot be combined with PTO to extend vacations beyond standard approval limits.", es: "No se puede combinar con PTO para extender vacaciones más allá de los límites estándar de aprobación." },
+          { en: "Cannot be combined with PTO, holidays, weekends, or other approved time off to create a stretch of more than three (3) consecutive scheduled workdays off without separate prior written approval from the office. To request a longer stretch using the birthday day plus PTO, submit both requests at the same time with at least fourteen (14) days advance notice. The office may deny either request — birthday, PTO, or both — if granting them (alone or together) would exceed the maximum-2-cleaners-off-per-day cap, exceed the 3-consecutive-workday limit, or otherwise create staffing risk. Requests submitted separately that reveal a combined longer stretch may be denied for that reason.", es: "No se puede combinar con PTO, feriados, fines de semana ni otro tiempo libre aprobado para crear una racha de más de tres (3) días laborales programados consecutivos libres sin aprobación previa por escrito separada de la oficina. Para solicitar una racha más larga usando el día de cumpleaños más PTO, envíe ambas solicitudes al mismo tiempo con al menos catorce (14) días de anticipación. La oficina puede negar cualquiera de las solicitudes — cumpleaños, PTO o ambas — si otorgarlas (solas o juntas) excedería el tope máximo de 2 cleaners libres por día, excedería el límite de 3 días laborales consecutivos, o crearía un riesgo de personal. Las solicitudes enviadas por separado que revelen una racha combinada más larga pueden ser negadas por esa razón." },
           { en: "Does NOT carry over. Forfeited if not used in your birth month.", es: "NO se acumula. Se pierde si no se usa en su mes de cumpleaños." },
           { en: "NOT paid out at separation.", es: "NO se paga al separarse." },
           { en: "Employees on active written warning, final warning, or Quality Probation may have their birthday request denied at office discretion.", es: "Empleados con advertencia activa por escrito, advertencia final o Probatoria de Calidad pueden ver su solicitud de cumpleaños rechazada a discreción de la oficina." },
@@ -589,7 +626,7 @@ const BASE_MODULES: Module[] = [
           { en: "Inside the oven, refrigerator, or freezer (default scope). The office can add it; call.", es: "Dentro del horno, refrigerador o congelador (alcance estándar). La oficina lo puede agregar; llame." },
           { en: "Pet waste, including litter boxes and animal waste.", es: "Desechos de mascotas, incluyendo cajas de arena y desechos animales." },
           { en: "Cash transactions on site. All payment goes through the office.", es: "Transacciones en efectivo en sitio. Todo pago pasa por la oficina." },
-          { en: "Climbing higher than the company-issued step stool. Never stand on furniture.", es: "Subir más alto que el banquito de la compañía. Nunca se pare en muebles." },
+          { en: "Climbing higher than a 2-step step stool (see Climbing Limits — Safety Rule under On-Site Rules below for the full rule).", es: "Subir más alto que un banquito de 2 escalones (vea Límites de Escalada — Regla de Seguridad bajo Reglas en Sitio más abajo para la regla completa)." },
           { en: "Wash dishes.", es: "Lavar platos." },
           { en: "Make beds.", es: "Tender camas." },
           { en: "Move heavy furniture. We clean around it. Anything over 25 lbs we do not lift or relocate.", es: "Mover muebles pesados. Limpiamos alrededor. Nada que pese más de 25 lb se levanta o se mueve." },
@@ -668,12 +705,44 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Ladders / step stools: never climb higher than a 2-step. Anything above that, leave a note and skip. Do not improvise on chairs, counters, or furniture.", es: "Escaleras / banquitos: nunca suba más alto que 2 escalones. Cualquier cosa más alta, deje nota y omita. No improvise sobre sillas, mostradores ni muebles." },
+          { en: "Climbing limits: see the Climbing Limits — Safety Rule subsection immediately below.", es: "Límites de escalada: vea la subsección Límites de Escalada — Regla de Seguridad inmediatamente abajo." },
           { en: "Trash: 5 bag maximum per visit. If there is more, document and tell the office. We do not haul extra.", es: "Basura: máximo 5 bolsas por visita. Si hay más, documente y avise a la oficina. No llevamos más." },
           { en: "Arrival window: clients are told to expect a 45-minute arrival window due to traffic. If you will be at the late end, the office calls or texts the client. YOU also call the office BEFORE the 20-minute mark when running behind.", es: "Ventana de llegada: a los clientes se les dice que esperen una ventana de llegada de 45 minutos por el tráfico. Si llegará al final tarde, la oficina llama o envía mensaje al cliente. USTED también llama a la oficina ANTES del minuto 20 cuando esté retrasado." },
-          { en: "Lockbox / alarm code: some clients have a lockbox ($50 add-on) or alarm code. The office tells you in the app notes. Never share codes with anyone. Never write them down outside the app.", es: "Caja de seguridad / código de alarma: algunos clientes tienen caja ($50 add-on) o código de alarma. La oficina le dice en las notas de la app. Nunca comparta los códigos. Nunca los escriba fuera de la app." },
+          { en: "Lockbox / alarm code: some clients have a lockbox or alarm code. The office tells you in the app notes. Never share codes with anyone. Never write them down outside the app.", es: "Caja de seguridad / código de alarma: algunos clientes tienen caja o código de alarma. La oficina le dice en las notas de la app. Nunca comparta los códigos. Nunca los escriba fuera de la app." },
           { en: "Decluttering: if surfaces are too cluttered to clean and the client was not notified ahead, call the office. We can decline (with cancellation fee applying) or shift scope. Never silently work around chaos.", es: "Desorden: si las superficies están demasiado desordenadas para limpiar y el cliente no fue avisado, llame a la oficina. Podemos rechazar (con cargo de cancelación aplicado) o cambiar el alcance. Nunca trabaje silenciosamente alrededor del caos." },
         ],
+      },
+
+      { type: "h", text: { en: "Climbing Limits — Safety Rule", es: "Límites de Escalada — Regla de Seguridad" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "The maximum permitted climbing height for any Phes employee at any time on any job is the top step of a standard 2-step company-issued step stool. Climbing higher than this is prohibited under all circumstances, with no exceptions for client request, time pressure, or partial-task completion.",
+          es: "La altura máxima permitida de escalada para cualquier empleado de Phes en cualquier momento y en cualquier trabajo es el escalón superior de un banquito estándar de 2 escalones provisto por la compañía. Subir más alto está prohibido bajo todas las circunstancias, sin excepciones por solicitud del cliente, presión de tiempo o tarea parcialmente completada.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Prohibited climbing surfaces (this list is examples and is not exhaustive): chairs of any kind, dining or kitchen counters, ladders taller than 2 steps, dressers and other furniture, kitchen or bathroom appliances, toilets, bathtubs, sinks, vanities, edges of bed frames, exercise equipment, storage tubs, or any surface not designed and rated as a climbing aid.",
+          es: "Superficies prohibidas para escalar (esta lista son ejemplos y no es exhaustiva): sillas de cualquier tipo, mostradores de cocina o comedor, escaleras más altas que 2 escalones, cómodas y otros muebles, electrodomésticos de cocina o baño, inodoros, tinas, lavabos, tocadores, bordes de marcos de cama, equipo de ejercicio, contenedores de almacenamiento, o cualquier superficie no diseñada y clasificada como ayuda para escalar.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "If a cleaning task requires reaching above this height, you must: (1) skip the task, (2) document it in the app notes verbatim as 'out of reach — exceeds 2-step climbing rule', and (3) complete the rest of the job. If the client asks why the area was skipped, say only 'that's outside our scope today' — do not promise or imply that the office will send someone else to do it. The office will follow up with the client directly if appropriate.",
+          es: "Si una tarea de limpieza requiere alcanzar por encima de esta altura, debe: (1) omitir la tarea, (2) documentarla en las notas de la app textualmente como 'fuera de alcance — excede la regla de escalada de 2 escalones', y (3) completar el resto del trabajo. Si el cliente pregunta por qué el área se omitió, diga solo 'eso está fuera de nuestro alcance hoy' — no prometa ni dé a entender que la oficina enviará a alguien más a hacerlo. La oficina dará seguimiento directamente con el cliente si es apropiado.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Violating this rule is grounds for discipline regardless of whether an injury results, up to and including immediate termination if the violation is willful or repeated. This rule exists to protect employees from fall injuries — falls are the most common preventable workplace injury in cleaning services — and to protect Phes from workers' compensation claims arising from preventable falls.",
+          es: "Violar esta regla es motivo de disciplina sin importar si resulta una lesión, hasta e incluyendo terminación inmediata si la violación es intencional o repetida. Esta regla existe para proteger a los empleados de lesiones por caídas — las caídas son la lesión laboral prevenible más común en servicios de limpieza — y para proteger a Phes de reclamos de compensación al trabajador por caídas prevenibles.",
+        },
       },
 
       { type: "h", text: { en: "Never Discuss Price With the Client", es: "Nunca Discuta el Precio Con el Cliente" } },
@@ -739,14 +808,21 @@ const BASE_MODULES: Module[] = [
 
       { type: "h", text: { en: "Client Not Home", es: "Cliente No Está en Casa" } },
       {
+        type: "p",
+        text: {
+          en: "Total on-site wait is 20 minutes from your scheduled arrival time, unless the office extends it for an unusual reason. The flow:",
+          es: "La espera total en sitio es de 20 minutos desde su hora programada de llegada, a menos que la oficina la extienda por una razón excepcional. El flujo:",
+        },
+      },
+      {
         type: "bullets",
         items: [
-          { en: "Wait 20 minutes at the location.", es: "Espere 20 minutos en el lugar." },
-          { en: "If no access is set up: knock and wait 5 minutes, then call the office.", es: "Si no hay acceso configurado: toque la puerta y espere 5 minutos, luego llame a la oficina." },
-          { en: "Tech proceeds inside if access exists. Take normal completion photos. Lock up.", es: "El técnico procede dentro si existe acceso. Tome fotos normales de finalización. Cierre con llave." },
-          { en: "If access fails or is denied: call the office within 5 minutes. Office attempts client contact. Tech waits up to 20 minutes.", es: "Si el acceso falla o se niega: llame a la oficina dentro de 5 minutos. La oficina intenta contactar al cliente. El técnico espera hasta 20 minutos." },
-          { en: "If the office cannot reach the client: office decides reschedule or next job.", es: "Si la oficina no logra contactar al cliente: la oficina decide reprogramar o ir al siguiente trabajo." },
-          { en: "Tech is paid the 3-hour minimum for arrival.", es: "El técnico recibe el mínimo de 3 horas por la llegada." },
+          { en: "Step 1. Arrive. Knock once and wait 5 minutes for a response.", es: "Paso 1. Llegue. Toque una vez y espere 5 minutos por respuesta." },
+          { en: "Step 2. If you have access (key, code, lockbox) and the app job ticket authorizes entry without the client present: enter, complete the job normally, take all required photos, and lock up.", es: "Paso 2. Si tiene acceso (llave, código, caja de seguridad) y el ticket de trabajo en la app autoriza entrar sin el cliente presente: entre, complete el trabajo normalmente, tome todas las fotos requeridas y cierre con llave." },
+          { en: "Step 3. If you do NOT have access — or the client's instructions require their presence — call the office within 5 minutes of arrival. The office attempts to contact the client.", es: "Paso 3. Si NO tiene acceso — o las instrucciones del cliente requieren su presencia — llame a la oficina dentro de 5 minutos de la llegada. La oficina intenta contactar al cliente." },
+          { en: "Step 4. Continue waiting at the location until the total on-site time reaches 20 minutes from your scheduled arrival. The office may instruct you in writing (text or app note) to extend the wait beyond 20 minutes for an unusual reason — for example, the client is on the way and 5 minutes out, or there is a known delay the office is resolving.", es: "Paso 4. Continúe esperando en el lugar hasta que el tiempo total en sitio alcance los 20 minutos desde su hora programada de llegada. La oficina puede instruirle por escrito (mensaje o nota en la app) extender la espera más allá de 20 minutos por una razón excepcional — por ejemplo, el cliente está en camino y a 5 minutos, o hay un retraso conocido que la oficina está resolviendo." },
+          { en: "Step 5. Before leaving — even after the 20 minutes — call the office and verbally confirm you are leaving and where you are going next. Never leave on your own initiative without office confirmation.", es: "Paso 5. Antes de irse — incluso después de los 20 minutos — llame a la oficina y confirme verbalmente que se va y a dónde se dirige después. Nunca se vaya por iniciativa propia sin confirmación de la oficina." },
+          { en: "Step 6. The office decides: reschedule the visit, send you to the next job in your route, or send you home. You are paid the 3-hour minimum for the arrival regardless of which the office chooses.", es: "Paso 6. La oficina decide: reprogramar la visita, enviarlo al siguiente trabajo de su ruta o enviarlo a casa. Recibe el mínimo de 3 horas por la llegada sin importar lo que la oficina decida." },
         ],
       },
 
@@ -911,8 +987,7 @@ const BASE_MODULES: Module[] = [
         items: [
           { en: "30-day check-in (during training period).", es: "Reunión a 30 días (durante el periodo de entrenamiento)." },
           { en: "90-day formal review (end of probation, PLAWA eligibility begins).", es: "Evaluación formal a 90 días (fin de la probatoria, comienza la elegibilidad de PLAWA)." },
-          { en: "Quarterly reviews thereafter. ALL reviews take place IN PERSON.", es: "Evaluaciones trimestrales en adelante. TODAS las evaluaciones se hacen EN PERSONA." },
-          { en: "Reviews rotate format: in-person meeting and video review alternating each quarter.", es: "Las evaluaciones rotan formato: reunión en persona y revisión por video alternando cada trimestre." },
+          { en: "Quarterly reviews thereafter. Reviews rotate format: an in-person meeting one quarter, a video review the next, alternating each quarter.", es: "Evaluaciones trimestrales en adelante. Las evaluaciones rotan de formato: una reunión en persona un trimestre, una revisión por video al siguiente, alternando cada trimestre." },
           { en: "Quality metrics tracked: completion times, quality complaints, attendance, client satisfaction scores.", es: "Métricas de calidad seguidas: tiempos de finalización, quejas de calidad, asistencia, puntajes de satisfacción del cliente." },
         ],
       },
@@ -969,6 +1044,13 @@ const BASE_MODULES: Module[] = [
           es: "Phes Cleaning Services se reserva el derecho de interpretar, administrar y enmendar este manual a su discreción conforme a la ley aplicable. Los cambios de política materiales activan el re-reconocimiento inmediato requerido por todos los empleados. Los cambios menores se comunican y se re-reconocen en el siguiente ciclo anual de diciembre.",
         },
       },
+      {
+        type: "p",
+        text: {
+          en: "Phes determines in good faith whether a change is material. A change is 'material' if it affects: compensation rates or structure (including commission percentages, hourly rates, and quality-verification rules); leave entitlements (PLAWA, PTO, Unpaid Personal Leave, holidays, birthday pay, bereavement, FBLA, or VESSA); disciplinary thresholds (tardiness or unexcused-absence scales, quality probation triggers, job-abandonment definition); mandatory training requirements; the at-will employment relationship; the wage deduction policy; or any other term a reasonable employee would consider a fundamental condition of employment. The good-faith determination by Phes is binding for purposes of the re-acknowledgment requirement. Employees who believe a change was misclassified may raise the concern with the office in writing; the classification stands unless reversed in writing by the owner.",
+          es: "Phes determina de buena fe si un cambio es material. Un cambio es 'material' si afecta: tarifas o estructura de compensación (incluyendo porcentajes de comisión, tarifas por hora y reglas de verificación de calidad); derechos de licencia (PLAWA, PTO, Licencia Personal No Pagada, feriados, pago de cumpleaños, duelo, FBLA o VESSA); umbrales disciplinarios (escalas de tardanza o ausencia injustificada, disparadores de probatoria de calidad, definición de abandono del empleo); requisitos de capacitación obligatoria; la relación de empleo a voluntad; la política de deducción salarial; o cualquier otro término que un empleado razonable consideraría una condición fundamental del empleo. La determinación de buena fe por parte de Phes es vinculante para efectos del requisito de re-reconocimiento. Los empleados que crean que un cambio fue clasificado erróneamente pueden plantear la preocupación a la oficina por escrito; la clasificación permanece a menos que sea revertida por escrito por el propietario.",
+        },
+      },
 
       // ═══════════════════════════════════════════════════════════════════════
       // SECTION 14 — HANDBOOK ACKNOWLEDGMENT
@@ -986,7 +1068,7 @@ const BASE_MODULES: Module[] = [
         items: [
           { en: "You received and read the 2026 Phes Employee Handbook.", es: "Recibió y leyó el Manual del Empleado de Phes 2026." },
           { en: "You understand your employment is AT-WILL.", es: "Entiende que su empleo es A VOLUNTAD." },
-          { en: "You provide EXPRESS WRITTEN CONSENT to the commission structure: 35% commission on standard cleanings, 32% on deep cleans and move-in / move-out cleanings, $20.00 per hour for commercial jobs within allotted hours. Quality Verification occurs 24 hours post-job. The job converts to $18.00 per hour if you refuse a valid re-clean request (Quality Verification fails). This commission structure is a fundamental term of employment.", es: "Provee CONSENTIMIENTO EXPRESO POR ESCRITO a la estructura de comisión: 35% en limpiezas estándar, 32% en limpiezas profundas y mudanzas, $20.00 por hora en trabajos comerciales dentro de las horas asignadas. La Verificación de Calidad ocurre 24 horas después del trabajo. El trabajo se convierte a $18.00 por hora si rechaza una solicitud válida de re-limpieza (la Verificación de Calidad falla). Esta estructura de comisión es un término fundamental del empleo." },
+          { en: "You provide EXPRESS WRITTEN CONSENT to the commission structure: 35% commission on standard cleanings, 32% on deep cleans and move-in / move-out cleanings, $20.00 per hour for commercial jobs within allotted hours. Commission is contingent on Quality Verification, which occurs at the earlier of (a) 24 hours post-job with no client complaint, or (b) the client's affirmative confirmation of satisfaction. If you refuse a valid Fix-It re-clean request without a lawful or protected reason, Quality Verification fails, commission is not earned on that job, and compensation defaults to the on-site hourly rate of $18.00 per hour for time actually worked. This commission structure is a fundamental term of employment.", es: "Provee CONSENTIMIENTO EXPRESO POR ESCRITO a la estructura de comisión: 35% en limpiezas estándar, 32% en limpiezas profundas y mudanzas, $20.00 por hora en trabajos comerciales dentro de las horas asignadas. La comisión es contingente a la Verificación de Calidad, que ocurre en el momento más temprano entre (a) 24 horas después del trabajo sin queja del cliente, o (b) la confirmación afirmativa de satisfacción del cliente. Si rechaza una solicitud válida de re-limpieza Fix-It sin razón legal o protegida, la Verificación de Calidad falla, no se gana comisión en ese trabajo, y la compensación se rige por la tarifa por hora en sitio de $18.00 por el tiempo realmente trabajado. Esta estructura de comisión es un término fundamental del empleo." },
           { en: "You understand the wage deduction policy and your right to refuse specific authorizations.", es: "Entiende la política de deducción salarial y su derecho a rehusar autorizaciones específicas." },
           { en: "You understand material policy changes require immediate re-acknowledgment.", es: "Entiende que los cambios de política materiales requieren re-reconocimiento inmediato." },
           { en: "You commit to the annual re-acknowledgment cycle aligned with December sexual harassment training.", es: "Se compromete con el ciclo anual de re-reconocimiento alineado con la capacitación de acoso sexual en diciembre." },
@@ -3270,13 +3352,13 @@ const BASE_QUIZ: QuizQuestion[] = [
     id: "q-pp-23-holiday-90day",
     moduleId: "phes-policies",
     prompt: {
-      en: "You were hired on November 1 and Thanksgiving falls 3 weeks later. Do you receive paid holiday pay for Thanksgiving?",
-      es: "Fue contratado el 1 de noviembre y Acción de Gracias cae 3 semanas después. ¿Recibe pago por feriado en Acción de Gracias?",
+      en: "You were hired on November 1 and Thanksgiving falls 3 weeks later. How does holiday pay work for you on Thanksgiving?",
+      es: "Fue contratado el 1 de noviembre y Acción de Gracias cae 3 semanas después. ¿Cómo funciona el pago por feriado para usted en Acción de Gracias?",
     },
     options: [
-      { en: "Yes — Phes observes Thanksgiving as a paid holiday.", es: "Sí — Phes observa Acción de Gracias como feriado pagado." },
-      { en: "No — holiday pay eligibility begins AFTER 90 days of employment. Holidays in your first 90 days are unpaid.", es: "No — la elegibilidad para pago por feriado comienza DESPUÉS de 90 días de empleo. Los feriados en sus primeros 90 días no son pagados." },
-      { en: "Yes — but only at half rate during the first 90 days.", es: "Sí — pero solo a media tarifa durante los primeros 90 días." },
+      { en: "You receive the full 8-hour holiday top-up because Phes observes Thanksgiving as a paid holiday for all employees.", es: "Recibe el pago adicional de 8 horas por feriado completo porque Phes observa Acción de Gracias como feriado pagado para todos los empleados." },
+      { en: "No 8-hour holiday top-up — that eligibility begins AFTER 90 days. If you work the day you get your regular wages for time worked. If you don't work, it's simply an unscheduled unpaid day.", es: "No hay pago adicional de 8 horas por feriado — esa elegibilidad comienza DESPUÉS de 90 días. Si trabaja el día, recibe su salario regular por el tiempo trabajado. Si no trabaja, es simplemente un día no programado y no pagado." },
+      { en: "Half the holiday top-up during the first 90 days, full top-up after.", es: "La mitad del pago adicional por feriado durante los primeros 90 días, el pago completo después." },
       { en: "Only if the client cancels and you would have worked that day.", es: "Solo si el cliente cancela y habría trabajado ese día." },
     ],
     correctIndex: 1,
