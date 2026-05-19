@@ -55,6 +55,7 @@ const RADIUS = 10;
 const MOBILE_BREAKPOINT = 768;
 
 type AuthPayload = {
+  userId?: number;
   role?: string;
   first_name?: string;
   companyId?: number | null;
@@ -462,6 +463,7 @@ export default function LmsAdminPage() {
             onResetDeadline={setResetDeadlineOpen}
             onEdit={setEditEmpOpen}
             callerRole={auth?.role ?? null}
+            callerUserId={auth?.userId ?? null}
             adminBypassAllowed={adminBypassAllowed}
             adminEditAllowed={adminEditAllowed}
           />
@@ -478,6 +480,7 @@ export default function LmsAdminPage() {
             onResetDeadline={setResetDeadlineOpen}
             onEdit={setEditEmpOpen}
             callerRole={auth?.role ?? null}
+            callerUserId={auth?.userId ?? null}
             adminBypassAllowed={adminBypassAllowed}
             adminEditAllowed={adminEditAllowed}
           />
@@ -660,6 +663,7 @@ function RosterTable({
   onResetDeadline,
   onEdit,
   callerRole,
+  callerUserId,
   adminBypassAllowed,
   adminEditAllowed,
 }: {
@@ -674,6 +678,14 @@ function RosterTable({
   onResetDeadline: (r: RosterRow) => void;
   onEdit: (r: RosterRow) => void;
   callerRole: string | null;
+  /**
+   * Caller's own user_id (from JWT). Used to hide destructive buttons
+   * on the caller's own row (Reset / Reset deadline / Archive / Edit).
+   * Backend already enforces "Cannot archive yourself" + "Cannot
+   * archive an owner" but the UI should not advertise actions that
+   * can't complete.
+   */
+  callerUserId: number | null;
   adminBypassAllowed: boolean;
   adminEditAllowed: boolean;
 }) {
@@ -849,52 +861,61 @@ function RosterTable({
                     >
                       Extend
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onReset(r)}
-                      title="Reset enrollment"
-                      style={{
-                        background: "transparent",
-                        color: DANGER,
-                        border: `1px solid ${LINE}`,
-                        padding: "5px 10px",
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        fontFamily: FONT,
-                        whiteSpace: "nowrap",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <RotateCcw size={11} /> Reset
-                    </button>
+                    {/* Audit 2026-05-19: hide Reset on caller's own
+                        row. Backend allows it (resetting your own
+                        progress is technically valid) but the UX is
+                        a foot-gun for an owner mid-test-walkthrough. */}
+                    {callerUserId !== r.user_id ? (
+                      <button
+                        type="button"
+                        onClick={() => onReset(r)}
+                        title="Reset enrollment"
+                        style={{
+                          background: "transparent",
+                          color: DANGER,
+                          border: `1px solid ${LINE}`,
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontFamily: FONT,
+                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <RotateCcw size={11} /> Reset
+                      </button>
+                    ) : null}
                     {/* Item 4 (P0 sprint): clears deadline_started_at
-                        so the countdown re-starts on next attempt. */}
-                    <button
-                      type="button"
-                      onClick={() => onResetDeadline(r)}
-                      title="Reset deadline (clears countdown until next quiz attempt)"
-                      style={{
-                        background: "transparent",
-                        color: INK_MUTE,
-                        border: `1px solid ${LINE}`,
-                        padding: "5px 10px",
-                        borderRadius: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        fontFamily: FONT,
-                        whiteSpace: "nowrap",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
-                    >
-                      <CalendarClock size={11} /> Reset deadline
-                    </button>
+                        so the countdown re-starts on next attempt.
+                        Hidden on caller's own row per the audit above. */}
+                    {callerUserId !== r.user_id ? (
+                      <button
+                        type="button"
+                        onClick={() => onResetDeadline(r)}
+                        title="Reset deadline (clears countdown until next quiz attempt)"
+                        style={{
+                          background: "transparent",
+                          color: INK_MUTE,
+                          border: `1px solid ${LINE}`,
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          fontFamily: FONT,
+                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <CalendarClock size={11} /> Reset deadline
+                      </button>
+                    ) : null}
                     {/* Sprint 2026-05-15: owner-default Edit Employee.
                         Admin sees it when admin_edit_employee_allowed
                         is on. Office never sees it. */}
@@ -1291,6 +1312,7 @@ function RosterCards({
   onResetDeadline,
   onEdit,
   callerRole,
+  callerUserId,
   adminBypassAllowed,
   adminEditAllowed,
 }: {
@@ -1305,6 +1327,14 @@ function RosterCards({
   onResetDeadline: (r: RosterRow) => void;
   onEdit: (r: RosterRow) => void;
   callerRole: string | null;
+  /**
+   * Caller's own user_id (from JWT). Used to hide destructive buttons
+   * on the caller's own row (Reset / Reset deadline / Archive / Edit).
+   * Backend already enforces "Cannot archive yourself" + "Cannot
+   * archive an owner" but the UI should not advertise actions that
+   * can't complete.
+   */
+  callerUserId: number | null;
   adminBypassAllowed: boolean;
   adminEditAllowed: boolean;
 }) {
