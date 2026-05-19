@@ -3010,13 +3010,13 @@ function QuizView({
             {cursor < total - 1 ? (
               <PrimaryButton
                 onClick={() => setCursor((c) => Math.min(total - 1, c + 1))}
-                disabled={answers[cursor] == null}
+                disabled={!isOwner && answers[cursor] == null}
               >
                 {tr("next", locale)} <ChevronRight size={14} />
               </PrimaryButton>
             ) : (
               <PrimaryButton
-                disabled={busy || !allAnswered}
+                disabled={busy || (!isOwner && !allAnswered)}
                 onClick={async () => {
                   // Item 7 (P1 sprint): debounce — `busy` flips
                   // synchronously here, so a second click within the
