@@ -280,7 +280,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-15-photos": 2,
   "q-pp-16-dishes-beds": 1,
   "q-pp-17-office-exception": 1,
-  "q-pp-18-bereavement": 1,
+  "q-pp-18-bereavement": 0,
   "q-pp-19-jury-duty": 1,
   "q-pp-20-lactation": 1,
   "q-pp-21-pto-cap": 1,
