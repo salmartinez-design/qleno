@@ -413,8 +413,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Phes provides up to three (3) paid scheduled workdays per qualifying death for the loss of an immediate family member, defined as: spouse or domestic partner; child or stepchild; parent or stepparent; sibling; or mother- or father-in-law. Notify the office as soon as practicable. Phes will request reasonable documentation (an obituary, funeral program, or similar) only when needed for payroll records; you are not required to provide medical or cause-of-death information. Bereavement absences are a protected category and never count toward the discipline scale, regardless of tenure or available leave balance.",
-          es: "Phes provee hasta tres (3) días laborales programados pagados por cada fallecimiento calificado por la pérdida de un familiar inmediato, definido como: cónyuge o pareja doméstica; hijo/a o hijastro/a; padre/madre o padrastro/madrastra; hermano/a; o suegro/a. Notifique a la oficina lo antes posible. Phes solicitará documentación razonable (un obituario, programa fúnebre o similar) solo cuando sea necesario para registros de nómina; no se le requiere proveer información médica ni causa de muerte. Las ausencias por duelo son una categoría protegida y nunca cuentan hacia la escala de disciplina, sin importar el tiempo de empleo o el saldo de licencia disponible.",
+          en: "Phes provides up to three (3) unpaid scheduled workdays per qualifying death for the loss of an immediate family member, defined as: spouse or domestic partner; child or stepchild; parent or stepparent; sibling; or mother- or father-in-law. Employees may use their available Illinois Paid Leave for All Workers Act (PLAWA) hours during these days to receive pay; PLAWA is requested through the standard time-off process. Notify the office as soon as practicable. Phes will request reasonable documentation (an obituary, funeral program, or similar) only when needed for payroll records; you are not required to provide medical or cause-of-death information. Bereavement absences are a protected category and never count toward the discipline scale, regardless of tenure or available leave balance.",
+          es: "Phes provee hasta tres (3) días laborales programados no pagados por cada fallecimiento calificado por la pérdida de un familiar inmediato, definido como: cónyuge o pareja doméstica; hijo/a o hijastro/a; padre/madre o padrastro/madrastra; hermano/a; o suegro/a. Los empleados pueden usar sus horas disponibles bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois (PLAWA) durante esos días para recibir pago; PLAWA se solicita a través del proceso estándar de tiempo libre. Notifique a la oficina lo antes posible. Phes solicitará documentación razonable (un obituario, programa fúnebre o similar) solo cuando sea necesario para registros de nómina; no se le requiere proveer información médica ni causa de muerte. Las ausencias por duelo son una categoría protegida y nunca cuentan hacia la escala de disciplina, sin importar el tiempo de empleo o el saldo de licencia disponible.",
         },
       },
       {
@@ -428,8 +428,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "info",
         text: {
-          en: "Illinois Family Bereavement Leave Act (FBLA). In addition to the paid bereavement above, eligible employees may take up to ten (10) workdays of unpaid leave per twelve-month period under FBLA for qualifying events including the death of a covered family member, stillbirth, miscarriage, failed adoption or surrogacy, an unsuccessful round of assisted reproduction, or a diagnosis that negatively impacts pregnancy or fertility. If you think FBLA may apply, contact the office and we will walk through the formal request process. Phes will not retaliate for any lawful FBLA request.",
-          es: "Ley de Licencia Familiar por Duelo de Illinois (FBLA). Además del duelo pagado anterior, los empleados elegibles pueden tomar hasta diez (10) días laborales de licencia no pagada por periodo de doce meses bajo FBLA por eventos calificados incluyendo la muerte de un familiar cubierto, mortinato, aborto espontáneo, adopción o subrogación fallida, una ronda fallida de reproducción asistida, o un diagnóstico que afecte negativamente el embarazo o la fertilidad. Si cree que FBLA puede aplicar, contacte a la oficina y le guiaremos por el proceso formal de solicitud. Phes no tomará represalias por ninguna solicitud legal de FBLA.",
+          en: "Illinois Family Bereavement Leave Act (FBLA). In addition to the unpaid bereavement above, eligible employees may take up to ten (10) workdays of unpaid leave per twelve-month period under FBLA for qualifying events including the death of a covered family member, stillbirth, miscarriage, failed adoption or surrogacy, an unsuccessful round of assisted reproduction, or a diagnosis that negatively impacts pregnancy or fertility. If you think FBLA may apply, contact the office and we will walk through the formal request process. Phes will not retaliate for any lawful FBLA request.",
+          es: "Ley de Licencia Familiar por Duelo de Illinois (FBLA). Además del duelo no pagado anterior, los empleados elegibles pueden tomar hasta diez (10) días laborales de licencia no pagada por periodo de doce meses bajo FBLA por eventos calificados incluyendo la muerte de un familiar cubierto, mortinato, aborto espontáneo, adopción o subrogación fallida, una ronda fallida de reproducción asistida, o un diagnóstico que afecte negativamente el embarazo o la fertilidad. Si cree que FBLA puede aplicar, contacte a la oficina y le guiaremos por el proceso formal de solicitud. Phes no tomará represalias por ninguna solicitud legal de FBLA.",
         },
       },
 
@@ -3283,12 +3283,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Su padre fallece. ¿Cuál es la política de duelo de Phes?",
     },
     options: [
-      { en: "Up to 3 unpaid days off — use PLAWA to get paid.", es: "Hasta 3 días no pagados — use PLAWA para recibir pago." },
-      { en: "Up to 3 paid scheduled workdays at your regular rate, for immediate family (spouse, child, parent, or sibling).", es: "Hasta 3 días laborales programados pagados a su tarifa regular, para familia inmediata (cónyuge, hijo/a, padre/madre o hermano/a)." },
+      { en: "Up to 3 unpaid scheduled workdays off for immediate family (spouse, child, parent, or sibling). You may use available PLAWA hours to receive pay for those days.", es: "Hasta 3 días laborales programados no pagados para familia inmediata (cónyuge, hijo/a, padre/madre o hermano/a). Puede usar las horas disponibles de PLAWA para recibir pago por esos días." },
+      { en: "Up to 3 paid scheduled workdays at your regular rate.", es: "Hasta 3 días laborales programados pagados a su tarifa regular." },
       { en: "Up to 5 paid days plus travel time.", es: "Hasta 5 días pagados más tiempo de viaje." },
       { en: "Phes does not offer bereavement leave.", es: "Phes no ofrece licencia por duelo." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-19-jury-duty",
