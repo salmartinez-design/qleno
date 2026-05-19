@@ -2843,6 +2843,7 @@ function QuizView({
         maxAttempts={result.max_attempts ?? maxAttempts}
         passThreshold={PASS_THRESHOLD_PCT}
         isOwner={isOwner}
+        onBackHome={onCancel}
         onContinue={async () => {
           if (result.passed) {
             await onPassed();
@@ -3083,6 +3084,7 @@ function ResultView({
   passThreshold,
   isOwner,
   onContinue,
+  onBackHome,
 }: {
   locale: Locale;
   result: SubmitResult;
@@ -3091,6 +3093,7 @@ function ResultView({
   passThreshold: number;
   isOwner: boolean;
   onContinue: () => void;
+  onBackHome: () => void | Promise<void>;
 }) {
   const { passed, score } = result;
   // Owners are never "out of attempts" — the server bypasses the cap
@@ -3135,7 +3138,25 @@ function ResultView({
                 }/${maxAttempts} ${tr("attemptsUsed", locale)})`}
           </div>
         ) : null}
-        <div style={{ marginTop: 18 }}>
+        <div
+          style={{
+            marginTop: 18,
+            display: "flex",
+            gap: 10,
+            justifyContent: "center",
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Sal report 2026-05-19: previously the fail screen had only
+              "Try again" — no way to leave the quiz without retrying.
+              Now we always show a secondary "Back to home" alongside the
+              primary CTA, except on pass (Continue navigates forward
+              naturally). */}
+          {!passed ? (
+            <SecondaryButton onClick={() => { void onBackHome(); }}>
+              {tr("back", locale)}
+            </SecondaryButton>
+          ) : null}
           <PrimaryButton onClick={onContinue}>
             {passed
               ? tr("next", locale)
