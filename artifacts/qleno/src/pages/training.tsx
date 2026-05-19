@@ -1032,6 +1032,7 @@ function Header({
   isOwner?: boolean;
 }) {
   const isMobile = useIsMobile();
+  const [, setLocation] = useLocation();
   return (
     <header
       style={{
@@ -1053,7 +1054,24 @@ function Header({
           minWidth: 0,
         }}
       >
-        <QlenoLogo size={isMobile ? "md" : "lg"} theme="light" layout="horizontal" />
+        {/* Sal report 2026-05-19: from /training there was no way back
+            to the main Qleno app. Wrapping the logo in a clickable
+            ghosts the standard "logo = home" convention. */}
+        <button
+          type="button"
+          onClick={() => setLocation("/")}
+          aria-label={locale === "es" ? "Volver a Qleno" : "Back to Qleno"}
+          style={{
+            background: "transparent",
+            border: 0,
+            padding: 0,
+            cursor: "pointer",
+            display: "inline-flex",
+            alignItems: "center",
+          }}
+        >
+          <QlenoLogo size={isMobile ? "md" : "lg"} theme="light" layout="horizontal" />
+        </button>
         <div
           style={{
             height: isMobile ? 26 : 36,
@@ -1117,6 +1135,30 @@ function Header({
       >
         {daysRemaining != null && shouldShowLearnerGating(isOwner) && (
           <DeadlineBadge days={daysRemaining} locale={locale} />
+        )}
+        {/* Sal report 2026-05-19: from /training, owners had no nav
+            link to /lms/admin. Adding here so the LMS dashboard is one
+            tap away while testing. Owner-only — admin/office staff
+            still navigate via URL bar (out of scope for this fix). */}
+        {isOwner && (
+          <button
+            type="button"
+            onClick={() => setLocation("/lms/admin")}
+            style={{
+              background: "transparent",
+              border: `1px solid ${LINE}`,
+              borderRadius: 999,
+              padding: isMobile ? "6px 10px" : "6px 14px",
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: 700,
+              color: INK,
+              fontFamily: "inherit",
+              letterSpacing: "0.02em",
+            }}
+          >
+            {locale === "es" ? "Admin" : "Admin"}
+          </button>
         )}
         <LocaleToggle locale={locale} setLocale={setLocale} compact={isMobile} />
       </div>
