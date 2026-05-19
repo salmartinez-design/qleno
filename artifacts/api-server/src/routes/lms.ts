@@ -252,6 +252,20 @@ async function upsertModuleProgress(args: {
   now: Date;
 }): Promise<LmsModuleProgress> {
   const { companyId, enrollmentId, moduleId, patch, now } = args;
+  // 2026-05-19 audit: the `attempts` field has a hidden contract.
+  // On INSERT it's stored verbatim. On UPDATE the helper applies
+  // `attempts = attempts + 1` (incrementer, line ~285) so callers
+  // MUST pass `attempts: 1` to mean "register one attempt." Passing
+  // any other value (e.g. attempts: 2 thinking it'd set the column
+  // to 2) silently increments by 1 instead. Assertion makes the
+  // contract explicit; any future caller passing the wrong value
+  // gets a fast failure instead of a wrong row count.
+  if (patch.attempts !== undefined && patch.attempts !== 1) {
+    throw new Error(
+      `upsertModuleProgress: patch.attempts must be exactly 1 (got ${patch.attempts}). ` +
+        `The helper increments by 1 on UPDATE — passing any other value is a bug.`,
+    );
+  }
   // The unique index lms_module_progress_enrollment_module_uq makes
   // INSERT ... ON CONFLICT DO UPDATE the cleanest path. Defaults are picked
   // up from the schema for unspecified columns.

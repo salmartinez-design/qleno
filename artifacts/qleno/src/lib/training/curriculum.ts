@@ -3365,21 +3365,9 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 1,
   },
-  {
-    id: "q-pp-24-plawa-foreseeable",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You catch the flu and are out for 5 consecutive workdays. Each day, you give the 20-minute grace call. Since it is more than 4 consecutive PLAWA days, do you need advance approval?",
-      es: "Le da gripe y está fuera 5 días laborales consecutivos. Cada día da la llamada de gracia de 20 minutos. Como son más de 4 días consecutivos de PLAWA, ¿necesita aprobación previa?",
-    },
-    options: [
-      { en: "Yes. Any PLAWA absence over 4 days requires advance approval without exception.", es: "Sí. Cualquier ausencia de PLAWA mayor a 4 días requiere aprobación previa sin excepción." },
-      { en: "No. Advance approval only applies to FORESEEABLE absences (scheduled procedure, planned retreat, known appointment series). Sudden illness like the flu is unforeseeable. Just give the grace call each day. If you are sick a week with the flu and call each day, that is fine.", es: "No. La aprobación previa solo aplica a ausencias PREVISIBLES (procedimiento programado, retiro planeado, serie de citas conocida). Una enfermedad súbita como la gripe es imprevisible. Solo dé la llamada de gracia cada día. Si está enfermo una semana con gripe y llama cada día, está bien." },
-      { en: "Yes. You must submit a doctor's note before returning.", es: "Sí. Debe entregar una nota médica antes de regresar." },
-      { en: "No. PLAWA covers up to 3 days only. After day 3 the absence becomes unexcused.", es: "No. PLAWA cubre solo hasta 3 días. Después del día 3 la ausencia es injustificada." },
-    ],
-    correctIndex: 1,
-  },
+  // q-pp-24-plawa-foreseeable removed in audit batch 2 (2026-05-19):
+  // the id was an orphan — not referenced in QUESTIONS_BY_MODULE or
+  // either answer key. Deleted to prevent accidental re-introduction.
   {
     id: "q-pp-25-sick-no-balance",
     moduleId: "phes-policies",
@@ -3590,66 +3578,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 1,
   },
-  {
-    id: "q-pp-41-lifting-limit",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "Phes employees never lift items over what weight alone?",
-      es: "Los empleados de Phes nunca levantan artículos solos por encima de qué peso?",
-    },
-    options: [
-      { en: "10 lbs. Anything heavier needs office approval.", es: "10 libras. Cualquier cosa más pesada requiere aprobación de la oficina." },
-      { en: "25 lbs. This includes furniture, large appliances, and packed boxes. Clean around heavy items. If a job requires moving something over 25 lbs, call the office. The rule protects you from injury and protects Phes from workers' compensation claims.", es: "25 libras. Esto incluye muebles, electrodomésticos grandes y cajas empacadas. Limpie alrededor de los artículos pesados. Si un trabajo requiere mover algo de más de 25 libras, llame a la oficina. La regla lo protege de lesiones y protege a Phes de reclamos de compensación al trabajador." },
-      { en: "50 lbs. Anything heavier requires a partner.", es: "50 libras. Cualquier cosa más pesada requiere un compañero." },
-      { en: "There is no weight limit if you lift with proper form.", es: "No hay límite de peso si levanta con la postura correcta." },
-    ],
-    correctIndex: 1,
-  },
-  {
-    id: "q-pp-42-w2-tip-reporting",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "How are tips reported for tax purposes?",
-      es: "¿Cómo se reportan las propinas para fines fiscales?",
-    },
-    options: [
-      { en: "Cash tips are reported on your W-2 by Phes; booking-system tips you self-report.", es: "Las propinas en efectivo las reporta Phes en su W-2; las propinas del sistema de reservas las reporta usted mismo." },
-      { en: "All tips are tax-free.", es: "Todas las propinas están libres de impuestos." },
-      { en: "Tips received through the booking system are reported as wages on your W-2 (Phes reports them). Cash tips are yours to keep and are self-reported by you to the IRS.", es: "Las propinas recibidas a través del sistema de reservas se reportan como salarios en su W-2 (Phes las reporta). Las propinas en efectivo son suyas y usted mismo las reporta al IRS." },
-      { en: "Phes reports both cash and booking-system tips on your W-2.", es: "Phes reporta tanto las propinas en efectivo como las del sistema de reservas en su W-2." },
-    ],
-    correctIndex: 2,
-  },
-  {
-    id: "q-pp-43-abandonment-window",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You missed your shift today without calling and you wake up the next morning. What is the rule about when to contact the office to avoid job abandonment?",
-      es: "Faltó a su turno hoy sin llamar y se despierta a la mañana siguiente. ¿Cuál es la regla para contactar a la oficina y evitar el abandono del empleo?",
-    },
-    options: [
-      { en: "The office will call you. Wait until they reach out.", es: "La oficina lo llamará. Espere hasta que se comuniquen con usted." },
-      { en: "Two windows apply. First, call the office BEFORE the 20-minute grace window ends on the day of the shift. If you missed that, you still have 24 hours after the missed shift to make contact. Failing both windows is JOB ABANDONMENT and results in immediate termination effective the date of the missed shift. The 24-hour window gives you a chance to explain genuine incapacity (medical emergency, accident, hospitalization).", es: "Aplican dos ventanas. Primero, llame a la oficina ANTES de que termine la ventana de gracia de 20 minutos el día del turno. Si la perdió, todavía tiene 24 horas después del turno perdido para hacer contacto. Fallar ambas ventanas es ABANDONO DEL EMPLEO y resulta en terminación inmediata efectiva en la fecha del turno perdido. La ventana de 24 horas le da la oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización)." },
-      { en: "You have 72 hours after the missed shift to explain.", es: "Tiene 72 horas después del turno perdido para explicar." },
-      { en: "Missing a shift without calling first is always automatic termination with no second chance.", es: "Perder un turno sin llamar siempre es terminación automática sin segunda oportunidad." },
-    ],
-    correctIndex: 1,
-  },
-  {
-    id: "q-pp-44-move-in-empty-home",
-    moduleId: "phes-policies",
-    prompt: {
-      en: "You arrive at a Move-In / Move-Out clean and the home is still fully furnished with belongings throughout. What do you do?",
-      es: "Llega a una limpieza de Mudanza y la casa todavía está completamente amueblada con pertenencias por todas partes. ¿Qué hace?",
-    },
-    options: [
-      { en: "Start cleaning around the furniture. Move-In / Move-Out is the same as a Deep Clean.", es: "Empiece a limpiar alrededor de los muebles. Una Mudanza es igual a una Limpieza Profunda." },
-      { en: "STOP and call the office BEFORE starting. Move-In / Move-Out cleans assume an empty home. Scope and pricing change when there is furniture in the way. Do not begin a Move-In / Move-Out clean in a non-empty space without office approval.", es: "DETÉNGASE y llame a la oficina ANTES de empezar. Las limpiezas de Mudanza asumen una casa vacía. El alcance y el precio cambian cuando hay muebles en medio. No empiece una limpieza de Mudanza en un espacio no vacío sin aprobación de la oficina." },
-      { en: "Ask the client to move everything out, then start cleaning.", es: "Pídale al cliente que saque todo, luego empiece a limpiar." },
-      { en: "Charge the client extra on the spot and proceed.", es: "Cobre al cliente extra en sitio y proceda." },
-    ],
-    correctIndex: 1,
-  },
+  // q-pp-41-lifting-limit, q-pp-42-w2-tip-reporting,
+  // q-pp-43-abandonment-window, q-pp-44-move-in-empty-home removed in
+  // audit batch 2 (2026-05-19): all four were orphans — not referenced
+  // in QUESTIONS_BY_MODULE or either answer key. Deleted to prevent
+  // accidental re-introduction. The question bank now matches the
+  // 35 ids referenced for phes-policies.
 
   // ═════════════════════════════════════════════════════════════════════════════
   // Module 2: COMPENSATION (15 questions)
