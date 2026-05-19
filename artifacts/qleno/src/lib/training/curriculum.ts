@@ -162,7 +162,7 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Every Phes cleaning is backed by a 24-hour guarantee. If a client calls within 24 hours unhappy with anything in their home, the original technician(s) return to correct the documented shortfall within that 24-hour window. Re-clean visits are scope-limited: techs only address the specific areas or tasks the client identified, not the whole home.", es: "Cada limpieza de Phes está respaldada por una garantía de 24 horas. Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa, los técnicos originales regresan a corregir la deficiencia documentada dentro de esa ventana de 24 horas. Las visitas de re-limpieza son de alcance limitado: los técnicos solo atienden las áreas o tareas específicas que el cliente identificó, no toda la casa." },
-          { en: "If the original tech completes the re-clean: Quality Verification is satisfied. Full commission is EARNED on the original job. The re-clean visit is part of the original commission — no additional pay — but the tech is guaranteed a 3-hour minimum on the re-clean visit regardless of how long the shortfall fix actually takes.", es: "Si el técnico original completa la re-limpieza: la Verificación de Calidad se cumple. Se GANA la comisión completa del trabajo original. La visita de re-limpieza es parte de la comisión original — sin pago adicional — pero el técnico tiene garantizado un mínimo de 3 horas en la visita de re-limpieza sin importar cuánto tome corregir la deficiencia." },
+          { en: "If the original tech completes the re-clean: Quality Verification is satisfied. Full commission is EARNED on the original job. The re-clean visit is part of the original commission and there is no additional pay for the re-clean visit itself.", es: "Si el técnico original completa la re-limpieza: la Verificación de Calidad se cumple. Se GANA la comisión completa del trabajo original. La visita de re-limpieza es parte de la comisión original y no hay pago adicional por la visita de re-limpieza en sí." },
           { en: "If the original tech refuses the re-clean without a lawful or protected reason: Quality Verification fails. Commission is not earned on the original job. Compensation for that job defaults to the on-site hourly rate of $18.00 per hour for time actually worked. This is the default rate kicking in when the contingent commission is never earned, not a retroactive penalty.", es: "Si el técnico original se niega a la re-limpieza sin razón legal o protegida: la Verificación de Calidad falla. No se gana comisión en el trabajo original. La compensación de ese trabajo se rige por la tarifa por hora en sitio de $18.00 por el tiempo realmente trabajado. Esta es la tarifa por defecto que aplica cuando la comisión contingente nunca se gana, no una penalidad retroactiva." },
           { en: "If the original tech cannot return: Phes may dispatch a recovery technician at $20.00 per hour with a 3-hour minimum (paid 3 hours even if the shortfall fix takes less time). The recovery tech only addresses the documented shortfall, not the whole job.", es: "Si el técnico original no puede regresar: Phes puede despachar un técnico de recuperación a $20.00 por hora con un mínimo de 3 horas (se pagan 3 horas aunque corregir la deficiencia tome menos tiempo). El técnico de recuperación solo atiende la deficiencia documentada, no todo el trabajo." },
           { en: "Refusing a valid re-clean is INSUBORDINATION and may result in discipline up to and including immediate termination.", es: "Negarse a una re-limpieza válida es INSUBORDINACIÓN y puede resultar en disciplina hasta e incluyendo la terminación inmediata." },
@@ -173,8 +173,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "For original dispatched jobs (the first visit to a client's home for a scheduled service), a three-hour pay minimum is guaranteed provided the employee remains on-site and working for the duration of the service, unless sent home early by management. For Fix-It re-clean visits and recovery-tech dispatches, the three-hour minimum is unconditional: the tech is paid 3 hours even if the documented shortfall is corrected in less time. See the Fix-It Rule above for re-clean pay specifics.",
-          es: "Para trabajos despachados originales (la primera visita al hogar del cliente para un servicio programado), se garantiza un mínimo de pago de tres horas siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano. Para visitas de Fix-It y despachos de técnico de recuperación, el mínimo de tres horas es incondicional: al técnico se le pagan 3 horas aunque la deficiencia documentada se corrija en menos tiempo. Vea la Regla de Corrección arriba para los detalles de pago de re-limpieza.",
+          en: "For original dispatched jobs (the first visit to a client's home for a scheduled service), a three-hour pay minimum is guaranteed provided the employee remains on-site and working for the duration of the service, unless sent home early by management. The three-hour minimum also applies to recovery-tech dispatches at $20.00 per hour (paid 3 hours even if the shortfall fix takes less time). The three-hour minimum does NOT apply to Fix-It re-clean visits by the original tech, which are part of the original commission and earn no additional pay. See the Fix-It Rule above for re-clean pay specifics.",
+          es: "Para trabajos despachados originales (la primera visita al hogar del cliente para un servicio programado), se garantiza un mínimo de pago de tres horas siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano. El mínimo de tres horas también aplica a despachos de técnico de recuperación a $20.00 por hora (se pagan 3 horas aunque la corrección del faltante tome menos tiempo). El mínimo de tres horas NO aplica a visitas Fix-It de re-limpieza realizadas por el técnico original, que son parte de la comisión original y no ganan pago adicional. Vea la Regla de Corrección arriba para los detalles de pago de re-limpieza.",
         },
       },
 
@@ -1198,8 +1198,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. Phes covers the labor — the returning team is paid normally. We never refuse a guarantee call. Repeated Fix-It calls on your jobs may trigger Quality Probation.",
-          es: "Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Phes cubre la mano de obra — el equipo que regresa recibe pago normal. Nunca rechazamos una llamada de garantía. Llamadas Fix-It repetidas pueden activar Periodo de Prueba de Calidad.",
+          en: "If a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. If the original team returns to their own job, the re-clean is part of the original commission and there is no additional pay. If a recovery technician is dispatched to fix a different team's job, that recovery tech is paid $20.00 per hour with a 3-hour minimum. We never refuse a guarantee call. Repeated Fix-It calls on your jobs may trigger Quality Probation.",
+          es: "Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Si el equipo original regresa a su propio trabajo, la re-limpieza es parte de la comisión original y no hay pago adicional. Si se despacha a un técnico de recuperación para atender el trabajo de un equipo diferente, ese técnico de recuperación recibe $20.00 por hora con un mínimo de 3 horas. Nunca rechazamos una llamada de garantía. Llamadas Fix-It repetidas pueden activar Periodo de Prueba de Calidad.",
         },
       },
 
@@ -3775,14 +3775,14 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-cm-11-fixit",
     moduleId: "compensation",
-    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job. How is the returning team paid?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer. ¿Cómo se le paga al equipo que regresa?" },
+    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job that your team performed. How is the returning original team paid for the re-clean visit?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer que su equipo realizó. ¿Cómo se le paga al equipo original que regresa para la visita de re-limpieza?" },
     options: [
-      { en: "Not paid — Fix-It is on the tech who did the original job", es: "Sin pago — Fix-It es por cuenta del técnico original" },
-      { en: "Paid normally — Phes covers the labor; we never refuse a guarantee call", es: "Pago normal — Phes cubre la mano de obra; nunca rechazamos una llamada de garantía" },
-      { en: "Half pay — Fix-It is a partial credit", es: "Medio pago — Fix-It es un crédito parcial" },
-      { en: "Cash bonus on top of regular pay", es: "Bono en efectivo sobre el pago regular" },
+      { en: "No additional pay. The re-clean is part of the original commission already earned on that job.", es: "Sin pago adicional. La re-limpieza es parte de la comisión original ya ganada en ese trabajo." },
+      { en: "Paid normally at the standard residential commission rate again.", es: "Pago normal con la tarifa estándar de comisión residencial otra vez." },
+      { en: "A 3-hour minimum at $20.00 per hour, same as a recovery technician.", es: "Un mínimo de 3 horas a $20.00 por hora, igual que un técnico de recuperación." },
+      { en: "Cash bonus on top of regular pay.", es: "Bono en efectivo sobre el pago regular." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cm-12-quality-probation",
