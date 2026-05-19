@@ -310,7 +310,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-cm-08-hourly-overrun": 1,
   "q-cm-09-commercial-rate": 2,
   "q-cm-10-commercial-early": 1,
-  "q-cm-11-fixit": 1,
+  "q-cm-11-fixit": 0,
   "q-cm-12-quality-probation": 1,
   "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 2,
@@ -396,7 +396,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   // Workplace Act (820 ILCS 55).
   "q-da-01-no-pre-employment-test": 1,
   "q-da-02-impairment-not-cannabis-use": 1,
-  "q-da-03-impairment-signs": 1,
+  "q-da-03-impairment-signs": 2,
   "q-da-04-reasonable-suspicion-process": 1,
   "q-da-05-post-accident-threshold": 1,
   "q-da-06-prescription-meds": 1,
