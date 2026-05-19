@@ -91,11 +91,11 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 30);
   });
 
-  it("phes-policies has 40 questions (cleaning checklist + Deep Clean scope 2026-05-12)", () => {
+  it("phes-policies has 35 questions (40 minus 5 dangling ids stripped 2026-05-19)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      40,
-      `phes-policies should have 40 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      35,
+      `phes-policies should have 35 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
@@ -112,7 +112,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
     // supply-kit: 10 (Phase 9 spec, IL Wage Payment + responsibility)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
-      "phes-policies": 40,
+      "phes-policies": 35,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
@@ -135,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 187 total (40 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 187);
+  it("ALL_QUESTION_IDS is 182 total (35 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 182);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

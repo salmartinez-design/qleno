@@ -844,7 +844,14 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         enrollment_id: enrollment.id,
         module_id: moduleId,
         answers,
-        question_ids: moduleId === FINAL_MODULE_ID ? questionIds : null,
+        // 2026-05-19: always store the question_ids that were served,
+        // not just for the final mixed test. Previously per-module
+        // attempts stored null and the admin history endpoint
+        // reconstructed from QUESTIONS_BY_MODULE — which produced
+        // misaligned answer/question pairs when the served list had
+        // been filtered (e.g. by the dangling-id defensive filter in
+        // PR #132). Storing what we actually served eliminates drift.
+        question_ids: questionIds,
         score: result.score,
         passed: result.passed,
         attempted_at: now,
@@ -1962,19 +1969,26 @@ router.get(
         .orderBy(desc(lmsQuizAttemptsTable.attempted_at));
 
       const attempts = rows.map((r) => {
-        // For per-module quizzes the question_ids column is null because
-        // the set is fixed; resolve it from QUESTIONS_BY_MODULE. For the
-        // final mixed test, the column carries the random sample served.
-        const isFinal = r.module_id === FINAL_MODULE_ID;
-        const questionIds: string[] = isFinal
-          ? Array.isArray(r.question_ids)
-            ? (r.question_ids as string[])
-            : []
-          : [
-              ...((QUESTIONS_BY_MODULE as Record<string, readonly string[]>)[
-                r.module_id
-              ] ?? []),
-            ];
+        // 2026-05-19: prefer the stored question_ids column over the
+        // QUESTIONS_BY_MODULE fallback. Per-module attempts now persist
+        // the exact list that was served (after frontend defensive
+        // filtering for any dangling ids). Legacy rows from before the
+        // change still have null question_ids and fall back to the
+        // module's fixed list — accurate for any module without
+        // missing ids, otherwise the legacy history may still be
+        // length-mismatched. New attempts are always accurate.
+        const stored = Array.isArray(r.question_ids)
+          ? (r.question_ids as string[])
+          : null;
+        const questionIds: string[] =
+          stored ??
+          (r.module_id === FINAL_MODULE_ID
+            ? []
+            : [
+                ...((QUESTIONS_BY_MODULE as Record<string, readonly string[]>)[
+                  r.module_id
+                ] ?? []),
+              ]);
         const correctIndexes = questionIds.map(
           (qid) => SERVER_ANSWER_KEY[qid] ?? -1,
         );
