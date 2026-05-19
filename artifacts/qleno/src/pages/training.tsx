@@ -1883,7 +1883,7 @@ function ModuleRow({
     <button
       type="button"
       onClick={effectiveOnClick}
-      disabled={!unlocked || !effectiveOnClick}
+      disabled={(!unlocked && !isOwner) || !effectiveOnClick}
       style={{
         minWidth: 0,
         background: "transparent",
@@ -1891,7 +1891,7 @@ function ModuleRow({
         padding: 0,
         margin: 0,
         textAlign: "left",
-        cursor: unlocked && effectiveOnClick ? "pointer" : "default",
+        cursor: (unlocked || isOwner) && effectiveOnClick ? "pointer" : "default",
         fontFamily: FONT,
         flex: 1,
       }}
@@ -2254,7 +2254,7 @@ function FinalStepCard({
           <button
             type="button"
             onClick={effectiveOnClick}
-            disabled={!unlocked || passed || !effectiveOnClick}
+            disabled={(!unlocked && !isOwner) || passed || !effectiveOnClick}
             style={{
               background: "transparent",
               color: "inherit",
