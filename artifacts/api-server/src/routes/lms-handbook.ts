@@ -69,6 +69,7 @@ import {
   type SignedAckSummary,
 } from "../lib/lms-handbook-pdf.js";
 import { acknowledgePendingReAcksForSign } from "./lms-annual-ack.js";
+import { isEnrollmentTrulyComplete } from "../lib/lms-completion.js";
 import { logAudit } from "../lib/audit.js";
 
 const router = Router();
@@ -347,11 +348,45 @@ router.post("/sign", requireAuth, async (req, res) => {
       pending_re_acks_settled: acknowledgedCount,
     });
 
+    // 2026-05-19 audit: signing the handbook is the LAST gate in the
+    // completion chain. If the learner had already passed the final
+    // exam + all module quizzes + all 6 pre-final signed docs, then
+    // signing the handbook is what flips the whole enrollment to
+    // 'complete'. Mirror the /quiz/submit pattern (lms.ts:961-970)
+    // so enrollment.completed_at is stamped here too. Without this,
+    // the SSoT computes enrollmentStatus='complete' but the cached
+    // enrollment row stays status='active', completed_at=null — a
+    // read/write divergence the admin dashboard surfaces.
+    let enrollmentCompletedAt: Date | null = null;
+    try {
+      const truth = await isEnrollmentTrulyComplete(companyId, userId);
+      if (truth.complete) {
+        const updated = await db
+          .update(lmsEnrollmentsTable)
+          .set({ status: "completed", completed_at: now, updated_at: now })
+          .where(
+            and(
+              eq(lmsEnrollmentsTable.company_id, companyId),
+              eq(lmsEnrollmentsTable.user_id, userId),
+              // Only update if not already completed (idempotent).
+              eq(lmsEnrollmentsTable.status, "active"),
+            ),
+          )
+          .returning({ completed_at: lmsEnrollmentsTable.completed_at });
+        enrollmentCompletedAt = updated[0]?.completed_at ?? null;
+      }
+    } catch (err) {
+      // Non-fatal: enrollment-completion stamp failure should not
+      // block the signed-document write that already succeeded.
+      console.error("[lms-handbook] enrollment completion stamp failed:", err);
+    }
+
     return res.json({
       data: {
         signed_document_id: signedDocumentId,
         version_hash: version.version_hash,
         signed_at: now,
+        enrollment_completed_at: enrollmentCompletedAt,
       },
     });
   } catch (err) {

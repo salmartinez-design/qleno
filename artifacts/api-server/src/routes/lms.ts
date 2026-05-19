@@ -1703,25 +1703,16 @@ router.post(
         now,
       });
 
-      // Bug-fix sprint #3: bypass now ALSO issues a completion certificate
-      // so the admin dashboard reflects the new pass. Non-fatal — matches
-      // /quiz/submit's try/catch pattern.
-      try {
-        const meta = captureRequestMetadata(req);
-        await issueCertificate({
-          companyId,
-          userId: targetUserId,
-          moduleId,
-          score: 100,
-          passed: true,
-          locale: enrollment.locale === "es" ? "es" : "en",
-          ipAddress: meta.ip_address,
-          deviceInfo: parseMinimalDeviceInfo(meta.user_agent),
-          quizAttemptId: null,
-        });
-      } catch (err) {
-        console.error("[lms] bypass cert issuance failed (non-fatal):", err);
-      }
+      // 2026-05-19 audit: the cert-issuance block that used to live
+      // here was a stale leftover from bug-fix sprint #3. PR #4 reverted
+      // the policy ("bypass does NOT issue a cert"; see the comment at
+      // the audit-log block below) but only updated the comment — the
+      // code kept calling issueCertificate(). Removing it now so the
+      // code matches the policy: bypass marks the quiz passed for
+      // navigation purposes, but does NOT create a completion cert.
+      // A cert represents actual learner action; an admin click does
+      // not. The lms_audit_log row (source='admin_bypass') is the
+      // canonical record of the bypass event.
 
       // Bypassing the final mixed test completes the enrollment ONLY if
       // every other prerequisite is also satisfied. Otherwise we'd
