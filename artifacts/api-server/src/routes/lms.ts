@@ -881,7 +881,11 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
         best_score: result.score,
         attempts: 1, // sql adds, not assigns — see helper
         last_attempt_at: now,
-        ...(passedNow ? { passed_at: now } : {}),
+        // 2026-05-19 audit: only stamp passed_at on the FIRST pass.
+        // Without `&& !stayPassed`, an owner retake of an already-passed
+        // module overwrote the original completion date, destroying the
+        // legal record of when the learner first cleared the module.
+        ...(passedNow && !stayPassed ? { passed_at: now } : {}),
       },
       now,
     });
@@ -1417,7 +1421,9 @@ router.get(
 router.post(
   "/admin/extend",
   requireAuth,
-  requireRole("owner", "admin", "office"),
+  // 2026-05-19 audit: was `("owner", "admin", "office")` — office can't
+  // arbitrarily extend deadlines (audit-defeating). Owner + admin only.
+  requireRole("owner", "admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1605,7 +1611,10 @@ router.post(
 router.post(
   "/admin/bypass-module",
   requireAuth,
-  requireRole("owner", "admin", "office"),
+  // 2026-05-19 audit: was `("owner", "admin", "office")` — office must
+  // not be able to fraudulently mark peers' modules as passed. Owner +
+  // admin only (matches the docstring above).
+  requireRole("owner", "admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1791,7 +1800,10 @@ router.post(
 router.post(
   "/admin/reset",
   requireAuth,
-  requireRole("owner", "admin", "office"),
+  // 2026-05-19 audit: was `("owner", "admin", "office")` — office must
+  // NOT be able to cascade-delete a peer's enrollment + attempt history
+  // (audit-trail destruction). Owner + admin only.
+  requireRole("owner", "admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1966,7 +1978,12 @@ router.get(
         .select()
         .from(lmsQuizAttemptsTable)
         .where(eq(lmsQuizAttemptsTable.enrollment_id, enrollment.id))
-        .orderBy(desc(lmsQuizAttemptsTable.attempted_at));
+        // 2026-05-19 audit: secondary sort by id DESC. Two attempts
+        // can land in the same millisecond (idempotency race or
+        // backfill) and attempted_at alone gives undefined order. id
+        // DESC matches insertion order so "newest first" stays
+        // deterministic.
+        .orderBy(desc(lmsQuizAttemptsTable.attempted_at), desc(lmsQuizAttemptsTable.id));
 
       const attempts = rows.map((r) => {
         // 2026-05-19: prefer the stored question_ids column over the

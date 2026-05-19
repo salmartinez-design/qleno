@@ -750,8 +750,14 @@ export default function TrainingPage() {
     );
   }
 
+  // 2026-05-19 audit (third occurrence of the Maribel-class pattern):
+  // mirror the backend's defensive predicate. A module with best_score
+  // >= 80 and status != 'passed' (cold-start race window or admin
+  // retake during a backfill) was being treated as NOT passed here,
+  // while the backend treats it as passed. That divergence caused
+  // PR #126's "Module is locked" 403. Same rule in both surfaces.
   const completedIds = state.progress
-    .filter((p) => p.status === "passed")
+    .filter((p) => p.status === "passed" || (p.best_score ?? 0) >= 80)
     .map((p) => p.module_id);
   const finalUnlocked = isFinalUnlocked(completedIds);
   const finalPassed = completedIds.includes(FINAL_MODULE_ID);
