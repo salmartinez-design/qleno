@@ -2877,6 +2877,33 @@ function QuizView({
     const attemptsRemaining =
       result.attempts_remaining ??
       Math.max(0, maxAttempts - (result.attempts_used ?? priorAttempts + 1));
+    // 2026-05-19 (Pattern 2 — corporate compliance standard): build the
+    // "questions you missed" breakdown for the fail screen. Shows the
+    // prompt + the learner's selection but NOT the correct answer.
+    // Preserves assessment integrity across retries. Final Mixed Test
+    // omits perQuestion on purpose (question-bank leakage prevention),
+    // so the breakdown is empty in that case.
+    const wrongQuestions: Array<{
+      index: number;
+      prompt: string;
+      selected: string | null;
+    }> = [];
+    if (!result.passed && result.perQuestion) {
+      result.perQuestion.forEach((ok, i) => {
+        if (ok) return;
+        const q = questions[i];
+        if (!q) return;
+        const selectedIdx = answers[i];
+        wrongQuestions.push({
+          index: i + 1,
+          prompt: q.prompt[locale],
+          selected:
+            selectedIdx != null && q.options[selectedIdx]
+              ? q.options[selectedIdx][locale]
+              : null,
+        });
+      });
+    }
     return (
       <ResultView
         locale={locale}
@@ -2885,6 +2912,7 @@ function QuizView({
         maxAttempts={result.max_attempts ?? maxAttempts}
         passThreshold={PASS_THRESHOLD_PCT}
         isOwner={isOwner}
+        wrongQuestions={wrongQuestions}
         onBackHome={onCancel}
         onContinue={async () => {
           if (result.passed) {
@@ -3125,6 +3153,7 @@ function ResultView({
   maxAttempts,
   passThreshold,
   isOwner,
+  wrongQuestions,
   onContinue,
   onBackHome,
 }: {
@@ -3134,6 +3163,18 @@ function ResultView({
   maxAttempts: number;
   passThreshold: number;
   isOwner: boolean;
+  /**
+   * 2026-05-19 (Pattern 2): on a failed per-module quiz, the list of
+   * questions the learner missed. Each entry shows the prompt + the
+   * learner's selected option, NOT the correct answer. This preserves
+   * assessment integrity across retake attempts. Empty for the Final
+   * Mixed Test (which omits perQuestion on purpose).
+   */
+  wrongQuestions?: Array<{
+    index: number;
+    prompt: string;
+    selected: string | null;
+  }>;
   onContinue: () => void;
   onBackHome: () => void | Promise<void>;
 }) {
@@ -3143,7 +3184,13 @@ function ResultView({
   const noMoreRetries =
     !passed && shouldShowLearnerGating(isOwner) && attemptsRemaining <= 0;
   return (
-    <div style={{ maxWidth: 480, margin: "60px auto", padding: 18 }}>
+    <div
+      style={{
+        maxWidth: !passed && wrongQuestions && wrongQuestions.length > 0 ? 600 : 480,
+        margin: "60px auto",
+        padding: 18,
+      }}
+    >
       <div
         style={{
           background: SURFACE,
@@ -3178,6 +3225,88 @@ function ResultView({
               : `${attemptsRemaining} ${tr("attemptsRemaining", locale)} (${
                   maxAttempts - attemptsRemaining
                 }/${maxAttempts} ${tr("attemptsUsed", locale)})`}
+          </div>
+        ) : null}
+        {/* Pattern 2 (corporate compliance standard): on fail, surface
+            the prompts the learner missed + their selection so they
+            know what to re-read. Correct answer is NOT shown — keeps
+            the assessment honest across retries. */}
+        {!passed && wrongQuestions && wrongQuestions.length > 0 ? (
+          <div
+            style={{
+              marginTop: 18,
+              textAlign: "left",
+              borderTop: `1px solid ${LINE}`,
+              paddingTop: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.06em",
+                color: INK,
+                marginBottom: 10,
+              }}
+            >
+              {locale === "es"
+                ? `Preguntas que necesita revisar (${wrongQuestions.length})`
+                : `Questions to review (${wrongQuestions.length})`}
+            </div>
+            <ul
+              style={{
+                margin: 0,
+                padding: 0,
+                listStyle: "none",
+                display: "flex",
+                flexDirection: "column",
+                gap: 12,
+              }}
+            >
+              {wrongQuestions.map((wq) => (
+                <li
+                  key={wq.index}
+                  style={{
+                    fontSize: 12.5,
+                    color: INK,
+                    lineHeight: 1.45,
+                  }}
+                >
+                  <div style={{ fontWeight: 700, marginBottom: 3 }}>
+                    {locale === "es" ? "Pregunta" : "Question"} {wq.index}.{" "}
+                    {wq.prompt}
+                  </div>
+                  {wq.selected != null ? (
+                    <div
+                      style={{
+                        color: DANGER,
+                        fontSize: 12,
+                      }}
+                    >
+                      {locale === "es" ? "Su respuesta: " : "Your answer: "}
+                      {wq.selected}
+                    </div>
+                  ) : (
+                    <div style={{ color: INK_MUTE, fontSize: 12, fontStyle: "italic" }}>
+                      {locale === "es" ? "Sin respuesta seleccionada" : "No answer selected"}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div
+              style={{
+                marginTop: 12,
+                fontSize: 11.5,
+                color: INK_MUTE,
+                fontStyle: "italic",
+              }}
+            >
+              {locale === "es"
+                ? "Revise la sección correspondiente del módulo antes de volver a intentarlo."
+                : "Review the relevant section of the module before retrying."}
+            </div>
           </div>
         ) : null}
         <div
