@@ -464,9 +464,8 @@ const T = {
   retry: { en: "Try again", es: "Intentar de nuevo" },
   acknowledge: { en: "I acknowledge", es: "Confirmo" },
   finalIntro: {
-    en: "Final mixed test — random questions from every module. 80% to pass.",
-    es:
-      "Examen final mixto — preguntas aleatorias de cada módulo. 80% para aprobar.",
+    en: "Final mixed test. Random questions from every module. 80% to pass.",
+    es: "Examen final mixto. Preguntas aleatorias de cada módulo. 80% para aprobar.",
   },
   ackPrompt: {
     en: "Type your full name to acknowledge you've completed training.",
@@ -490,8 +489,8 @@ const T = {
     es: "Capacitación completada",
   },
   doneSub: {
-    en: "Thanks — your manager has been notified.",
-    es: "Gracias — tu supervisor ha sido notificado.",
+    en: "Thanks. Your manager has been notified.",
+    es: "Gracias. Tu supervisor ha sido notificado.",
   },
   start_first: { en: "Start your training", es: "Comenzar capacitación" },
   attempt: { en: "Attempt", es: "Intento" },
