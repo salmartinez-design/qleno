@@ -1825,7 +1825,7 @@ function ModuleRow({
       ? tr("review_quiz", locale)
       : status === "failed"
       ? tr("retry_quiz", locale)
-      : status === "in_progress"
+      : status === "in_progress" && attempts > 0
       ? tr("resume_quiz", locale)
       : isQuizModule
       ? tr("start_quiz", locale)
@@ -2399,7 +2399,7 @@ function ModuleView({
       ? tr("review_quiz", locale)
       : status === "failed"
       ? tr("retry_quiz", locale)
-      : status === "in_progress"
+      : status === "in_progress" && attempts > 0
       ? tr("resume_quiz", locale)
       : tr("start_quiz", locale);
   useEffect(() => {
@@ -2720,18 +2720,50 @@ function QuizView({
   // Load (or initialize) the quiz state from server.
   useEffect(() => {
     let cancelled = false;
+    // Defensive filter (Sal report 2026-05-19): the curriculum's
+    // QUESTIONS_BY_MODULE list (and SERVER_ANSWER_KEY) currently
+    // reference question ids whose text is missing from the bundled
+    // curriculum.quiz bank. Without this filter, the quiz advances to
+    // an unresolvable id and renders "Question not found." Drop any
+    // id we can't resolve, preserve parallel answers, then proceed.
+    const validIdSet = new Set(curriculum.quiz.map((q) => q.id));
+    const filterIds = (
+      ids: string[],
+      ans: (number | null)[] = [],
+    ): { ids: string[]; answers: (number | null)[] } => {
+      const outIds: string[] = [];
+      const outAns: (number | null)[] = [];
+      ids.forEach((qid, i) => {
+        if (validIdSet.has(qid)) {
+          outIds.push(qid);
+          outAns.push(ans[i] ?? null);
+        } else {
+          console.warn(
+            `[quiz] dropping unresolvable question id "${qid}" (module=${moduleId})`,
+          );
+        }
+      });
+      return { ids: outIds, answers: outAns };
+    };
+
     (async () => {
       try {
         const existing = await lmsApi.getQuizState(token, moduleId);
         if (cancelled) return;
         if (existing) {
           // Resume.
-          setQuestionIds(
+          const filtered = filterIds(
             existing.meta?.question_ids ??
               fixedQuestionIds(curriculum, moduleId),
+            existing.answers ?? [],
           );
-          setAnswers(existing.answers ?? []);
-          setCursor(existing.current_question_index ?? 0);
+          setQuestionIds(filtered.ids);
+          setAnswers(filtered.answers);
+          // Clamp cursor to the new (possibly shorter) list.
+          const savedCursor = existing.current_question_index ?? 0;
+          setCursor(
+            Math.min(savedCursor, Math.max(0, filtered.ids.length - 1)),
+          );
           setResumeReady(true);
           return;
         }
@@ -2748,8 +2780,9 @@ function QuizView({
         } else {
           qids = fixedQuestionIds(curriculum, moduleId);
         }
-        setQuestionIds(qids);
-        setAnswers(new Array(qids.length).fill(null));
+        const filtered = filterIds(qids);
+        setQuestionIds(filtered.ids);
+        setAnswers(new Array(filtered.ids.length).fill(null));
         setCursor(0);
         setResumeReady(true);
       } catch (e) {
