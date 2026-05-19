@@ -577,10 +577,12 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Personal cell phones kept in your bag or vehicle during a job.", es: "Los teléfonos personales se mantienen en su bolso o vehículo durante un trabajo." },
-          { en: "Phone use during a job is permitted ONLY for the company app (clock-in, check-in, job worksheet) or genuine emergencies.", es: "El uso del teléfono durante un trabajo se permite SOLO para la app de la compañía (Clock In, Check In, hoja de trabajo) o emergencias genuinas." },
-          { en: "Personal calls, texts, and social media wait until break or after the visit.", es: "Llamadas personales, mensajes y redes sociales esperan hasta el descanso o después de la visita." },
-          { en: "To take any non-emergency call, exit the home entirely and notify your teammate.", es: "Para tomar cualquier llamada que no sea emergencia, salga completamente del hogar y notifique a su compañero de equipo." },
+          { en: "Personal cell phones may be carried on you during a job.", es: "Los teléfonos personales pueden llevarse consigo durante un trabajo." },
+          { en: "Music through headphones is allowed during cleaning. Keep the volume respectful and avoid explicit content in client homes.", es: "Se permite escuchar música con audífonos durante la limpieza. Mantenga el volumen respetuoso y evite contenido explícito en hogares de clientes." },
+          { en: "Stay reachable for the office. Office calls and texts may come through during a job and you should respond promptly.", es: "Manténgase disponible para la oficina. Las llamadas y mensajes de la oficina pueden llegar durante un trabajo y debe responder con prontitud." },
+          { en: "Personal phone calls and video calls are NOT allowed during a job, except for genuine emergencies.", es: "Las llamadas personales y videollamadas NO están permitidas durante un trabajo, salvo emergencias genuinas." },
+          { en: "Personal texts and social media wait until break or after the visit.", es: "Mensajes personales y redes sociales esperan hasta el descanso o después de la visita." },
+          { en: "To take a non-emergency call, exit the home entirely and notify your teammate.", es: "Para tomar una llamada que no sea emergencia, salga completamente del hogar y notifique a su compañero de equipo." },
           { en: "Photos and videos of client homes are forbidden, except through the company app for documenting work or damage.", es: "Las fotos y videos de los hogares de los clientes están prohibidos, excepto a través de la app de la compañía para documentar trabajo o daños." },
         ],
       },
