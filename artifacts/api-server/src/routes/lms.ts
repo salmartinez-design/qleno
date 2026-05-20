@@ -1914,6 +1914,146 @@ router.post(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
+// POST /admin/reset-module — Owner+Admin only (2026-05-20 feature)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Body: { userId, moduleId }
+//
+// Scoped reset: wipes JUST the named module for the named learner.
+// Deletes the lms_module_progress row, all lms_quiz_attempts rows, and
+// the lms_quiz_state autosave row for the (enrollment, moduleId) pair.
+// Other modules + the enrollment itself + the deadline + certs from
+// other modules are NOT touched. Certs for THIS module are also kept
+// (consistent with the bypass policy — certs represent historical
+// learner action; a fresh reset doesn't revoke prior earned certs).
+//
+// Use case: admin/owner notices a specific module is broken or a
+// learner needs to redo just one piece. /admin/reset is too aggressive
+// for that.
+
+router.post(
+  "/admin/reset-module",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const companyId = req.auth!.companyId;
+      if (companyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetUserId = Number(req.body?.userId);
+      const moduleId = String(req.body?.moduleId ?? "").trim();
+
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "userId is required" });
+      }
+      if (!moduleId) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "moduleId is required" });
+      }
+      // Validate moduleId against the curriculum so a typo can't quietly
+      // succeed against a non-existent module.
+      const validIds = new Set<string>([
+        ...(QUIZ_MODULE_IDS as readonly string[]),
+        FINAL_MODULE_ID,
+        "acknowledgment",
+      ]);
+      if (!validIds.has(moduleId)) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: `Unknown moduleId: ${moduleId}` });
+      }
+
+      // Tenant gate.
+      const targetUser = await db
+        .select({ company_id: usersTable.company_id })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetUserId))
+        .limit(1);
+      if (!targetUser[0] || targetUser[0].company_id !== companyId) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "User not found in tenant" });
+      }
+
+      const existing = await db
+        .select()
+        .from(lmsEnrollmentsTable)
+        .where(
+          and(
+            eq(lmsEnrollmentsTable.company_id, companyId),
+            eq(lmsEnrollmentsTable.user_id, targetUserId),
+          ),
+        )
+        .limit(1);
+      if (!existing[0]) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "No enrollment to reset" });
+      }
+      const enrollmentId = existing[0].id;
+
+      // Delete the per-module rows. All three tables key on
+      // (enrollment_id, module_id) so the scope stays strictly local.
+      const progressDel = await db
+        .delete(lmsModuleProgressTable)
+        .where(
+          and(
+            eq(lmsModuleProgressTable.enrollment_id, enrollmentId),
+            eq(lmsModuleProgressTable.module_id, moduleId),
+          ),
+        );
+      const stateDel = await db
+        .delete(lmsQuizStateTable)
+        .where(
+          and(
+            eq(lmsQuizStateTable.enrollment_id, enrollmentId),
+            eq(lmsQuizStateTable.module_id, moduleId),
+          ),
+        );
+      const attemptsDel = await db
+        .delete(lmsQuizAttemptsTable)
+        .where(
+          and(
+            eq(lmsQuizAttemptsTable.enrollment_id, enrollmentId),
+            eq(lmsQuizAttemptsTable.module_id, moduleId),
+          ),
+        );
+
+      await logAudit(
+        req,
+        "lms.admin.module_reset",
+        "lms_enrollment",
+        enrollmentId,
+        null,
+        {
+          target_user_id: targetUserId,
+          module_id: moduleId,
+          progress_rows_deleted: (progressDel as any).rowCount ?? null,
+          state_rows_deleted: (stateDel as any).rowCount ?? null,
+          attempt_rows_deleted: (attemptsDel as any).rowCount ?? null,
+        },
+      );
+
+      return res.json({ data: { ok: true, module_id: moduleId } });
+    } catch (err) {
+      console.error("[lms] /admin/reset-module error:", err);
+      return res
+        .status(500)
+        .json({
+          error: "Internal Server Error",
+          message: "Failed to reset module",
+        });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GET /admin/learners/:userId/attempts — Owner+Admin only
 // ─────────────────────────────────────────────────────────────────────────────
 //

@@ -220,6 +220,19 @@ export default function LmsAdminPage() {
     }
   }
 
+  // 2026-05-20: per-module reset. Mirrors bypassFor's shape so the
+  // grid's prop wiring is symmetric. Wipes module_progress, all
+  // quiz_attempts, and the autosave for the ONE module. Other modules
+  // + the enrollment + certs are untouched.
+  async function resetModuleFor(userId: number, moduleId: string) {
+    try {
+      await api("POST", "/lms/admin/reset-module", token, { userId, moduleId });
+      await refresh();
+    } catch (e) {
+      setError(String((e as Error).message));
+    }
+  }
+
   useEffect(() => {
     if (!isAuthorized) return;
     void refresh();
@@ -459,6 +472,7 @@ export default function LmsAdminPage() {
             onReset={setResetOpen}
             onHistory={setHistoryOpen}
             onBypass={bypassFor}
+            onResetModule={resetModuleFor}
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
             onEdit={setEditEmpOpen}
@@ -476,6 +490,7 @@ export default function LmsAdminPage() {
             onReset={setResetOpen}
             onHistory={setHistoryOpen}
             onBypass={bypassFor}
+            onResetModule={resetModuleFor}
             onArchive={setArchiveOpen}
             onResetDeadline={setResetDeadlineOpen}
             onEdit={setEditEmpOpen}
@@ -678,6 +693,7 @@ function RosterTable({
   onReset,
   onHistory,
   onBypass,
+  onResetModule,
   onArchive,
   onResetDeadline,
   onEdit,
@@ -693,6 +709,7 @@ function RosterTable({
   onReset: (r: RosterRow) => void;
   onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  onResetModule: (userId: number, moduleId: string) => Promise<void>;
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
   onEdit: (r: RosterRow) => void;
@@ -999,7 +1016,7 @@ function RosterTable({
                       borderBottom: `1px solid ${LINE_SOFT}`,
                     }}
                   >
-                    <ModuleAttemptsGrid row={r} onBypass={onBypass} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
+                    <ModuleAttemptsGrid row={r} onBypass={onBypass} onResetModule={onResetModule} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
                     <LearnerCertificatesPanel row={r} />
                     <LearnerSignedDocumentsPanel row={r} />
                   </td>
@@ -1017,11 +1034,13 @@ function RosterTable({
 function ModuleAttemptsGrid({
   row,
   onBypass,
+  onResetModule,
   callerRole,
   adminBypassAllowed,
 }: {
   row: RosterRow;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  onResetModule: (userId: number, moduleId: string) => Promise<void>;
   callerRole: string | null;
   adminBypassAllowed: boolean;
 }) {
@@ -1036,6 +1055,12 @@ function ModuleAttemptsGrid({
   // expected confirm string — caller types the module name to
   // enable the destructive button.
   const [pendingBypass, setPendingBypass] = useState<string | null>(null);
+  // 2026-05-20: per-module reset. Wipes module_progress + quiz_attempts
+  // + autosave for the named module only. Owner+admin only (same gate
+  // as bypass — both are destructive admin actions). Visible whenever
+  // the module has been touched (status != not_started OR attempts > 0).
+  const [pendingResetModule, setPendingResetModule] = useState<string | null>(null);
+  const canSeeReset = callerRole === "owner" || callerRole === "admin";
   // Item 2 (P0 sprint): canonical denominator. We list the 13 quiz
   // modules + the Final Mixed Test as a separate trailing card. The
   // older content-only "acknowledgment" entry from MODULE_ORDER is
@@ -1139,6 +1164,34 @@ function ModuleAttemptsGrid({
                   <FastForward size={11} /> Bypass
                 </button>
               ) : null}
+              {/* 2026-05-20: per-module Reset. Shown when the module
+                  has been touched (so there's something to wipe) and
+                  the caller is owner/admin. Wipes module_progress +
+                  quiz_attempts + autosave for THIS module only. */}
+              {canSeeReset && (status !== "not_started" || attempts > 0) ? (
+                <button
+                  type="button"
+                  onClick={() => setPendingResetModule(moduleId)}
+                  title="Reset this module (wipes progress, attempts, autosave)"
+                  style={{
+                    background: "transparent",
+                    color: INK_MUTE,
+                    border: `1px solid ${LINE}`,
+                    padding: "5px 8px",
+                    borderRadius: 6,
+                    fontSize: 11,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    fontFamily: FONT,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                >
+                  <RotateCcw size={11} /> Reset
+                </button>
+              ) : null}
             </div>
           );
         })}
@@ -1153,6 +1206,199 @@ function ModuleAttemptsGrid({
           }}
         />
       ) : null}
+      {pendingResetModule !== null ? (
+        <ModuleResetConfirmDialog
+          moduleId={pendingResetModule}
+          onClose={() => setPendingResetModule(null)}
+          onConfirm={async () => {
+            await onResetModule(row.user_id, pendingResetModule);
+            setPendingResetModule(null);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ModuleResetConfirmDialog (2026-05-20)
+//
+// Type-RESET-to-confirm gate before wiping a single module's progress,
+// attempts, and autosave for the targeted learner. Mirrors the Bypass
+// dialog pattern. Owner+admin only.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ModuleResetConfirmDialog({
+  moduleId,
+  onClose,
+  onConfirm,
+}: {
+  moduleId: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const expected = "RESET";
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const valid = confirm.trim().toUpperCase() === expected;
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Reset module"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(15, 23, 42, 0.55)",
+        display: "grid",
+        placeItems: "center",
+        zIndex: 100,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: SURFACE,
+          borderRadius: RADIUS,
+          maxWidth: 460,
+          width: "100%",
+          padding: 24,
+          fontFamily: FONT,
+          color: INK,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 16,
+            fontWeight: 800,
+            color: INK,
+          }}
+        >
+          <AlertTriangle size={16} style={{ color: DANGER }} /> Reset {humanModule(moduleId)}
+        </div>
+        <div
+          style={{
+            fontSize: 12.5,
+            color: INK_MUTE,
+            marginTop: 6,
+            lineHeight: 1.55,
+          }}
+        >
+          Wipes the learner's progress on JUST this module: module status,
+          best score, attempt count, quiz autosave, and the immutable
+          attempt history rows. Other modules + the enrollment + the
+          deadline + any earned certificates are NOT touched.
+        </div>
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 800,
+            color: INK_MUTE,
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            marginTop: 16,
+            marginBottom: 6,
+          }}
+        >
+          Type RESET to confirm
+        </label>
+        <input
+          type="text"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="RESET"
+          autoFocus
+          style={{
+            width: "100%",
+            padding: "8px 10px",
+            border: `1px solid ${LINE}`,
+            borderRadius: 6,
+            fontSize: 13,
+            fontFamily: FONT,
+            color: INK,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+        {err ? (
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 12,
+              color: DANGER,
+              fontWeight: 700,
+            }}
+          >
+            {err}
+          </div>
+        ) : null}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            marginTop: 18,
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            style={{
+              background: "transparent",
+              border: `1px solid ${LINE}`,
+              color: INK,
+              padding: "8px 14px",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: busy ? "default" : "pointer",
+              fontFamily: FONT,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!valid || busy}
+            onClick={async () => {
+              setBusy(true);
+              setErr(null);
+              try {
+                await onConfirm();
+              } catch (e) {
+                setErr(String((e as Error).message));
+                setBusy(false);
+              }
+            }}
+            style={{
+              background: valid && !busy ? DANGER : INK_MUTE,
+              border: 0,
+              color: "#fff",
+              padding: "8px 14px",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: 800,
+              cursor: valid && !busy ? "pointer" : "default",
+              fontFamily: FONT,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              opacity: valid && !busy ? 1 : 0.7,
+            }}
+          >
+            <RotateCcw size={12} /> {busy ? "Resetting…" : "Reset module"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1327,6 +1573,7 @@ function RosterCards({
   onReset,
   onHistory,
   onBypass,
+  onResetModule,
   onArchive,
   onResetDeadline,
   onEdit,
@@ -1342,6 +1589,7 @@ function RosterCards({
   onReset: (r: RosterRow) => void;
   onHistory: (r: RosterRow) => void;
   onBypass: (userId: number, moduleId: string) => Promise<void>;
+  onResetModule: (userId: number, moduleId: string) => Promise<void>;
   onArchive: (r: RosterRow) => void;
   onResetDeadline: (r: RosterRow) => void;
   onEdit: (r: RosterRow) => void;
@@ -1539,7 +1787,7 @@ function RosterCards({
           </div>
           {expanded.has(r.enrollment_id) ? (
             <div style={{ marginTop: 6 }}>
-              <ModuleAttemptsGrid row={r} onBypass={onBypass} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
+              <ModuleAttemptsGrid row={r} onBypass={onBypass} onResetModule={onResetModule} callerRole={callerRole} adminBypassAllowed={adminBypassAllowed} />
               <LearnerCertificatesPanel row={r} />
               <LearnerSignedDocumentsPanel row={r} />
             </div>
