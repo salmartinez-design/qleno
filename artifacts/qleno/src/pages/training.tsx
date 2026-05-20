@@ -2961,6 +2961,10 @@ function QuizView({
   const currentAttempt = Math.min(priorAttempts + 1, maxAttempts);
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 18px" }}>
+      <QuizBrandHeader
+        tenantName={curriculum.tenantName}
+        tenantLogoUrl={curriculum.tenantLogoUrl}
+      />
       <BackLink label={tr("back", locale)} onClick={onCancel} />
       <div style={{ marginTop: 14 }}>
         <div
@@ -3126,6 +3130,71 @@ function QuizView({
             )}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * QuizBrandHeader — 2026-05-20.
+ *
+ * Branded header shown at the top of every QuizView (per-module and
+ * final exam). Phes tenant logo is prominent on the top-left; the
+ * Qleno wordmark sits on the top-right as a smaller secondary mark.
+ * Adds brand reinforcement to the quiz-taking surface, which was
+ * previously chromeless (just BackLink → question content).
+ *
+ * Phes logo: 64px desktop, 48px mobile.
+ * Qleno mark: small (md) horizontal.
+ * Thin bottom border in LINE color.
+ */
+function QuizBrandHeader({
+  tenantName,
+  tenantLogoUrl,
+}: {
+  tenantName: string;
+  tenantLogoUrl?: string;
+}) {
+  const isMobile = useIsMobile();
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        paddingBottom: 12,
+        marginBottom: 16,
+        borderBottom: `1px solid ${LINE}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        {tenantLogoUrl ? (
+          <img
+            src={tenantLogoUrl}
+            alt={tenantName}
+            style={{
+              height: isMobile ? 48 : 64,
+              width: "auto",
+              objectFit: "contain",
+              flexShrink: 0,
+            }}
+          />
+        ) : (
+          <span
+            style={{
+              fontWeight: 800,
+              fontSize: isMobile ? 20 : 28,
+              letterSpacing: "-0.02em",
+              color: INK,
+            }}
+          >
+            {tenantName}
+          </span>
+        )}
+      </div>
+      <div style={{ flexShrink: 0 }}>
+        <QlenoLogo size={isMobile ? "sm" : "md"} theme="light" layout="horizontal" />
       </div>
     </div>
   );

@@ -256,8 +256,9 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "An absence is unexcused ONLY when (a) it is a no-call / no-show, OR (b) all three leave buckets are exhausted AND no advance approval for unpaid time AND not protected by law. As long as you have a leave bucket available and give the right notice, the absence is excused and does NOT count toward the discipline scale.",
-          es: "Una ausencia es injustificada SOLO cuando (a) es un no llamó / no se presentó, O (b) las tres cubetas de licencia están agotadas Y no hay aprobación previa para tiempo no pagado Y no está protegida por la ley. Mientras tenga una cubeta de licencia disponible y dé el aviso correcto, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
+          // LEGAL-REVIEW-PENDING (2026-05-20): defines when an absence becomes "unexcused" for disciplinary purposes.
+          en: "An absence is unexcused when (a) it is a no-call / no-show, OR (b) PLAWA is exhausted AND the day was not pre-approved as PTO or Unpaid Personal Leave (both require 7 days advance notice) AND the absence is not protected by law. As long as PLAWA covers the call-off (with the grace-window call) OR PTO/Unpaid Personal Leave was pre-approved with 7+ days notice, the absence is excused and does NOT count toward the discipline scale.",
+          es: "Una ausencia es injustificada cuando (a) es un no llamó / no se presentó, O (b) el PLAWA está agotado Y el día no fue pre-aprobado como PTO o Licencia Personal No Pagada (ambos requieren 7 días de aviso anticipado) Y la ausencia no está protegida por la ley. Mientras el PLAWA cubra la llamada (con la llamada de la ventana de gracia) O el PTO/Licencia Personal No Pagada haya sido pre-aprobado con 7+ días de aviso, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
         },
       },
 
@@ -293,8 +294,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Phes uses three leave buckets to cover absences. They are used IN ORDER. As long as a bucket is available and you give the right notice, the absence is excused and does NOT count toward the discipline scale.",
-          es: "Phes utiliza tres cubetas de licencia para cubrir ausencias. Se usan EN ORDEN. Mientras una cubeta esté disponible y dé el aviso correcto, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
+          en: "Phes uses three leave buckets to cover absences. Notice matters. PLAWA is the only bucket that covers same-day call-offs (the 20-minute grace call is all the notice needed). PTO and Unpaid Personal Leave both require 7 days advance notice and can only cover planned absences. As long as the right bucket has hours available AND you give the right notice for that bucket, the absence is excused and does NOT count toward the discipline scale.",
+          es: "Phes utiliza tres cubetas de licencia para cubrir ausencias. El aviso importa. El PLAWA es la única cubeta que cubre llamadas el mismo día (la llamada de gracia de 20 minutos es todo el aviso necesario). El PTO y la Licencia Personal No Pagada requieren 7 días de aviso anticipado y solo cubren ausencias planeadas. Mientras la cubeta correcta tenga horas disponibles Y dé el aviso correcto para esa cubeta, la ausencia es justificada y NO cuenta hacia la escala de disciplina.",
         },
       },
       {
@@ -316,8 +317,9 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "info",
         text: {
-          en: "Order of use: PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and the absence is not otherwise protected).",
-          es: "Orden de uso: PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma).",
+          // LEGAL-REVIEW-PENDING (2026-05-20): clarifies the cascade only applies to planned absences, not same-day call-offs.
+          en: "Same-day call-off: PLAWA is the only bucket that applies. PTO and Unpaid Personal Leave both require 7 days advance notice and cannot retroactively cover an unannounced absence. Once PLAWA is exhausted, a same-day call-off counts toward the discipline scale unless the absence is protected by law. Planned absence (with 7+ days advance notice): PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and the absence is not otherwise protected).",
+          es: "Llamada el mismo día: el PLAWA es la única cubeta que aplica. El PTO y la Licencia Personal No Pagada requieren 7 días de aviso anticipado y no pueden cubrir retroactivamente una ausencia no anunciada. Una vez agotado el PLAWA, una llamada el mismo día cuenta hacia la escala de disciplina a menos que la ausencia esté protegida por la ley. Ausencia planeada (con 7+ días de aviso anticipado): PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma).",
         },
       },
 
@@ -332,7 +334,8 @@ const BASE_MODULES: Module[] = [
           { en: "Cannot be denied for business needs. PLAWA is protected leave.", es: "No se puede negar por necesidades del negocio. PLAWA es licencia protegida." },
           { en: "PLAWA is AUTOMATIC when you have hours and give the grace call. You do not need to specifically request 'sick time' or give a reason. PLAWA covers you by default.", es: "PLAWA es AUTOMÁTICA cuando tiene horas y da la llamada de gracia. No necesita solicitar específicamente 'tiempo por enfermedad' ni dar una razón. PLAWA lo cubre por defecto." },
           { en: "4 or more CONSECUTIVE PLAWA days requires advance approval if the absence is foreseeable. 'Foreseeable' means planned in advance: a scheduled medical procedure, a planned mental health retreat, or a known appointment series. Unforeseeable absences (sudden illness like the flu, family emergency, accident) do NOT require advance approval. Just give the grace call each day. If you are sick for a week with the flu and call each day, that is fine.", es: "4 o más días consecutivos de PLAWA requieren aprobación previa si la ausencia es previsible. 'Previsible' significa planeado con anticipación: un procedimiento médico programado, un retiro de salud mental planeado, o una serie de citas conocida. Las ausencias imprevisibles (enfermedad súbita como la gripe, emergencia familiar, accidente) NO requieren aprobación previa. Solo dé la llamada de gracia cada día. Si está enfermo una semana con la gripe y llama cada día, está bien." },
-          { en: "If you run out of PLAWA: the office cascades to PTO (if eligible), then Unpaid Personal Leave (if approved in advance).", es: "Si se queda sin PLAWA: la oficina pasa a PTO (si es elegible), luego a Licencia Personal No Pagada (si se aprueba con anticipación)." },
+          // LEGAL-REVIEW-PENDING (2026-05-20): clarifies cascade only applies to planned absences.
+          { en: "If you run out of PLAWA: for planned absences with 7+ days advance notice, the office can apply PTO (if you have hours and are 1+ year in) or Unpaid Personal Leave. For same-day call-offs, no other bucket applies — the absence is unexcused unless protected by law.", es: "Si se queda sin PLAWA: para ausencias planeadas con 7+ días de aviso anticipado, la oficina puede aplicar PTO (si tiene horas y tiene 1+ año) o Licencia Personal No Pagada. Para llamadas el mismo día, ninguna otra cubeta aplica — la ausencia es injustificada a menos que esté protegida por la ley." },
           { en: "No retaliation for lawful PLAWA use. Phes cannot discipline, demote, fire, or penalize you for using PLAWA legally.", es: "Sin represalias por el uso legal de PLAWA. Phes no puede disciplinar, degradar, despedir ni penalizar por usar PLAWA legalmente." },
         ],
       },
@@ -393,11 +396,13 @@ const BASE_MODULES: Module[] = [
           { en: "Workplace injury / workers' compensation absences.", es: "Ausencias por lesión laboral o compensación al trabajador." },
           { en: "Pregnancy-related medical needs or appointments.", es: "Necesidades o citas médicas relacionadas con el embarazo." },
           { en: "Lactation breaks.", es: "Pausas de lactancia." },
-          { en: "Bereavement (see the Bereavement Leave subsection below for the full rule, eligible relationships, documentation, and FBLA entitlements).", es: "Duelo (vea la subsección Licencia por Duelo más abajo para la regla completa, relaciones elegibles, documentación y derechos bajo FBLA)." },
+          { en: "Bereavement (see the Bereavement Leave subsection below for the full rule, eligible relationships, and documentation).", es: "Duelo (vea la subsección Licencia por Duelo más abajo para la regla completa, relaciones elegibles y documentación)." },
           { en: "Military leave and family military leave.", es: "Licencia militar y licencia militar familiar." },
           { en: "Court appearances as a crime victim, or for proceedings related to domestic violence, sexual violence, or other qualifying crimes (VESSA).", es: "Comparecencias judiciales como víctima de delito, o para procedimientos relacionados con violencia doméstica, violencia sexual u otros delitos calificantes (VESSA)." },
           { en: "Disability-related absences covered by reasonable accommodation.", es: "Ausencias relacionadas con discapacidad cubiertas por acomodación razonable." },
           { en: "Organ or bone marrow donation.", es: "Donación de órganos o médula ósea." },
+          // LEGAL-REVIEW-PENDING (2026-05-20): catch-out clause referenced by q-pp-25 / q-pp-27 / q-pp-28 / q-pp-31 option B language.
+          { en: "Any other federal, state, or local leave law that applies to your situation. This handbook lists the categories Phes most commonly encounters; it is not an exhaustive list of every legal protection that may apply.", es: "Cualquier otra ley federal, estatal o local de licencia que aplique a su situación. Este manual enumera las categorías que Phes más comúnmente encuentra; no es una lista exhaustiva de toda protección legal que pueda aplicar." },
         ],
       },
       {
@@ -424,14 +429,8 @@ const BASE_MODULES: Module[] = [
           es: "La licencia por duelo para individuos fuera de esta lista — familia extendida, amigos cercanos o familia elegida — se maneja caso por caso como tiempo libre no pagado sujeto a aprobación de la oficina.",
         },
       },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Illinois Family Bereavement Leave Act (FBLA). In addition to the unpaid bereavement above, eligible employees may take up to ten (10) workdays of unpaid leave per twelve-month period under FBLA for qualifying events including the death of a covered family member, stillbirth, miscarriage, failed adoption or surrogacy, an unsuccessful round of assisted reproduction, or a diagnosis that negatively impacts pregnancy or fertility. If you think FBLA may apply, contact the office and we will walk through the formal request process. Phes will not retaliate for any lawful FBLA request.",
-          es: "Ley de Licencia Familiar por Duelo de Illinois (FBLA). Además del duelo no pagado anterior, los empleados elegibles pueden tomar hasta diez (10) días laborales de licencia no pagada por periodo de doce meses bajo FBLA por eventos calificados incluyendo la muerte de un familiar cubierto, mortinato, aborto espontáneo, adopción o subrogación fallida, una ronda fallida de reproducción asistida, o un diagnóstico que afecte negativamente el embarazo o la fertilidad. Si cree que FBLA puede aplicar, contacte a la oficina y le guiaremos por el proceso formal de solicitud. Phes no tomará represalias por ninguna solicitud legal de FBLA.",
-        },
-      },
+      // FBLA paragraph removed 2026-05-20 — FBLA only applies to employers with 50+ employees;
+      // Phes has <50 so the entitlement doesn't apply. Don't promise what we can't deliver.
 
       { type: "h", text: { en: "Jury Duty", es: "Servicio de Jurado" } },
       {
@@ -3224,7 +3223,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
-    prompt: { en: "An absence becomes 'unexcused' only when (a) you no-call/no-show OR (b) all three leave buckets (PLAWA, PTO, Unpaid Personal Leave) are exhausted. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' solo cuando (a) no llama / no se presenta, O (b) las tres cubetas de licencia (PLAWA, PTO, Licencia Personal No Pagada) están agotadas. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
+    prompt: { en: "An absence becomes 'unexcused' when (a) you no-call/no-show, or (b) PLAWA is exhausted AND the day was not pre-approved as PTO or Unpaid Personal Leave (both require 7 days advance notice) AND the absence is not protected by law. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' cuando (a) no llama / no se presenta, o (b) el PLAWA está agotado Y el día no fue pre-aprobado como PTO o Licencia Personal No Pagada (ambos requieren 7 días de aviso anticipado) Y la ausencia no está protegida por la ley. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
     options: [
       { en: "Coaching conversation", es: "Conversación de orientación" },
       { en: "Written warning", es: "Advertencia por escrito" },
@@ -3258,6 +3257,21 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 2,
   },
   {
+    id: "q-pp-14-phone-use",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Mid-clean, your phone rings. It's a non-emergency call you'd like to take (your spouse, a friend, your kid's school confirming pickup). What does Phes policy require?",
+      es: "A mitad de la limpieza, su teléfono suena. Es una llamada no urgente que le gustaría tomar (su cónyuge, un amigo, la escuela de su hijo confirmando recogida). ¿Qué requiere la política de Phes?",
+    },
+    options: [
+      { en: "Answer it in place quickly, then return to cleaning.", es: "Contéstela en el lugar rápidamente, luego regrese a limpiar." },
+      { en: "Step outside the home entirely, notify your teammate before stepping away, take the call briefly, then return.", es: "Salga completamente del hogar, avise a su compañero de equipo antes de salir, tome la llamada brevemente y luego regrese." },
+      { en: "Move to a different room (laundry, bathroom) so the client doesn't see, then answer.", es: "Muévase a otra habitación (lavandería, baño) para que el cliente no vea, luego conteste." },
+      { en: "Ignore the call. Personal calls are never allowed during a job.", es: "Ignore la llamada. Las llamadas personales nunca están permitidas durante un trabajo." },
+    ],
+    correctIndex: 1,
+  },
+  {
     id: "q-pp-15-photos",
     moduleId: "phes-policies",
     prompt: {
@@ -3288,6 +3302,21 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
+    id: "q-pp-17-office-exception",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Mid-clean, the client asks you to also wipe down the inside of their kitchen cabinets (not on today's job ticket and not on the 'Phes does NOT do' list). What's the right move?",
+      es: "A mitad de la limpieza, el cliente le pide que también limpie el interior de los gabinetes de la cocina (no está en el ticket de hoy y no está en la lista de 'lo que Phes NO hace'). ¿Cuál es el paso correcto?",
+    },
+    options: [
+      { en: "Politely agree, do it quickly, and let the office know after.", es: "Acepte cortésmente, hágalo rápido y avise a la oficina después." },
+      { en: "Politely decline — Phes can't add scope mid-clean.", es: "Rechácelo cortésmente — Phes no puede agregar alcance a mitad de la limpieza." },
+      { en: "Say: 'Thank you for asking. That's not part of today's service, but let me call the office and they can let you know if we can add it. They'll also handle any additional charges.' Step outside, call the office, follow their decision.", es: "Diga: 'Gracias por preguntar. Eso no es parte del servicio de hoy, pero déjeme llamar a la oficina y ellos le pueden decir si lo podemos agregar. Ellos también manejarán cualquier cargo adicional.' Salga afuera, llame a la oficina, siga su decisión." },
+      { en: "Quote a price on the spot and add it if the client agrees.", es: "Cotice un precio en el momento y agréguelo si el cliente acepta." },
+    ],
+    correctIndex: 2,
+  },
+  {
     id: "q-pp-18-bereavement",
     moduleId: "phes-policies",
     prompt: {
@@ -3295,7 +3324,7 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Su padre fallece. ¿Cuál es la política de duelo de Phes?",
     },
     options: [
-      { en: "Up to 3 unpaid scheduled workdays off for immediate family (spouse, child, parent, or sibling). You may use available PLAWA hours to receive pay for those days.", es: "Hasta 3 días laborales programados no pagados para familia inmediata (cónyuge, hijo/a, padre/madre o hermano/a). Puede usar las horas disponibles de PLAWA para recibir pago por esos días." },
+      { en: "Up to 3 unpaid scheduled workdays off for immediate family (spouse or domestic partner; child or stepchild; parent or stepparent; sibling; or mother- or father-in-law). You may use available PLAWA hours to receive pay for those days.", es: "Hasta 3 días laborales programados no pagados para familia inmediata (cónyuge o pareja doméstica; hijo/a o hijastro/a; padre/madre o padrastro/madrastra; hermano/a; o suegro/a). Puede usar las horas disponibles de PLAWA para recibir pago por esos días." },
       { en: "Up to 3 paid scheduled workdays at your regular rate.", es: "Hasta 3 días laborales programados pagados a su tarifa regular." },
       { en: "Up to 5 paid days plus travel time.", es: "Hasta 5 días pagados más tiempo de viaje." },
       { en: "Phes does not offer bereavement leave.", es: "Phes no ofrece licencia por duelo." },
@@ -3377,9 +3406,24 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 1,
   },
-  // q-pp-24-plawa-foreseeable removed in audit batch 2 (2026-05-19):
-  // the id was an orphan — not referenced in QUESTIONS_BY_MODULE or
-  // either answer key. Deleted to prevent accidental re-introduction.
+  // q-pp-24 slot repurposed (2026-05-20): the old q-pp-24-plawa-foreseeable
+  // was an orphan id removed in the 2026-05-19 cleanup. Re-using the slot
+  // for an add-on pricing question to bring the pool back to 40 questions.
+  {
+    id: "q-pp-24-add-on-pricing",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "Which of the following is an ADD-ON service (paid separately by the client, NOT included in a Standard Clean OR a Deep Clean)?",
+      es: "¿Cuál de los siguientes es un servicio ADD-ON (cobrado por separado al cliente, NO incluido en una Limpieza Estándar NI en una Limpieza Profunda)?",
+    },
+    options: [
+      { en: "Wiping down ceiling fans.", es: "Limpiar los ventiladores de techo." },
+      { en: "Cleaning the inside of the refrigerator.", es: "Limpiar el interior del refrigerador." },
+      { en: "Vacuuming the carpet.", es: "Aspirar la alfombra." },
+      { en: "Mopping the laundry room floor.", es: "Trapear el piso del cuarto de lavado." },
+    ],
+    correctIndex: 1,
+  },
   {
     id: "q-pp-25-sick-no-balance",
     moduleId: "phes-policies",
@@ -3389,7 +3433,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Phes covers the absence with the next leave bucket in order. PTO comes next, then Unpaid Personal Leave. It is NOT unexcused unless all three buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden. Sigue PTO, luego Licencia Personal No Pagada. NO es injustificada a menos que las tres cubetas estén agotadas o haya sido un no llamó / no se presentó." },
-      { en: "Unexcused — both PTO and Unpaid Personal Leave require 7 days advance notice and cannot cover a same-day call-off. Once PLAWA is exhausted, a same-day sick call counts toward the discipline scale, UNLESS the absence is protected by law (FMLA, ADA, workers comp, pregnancy, jury duty, bereavement, VESSA, lactation, etc. — see Section 4).", es: "Injustificada — tanto el PTO como la Licencia Personal No Pagada requieren 7 días de aviso anticipado y no pueden cubrir una llamada el mismo día. Una vez agotado el PLAWA, una llamada por enfermedad el mismo día cuenta hacia la escala de disciplina, A MENOS QUE la ausencia esté protegida por la ley (FMLA, ADA, compensación al trabajador, embarazo, servicio de jurado, duelo, VESSA, lactancia, etc. — vea la Sección 4)." },
+      // LEGAL-REVIEW-PENDING (2026-05-20): predicate for "unexcused after PLAWA exhausted" disciplinary action.
+      // Carve-out list intentionally omits FMLA + FBLA because Phes has <50 employees (both have 50-employee
+      // employer threshold). "Any other federal, state, or local leave law that applies" catches anything we
+      // haven't enumerated. Have an IL employment attorney bless this language before it becomes the basis
+      // for any actual termination.
+      { en: "Unexcused — both PTO and Unpaid Personal Leave require 7 days advance notice and cannot cover a same-day call-off. Once PLAWA is exhausted, a same-day sick call counts toward the discipline scale, unless the absence is protected by law (ADA, workers comp, pregnancy, jury duty, bereavement, VESSA, lactation, or any other federal, state, or local leave law that applies to your situation — see Section 4).", es: "Injustificada — tanto el PTO como la Licencia Personal No Pagada requieren 7 días de aviso anticipado y no pueden cubrir una llamada el mismo día. Una vez agotado el PLAWA, una llamada por enfermedad el mismo día cuenta hacia la escala de disciplina, a menos que la ausencia esté protegida por la ley (ADA, compensación al trabajador, embarazo, servicio de jurado, duelo, VESSA, lactancia, o cualquier otra ley federal, estatal o local de licencia que aplique a su situación — vea la Sección 4)." },
       { en: "PTO is automatically deducted, but if PTO is also gone you're unexcused.", es: "Se deduce PTO automáticamente, pero si el PTO también está agotado, queda como injustificada." },
       { en: "Phes terminates immediately for going over PLAWA.", es: "Phes termina inmediatamente por exceder el PLAWA." },
     ],
@@ -3419,7 +3468,8 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "PTO → PLAWA → Unpaid Personal Leave.", es: "PTO → PLAWA → Licencia Personal No Pagada." },
-      { en: "PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and absence is not otherwise protected).", es: "PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma)." },
+      // LEGAL-REVIEW-PENDING (2026-05-20): teaches the cascade order distinguishing planned vs same-day.
+      { en: "For planned absences with 7+ days advance notice: PLAWA → PTO → Unpaid Personal Leave → discipline scale (only if all three are exhausted and the absence is not otherwise protected). For same-day call-offs: only PLAWA covers — PTO and Unpaid Personal Leave both require advance notice and cannot retroactively cover an unannounced absence.", es: "Para ausencias planeadas con 7+ días de aviso anticipado: PLAWA → PTO → Licencia Personal No Pagada → escala de disciplina (solo si las tres están agotadas y la ausencia no está protegida de otra forma). Para llamadas el mismo día: solo el PLAWA cubre — el PTO y la Licencia Personal No Pagada requieren aviso anticipado y no pueden cubrir retroactivamente una ausencia no anunciada." },
       { en: "Whichever bucket the office picks each time.", es: "La cubeta que la oficina escoja cada vez." },
       { en: "Unpaid Personal Leave first, paid buckets last.", es: "Licencia Personal No Pagada primero, las pagadas al final." },
     ],
@@ -3434,7 +3484,8 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Any time you call off sick more than twice in a month.", es: "Cada vez que llame por enfermedad más de dos veces al mes." },
-      { en: "Only when (a) it's a no-call/no-show, OR (b) all three leave buckets are exhausted and you didn't get advance approval for unpaid time. Using any bucket with proper notice is excused.", es: "Solo cuando (a) es un no llamó / no se presentó, O (b) las tres cubetas de licencia están agotadas y no obtuvo aprobación previa para tiempo no pagado. Usar cualquier cubeta con aviso apropiado es justificado." },
+      // LEGAL-REVIEW-PENDING (2026-05-20): defines when an absence becomes "unexcused" for disciplinary purposes.
+      { en: "When (a) it's a no-call / no-show, OR (b) PLAWA is exhausted AND the day was not pre-approved as PTO or Unpaid Personal Leave (both require 7 days notice) AND the absence is not protected by law. PLAWA covers same-day call-offs; PTO and Unpaid Personal Leave never do.", es: "Cuando (a) es un no llamó / no se presentó, O (b) el PLAWA está agotado Y el día no fue pre-aprobado como PTO o Licencia Personal No Pagada (ambos requieren 7 días de aviso) Y la ausencia no está protegida por la ley. El PLAWA cubre llamadas el mismo día; el PTO y la Licencia Personal No Pagada nunca lo hacen." },
       { en: "As soon as your PLAWA balance hits zero.", es: "Tan pronto como su saldo de PLAWA llega a cero." },
       { en: "Any absence that isn't backed by a doctor's note.", es: "Cualquier ausencia que no esté respaldada por una nota médica." },
     ],
@@ -3456,6 +3507,21 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
+    id: "q-pp-30-move-in-empty",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "You arrive at a scheduled Move-Out clean. The home is supposed to be empty but has furniture and boxes still in place. What do you do?",
+      es: "Llega a una limpieza de Mudanza programada. Se supone que el hogar está vacío pero todavía tiene muebles y cajas en su lugar. ¿Qué hace?",
+    },
+    options: [
+      { en: "Start cleaning around the furniture as best you can.", es: "Comience a limpiar alrededor de los muebles lo mejor que pueda." },
+      { en: "STOP. Call the office BEFORE starting. Move-In/Move-Out cleans assume an empty home — scope and pricing change when there is furniture in the way.", es: "DETÉNGASE. Llame a la oficina ANTES de empezar. Las limpiezas de Mudanza asumen una casa vacía — el alcance y el precio cambian cuando hay muebles en medio." },
+      { en: "Move the furniture yourself to clean underneath.", es: "Mueva los muebles usted mismo para limpiar debajo." },
+      { en: "Reschedule and leave without contacting anyone.", es: "Reprograme y váyase sin contactar a nadie." },
+    ],
+    correctIndex: 1,
+  },
+  {
     id: "q-pp-31-plawa-default",
     moduleId: "phes-policies",
     prompt: {
@@ -3464,7 +3530,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "PTO — it's the bigger bank.", es: "PTO — es el banco más grande." },
-      { en: "PLAWA — it's used by default unless you elect in writing to use a different bucket. PTO is reserved for planned time off so you keep it for vacations / appointments.", es: "PLAWA — se usa por defecto a menos que usted elija por escrito usar otra cubeta. El PTO se reserva para tiempo libre planeado para que lo conserve para vacaciones / citas." },
+      { en: "PLAWA — it's used by default for any same-day call-off. PTO and Unpaid Personal Leave are reserved for planned time off (7 days advance notice required) so you keep them for vacations, appointments, and other foreseeable absences.", es: "PLAWA — se usa por defecto para cualquier llamada el mismo día. El PTO y la Licencia Personal No Pagada se reservan para tiempo libre planeado (se requieren 7 días de aviso anticipado) para que los conserve para vacaciones, citas y otras ausencias previsibles." },
       { en: "Whichever has more hours left.", es: "La que tenga más horas restantes." },
       { en: "Whichever the office chooses to charge.", es: "La que la oficina decida cobrar." },
     ],
@@ -3479,7 +3545,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Every bucket: 7 days advance notice, no exceptions.", es: "Toda cubeta: 7 días de aviso anticipado, sin excepciones." },
-      { en: "PLAWA: the 20-minute grace call only, no advance approval. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + the office team) for all three.", es: "PLAWA y Tolerancia de Ausencia No Pagada: solo la llamada de gracia de 20 minutos. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + the office team) para las cuatro." },
+      { en: "PLAWA: the 20-minute grace call only, no advance approval. PTO and Unpaid Personal Leave: 7 days advance notice. Same two-step process (system + the office team) for all three.", es: "PLAWA: solo la llamada de gracia de 20 minutos, sin aprobación previa. PTO y Licencia Personal No Pagada: 7 días de aviso anticipado. El mismo proceso de dos pasos (sistema + the office team) para las tres." },
       { en: "Doctor's note required for all four.", es: "Nota médica requerida para las cuatro." },
       { en: "Only the office decides — no fixed notice rules.", es: "Solo la oficina decide — sin reglas fijas de aviso." },
     ],
@@ -3504,8 +3570,8 @@ const BASE_QUIZ: QuizQuestion[] = [
     id: "q-pp-34-protected-still-excused",
     moduleId: "phes-policies",
     prompt: {
-      en: "You've burned through PLAWA, PTO, and Unpaid Personal Leave. The very next absence is jury duty (you have a court summons). Is it unexcused?",
-      es: "Ha agotado PLAWA, PTO, y Licencia Personal No Pagada. La siguiente ausencia es servicio de jurado (tiene una citación judicial). ¿Es injustificada?",
+      en: "Your PLAWA is exhausted and you have no other approved leave on the books. The very next absence is jury duty (you have a court summons). Is it unexcused?",
+      es: "Su PLAWA está agotado y no tiene otra licencia aprobada en el sistema. La siguiente ausencia es servicio de jurado (tiene una citación judicial). ¿Es injustificada?",
     },
     options: [
       { en: "Yes. All three buckets are gone so any new absence counts.", es: "Sí. Las tres cubetas se agotaron, así que cualquier ausencia nueva cuenta." },
@@ -3572,6 +3638,21 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Decline politely. Phes does not lift or move anything over 25 lbs. Clean around it, document it as a note in the app, and tell the office.", es: "Decline cortésmente. Phes no levanta ni mueve nada de más de 25 lb. Limpie alrededor, documente con nota en la app, y avise a la oficina." },
       { en: "Ask the client to move it themselves while you wait.", es: "Pídale al cliente que la mueva mientras espera." },
       { en: "Move it if you can do it alone.", es: "Muévala si puede solo." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-39-trash-bag-limit",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "A client's home has accumulated extra trash and you fill 7 bags during today's clean. What does Phes policy say?",
+      es: "El hogar de un cliente ha acumulado basura extra y usted llena 7 bolsas durante la limpieza de hoy. ¿Qué dice la política de Phes?",
+    },
+    options: [
+      { en: "Take all 7 bags out — leaving trash behind is unprofessional.", es: "Saque las 7 bolsas — dejar basura atrás es poco profesional." },
+      { en: "Take 5 bags (the per-visit maximum). Document the extra trash in the app and tell the office — Phes doesn't haul more than 5 bags per visit.", es: "Saque 5 bolsas (el máximo por visita). Documente la basura extra en la app y avise a la oficina — Phes no lleva más de 5 bolsas por visita." },
+      { en: "Charge the client for the extra hauling on the spot.", es: "Cobre al cliente por la carga extra en el momento." },
+      { en: "Leave all the trash behind — clients are responsible for their own removal.", es: "Deje toda la basura atrás — los clientes son responsables de su propia eliminación." },
     ],
     correctIndex: 1,
   },
