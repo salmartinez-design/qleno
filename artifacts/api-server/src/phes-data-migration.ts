@@ -1891,6 +1891,56 @@ async function runSupersessionBackfill(): Promise<void> {
 }
 
 /**
+ * 2026-05-20 audit follow-up: idempotent resync of
+ * lms_module_progress.attempts against the non-superseded
+ * lms_quiz_attempts count. The original supersession-backfill above
+ * has its own resync, but that one only fires when this run's
+ * backfill touched something (`totalSuperseded > 0`). If supersession
+ * was already done in a prior boot but the resync missed any rows,
+ * the drift persists.
+ *
+ * This function runs on every boot and only UPDATEs rows where the
+ * stored `attempts` actually differs from the live count — so a
+ * tenant in steady state is a no-op. Phes only.
+ */
+async function runModuleProgressAttemptsResync(): Promise<void> {
+  const result = await db.execute(sql`
+    UPDATE lms_module_progress mp
+    SET attempts = COALESCE(sub.live_count, 0)
+    FROM (
+      SELECT
+        e.id AS enrollment_id,
+        mp_inner.module_id,
+        COALESCE(
+          (
+            SELECT COUNT(*)::int
+            FROM lms_quiz_attempts qa
+            WHERE qa.enrollment_id = e.id
+              AND qa.module_id = mp_inner.module_id
+              AND qa.superseded = FALSE
+          ),
+          0
+        ) AS live_count
+      FROM lms_module_progress mp_inner
+      INNER JOIN lms_enrollments e ON e.id = mp_inner.enrollment_id
+      INNER JOIN users u ON u.id = e.user_id
+      WHERE mp_inner.company_id = ${PHES_COMPANY_ID}
+        AND u.is_sandbox = FALSE
+    ) sub
+    WHERE mp.enrollment_id = sub.enrollment_id
+      AND mp.module_id = sub.module_id
+      AND mp.company_id = ${PHES_COMPANY_ID}
+      AND mp.attempts != sub.live_count
+  `);
+  const n = (result as any).rowCount ?? 0;
+  if (n > 0) {
+    console.log(
+      `[module-progress-attempts-resync] tenant=${PHES_COMPANY_ID} rows_updated=${n}`,
+    );
+  }
+}
+
+/**
  * Phes admin-view-consistency sprint (2026-05-15) — Item 3.
  *
  * Normalizes lms_module_progress rows where best_score >= 80 but
@@ -2056,6 +2106,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runSupersessionBackfill();
   } catch (err: any) {
     console.warn("[phes-migration] supersession-backfill — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runModuleProgressAttemptsResync();
+  } catch (err: any) {
+    console.warn("[phes-migration] module-progress-attempts-resync — non-fatal:", err?.message ?? err);
   }
 
   try {
