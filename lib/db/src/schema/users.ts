@@ -97,6 +97,14 @@ export const usersTable = pgTable("users", {
    * in via a `?includeSandbox=true` query param.
    */
   is_sandbox: boolean("is_sandbox").notNull().default(false),
+  /**
+   * Last successful login timestamp. Populated by `POST /api/auth/login`
+   * on every successful auth. Distinct from `lms_enrollments.last_activity_at`
+   * (which only ticks on quiz-submit). The LMS admin roster surfaces both
+   * so the office can see "did this person open the app at all" vs
+   * "did this person make LMS progress."
+   */
+  last_login_at: timestamp("last_login_at"),
   crew_id: integer("crew_id"),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),

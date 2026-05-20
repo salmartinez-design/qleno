@@ -62,6 +62,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "lms_quiz_attempts.superseded", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded BOOLEAN NOT NULL DEFAULT FALSE" },
     { label: "lms_quiz_attempts.superseded_reason", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded_reason TEXT" },
     { label: "lms_quiz_attempts.superseded_at", stmt: "ALTER TABLE lms_quiz_attempts ADD COLUMN IF NOT EXISTS superseded_at TIMESTAMPTZ" },
+    // 2026-05-20 audit: add last_login_at to users. Populated by
+    // /api/auth/login on success. Distinct from lms_enrollments.
+    // last_activity_at (quiz-submit ticks only).
+    { label: "users.last_login_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
@@ -1562,6 +1566,109 @@ async function runPhantomLearnerArchive(): Promise<void> {
 }
 
 /**
+ * Restore-active-learner migration (2026-05-20 sprint).
+ *
+ * PR #125 archived 9 users as "phantom learners not on the active
+ * MaidCentral roster." Sal's MaidCentral roster screenshots on 5/20
+ * confirm 6 of those 9 ARE active employees who SHOULD be in the LMS.
+ * The PR #125 spec was based on outdated info; this migration undoes
+ * the over-archive for the 6 confirmed-active employees and creates
+ * the missing lms_enrollments rows so they appear on the admin roster.
+ *
+ * Sal explicitly keeps these archived (not restored):
+ *   - Ana Valdez
+ *   - Norma Puga
+ *   - Tatiana Merchan
+ *   - delia.martinez.former@phes.internal (the .former placeholder)
+ *   - Generic Cleaner (never restored; placeholder account)
+ *
+ * Idempotent: only fires for users where archived_at IS NOT NULL.
+ * Once restored, the row's archived_at goes back to NULL and the
+ * migration is a no-op on subsequent boots. lms_enrollments creation
+ * is also idempotent (skip if a row exists for that user).
+ */
+const RESTORE_ACTIVE_LEARNERS_2026_05_20: Array<{ first: string; last: string }> = [
+  { first: "Alma", last: "Salinas" },
+  { first: "Diana", last: "Vasquez" },
+  { first: "Guadalupe", last: "Mejia" },
+  { first: "Juan", last: "Salazar" },
+  { first: "Juliana", last: "Loredo" },
+  { first: "Rosa", last: "Gallegos" },
+];
+
+async function runRestoreActiveLearners(): Promise<void> {
+  const PHES = 1;
+  const DEFAULT_DEADLINE_DAYS = 7;
+  const restored: number[] = [];
+  const alreadyActive: number[] = [];
+  const notFound: string[] = [];
+  const enrollmentsCreated: number[] = [];
+
+  for (const entry of RESTORE_ACTIVE_LEARNERS_2026_05_20) {
+    const label = `${entry.first} ${entry.last}`;
+    const rows = await db.execute<{
+      id: number;
+      archived_at: Date | null;
+    }>(sql`
+      SELECT id, archived_at FROM users
+      WHERE company_id = ${PHES}
+        AND LOWER(first_name) = LOWER(${entry.first})
+        AND LOWER(last_name) = LOWER(${entry.last})
+        AND role != 'owner'
+      ORDER BY id ASC
+      LIMIT 1
+    `);
+    const row = ((rows as any).rows ?? rows)[0] as
+      | { id: number; archived_at: Date | null }
+      | undefined;
+
+    if (!row) {
+      notFound.push(label);
+      continue;
+    }
+
+    if (row.archived_at === null) {
+      alreadyActive.push(row.id);
+    } else {
+      await db.execute(sql`
+        UPDATE users
+        SET archived_at = NULL
+        WHERE id = ${row.id}
+      `);
+      restored.push(row.id);
+    }
+
+    // Idempotent enrollment creation: only INSERT if no row exists.
+    const enr = await db.execute<{ id: number }>(sql`
+      SELECT id FROM lms_enrollments
+      WHERE company_id = ${PHES} AND user_id = ${row.id}
+      LIMIT 1
+    `);
+    const enrRow = ((enr as any).rows ?? enr)[0];
+    if (!enrRow) {
+      const created = await db.execute<{ id: number }>(sql`
+        INSERT INTO lms_enrollments
+          (company_id, user_id, status, enrolled_at, deadline_at, last_activity_at)
+        VALUES
+          (${PHES}, ${row.id}, 'active', NOW(),
+           NOW() + INTERVAL '${sql.raw(String(DEFAULT_DEADLINE_DAYS))} days',
+           NOW())
+        RETURNING id
+      `);
+      const createdRow = ((created as any).rows ?? created)[0];
+      if (createdRow) enrollmentsCreated.push(createdRow.id);
+    }
+  }
+
+  console.log(
+    `[restore-active-learners] restored=${restored.length} (ids: ${restored.join(", ") || "none"}) ` +
+      `already_active=${alreadyActive.length} enrollments_created=${enrollmentsCreated.length} ` +
+      `not_found=${notFound.length}` +
+      (notFound.length ? ` (${notFound.join(" | ")})` : ""),
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -1931,6 +2038,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPhantomLearnerArchive();
   } catch (err: any) {
     console.warn("[phes-migration] phantom-learner-archive — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runRestoreActiveLearners();
+  } catch (err: any) {
+    console.warn("[phes-migration] restore-active-learners — non-fatal:", err?.message ?? err);
   }
 
   try {

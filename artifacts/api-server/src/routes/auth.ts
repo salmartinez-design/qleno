@@ -51,6 +51,18 @@ router.post("/login", async (req, res) => {
       isSuperAdmin: isSuperAdminFlag,
     });
 
+    // 2026-05-20: stamp last_login_at on every successful login. Used by
+    // the LMS admin roster to surface "did this person open the app at
+    // all" (distinct from quiz-submit-only `lms_enrollments.last_activity_at`).
+    try {
+      await db.execute(
+        sql`UPDATE users SET last_login_at = NOW() WHERE id = ${user[0].id}`,
+      );
+    } catch (err) {
+      // Non-fatal: a stamp failure must not block the login response.
+      console.error("[auth] last_login_at update failed:", err);
+    }
+
     await logAudit(req, "login_success", "user", user[0].id, null, { email });
 
     return res.json({
