@@ -3389,11 +3389,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Phes covers the absence with the next leave bucket in order. PTO comes next, then Unpaid Personal Leave. It is NOT unexcused unless all three buckets are exhausted or you no-call/no-showed.", es: "Phes cubre la ausencia con la siguiente cubeta en orden. Sigue PTO, luego Licencia Personal No Pagada. NO es injustificada a menos que las tres cubetas estén agotadas o haya sido un no llamó / no se presentó." },
-      { en: "Unexcused — once PLAWA is gone, every sick call counts toward discipline.", es: "Injustificada — una vez agotado el PLAWA, cada llamada por enfermedad cuenta hacia la disciplina." },
+      { en: "Unexcused — both PTO and Unpaid Personal Leave require 7 days advance notice and cannot cover a same-day call-off. Once PLAWA is exhausted, a same-day sick call counts toward the discipline scale, UNLESS the absence is protected by law (FMLA, ADA, workers comp, pregnancy, jury duty, bereavement, VESSA, lactation, etc. — see Section 4).", es: "Injustificada — tanto el PTO como la Licencia Personal No Pagada requieren 7 días de aviso anticipado y no pueden cubrir una llamada el mismo día. Una vez agotado el PLAWA, una llamada por enfermedad el mismo día cuenta hacia la escala de disciplina, A MENOS QUE la ausencia esté protegida por la ley (FMLA, ADA, compensación al trabajador, embarazo, servicio de jurado, duelo, VESSA, lactancia, etc. — vea la Sección 4)." },
       { en: "PTO is automatically deducted, but if PTO is also gone you're unexcused.", es: "Se deduce PTO automáticamente, pero si el PTO también está agotado, queda como injustificada." },
       { en: "Phes terminates immediately for going over PLAWA.", es: "Phes termina inmediatamente por exceder el PLAWA." },
     ],
-    correctIndex: 0,
+    correctIndex: 1,
   },
   {
     id: "q-pp-26-unpaid-personal",
