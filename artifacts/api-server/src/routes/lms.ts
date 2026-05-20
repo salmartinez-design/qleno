@@ -1311,6 +1311,10 @@ router.get(
           first_name: usersTable.first_name,
           last_name: usersTable.last_name,
           role: usersTable.role,
+          // 2026-05-20: surface last_login_at on the roster so the
+          // office can distinguish "did this person open the app at all"
+          // from `last_activity_at` (quiz-submit only).
+          last_login_at: usersTable.last_login_at,
         })
         .from(lmsEnrollmentsTable)
         .innerJoin(
@@ -1406,6 +1410,7 @@ router.get(
           deadline_started_at: e.deadline_started_at,
           completed_at: e.completed_at,
           last_activity_at: e.last_activity_at,
+          last_login_at: e.last_login_at ?? null,
           enrolled_at: e.enrolled_at,
           modules,
         };
