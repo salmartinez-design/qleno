@@ -599,6 +599,7 @@ export default function LmsAdminPage() {
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
+  const [, setLocation] = useLocation();
   return (
     <div
       style={{
@@ -624,7 +625,25 @@ function Shell({ children }: { children: React.ReactNode }) {
             gap: 12,
           }}
         >
-          <QlenoLogo size="md" theme="light" layout="horizontal" />
+          {/* Sal report 2026-05-20: from /lms/admin there was no path
+              back to the main Qleno app. Wrapping the logo in a
+              clickable mirrors the same fix shipped on /training in
+              PR #135 — "logo = home" UX convention. */}
+          <button
+            type="button"
+            onClick={() => setLocation("/")}
+            aria-label="Back to Qleno"
+            style={{
+              background: "transparent",
+              border: 0,
+              padding: 0,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+          >
+            <QlenoLogo size="md" theme="light" layout="horizontal" />
+          </button>
           <div
             style={{
               height: 22,
