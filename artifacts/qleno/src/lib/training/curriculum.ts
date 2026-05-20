@@ -1478,8 +1478,8 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Use on: mirrors, glass shower doors, windows (interior).", es: "Use en: espejos, puertas de ducha de vidrio, ventanas (interior)." },
-          { en: "Method: spray on the BLUE microfiber cloth (never directly on the mirror), wipe in S-pattern.", es: "Método: rocíe sobre el paño AZUL de microfibra (nunca directamente en el espejo), limpie en patrón de S." },
-          { en: "Why blue: dedicated glass cloth — no residue from kitchen or bathroom cleaners.", es: "Por qué azul: paño dedicado a vidrio — sin residuos de cocina o baño." },
+          { en: "Method: spray on the GREEN microfiber cloth (never directly on the mirror), wipe in S-pattern.", es: "Método: rocíe sobre el paño VERDE de microfibra (nunca directamente en el espejo), limpie en patrón de S." },
+          { en: "Why green: dedicated glass cloth — no residue from kitchen or bathroom cleaners.", es: "Por qué verde: paño dedicado a vidrio — sin residuos de cocina o baño." },
         ],
       },
 
@@ -1498,47 +1498,59 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Apply under the rim, let dwell 5+ minutes while you clean the rest of the bathroom, then scrub with the toilet brush.", es: "Aplique bajo el borde, deje actuar 5+ minutos mientras limpia el resto del baño, luego restriegue con el cepillo." },
-          { en: "Cloth color: GREEN — bathroom-only. Never use a green cloth in a kitchen.", es: "Color de paño: VERDE — solo baño. Nunca use paño verde en cocina." },
+          { en: "Cloth color: WHITE — bathroom-only. Never use a white bathroom cloth in a kitchen.", es: "Color de paño: BLANCO — solo baño. Nunca use un paño blanco de baño en cocina." },
         ],
       },
 
-      { type: "h", text: { en: "Lysol Disinfecting Wipes", es: "Toallitas Desinfectantes Lysol" } },
-      {
-        type: "bullets",
-        items: [
-          { en: "Use on: high-touch surfaces — door handles, light switches, faucets, toilet seats.", es: "Use en: superficies de alto contacto — manijas, interruptores, llaves, asientos de inodoro." },
-          { en: "Don't use on: unfinished wood, electronics screens, leather.", es: "No use en: madera sin sellar, pantallas, cuero." },
-        ],
-      },
+      // Lysol Disinfecting Wipes section removed 2026-05-20 per Sal — not in current kit.
 
-      { type: "h", text: { en: "Stainless Steel Polish (3M)", es: "Pulidor de Acero Inoxidable (3M)" } },
+      { type: "h", text: { en: "Weiman's Stainless Steel Cleaner & Polish", es: "Limpiador y Pulidor de Acero Inoxidable Weiman's" } },
       {
         type: "bullets",
         items: [
-          { en: "Use on: appliance fronts (refrigerator, dishwasher, range hood).", es: "Use en: frentes de electrodomésticos (refrigerador, lavavajillas, campana)." },
-          { en: "Method: small amount on the cloth (not the appliance), wipe in the direction of the grain.", es: "Método: poca cantidad en el paño (no en el electrodoméstico), limpie en la dirección del grano." },
+          { en: "Use on: appliance fronts (refrigerator, dishwasher, range hood, microwave exterior).", es: "Use en: frentes de electrodomésticos (refrigerador, lavavajillas, campana, exterior del microondas)." },
+          { en: "Method: small amount on the cloth (NEVER on the appliance directly), wipe in the direction of the grain. Buff with a clean dry side of the cloth.", es: "Método: poca cantidad en el paño (NUNCA directamente en el electrodoméstico), limpie en la dirección del grano. Pula con el lado seco y limpio del paño." },
+          { en: "Cloth: use a clean blue (neutral) or yellow (kitchen) cloth with zero prior residue. A residue from glass spray or bathroom cleaner will streak the stainless.", es: "Paño: use un paño azul (neutral) o amarillo (cocina) limpio sin residuos previos. Un residuo de spray de vidrio o limpiador de baño dejará marcas en el acero." },
+          { en: "No jewelry: remove rings, bracelets, watches before polishing — they scratch.", es: "Sin joyería: quítese anillos, pulseras y relojes antes de pulir — rayan la superficie." },
         ],
       },
 
       { type: "h", text: { en: "Microfiber Cloths — Color Code", es: "Paños de Microfibra — Código de Color" } },
       {
+        type: "p",
+        text: {
+          en: "Why these specific colors: we previously used heavily-dyed colored cloths (red, dark green) and the dye bled into white grout during bathroom cleans. The current code uses light or neutral colors that don't bleed. Never substitute a darker-dye cloth, especially around grout.",
+          es: "Por qué estos colores específicos: anteriormente usábamos paños de colores intensos (rojo, verde oscuro) y la tintura sangraba en la lechada blanca durante limpiezas de baños. El código actual usa colores claros o neutros que no sangran. Nunca sustituya por un paño con tintura más oscura, especialmente cerca de lechada.",
+        },
+      },
+      {
         type: "table",
         head: { en: ["Color", "Surface", "Why"], es: ["Color", "Superficie", "Por qué"] },
         rows: [
-          { en: ["Yellow", "Kitchens, counters", "General hard-surface duty"], es: ["Amarillo", "Cocinas, mostradores", "Superficies generales"] },
-          { en: ["Blue", "Glass, mirrors", "No residue from soap or grease"], es: ["Azul", "Vidrio, espejos", "Sin residuos de jabón o grasa"] },
-          { en: ["Green", "Bathrooms (toilets, tubs)", "Bathroom-only — never cross to kitchen"], es: ["Verde", "Baños (inodoros, tinas)", "Solo baño — nunca pasa a cocina"] },
-          { en: ["White", "Dusting, polish", "Dust-only — keeps polish clean"], es: ["Blanco", "Polvo, pulido", "Solo polvo — mantiene el pulidor limpio"] },
+          { en: ["Yellow", "Kitchen (counters, appliances)", "Dedicated kitchen — keeps cross-contamination from bathrooms out"], es: ["Amarillo", "Cocina (mostradores, electrodomésticos)", "Dedicado a cocina — evita contaminación cruzada desde baños"] },
+          { en: ["White", "Bathrooms (toilets, tubs, sinks)", "Bathroom-only — never cross to kitchen. Light color shows soiling so it gets retired quickly"], es: ["Blanco", "Baños (inodoros, tinas, lavabos)", "Solo baño — nunca pasa a cocina. El color claro muestra suciedad rápidamente para retirarlo a tiempo"] },
+          { en: ["Green", "Glass, mirrors, special materials", "No residue from soap or grease; dedicated streak-free duty"], es: ["Verde", "Vidrio, espejos, materiales especiales", "Sin residuos de jabón o grasa; dedicado para acabado sin marcas"] },
+          { en: ["Blue", "Neutral / general dusting", "Neutral cloth for general dusting and surfaces not covered by the dedicated colors above"], es: ["Azul", "Neutral / polvo general", "Paño neutral para polvo general y superficies no cubiertas por los colores dedicados arriba"] },
         ],
       },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Cleaning fridges and stone counters: no jewelry on (rings, bracelets, watches) — they scratch the surface and trap food/grime. Also confirm the microfiber rag has no residue from a prior surface before it touches the fridge or stone. A trace of bathroom cleaner or glass spray on a rag will leave a streak or, on stone, etch over time.",
+          es: "Limpieza de refrigeradores y mostradores de piedra: sin joyería (anillos, pulseras, relojes) — rayan la superficie y atrapan comida/suciedad. También confirme que el paño de microfibra no tenga residuos de una superficie anterior antes de tocar el refrigerador o la piedra. Un rastro de limpiador de baño o atomizador de vidrio en un paño dejará una marca o, en piedra, dañará con el tiempo.",
+        },
+      },
 
-      { type: "h", text: { en: "Vacuum (Sebo or Miele)", es: "Aspiradora (Sebo o Miele)" } },
+      { type: "h", text: { en: "Vacuum — Atrix Ergo PMP Backpack Vacuum (2 Gallon, HEPA)", es: "Aspiradora — Atrix Ergo PMP de Mochila (2 Galones, HEPA)" } },
       {
         type: "bullets",
         items: [
+          { en: "Corded backpack vacuum, 1400W, 4-stage HEPA filtration (8 qt HEPA bag, cloth shakeout bag, premotor filter, exhaust filter). 50 ft cord; harness adjusts left or right-handed.", es: "Aspiradora de mochila con cable, 1400W, filtración HEPA de 4 etapas (bolsa HEPA de 8 qt, bolsa de sacudida, filtro premotor, filtro de escape). Cable de 50 pies; arnés ajustable a izquierda o derecha." },
           { en: "Use BEFORE you mop — never mop dust; you'll smear it.", es: "Use ANTES de trapear — nunca trapee polvo; se esparcirá." },
-          { en: "Empty the canister between homes — full canister loses suction.", es: "Vacíe el contenedor entre hogares — un contenedor lleno pierde succión." },
-          { en: "Adjust the height for the surface (carpet vs hard floor) — wrong setting damages the brush bar or the floor.", es: "Ajuste la altura según la superficie (alfombra vs piso duro) — la configuración incorrecta daña el cepillo o el piso." },
+          { en: "Empty the HEPA bag between homes if visibly full — a full bag loses suction and stresses the motor.", es: "Vacíe la bolsa HEPA entre hogares si está visiblemente llena — una bolsa llena pierde succión y fuerza al motor." },
+          { en: "Choose the right tool from the kit (floor brush, oval dust brush, crevice tool, extension wand) for the surface — wrong tool damages floor finish or upholstery.", es: "Elija la herramienta correcta del kit (cepillo de piso, cepillo ovalado, herramienta de hendiduras, varilla de extensión) según la superficie — la herramienta equivocada daña el acabado del piso o la tapicería." },
+          { en: "Check the cord for damage before each use. Use the strain-relief plug on extensions; do not yank the cord from across the room.", es: "Inspeccione el cable por daños antes de cada uso. Use el enchufe con alivio de tensión en extensiones; no jale el cable desde lejos." },
         ],
       },
 
@@ -1608,8 +1620,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "NEVER on chrome — even #0000 dulls a chrome finish on first pass. Never on stainless steel appliance fronts (use the 3M polish instead). Never on coated cookware, glass shower-door film coatings, or polished marble. Always rinse thoroughly afterward — steel wool fibers left on a surface rust within hours and will stain.",
-          es: "NUNCA en cromo — incluso #0000 daña el acabado cromado al primer pase. Nunca en frentes de electrodomésticos de acero (use el pulidor 3M). Nunca en utensilios con recubrimiento, recubrimientos de puertas de ducha, o mármol pulido. Siempre enjuague completamente — fibras de lana de acero dejadas en una superficie se oxidan en horas y mancharán.",
+          en: "NEVER on chrome — even #0000 dulls a chrome finish on first pass. Never on stainless steel appliance fronts (use Weiman's Stainless Steel Cleaner & Polish instead). Never on coated cookware, glass shower-door film coatings, or polished marble. Always rinse thoroughly afterward — steel wool fibers left on a surface rust within hours and will stain.",
+          es: "NUNCA en cromo — incluso #0000 daña el acabado cromado al primer pase. Nunca en frentes de electrodomésticos de acero (use el Limpiador y Pulidor de Acero Inoxidable Weiman's). Nunca en utensilios con recubrimiento, recubrimientos de puertas de ducha, o mármol pulido. Siempre enjuague completamente — fibras de lana de acero dejadas en una superficie se oxidan en horas y mancharán.",
         },
       },
 
@@ -4171,7 +4183,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Directly on the mirror, then wipe in circles", es: "Directamente al espejo, luego en círculos" },
       { en: "On a yellow cloth, then wipe", es: "En paño amarillo, luego limpiar" },
-      { en: "On a blue microfiber cloth, then wipe in S-pattern", es: "En paño de microfibra azul, luego patrón en S" },
+      { en: "On a green microfiber cloth, then wipe in S-pattern", es: "En paño de microfibra verde, luego patrón en S" },
       { en: "On the floor first, so it doesn't drip", es: "Al piso primero, para que no gotee" },
     ],
     correctIndex: 2,
@@ -4287,10 +4299,10 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pt-13-cloth-cross",
     moduleId: "products-tools",
-    prompt: { en: "You're in a bathroom and your green cloth gets dirty. You finish the bathroom and head to the kitchen. Can you keep using the same green cloth?", es: "Está en un baño y su paño verde se ensució. Termina el baño y va a la cocina. ¿Puede seguir usando el mismo paño verde?" },
+    prompt: { en: "You're in a bathroom and your white cloth gets dirty. You finish the bathroom and head to the kitchen. Can you keep using the same white cloth?", es: "Está en un baño y su paño blanco se ensució. Termina el baño y va a la cocina. ¿Puede seguir usando el mismo paño blanco?" },
     options: [
-      { en: "Yes — green cloths are general-purpose", es: "Sí — los paños verdes son de uso general" },
-      { en: "No — green is bathroom-only. Cross-contamination from a bathroom cloth into a kitchen is a major hygiene fail.", es: "No — el verde es solo para baños. La contaminación cruzada de un paño de baño a la cocina es una falla mayor de higiene." },
+      { en: "Yes — white cloths are general-purpose", es: "Sí — los paños blancos son de uso general" },
+      { en: "No — white is bathroom-only. Cross-contamination from a bathroom cloth into a kitchen is a major hygiene fail.", es: "No — el blanco es solo para baños. La contaminación cruzada de un paño de baño a la cocina es una falla mayor de higiene." },
       { en: "Yes if you rinse it", es: "Sí si lo enjuaga" },
       { en: "Yes if you turn it over to a clean side", es: "Sí si lo voltea al lado limpio" },
     ],
