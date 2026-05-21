@@ -126,6 +126,11 @@ type ModuleProgressRow = {
   status: "not_started" | "in_progress" | "passed" | "failed";
   best_score: number;
   attempts: number;
+  // ISO timestamp set by /quiz/submit when the attempt passed, or by
+  // /module/acknowledge for content-only modules. Optional because
+  // the field is null until a pass is recorded. Used by the
+  // ModuleView completion banner to render "Passed on <date>".
+  passed_at?: string | null;
 };
 
 type LmsState = {
@@ -508,6 +513,23 @@ const T = {
   start_quiz: { en: "Start quiz", es: "Comenzar examen" },
   review_quiz: { en: "Review", es: "Revisar" },
   downloadCert: { en: "Certificate", es: "Certificado" },
+  // Passed-module terminal-state UI (2026-05-21 Katie-class fix).
+  // Passed modules are TERMINAL — no quiz re-entry, no review, no
+  // unlock. The detail screen shows the completion banner + cert
+  // download + a deep-link CTA to the next module.
+  moduleCompleted: { en: "Module completed", es: "Módulo completado" },
+  passedOn: { en: "Passed on", es: "Aprobado el" },
+  bestScoreLabel: { en: "Best score", es: "Mejor puntaje" },
+  continueToNextModule: {
+    en: "Continue to next module",
+    es: "Continuar al siguiente módulo",
+  },
+  allModulesDone: {
+    en: "You've completed every module",
+    es: "Has completado todos los módulos",
+  },
+  returnToTraining: { en: "Return to training", es: "Volver a capacitación" },
+  viewCertificate: { en: "View certificate", es: "Ver certificado" },
 } as const;
 
 function tr(key: keyof typeof T, locale: Locale): string {
@@ -832,39 +854,67 @@ export default function TrainingPage() {
           onDismissRecomputeBanner={dismissRecomputeBanner}
         />
       )}
-      {view.kind === "module" && (
-        <ModuleView
-          module={
-            curriculum.modules.find((m) => m.id === view.moduleId) ??
-            curriculum.modules[0]
-          }
-          locale={locale}
-          isQuizModule={
-            QUIZ_MODULE_IDS.includes(view.moduleId as never)
-          }
-          progress={state.progress.find((p) => p.module_id === view.moduleId) ?? null}
-          isOwner={!!state.is_owner}
-          onBack={() => setView({ kind: "home" })}
-          onTakeQuiz={() => setView({ kind: "quiz", moduleId: view.moduleId })}
-          onAcknowledge={async () => {
-            await lmsApi.acknowledge(token, view.moduleId);
-            await refresh();
-            setView({ kind: "home" });
-          }}
-          onBypass={async () => {
-            await lmsApi.bypassModule(token, view.moduleId);
-            await refresh();
-            setView({ kind: "home" });
-          }}
-          onStart={async () => {
-            try {
-              await lmsApi.startModule(token, view.moduleId);
-            } catch {
-              /* idempotent — ignore conflict */
+      {view.kind === "module" && (() => {
+        // Deep-link target for "Continue to next module" CTA shown on
+        // passed modules. Walks the curriculum in its canonical order
+        // and picks the first downstream module the learner hasn't
+        // passed yet. If every quiz module is passed, returns null so
+        // the CTA falls back to "Return to training" (which still
+        // routes home where the final test + ack tiles live).
+        const currentModuleId = view.moduleId;
+        const orderedIds = curriculum.modules.map((m) => m.id);
+        const startIdx = orderedIds.indexOf(currentModuleId);
+        const nextModuleId =
+          orderedIds
+            .slice(startIdx + 1)
+            .find((id) => !completedIds.includes(id)) ??
+          orderedIds.find(
+            (id) => id !== currentModuleId && !completedIds.includes(id),
+          ) ??
+          null;
+        return (
+          <ModuleView
+            module={
+              curriculum.modules.find((m) => m.id === currentModuleId) ??
+              curriculum.modules[0]
             }
-          }}
-        />
-      )}
+            locale={locale}
+            isQuizModule={
+              QUIZ_MODULE_IDS.includes(currentModuleId as never)
+            }
+            progress={
+              state.progress.find((p) => p.module_id === currentModuleId) ?? null
+            }
+            isOwner={!!state.is_owner}
+            certId={certByModule[currentModuleId]}
+            nextModuleId={nextModuleId}
+            onBack={() => setView({ kind: "home" })}
+            onTakeQuiz={() =>
+              setView({ kind: "quiz", moduleId: currentModuleId })
+            }
+            onAcknowledge={async () => {
+              await lmsApi.acknowledge(token, currentModuleId);
+              await refresh();
+              setView({ kind: "home" });
+            }}
+            onBypass={async () => {
+              await lmsApi.bypassModule(token, currentModuleId);
+              await refresh();
+              setView({ kind: "home" });
+            }}
+            onStart={async () => {
+              try {
+                await lmsApi.startModule(token, currentModuleId);
+              } catch {
+                /* idempotent — ignore conflict */
+              }
+            }}
+            onDownloadCert={(certId) => downloadCertificatePdf(token, certId)}
+            onOpenModule={(id) => setView({ kind: "module", moduleId: id })}
+            onReturnHome={() => setView({ kind: "home" })}
+          />
+        );
+      })()}
       {view.kind === "quiz" && (
         <QuizView
           curriculum={curriculum}
@@ -2420,39 +2470,75 @@ function ModuleView({
   isQuizModule,
   progress,
   isOwner,
+  certId,
+  nextModuleId,
   onBack,
   onTakeQuiz,
   onAcknowledge,
   onBypass,
   onStart,
+  onDownloadCert,
+  onOpenModule,
+  onReturnHome,
 }: {
   module: Module;
   locale: Locale;
   isQuizModule: boolean;
   progress: ModuleProgressRow | null;
   isOwner: boolean;
+  certId?: number;
+  nextModuleId: string | null;
   onBack: () => void;
   onTakeQuiz: () => void;
   onAcknowledge: () => void;
   onBypass: () => void;
   onStart: () => void;
+  onDownloadCert: (certId: number) => Promise<void>;
+  onOpenModule: (moduleId: string) => void;
+  onReturnHome: () => void;
 }) {
   const attempts = progress?.attempts ?? 0;
   const maxAttempts = MAX_MODULE_ATTEMPTS;
   const status = progress?.status ?? "not_started";
-  const atCap = isQuizModule && status !== "passed" && attempts >= maxAttempts;
+  // Katie-class invariant (2026-05-21): a passed module is TERMINAL.
+  // - SSoT predicate matches the backend (`status === 'passed'` OR
+  //   `best_score >= 80`) so a Maribel-pattern row with status lag
+  //   still renders the completion banner instead of the quiz CTA.
+  // - The quiz UI is fully disallowed on passed modules — no Review,
+  //   no Resume, no Retry. The completion banner replaces the bottom
+  //   CTA group.
+  const bestScore = progress?.best_score ?? 0;
+  const isPassed = status === "passed" || bestScore >= 80;
+  const atCap = isQuizModule && !isPassed && attempts >= maxAttempts;
   const quizCta =
-    status === "passed"
-      ? tr("review_quiz", locale)
-      : status === "failed"
+    status === "failed"
       ? tr("retry_quiz", locale)
       : status === "in_progress" && attempts > 0
       ? tr("resume_quiz", locale)
       : tr("start_quiz", locale);
   useEffect(() => {
+    // Katie-class fix: do NOT auto-fire /module/start when the module
+    // is already passed. Even with the backend guard in place, skipping
+    // the call here keeps the network quiet and makes the frontend
+    // contract obvious: passed = terminal, no reopen.
+    if (isPassed) return;
     onStart();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [m.id]);
+  }, [m.id, isPassed]);
+  const passedAtLabel = (() => {
+    const raw = progress?.passed_at;
+    if (!raw) return null;
+    try {
+      const d = new Date(raw);
+      return d.toLocaleDateString(locale === "es" ? "es-US" : "en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
+    } catch {
+      return null;
+    }
+  })();
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 18px" }}>
       <BackLink label={tr("back", locale)} onClick={onBack} />
@@ -2487,7 +2573,9 @@ function ModuleView({
         {m.blocks.map((b, i) => (
           <Block key={i} block={b} locale={locale} />
         ))}
-        {isQuizModule && shouldShowLearnerGating(isOwner) ? (
+        {/* Attempt counter strip — hidden on passed modules (no more
+            attempts to track once you've passed). */}
+        {isQuizModule && !isPassed && shouldShowLearnerGating(isOwner) ? (
           <div
             style={{
               marginTop: 18,
@@ -2518,35 +2606,119 @@ function ModuleView({
             </span>
           </div>
         ) : null}
-        <div
-          style={{
-            marginTop: 22,
-            display: "flex",
-            gap: 10,
-            justifyContent: "flex-end",
-            flexWrap: "wrap",
-          }}
-        >
-          {isOwner && status !== "passed" ? (
-            <SecondaryButton onClick={onBypass}>
-              <FastForward size={14} /> {tr("bypassOwner", locale)}
-            </SecondaryButton>
-          ) : null}
-          {isQuizModule ? (
-            <PrimaryButton
-              onClick={onTakeQuiz}
-              disabled={atCap && !isOwner}
+        {isPassed ? (
+          // ─ Passed = terminal completion banner ─
+          // Replaces the quiz CTA group entirely. Shows:
+          //   - "Module completed" + checkmark
+          //   - Best score + passed-on date
+          //   - "View certificate" (when a cert exists)
+          //   - "Continue to next module" (deep-link to first unpassed
+          //     downstream module), or "Return to training" if every
+          //     module is done.
+          // Owner Skip-button stays hidden (status === passed).
+          <div
+            style={{
+              marginTop: 22,
+              background: "#ECFDF5",
+              border: `1px solid #A7F3D0`,
+              borderLeft: `3px solid ${SUCCESS}`,
+              borderRadius: 8,
+              padding: "14px 16px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                color: SUCCESS,
+                fontWeight: 800,
+                fontSize: 14,
+              }}
             >
-              {quizCta}
-              <ChevronRight size={14} style={{ marginLeft: 4 }} />
-            </PrimaryButton>
-          ) : (
-            <PrimaryButton onClick={onAcknowledge}>
-              {tr("acknowledge", locale)}
-              <Check size={14} style={{ marginLeft: 4 }} />
-            </PrimaryButton>
-          )}
-        </div>
+              <CircleCheck size={18} />
+              {tr("moduleCompleted", locale)}
+            </div>
+            <div
+              style={{
+                marginTop: 6,
+                fontSize: 12,
+                color: INK_MUTE,
+                fontWeight: 700,
+              }}
+            >
+              {bestScore > 0
+                ? `${tr("bestScoreLabel", locale)}: ${bestScore}%`
+                : null}
+              {bestScore > 0 && passedAtLabel ? " · " : null}
+              {passedAtLabel
+                ? `${tr("passedOn", locale)} ${passedAtLabel}`
+                : null}
+            </div>
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                gap: 10,
+                justifyContent: "flex-end",
+                flexWrap: "wrap",
+              }}
+            >
+              {certId ? (
+                <SecondaryButton
+                  onClick={() =>
+                    onDownloadCert(certId).catch((err) =>
+                      console.error("[training] download cert failed:", err),
+                    )
+                  }
+                >
+                  <Download size={14} /> {tr("viewCertificate", locale)}
+                </SecondaryButton>
+              ) : null}
+              {nextModuleId ? (
+                <PrimaryButton onClick={() => onOpenModule(nextModuleId)}>
+                  {tr("continueToNextModule", locale)}
+                  <ChevronRight size={14} style={{ marginLeft: 4 }} />
+                </PrimaryButton>
+              ) : (
+                <PrimaryButton onClick={onReturnHome}>
+                  {tr("returnToTraining", locale)}
+                  <ChevronRight size={14} style={{ marginLeft: 4 }} />
+                </PrimaryButton>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div
+            style={{
+              marginTop: 22,
+              display: "flex",
+              gap: 10,
+              justifyContent: "flex-end",
+              flexWrap: "wrap",
+            }}
+          >
+            {isOwner ? (
+              <SecondaryButton onClick={onBypass}>
+                <FastForward size={14} /> {tr("bypassOwner", locale)}
+              </SecondaryButton>
+            ) : null}
+            {isQuizModule ? (
+              <PrimaryButton
+                onClick={onTakeQuiz}
+                disabled={atCap && !isOwner}
+              >
+                {quizCta}
+                <ChevronRight size={14} style={{ marginLeft: 4 }} />
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={onAcknowledge}>
+                {tr("acknowledge", locale)}
+                <Check size={14} style={{ marginLeft: 4 }} />
+              </PrimaryButton>
+            )}
+          </div>
+        )}
       </article>
     </div>
   );

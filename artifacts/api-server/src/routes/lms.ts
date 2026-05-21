@@ -65,6 +65,10 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { addDays, daysUntil, fireLmsWebhook } from "../lib/lms-helpers.js";
 import { computeEmployeeFinalStatusBatch } from "../lib/lms-status.js";
+import {
+  isModulePassed,
+  canDowngradeToInProgress,
+} from "../lib/lms-status-pure.js";
 import { isEnrollmentTrulyComplete } from "../lib/lms-completion.js";
 import {
   captureRequestMetadata,
@@ -495,12 +499,19 @@ router.post("/module/start", requireAuth, async (req, res) => {
       });
     }
 
+    // Katie-class invariant: viewing a passed module must NOT downgrade
+    // status from 'passed' back to 'in_progress' (which would re-enable the
+    // quiz and let the learner retake an already-passed module). Delegate
+    // the decision to the shared pure helper so the regression test pins
+    // the same predicate the route uses.
+    const existing = progress.find((p) => p.module_id === moduleId);
+    const setInProgress = canDowngradeToInProgress(existing);
     const row = await upsertModuleProgress({
       companyId,
       enrollmentId: enrollment.id,
       moduleId,
       patch: {
-        status: "in_progress",
+        ...(setInProgress ? { status: "in_progress" } : {}),
         started_at: now,
       },
       now,
@@ -1078,13 +1089,23 @@ router.post("/module/acknowledge", requireAuth, async (req, res) => {
       });
     }
 
+    // Maribel-class invariant: if a content-only module is already passed,
+    // preserve the original passed_at timestamp. A second ack (e.g. a learner
+    // reopening the page after passing) should NOT reset the pass date — that
+    // would muddy supersession bookkeeping and audit trails. Status stays
+    // 'passed' either way; this guard just protects the timestamp.
+    const existingAck = progress.find((p) => p.module_id === moduleId);
+    const alreadyPassedAck = existingAck ? isModulePassed(existingAck) : false;
     await upsertModuleProgress({
       companyId,
       enrollmentId: enrollment.id,
       moduleId,
       patch: {
         status: "passed",
-        passed_at: now,
+        passed_at:
+          alreadyPassedAck && existingAck?.passed_at
+            ? existingAck.passed_at
+            : now,
         best_score: 100, // content-only modules count as 100% on ack
       },
       now,

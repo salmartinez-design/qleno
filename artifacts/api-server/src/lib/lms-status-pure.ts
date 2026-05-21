@@ -111,6 +111,35 @@ export function isModulePassed(row: {
   return (row.best_score ?? 0) >= PASS_PERCENT;
 }
 
+/**
+ * Decides whether `POST /lms/module/start` is allowed to write
+ * `status: 'in_progress'` into the module_progress row for this
+ * (learner, module).
+ *
+ * Returns true (allowed to set in_progress) when:
+ *   - no row exists yet (fresh insert path), OR
+ *   - the row exists but does NOT satisfy `isModulePassed` (i.e. it's
+ *     genuinely in-progress / failed / not_started)
+ *
+ * Returns false (must omit status from the patch) when the row already
+ * satisfies `isModulePassed`. That guard prevents the Katie-class bug:
+ *   - learner passes a quiz (status='passed', best_score=97, passed_at set)
+ *   - learner later opens the module to review
+ *   - frontend auto-fires `/module/start` on view
+ *   - WITHOUT this guard the upsert clobbers status to 'in_progress',
+ *     which re-enables the quiz UI and lets the learner retake an
+ *     already-passed module — defeating the whole pass concept.
+ *
+ * Pure helper so the regression test can pin the decision matrix
+ * without spinning up a DB. The route handler uses the same predicate.
+ */
+export function canDowngradeToInProgress(
+  existing: { status: string; best_score: number | null } | undefined,
+): boolean {
+  if (!existing) return true;
+  return !isModulePassed(existing);
+}
+
 export function computeStatusFromData(
   input: ComputeStatusInput,
 ): EmployeeFinalStatus {
