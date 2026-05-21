@@ -320,6 +320,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 2,
   "q-cm-15-payroll-cycle": 1,
+  "q-cm-16-allowed-hours-math": 1,
 
   // ── Module 3: cleaning-best-practices (15) ───────────────────────────────
   "q-cb-01-room-flow": 1,
@@ -565,6 +566,7 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun", "q-cm-09-commercial-rate",
       "q-cm-10-commercial-early", "q-cm-11-fixit", "q-cm-12-quality-probation",
       "q-cm-13-probation-pay", "q-cm-14-mileage", "q-cm-15-payroll-cycle",
+      "q-cm-16-allowed-hours-math",
     ],
     "cleaning-best-practices": [
       "q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-03-direction",

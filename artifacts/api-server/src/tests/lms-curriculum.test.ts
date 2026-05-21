@@ -120,7 +120,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "social-media": 10,
       "phes-401k": 10,
       "supply-kit": 10,
-      compensation: 15,
+      compensation: 16,
       "cleaning-best-practices": 15,
       maidcentral: 15,
       "products-tools": 15,
@@ -135,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 187 total (40 + 15*5 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 187);
+  it("ALL_QUESTION_IDS is 188 total (40 + 16 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 188);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
@@ -246,9 +246,9 @@ describe("scoreQuiz", () => {
   });
 
   it("passes at exactly the 80% boundary on a 15-question quiz (12/15 = 80%)", () => {
-    // Use compensation (15) — phes-policies is now 23 after the 2026-05-11
-    // handbook reconciliation, so it no longer hits the 12/15 boundary.
-    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]];
+    // Use cleaning-best-practices (15) — compensation went 15→16 in the
+    // 2026-05-20 allowed-hours sprint, so it no longer hits the 12/15 boundary.
+    const qids: string[] = [...QUESTIONS_BY_MODULE["cleaning-best-practices"]];
     const answers: number[] = qids.map((q: string, i: number) =>
       i < 12 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );
@@ -258,7 +258,7 @@ describe("scoreQuiz", () => {
   });
 
   it("fails below 80% (11/15 = 73%)", () => {
-    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]];
+    const qids: string[] = [...QUESTIONS_BY_MODULE["cleaning-best-practices"]];
     const answers: number[] = qids.map((q: string, i: number) =>
       i < 11 ? ANSWER_KEY[q] : (ANSWER_KEY[q] + 1) % 3,
     );

@@ -85,6 +85,7 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 2,
   "q-cm-15-payroll-cycle": 1,
+  "q-cm-16-allowed-hours-math": 1,
 
   // ── Module 3: cleaning-best-practices ────────────────────────────────────
   "q-cb-01-room-flow": 1,
