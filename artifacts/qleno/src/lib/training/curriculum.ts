@@ -915,7 +915,7 @@ const BASE_MODULES: Module[] = [
         items: [
           { en: "Reimbursed for travel BETWEEN one client location and a second client location on the same workday.", es: "Se reembolsa el viaje ENTRE una ubicación de cliente y una segunda ubicación de cliente en el mismo día laboral." },
           { en: "Home-to-first-job and last-job-to-home mileage is NOT reimbursable.", es: "El millaje de casa al primer trabajo y del último trabajo a casa NO es reembolsable." },
-          { en: "Reimbursed at the IRS standard mileage rate in effect at the time of travel.", es: "Se reembolsa a la tarifa estándar de millaje del IRS vigente al momento del viaje." },
+          { en: "Reimbursed at $0.725 per mile (Phes's current rate, at or above the IRS standard mileage rate in effect at the time of travel).", es: "Se reembolsa a $0.725 por milla (la tarifa actual de Phes, al nivel o por encima de la tarifa estándar de millaje del IRS vigente al momento del viaje)." },
           { en: "Must be submitted through the Phes app within the same calendar month incurred. Include date, client names, total miles.", es: "Debe enviarse por la app de Phes dentro del mismo mes calendario en que se incurrió. Incluya fecha, nombres de clientes, total de millas." },
           { en: "Late or incomplete submissions may be denied. Mileage reimbursement is NOT considered wages.", es: "Las solicitudes tardías o incompletas pueden ser denegadas. El reembolso de millaje NO se considera salario." },
         ],
@@ -1161,6 +1161,43 @@ const BASE_MODULES: Module[] = [
         ],
       },
 
+      { type: "h", text: { en: "Allowed Hours: How They Work and How to Maximize Your Pay", es: "Horas Asignadas: Cómo Funcionan y Cómo Maximizar Su Pago" } },
+      {
+        type: "p",
+        text: {
+          en: "Every Phes job has an allowed hours number — the time Phes budgets for that visit, based on the home, the service type, and historical performance data. Allowed hours are the budget. Your commission is paid on the job total, NOT on the time you take. That means: if you finish faster than the allowed hours without compromising quality, your effective hourly rate goes UP.",
+          es: "Cada trabajo de Phes tiene un número de horas asignadas — el tiempo que Phes presupuesta para esa visita, según el hogar, el tipo de servicio y datos históricos de desempeño. Las horas asignadas son el presupuesto. Su comisión se paga sobre el total del trabajo, NO sobre el tiempo que tarda. Eso significa: si termina más rápido que las horas asignadas sin comprometer la calidad, su tarifa efectiva por hora SUBE.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Example: a 4-hour Move-Out clean billed at $80/hour = $320 job total. Your 32% commission = $102.40. That's a fixed amount tied to the JOB, not to how long it takes you.",
+          es: "Ejemplo: una limpieza de Mudanza de 4 horas facturada a $80/hora = $320 total del trabajo. Su 32% de comisión = $102.40. Esa es una cantidad fija ligada al TRABAJO, no a cuánto tarda.",
+        },
+      },
+      {
+        type: "table",
+        head: {
+          en: ["If you finish in…", "Your pay", "Your effective $/hr"],
+          es: ["Si termina en…", "Su pago", "Su tarifa efectiva $/hr"],
+        },
+        rows: [
+          { en: ["4.0 hours (the full allowed time)", "$102.40", "$25.60/hr"], es: ["4.0 horas (todo el tiempo asignado)", "$102.40", "$25.60/hr"] },
+          { en: ["3.5 hours", "$102.40", "$29.26/hr"], es: ["3.5 horas", "$102.40", "$29.26/hr"] },
+          { en: ["3.2 hours", "$102.40", "$32.00/hr"], es: ["3.2 horas", "$102.40", "$32.00/hr"] },
+          { en: ["2.5 hours", "$102.40", "$40.96/hr"], es: ["2.5 horas", "$102.40", "$40.96/hr"] },
+        ],
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Speed does NOT replace quality. The 24-hour Quality Verification window means your commission is contingent until the client either confirms satisfaction OR 24 hours pass with no complaint. If you rush and the client calls back unhappy: you return for the Fix-It re-clean within 24 hours and full commission stays earned, plus a 3-hour minimum on the re-clean visit. If you refuse a valid re-clean without lawful reason: commission is NOT earned. The job defaults to $18.00 per hour for on-site time. That's significantly LESS than $25.60/hr, never mind the $40.96/hr you would have made on a fast clean done right. Bottom line: a fast clean done well = more $/hr. A fast clean done badly = $18/hr fallback if you refuse the fix. The math only works when quality holds.",
+          es: "La rapidez NO reemplaza la calidad. La ventana de Verificación de Calidad de 24 horas significa que su comisión es contingente hasta que el cliente confirme satisfacción O pasen 24 horas sin queja. Si se apura y el cliente llama inconforme: regresa a la re-limpieza Fix-It dentro de 24 horas y la comisión completa se mantiene ganada, más un mínimo de 3 horas en la visita de re-limpieza. Si rechaza una re-limpieza válida sin razón legal: la comisión NO se gana. El trabajo se rige por la tarifa por hora en sitio de $18.00. Eso es significativamente MENOS que $25.60/hr, mucho menos los $40.96/hr que habría ganado con una limpieza rápida bien hecha. Conclusión: una limpieza rápida bien hecha = más $/hr. Una limpieza rápida mal hecha = $18/hr de respaldo si rechaza arreglarla. La matemática solo funciona cuando la calidad se mantiene.",
+        },
+      },
+
       { type: "h", text: { en: "Hourly Time Blocks", es: "Bloques de Tiempo por Hora" } },
       {
         type: "p",
@@ -1217,8 +1254,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Phes reimburses mileage between client homes (not your commute from home to first job, or last job to home). Submit mileage requests through the system; the office reviews and approves. The current rate is $0.70 per mile.",
-          es: "Phes reembolsa el millaje entre hogares de clientes (no su trayecto desde casa al primer trabajo, ni del último trabajo a casa). Envíe solicitudes de millaje a través del sistema; la oficina revisa y aprueba. La tarifa actual es $0.70 por milla.",
+          en: "Phes reimburses mileage between client homes (not your commute from home to first job, or last job to home). Submit mileage requests through the system; the office reviews and approves. The current rate is $0.725 per mile.",
+          es: "Phes reembolsa el millaje entre hogares de clientes (no su trayecto desde casa al primer trabajo, ni del último trabajo a casa). Envíe solicitudes de millaje a través del sistema; la oficina revisa y aprueba. La tarifa actual es $0.725 por milla.",
         },
       },
 
@@ -3858,6 +3895,21 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Biweekly, every other Friday", es: "Quincenal, cada dos viernes" },
       { en: "Monthly on the 1st", es: "Mensual el día 1" },
       { en: "Same-day cash at the end of each shift", es: "Efectivo el mismo día al final de cada turno" },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-16-allowed-hours-math",
+    moduleId: "compensation",
+    prompt: {
+      en: "You're solo on a 4-hour Move-Out clean billed at $80/hour ($320 total). You finish in 3.2 hours with no quality issues. How much do you earn?",
+      es: "Trabaja solo en una limpieza de Mudanza de 4 horas facturada a $80/hora ($320 total). Termina en 3.2 horas sin problemas de calidad. ¿Cuánto gana?",
+    },
+    options: [
+      { en: "$64.00 (32% of 3.2 hours × $80/hr — your actual time).", es: "$64.00 (32% de 3.2 horas × $80/hr — su tiempo real)." },
+      { en: "$102.40 (32% of the $320 job total — commission is on the job, not the time). That's $32/hr effective. The 0.8-hour difference is yours to keep as long as quality holds.", es: "$102.40 (32% del total de $320 del trabajo — la comisión es sobre el trabajo, no sobre el tiempo). Eso es $32/hr efectivos. La diferencia de 0.8 horas es suya mientras la calidad se mantenga." },
+      { en: "$80.00 (4 × $20 default hourly).", es: "$80.00 (4 × $20 por hora por defecto)." },
+      { en: "$57.60 (18% commission for fast work).", es: "$57.60 (18% de comisión por trabajo rápido)." },
     ],
     correctIndex: 1,
   },

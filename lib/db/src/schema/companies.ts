@@ -55,7 +55,7 @@ export const companiesTable = pgTable("companies", {
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
-  mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7000"),
+  mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7250"),
   phone: text("phone"),
   email: text("email"),
   address: text("address"),

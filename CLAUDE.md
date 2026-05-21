@@ -304,6 +304,16 @@
 4. Smart tech availability check (fires after date selected in Review)
 5. UI cleanup: inline address verification, collapsible call notes
 6. Recurring job timezone bug fix (parseDate local vs UTC)
+7. **Payroll detail view (day-by-day) — Qleno roadmap.** Sal's reference
+   is the MaidCentral PayrollSummaryIndividual screen: each day
+   expandable, showing per-day tips / Daily Hours / Daily Pay ($X/hr
+   effective). Per-customer table with Customer · Fee · Position · Pay
+   type · **Actual / Allowed hours** · Pay. Job Hours total + Drive &
+   Office Hours total. Allowed hours is the load-bearing field — techs
+   need to see budget vs actual to grasp the efficiency math taught in
+   the Compensation module's "Allowed Hours" section. Today Qleno's
+   payroll screens don't surface allowed-hours per day. Spec needed,
+   then frontend + API work. Flagged 2026-05-20.
 
 ## Dev Workflow
 - Edit locally in Claude Code

@@ -52,7 +52,7 @@ router.patch("/", requireAuth, async (req, res) => {
         ${quality_probation_threshold_complaints ?? 2},
         ${quality_probation_window_days ?? 30},
         ${quality_probation_pay_rate ?? 20},
-        ${mileage_rate ?? 0.70},
+        ${mileage_rate ?? 0.725},
         NOW()
       )
       ON CONFLICT (company_id) DO UPDATE SET

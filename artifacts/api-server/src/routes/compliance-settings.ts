@@ -33,7 +33,7 @@ router.patch("/", requireAuth, async (req, res) => {
         ${b.plawa_enabled ?? true}, ${b.plawa_annual_hours ?? 40},
         ${b.pto_enabled ?? true}, ${b.pto_year1_credit ?? 40}, ${b.pto_max_cap ?? 80},
         ${b.pto_payout_on_separation ?? true}, ${b.holiday_pay_enabled ?? true}, ${b.holiday_pay_hours ?? 8},
-        ${b.mileage_reimbursement_enabled ?? true}, ${b.mileage_rate ?? 0.70},
+        ${b.mileage_reimbursement_enabled ?? true}, ${b.mileage_rate ?? 0.725},
         ${b.quality_probation_enabled ?? true}, ${b.re_clean_workflow_enabled ?? true},
         ${b.insubordination_reclassification_enabled ?? true},
         ${b.scorecard_enabled ?? true}, ${b.scorecard_floor_pct ?? 95.00},

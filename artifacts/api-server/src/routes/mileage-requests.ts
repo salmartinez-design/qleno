@@ -64,7 +64,7 @@ router.post("/", requireAuth, async (req, res) => {
       .from(companiesTable)
       .where(eq(companiesTable.id, companyId))
       .limit(1);
-    const rate = parseFloat(company?.mileage_rate || "0.7000");
+    const rate = parseFloat(company?.mileage_rate || "0.7250");
     const milesNum = parseFloat(miles);
     const reimbursement = (milesNum * rate).toFixed(2);
 
