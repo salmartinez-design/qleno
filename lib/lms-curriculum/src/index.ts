@@ -304,23 +304,27 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
 
-  // ── Module 2: compensation (15) ──────────────────────────────────────────
+  // ── Module 2: compensation (16, alignment with handbook hardening 2026-05-21) ───
+  // Dropped q-cm-04/06/10 (duplicates + non-legal); added q-cm-17/18/19
+  // (legal nuances: recovery tech 3hr min, valid quality complaint
+  // definition, refused re-clean $18 default). Flipped q-cm-15 correct
+  // answer from 1→0 to reflect weekly pay correction.
   "q-cm-01-training-pay": 1,
   "q-cm-02-standard-rate": 2,
   "q-cm-03-deep-clean-rate": 1,
-  "q-cm-04-move-in-rate": 1,
   "q-cm-05-comm-split-200": 2,
-  "q-cm-06-deep-split-300": 1,
   "q-cm-07-clock-in-difference": 1,
   "q-cm-08-hourly-overrun": 1,
   "q-cm-09-commercial-rate": 2,
-  "q-cm-10-commercial-early": 1,
   "q-cm-11-fixit": 0,
   "q-cm-12-quality-probation": 1,
   "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 2,
-  "q-cm-15-payroll-cycle": 1,
+  "q-cm-15-payroll-cycle": 0,
   "q-cm-16-allowed-hours-math": 1,
+  "q-cm-17-recovery-tech-three-hour": 1,
+  "q-cm-18-valid-quality-complaint": 1,
+  "q-cm-19-refused-reclean-eighteen": 1,
 
   // ── Module 3: cleaning-best-practices (15) ───────────────────────────────
   "q-cb-01-room-flow": 1,
@@ -562,11 +566,13 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
-      "q-cm-04-move-in-rate", "q-cm-05-comm-split-200", "q-cm-06-deep-split-300",
-      "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun", "q-cm-09-commercial-rate",
-      "q-cm-10-commercial-early", "q-cm-11-fixit", "q-cm-12-quality-probation",
+      "q-cm-05-comm-split-200", "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun",
+      "q-cm-09-commercial-rate", "q-cm-11-fixit", "q-cm-12-quality-probation",
       "q-cm-13-probation-pay", "q-cm-14-mileage", "q-cm-15-payroll-cycle",
       "q-cm-16-allowed-hours-math",
+      // Handbook-alignment additions (2026-05-21)
+      "q-cm-17-recovery-tech-three-hour", "q-cm-18-valid-quality-complaint",
+      "q-cm-19-refused-reclean-eighteen",
     ],
     "cleaning-best-practices": [
       "q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-03-direction",

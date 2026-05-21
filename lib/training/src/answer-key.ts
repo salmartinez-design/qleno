@@ -69,23 +69,24 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
 
-  // ── Module 2: compensation ───────────────────────────────────────────────
+  // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
+  // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.
   "q-cm-01-training-pay": 1,
   "q-cm-02-standard-rate": 2,
   "q-cm-03-deep-clean-rate": 1,
-  "q-cm-04-move-in-rate": 1,
   "q-cm-05-comm-split-200": 2,
-  "q-cm-06-deep-split-300": 1,
   "q-cm-07-clock-in-difference": 1,
   "q-cm-08-hourly-overrun": 1,
   "q-cm-09-commercial-rate": 2,
-  "q-cm-10-commercial-early": 1,
   "q-cm-11-fixit": 0,
   "q-cm-12-quality-probation": 1,
   "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 2,
-  "q-cm-15-payroll-cycle": 1,
+  "q-cm-15-payroll-cycle": 0,
   "q-cm-16-allowed-hours-math": 1,
+  "q-cm-17-recovery-tech-three-hour": 1,
+  "q-cm-18-valid-quality-complaint": 1,
+  "q-cm-19-refused-reclean-eighteen": 1,
 
   // ── Module 3: cleaning-best-practices ────────────────────────────────────
   "q-cb-01-room-flow": 1,

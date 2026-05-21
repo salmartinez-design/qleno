@@ -1247,8 +1247,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Speed does NOT replace quality. The 24-hour Quality Verification window means your commission is contingent until the client either confirms satisfaction OR 24 hours pass with no complaint. If you rush and the client calls back unhappy: you return for the Fix-It re-clean within 24 hours and full commission stays earned, plus a 3-hour minimum on the re-clean visit. If you refuse a valid re-clean without lawful reason: commission is NOT earned. The job defaults to $18.00 per hour for on-site time. That's significantly LESS than $25.60/hr, never mind the $40.96/hr you would have made on a fast clean done right. Bottom line: a fast clean done well = more $/hr. A fast clean done badly = $18/hr fallback if you refuse the fix. The math only works when quality holds.",
-          es: "La rapidez NO reemplaza la calidad. La ventana de Verificación de Calidad de 24 horas significa que su comisión es contingente hasta que el cliente confirme satisfacción O pasen 24 horas sin queja. Si se apura y el cliente llama inconforme: regresa a la re-limpieza Fix-It dentro de 24 horas y la comisión completa se mantiene ganada, más un mínimo de 3 horas en la visita de re-limpieza. Si rechaza una re-limpieza válida sin razón legal: la comisión NO se gana. El trabajo se rige por la tarifa por hora en sitio de $18.00. Eso es significativamente MENOS que $25.60/hr, mucho menos los $40.96/hr que habría ganado con una limpieza rápida bien hecha. Conclusión: una limpieza rápida bien hecha = más $/hr. Una limpieza rápida mal hecha = $18/hr de respaldo si rechaza arreglarla. La matemática solo funciona cuando la calidad se mantiene.",
+          en: "Speed does NOT replace quality. The 24-hour Quality Verification window means your commission is contingent until the client either confirms satisfaction OR 24 hours pass with no complaint. If you rush and the client calls back unhappy: you return for the Fix-It re-clean within 24 hours and full commission stays earned. The re-clean visit is part of the original commission and there is no additional pay for the re-clean visit itself. If you refuse a valid re-clean without lawful reason: commission is NOT earned. The job defaults to $18.00 per hour for on-site time. That's significantly LESS than $25.60/hr, never mind the $40.96/hr you would have made on a fast clean done right. Bottom line: a fast clean done well equals more dollars per hour. A fast clean done badly plus you do the re-clean within 24 hours still equals full commission earned. A fast clean done badly plus you refuse the re-clean equals the $18.00 per hour default rate. Doing the fix protects your commission. The math only works when quality holds, and the Fix-It Rule is the safety net when it does not.",
+          es: "La rapidez NO reemplaza la calidad. La ventana de Verificación de Calidad de 24 horas significa que su comisión es contingente hasta que el cliente confirme satisfacción O pasen 24 horas sin queja. Si se apura y el cliente llama inconforme: regresa a la re-limpieza Fix-It dentro de 24 horas y la comisión completa se mantiene ganada. La visita de re-limpieza es parte de la comisión original y no hay pago adicional por la visita de re-limpieza en sí. Si rechaza una re-limpieza válida sin razón legal: la comisión NO se gana. El trabajo se rige por la tarifa por hora en sitio de $18.00. Eso es significativamente MENOS que $25.60/hr, mucho menos los $40.96/hr que habría ganado con una limpieza rápida bien hecha. Conclusión: una limpieza rápida bien hecha equivale a más dólares por hora. Una limpieza rápida mal hecha más usted hace la re-limpieza dentro de 24 horas todavía equivale a la comisión completa ganada. Una limpieza rápida mal hecha más usted rechaza la re-limpieza equivale a la tarifa por defecto de $18.00 por hora. Hacer la corrección protege su comisión. La matemática solo funciona cuando la calidad se mantiene, y la Regla de Corrección es la red de seguridad cuando no se mantiene.",
         },
       },
 
@@ -1290,8 +1290,22 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. If the original team returns to their own job, the re-clean is part of the original commission and there is no additional pay. If a recovery technician is dispatched to fix a different team's job, that recovery tech is paid $20.00 per hour with a 3-hour minimum. We never refuse a guarantee call. Repeated Fix-It calls on your jobs may trigger Quality Probation.",
-          es: "Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Si el equipo original regresa a su propio trabajo, la re-limpieza es parte de la comisión original y no hay pago adicional. Si se despacha a un técnico de recuperación para atender el trabajo de un equipo diferente, ese técnico de recuperación recibe $20.00 por hora con un mínimo de 3 horas. Nunca rechazamos una llamada de garantía. Llamadas Fix-It repetidas pueden activar Periodo de Prueba de Calidad.",
+          en: "If a client calls within 24 hours unhappy with anything in their home, a team returns the same day to fix it. If the original team returns to their own job, the re-clean is part of the original commission and there is no additional pay for the re-clean visit itself. If a recovery technician is dispatched because the original team cannot return, that recovery tech is paid $20.00 per hour with a 3-hour minimum (paid 3 hours even if the shortfall fix takes less time). The recovery tech only addresses the documented shortfall, not the whole job.",
+          es: "Si un cliente llama dentro de las 24 horas inconforme con cualquier cosa en su hogar, un equipo regresa el mismo día para corregirlo. Si el equipo original regresa a su propio trabajo, la re-limpieza es parte de la comisión original y no hay pago adicional por la visita de re-limpieza en sí. Si se despacha a un técnico de recuperación porque el equipo original no puede regresar, ese técnico de recuperación recibe $20.00 por hora con un mínimo de 3 horas (paga 3 horas aunque la corrección del problema tome menos tiempo). El técnico de recuperación solo atiende el problema documentado, no el trabajo completo.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Phes honors valid Fix-It guarantee calls without exception. The office determines validity in good faith based on the client's complaint, documented job photos, and the Quality Verification framework defined in the Phes Policies and Procedures handbook. Refusing a valid re-clean without a lawful or protected reason is insubordination and may result in discipline up to and including immediate termination. In that case, Quality Verification fails, commission is not earned on the original job, and compensation defaults to the on-site hourly rate of $18.00 per hour for time actually worked.",
+          es: "Phes honra las llamadas de garantía Fix-It válidas sin excepción. La oficina determina la validez de buena fe en base a la queja del cliente, las fotos documentadas del trabajo y el marco de Verificación de Calidad definido en el manual de Políticas y Procedimientos de Phes. Rechazar una re-limpieza válida sin una razón legal o protegida es insubordinación y puede resultar en disciplina hasta e incluyendo terminación inmediata. En ese caso, la Verificación de Calidad falla, la comisión no se gana en el trabajo original, y la compensación se rige por la tarifa por hora en sitio de $18.00 por hora por el tiempo efectivamente trabajado.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Repeated Fix-It calls on your jobs may trigger Quality Probation.",
+          es: "Llamadas Fix-It repetidas en sus trabajos pueden activar Periodo de Prueba de Calidad.",
         },
       },
 
@@ -1299,8 +1313,15 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If you have 2 client complaints in any 30-day window, you enter Quality Probation: 30 days at $20/hr training rate (no commission) while you ride along with senior techs. Pass the probation by completing 30 days clean of complaints; you return to commission. Fail again and the next step is termination.",
-          es: "Si tiene 2 quejas de clientes en cualquier ventana de 30 días, entra a Periodo de Prueba de Calidad: 30 días a $20/hr de entrenamiento (sin comisión) mientras acompaña a técnicos senior. Pase la prueba completando 30 días limpios; regresa a comisión. Falle de nuevo y el siguiente paso es terminación.",
+          en: "If you have two valid quality complaints within a rolling 30-day window, you enter Quality Probation: 30 days at $20.00 per hour (no commission) while you ride along with senior techs. Pass the probation by completing 30 consecutive days clean of valid quality complaints to return to commission. Fail probation again and the next step is termination.",
+          es: "Si tiene dos quejas válidas de calidad dentro de una ventana de 30 días móviles, entra a Periodo de Prueba de Calidad: 30 días a $20.00 por hora (sin comisión) mientras acompaña a técnicos senior. Pase la prueba completando 30 días consecutivos sin quejas válidas de calidad para regresar a comisión. Falle la prueba de nuevo y el siguiente paso es terminación.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "A valid quality complaint is defined in the Phes Policies and Procedures handbook (Section 2, Quality Probation subsection). In summary, a complaint is valid when the office documents it with specific identified quality issues, photographic or written client evidence where applicable, and a record of when the complaint was received. Complaints arising from circumstances outside the employee's control (office scheduling errors, client requests outside standard scope, items documented as exceeding the climbing rule or lifting limit) are not counted against the employee.",
+          es: "Una queja válida de calidad está definida en el manual de Políticas y Procedimientos de Phes (Sección 2, subsección Periodo de Prueba de Calidad). En resumen, una queja es válida cuando la oficina la documenta con problemas específicos de calidad identificados, evidencia fotográfica o escrita del cliente cuando aplica, y un registro de cuándo se recibió la queja. Las quejas que surgen de circunstancias fuera del control del empleado (errores de programación de la oficina, solicitudes del cliente fuera del alcance estándar, artículos documentados como exceder la regla de escalar o el límite de levantamiento) no se cuentan en contra del empleado.",
         },
       },
 
@@ -1308,8 +1329,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Phes reimburses mileage between client homes (not your commute from home to first job, or last job to home). Submit mileage requests through the system; the office reviews and approves. The current rate is $0.725 per mile.",
-          es: "Phes reembolsa el millaje entre hogares de clientes (no su trayecto desde casa al primer trabajo, ni del último trabajo a casa). Envíe solicitudes de millaje a través del sistema; la oficina revisa y aprueba. La tarifa actual es $0.725 por milla.",
+          en: "Phes reimburses mileage between client homes (not your commute from home to first job, or last job to home). Submit mileage requests through the system; the office reviews and approves. The current rate is $0.725 per mile, set at or above the IRS standard mileage rate in effect at the time of travel.",
+          es: "Phes reembolsa el millaje entre hogares de clientes (no su trayecto desde casa al primer trabajo, ni del último trabajo a casa). Envíe solicitudes de millaje a través del sistema; la oficina revisa y aprueba. La tarifa actual es $0.725 por milla, establecida igual o por encima de la tarifa estándar de millaje del IRS vigente al momento del viaje.",
         },
       },
 
@@ -1317,11 +1338,22 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Pay cycle: biweekly, deposited every other Friday.", es: "Ciclo de pago: quincenal, depositado cada dos viernes." },
-          { en: "Direct deposit only — no paper checks.", es: "Solo depósito directo — sin cheques de papel." },
-          { en: "Tips paid out same cycle as the work that earned them.", es: "Las propinas se pagan en el mismo ciclo que el trabajo que las generó." },
-          { en: "Mileage paid out the cycle after the request is approved.", es: "Millaje pagado el ciclo siguiente a la aprobación de la solicitud." },
+          { en: "Pay cycle: weekly. The payroll workweek runs Sunday through Saturday. Each completed workweek is deposited the following Friday (so work done this Sunday through Saturday hits your account next Friday).", es: "Ciclo de pago: semanal. La semana de nómina va de domingo a sábado. Cada semana completa se deposita el viernes siguiente (el trabajo hecho de domingo a sábado se deposita el siguiente viernes)." },
+          { en: "Direct deposit only. No paper checks.", es: "Solo depósito directo. Sin cheques de papel." },
+          { en: "Tips paid through the booking system are deposited the same week as the work that earned them.", es: "Las propinas pagadas a través del sistema de reservas se depositan en la misma semana del trabajo que las generó." },
+          { en: "Tips received through the booking system are reported on your W-2 and subject to standard payroll tax withholding (federal income tax, FICA, Medicare, and applicable state taxes). Cash tips are 100% yours to keep and are your responsibility to report to the IRS per Section 6053 tip reporting rules.", es: "Las propinas recibidas a través del sistema de reservas se reportan en su W-2 y están sujetas a la retención estándar de impuestos sobre la nómina (impuesto federal sobre la renta, FICA, Medicare y los impuestos estatales aplicables). Las propinas en efectivo son 100% suyas para quedárselas y es su responsabilidad reportarlas al IRS de acuerdo con las reglas de reporte de propinas de la Sección 6053." },
+          { en: "Mileage is paid the week after the request is approved.", es: "El millaje se paga la semana siguiente a la aprobación de la solicitud." },
+          { en: "Pay stubs are accessible through the ADP portal. W-2 forms are issued electronically through ADP by January 31 each year.", es: "Los recibos de pago están disponibles a través del portal de ADP. Los formularios W-2 se emiten electrónicamente a través de ADP antes del 31 de enero de cada año." },
         ],
+      },
+
+      { type: "h", text: { en: "Overtime", es: "Tiempo Extra" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes pays overtime per federal and Illinois law when an employee works more than 40 hours in a single workweek. Phes defines the workweek as Sunday through Saturday. For commission-earning employees, overtime is calculated on the regular rate of pay, which under the Fair Labor Standards Act includes a weighted average of commission earnings and base rates across the workweek. The office handles the overtime calculation automatically through ADP. If you have questions about how a specific paycheck was calculated, contact the office.",
+          es: "Phes paga tiempo extra de acuerdo con la ley federal y de Illinois cuando un empleado trabaja más de 40 horas en una sola semana laboral. Phes define la semana laboral de domingo a sábado. Para los empleados que ganan comisión, el tiempo extra se calcula sobre la tarifa regular de pago, la cual bajo la Ley de Normas Justas de Trabajo (Fair Labor Standards Act) incluye un promedio ponderado de las comisiones ganadas y las tarifas base a lo largo de la semana laboral. La oficina maneja el cálculo del tiempo extra automáticamente a través de ADP. Si tiene preguntas sobre cómo se calculó un cheque de pago específico, contacte a la oficina.",
+        },
       },
     ],
   },
@@ -3770,7 +3802,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   // 35 ids referenced for phes-policies.
 
   // ═════════════════════════════════════════════════════════════════════════════
-  // Module 2: COMPENSATION (15 questions)
+  // Module 2: COMPENSATION (16 questions after 2026-05-21 alignment with handbook legal hardening: dropped q-cm-04/06/10, added q-cm-17/18/19)
   // ═════════════════════════════════════════════════════════════════════════════
   {
     id: "q-cm-01-training-pay",
@@ -3809,18 +3841,6 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-cm-04-move-in-rate",
-    moduleId: "compensation",
-    prompt: { en: "You're assigned a Move In / Move Out clean. What is the commission rate?", es: "Le asignan una limpieza de Move In / Move Out. ¿Cuál es la tarifa?" },
-    options: [
-      { en: "35% — same as standard", es: "35% — igual que estándar" },
-      { en: "32% — Phes bills the client $80/hr on Move In / Move Out", es: "32% — Phes factura $80/hr al cliente" },
-      { en: "$20/hr — same as commercial", es: "$20/hr — igual que comercial" },
-      { en: "Determined by the office case-by-case", es: "Decidido por la oficina caso por caso" },
-    ],
-    correctIndex: 1,
-  },
-  {
     id: "q-cm-05-comm-split-200",
     moduleId: "compensation",
     prompt: { en: "You and a partner complete a $200 Standard Clean together with the same check-in time. How much commission does each of you earn?", es: "Tú y un compañero completan una Limpieza Estándar de $200 juntos con el mismo tiempo de Check In. ¿Cuánta comisión gana cada uno?" },
@@ -3831,18 +3851,6 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Whichever the office decides", es: "Lo que decida la oficina" },
     ],
     correctIndex: 2,
-  },
-  {
-    id: "q-cm-06-deep-split-300",
-    moduleId: "compensation",
-    prompt: { en: "You and a partner complete a $300 Deep Clean together. The pool rate is 32%. Roughly how much does each of you earn?", es: "Tú y un compañero completan una Limpieza Profunda de $300 juntos. La tarifa es 32%. ¿Aproximadamente cuánto gana cada uno?" },
-    options: [
-      { en: "$96 each (32% each)", es: "$96 c/u (32% c/u)" },
-      { en: "$48 each (32% pool split two ways)", es: "$48 c/u (el 32% dividido en dos)" },
-      { en: "$52.50 each (35% pool / 2)", es: "$52.50 c/u (35% / 2)" },
-      { en: "$60 each", es: "$60 c/u" },
-    ],
-    correctIndex: 1,
   },
   {
     id: "q-cm-07-clock-in-difference",
@@ -3881,25 +3889,13 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 2,
   },
   {
-    id: "q-cm-10-commercial-early",
-    moduleId: "compensation",
-    prompt: { en: "Your commercial job is assigned 3 allowed hours. You finish what you can see in 1.5 hours. What do you do BEFORE uploading completion photos?", es: "Su trabajo comercial tiene 3 horas asignadas. Termina lo visible en 1.5 horas. ¿Qué hace ANTES de subir las fotos?" },
-    options: [
-      { en: "Upload them — finishing early is good", es: "Subirlas — terminar temprano es bueno" },
-      { en: "Call the office to confirm before closing — Prorate Employee Pay can cut your pay if the system thinks you closed early without cause", es: "Llamar a la oficina antes de cerrar — Prorate Employee Pay puede reducir su pago si el sistema piensa que cerró temprano sin causa" },
-      { en: "Just Clock Out for the day", es: "Solo hacer Clock Out del día" },
-      { en: "Sit in the parking lot until 3 hours have passed", es: "Quedarse en el estacionamiento hasta que pasen las 3 horas" },
-    ],
-    correctIndex: 1,
-  },
-  {
     id: "q-cm-11-fixit",
     moduleId: "compensation",
-    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job that your team performed. How is the returning original team paid for the re-clean visit?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer que su equipo realizó. ¿Cómo se le paga al equipo original que regresa para la visita de re-limpieza?" },
+    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job that your team performed. How is the returning original team paid for the re-clean visit on their own job?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer que su equipo realizó. ¿Cómo se le paga al equipo original que regresa para la visita de re-limpieza en su propio trabajo?" },
     options: [
-      { en: "No additional pay. The re-clean is part of the original commission already earned on that job.", es: "Sin pago adicional. La re-limpieza es parte de la comisión original ya ganada en ese trabajo." },
+      { en: "No additional pay. The re-clean visit is part of the original commission already earned on that job, and Quality Verification is satisfied when the re-clean is completed.", es: "Sin pago adicional. La visita de re-limpieza es parte de la comisión original ya ganada en ese trabajo, y la Verificación de Calidad se satisface cuando se completa la re-limpieza." },
       { en: "Paid normally at the standard residential commission rate again.", es: "Pago normal con la tarifa estándar de comisión residencial otra vez." },
-      { en: "A 3-hour minimum at $20.00 per hour, same as a recovery technician.", es: "Un mínimo de 3 horas a $20.00 por hora, igual que un técnico de recuperación." },
+      { en: "A 3-hour minimum at $20.00 per hour (that rate applies to a recovery tech dispatched because the original team cannot return, not to the original team's own re-clean).", es: "Un mínimo de 3 horas a $20.00 por hora (esa tarifa aplica a un técnico de recuperación enviado porque el equipo original no puede regresar, no a la re-limpieza del propio equipo original)." },
       { en: "Cash bonus on top of regular pay.", es: "Bono en efectivo sobre el pago regular." },
     ],
     correctIndex: 0,
@@ -3909,10 +3905,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "compensation",
     prompt: { en: "What triggers Quality Probation?", es: "¿Qué activa el Periodo de Prueba de Calidad?" },
     options: [
-      { en: "1 client complaint in any 30 days", es: "1 queja en cualquier 30 días" },
-      { en: "2 client complaints in any 30-day window", es: "2 quejas en cualquier ventana de 30 días" },
-      { en: "5 complaints in a year", es: "5 quejas en un año" },
-      { en: "Any negative review online", es: "Cualquier reseña negativa en línea" },
+      { en: "One client complaint of any kind within 30 days", es: "Una queja de cliente de cualquier tipo dentro de 30 días" },
+      { en: "Two valid quality complaints within a rolling 30-day window (valid as defined in the Phes Policies and Procedures handbook)", es: "Dos quejas válidas de calidad dentro de una ventana de 30 días móviles (válidas según se define en el manual de Políticas y Procedimientos de Phes)" },
+      { en: "Five complaints in a calendar year", es: "Cinco quejas en un año calendario" },
+      { en: "Any negative review posted online", es: "Cualquier reseña negativa publicada en línea" },
     ],
     correctIndex: 1,
   },
@@ -3943,14 +3939,14 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-cm-15-payroll-cycle",
     moduleId: "compensation",
-    prompt: { en: "How often is payroll deposited?", es: "¿Con qué frecuencia se deposita la nómina?" },
+    prompt: { en: "How often is payroll deposited, and which workweek does a given Friday paycheck cover?", es: "¿Con qué frecuencia se deposita la nómina, y qué semana laboral cubre un cheque de un viernes determinado?" },
     options: [
-      { en: "Weekly, every Friday", es: "Semanal, cada viernes" },
+      { en: "Weekly, every Friday, for the prior Sunday through Saturday workweek (work done this Sunday through Saturday is deposited next Friday)", es: "Semanal, cada viernes, por la semana laboral anterior de domingo a sábado (el trabajo hecho este domingo a sábado se deposita el siguiente viernes)" },
       { en: "Biweekly, every other Friday", es: "Quincenal, cada dos viernes" },
       { en: "Monthly on the 1st", es: "Mensual el día 1" },
       { en: "Same-day cash at the end of each shift", es: "Efectivo el mismo día al final de cada turno" },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cm-16-allowed-hours-math",
@@ -3964,6 +3960,51 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "$102.40 (32% of the $320 job total — commission is on the job, not the time). That's $32/hr effective. The 0.8-hour difference is yours to keep as long as quality holds.", es: "$102.40 (32% del total de $320 del trabajo — la comisión es sobre el trabajo, no sobre el tiempo). Eso es $32/hr efectivos. La diferencia de 0.8 horas es suya mientras la calidad se mantenga." },
       { en: "$80.00 (4 × $20 default hourly).", es: "$80.00 (4 × $20 por hora por defecto)." },
       { en: "$57.60 (18% commission for fast work).", es: "$57.60 (18% de comisión por trabajo rápido)." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-17-recovery-tech-three-hour",
+    moduleId: "compensation",
+    prompt: {
+      en: "A recovery technician is dispatched to fix a different team's job because the original team cannot return. The fix takes 45 minutes. How is the recovery tech paid?",
+      es: "Un técnico de recuperación es enviado a corregir el trabajo de un equipo diferente porque el equipo original no puede regresar. La corrección toma 45 minutos. ¿Cómo se le paga al técnico de recuperación?",
+    },
+    options: [
+      { en: "$15.00 for the 45 minutes at $20/hour (paid for actual time only).", es: "$15.00 por los 45 minutos a $20/hora (pago por tiempo real solamente)." },
+      { en: "$60.00 — $20.00 per hour with a 3-hour minimum (paid the full 3 hours even though the fix took less time). The recovery tech only addresses the documented shortfall, not the whole job.", es: "$60.00 — $20.00 por hora con un mínimo de 3 horas (paga las 3 horas completas aunque la corrección tomara menos tiempo). El técnico de recuperación solo atiende el problema documentado, no el trabajo completo." },
+      { en: "The standard 35% residential commission on the original job total.", es: "La comisión residencial estándar del 35% sobre el total del trabajo original." },
+      { en: "Nothing — re-cleans are unpaid as part of company quality standards.", es: "Nada — las re-limpiezas no se pagan como parte de los estándares de calidad de la empresa." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-18-valid-quality-complaint",
+    moduleId: "compensation",
+    prompt: {
+      en: "Which scenario counts as a valid quality complaint that could contribute toward Quality Probation?",
+      es: "¿Cuál escenario cuenta como una queja válida de calidad que podría contribuir al Periodo de Prueba de Calidad?",
+    },
+    options: [
+      { en: "Any client complaint received within 30 days, regardless of cause.", es: "Cualquier queja del cliente recibida dentro de 30 días, sin importar la causa." },
+      { en: "A client complaint documented by the office with specific quality issues identified and photographic or written evidence, within a rolling 30-day window.", es: "Una queja del cliente documentada por la oficina con problemas específicos de calidad identificados y evidencia fotográfica o escrita, dentro de una ventana de 30 días móviles." },
+      { en: "A client complaint about an item documented as exceeding the 25-pound lifting limit (correctly refused by the tech).", es: "Una queja del cliente sobre un artículo documentado como exceder el límite de levantamiento de 25 libras (correctamente rechazado por el técnico)." },
+      { en: "A client complaint about office scheduling errors where the tech was not at fault.", es: "Una queja del cliente sobre errores de programación de la oficina donde el técnico no tuvo la culpa." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-cm-19-refused-reclean-eighteen",
+    moduleId: "compensation",
+    prompt: {
+      en: "A client calls within 24 hours unhappy with your job. You refuse to return for the re-clean without a lawful reason. What happens to your pay for the original job?",
+      es: "Un cliente llama dentro de 24 horas inconforme con su trabajo. Usted rechaza regresar para la re-limpieza sin una razón legal. ¿Qué pasa con su pago por el trabajo original?",
+    },
+    options: [
+      { en: "You keep your full commission because the job was completed.", es: "Mantiene su comisión completa porque el trabajo se completó." },
+      { en: "Quality Verification fails. Commission is not earned on the original job. Compensation defaults to $18.00 per hour for time actually worked. This is the default rate when contingent commission is never earned, not a retroactive penalty.", es: "La Verificación de Calidad falla. La comisión no se gana en el trabajo original. La compensación se rige por $18.00 por hora por el tiempo efectivamente trabajado. Esa es la tarifa por defecto cuando la comisión contingente nunca se gana, no una penalidad retroactiva." },
+      { en: "Your commission is reduced by 50% as a quality penalty.", es: "Su comisión se reduce en 50% como una penalidad de calidad." },
+      { en: "You receive no pay at all for the original job.", es: "No recibe pago alguno por el trabajo original." },
     ],
     correctIndex: 1,
   },
