@@ -104,8 +104,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Phes Cleaning Service is a residential and light-commercial cleaning company serving the Chicago southwest and northwest suburbs. You are joining a W-2 team. You are not a contractor. You will have steady scheduled work, real benefits, and a clear path from training to full commission. This handbook outlines the policies, expectations, and benefits that govern employment in 2026.",
-          es: "Phes Cleaning Service es una compañía de limpieza residencial y comercial ligera que sirve a los suburbios del suroeste y noroeste de Chicago. Se está uniendo a un equipo W-2. Usted no es contratista. Tendrá trabajo programado constante, beneficios reales y un camino claro del entrenamiento a la comisión completa. Este manual describe las políticas, expectativas y beneficios que rigen el empleo en 2026.",
+          en: "Phes Cleaning Services is a residential and light-commercial cleaning company serving the Chicago southwest and northwest suburbs. You are joining a W-2 team. You are not a contractor. You will have steady scheduled work, real benefits, and a clear path from training to full commission. This handbook outlines the policies, expectations, and benefits that govern employment in 2026.",
+          es: "Phes Cleaning Services es una compañía de limpieza residencial y comercial ligera que sirve a los suburbios del suroeste y noroeste de Chicago. Se está uniendo a un equipo W-2. Usted no es contratista. Tendrá trabajo programado constante, beneficios reales y un camino claro del entrenamiento a la comisión completa. Este manual describe las políticas, expectativas y beneficios que rigen el empleo en 2026.",
         },
       },
       { type: "h", text: { en: "Employment At-Will (Critical Legal Disclaimer)", es: "Empleo a Voluntad (Aviso Legal Crítico)" } },
@@ -156,6 +156,15 @@ const BASE_MODULES: Module[] = [
           es: "La comisión se GANA al completarse la Verificación de Calidad, que ocurre en el momento más temprano entre: (a) 24 horas después de completarse el trabajo sin queja del cliente, o (b) la confirmación afirmativa de satisfacción del cliente. Antes de la Verificación de Calidad, la comisión es contingente.",
         },
       },
+      // LEGAL-REVIEW-PENDING (2026-05-21): commission contingency framework. Establishes that
+      // contingent commission is NOT earned wages under 820 ILCS 115 until Quality Verification.
+      {
+        type: "p",
+        text: {
+          en: "Commission is not deemed earned wages under the Illinois Wage Payment and Collection Act (820 ILCS 115/) until Quality Verification has occurred as defined above. Until Quality Verification occurs, commission is a contingent future payment and not earned wages. The $18.00 per hour rate that applies when Quality Verification fails due to refusal of a valid Fix-It re-clean is not a deduction from earned wages. It is the default rate of pay that applies when the contingent commission is never earned. Employees provide express written consent to this commission contingency structure as a fundamental term of employment by signing the final handbook acknowledgment.",
+          es: "La comisión no se considera salario ganado bajo la Ley de Pago y Cobranza de Salarios de Illinois (820 ILCS 115/) hasta que ocurra la Verificación de Calidad según se define arriba. Hasta que ocurra la Verificación de Calidad, la comisión es un pago futuro contingente y no salario ganado. La tarifa de $18.00 por hora que aplica cuando la Verificación de Calidad falla por rechazo de una re-limpieza Fix-It válida no es una deducción de salario ganado. Es la tarifa de pago por defecto que aplica cuando la comisión contingente nunca se gana. Los empleados proveen consentimiento expreso por escrito a esta estructura de comisión contingente como término fundamental del empleo al firmar el reconocimiento final del manual.",
+        },
+      },
 
       { type: "h", text: { en: "Fix-It Rule (Re-Clean Obligation)", es: "Regla de Corrección (Obligación de Re-Limpieza)" } },
       {
@@ -173,8 +182,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "For original dispatched jobs (the first visit to a client's home for a scheduled service), a three-hour pay minimum is guaranteed provided the employee remains on-site and working for the duration of the service, unless sent home early by management. The three-hour minimum also applies to recovery-tech dispatches at $20.00 per hour (paid 3 hours even if the shortfall fix takes less time). The three-hour minimum does NOT apply to Fix-It re-clean visits by the original tech, which are part of the original commission and earn no additional pay. See the Fix-It Rule above for re-clean pay specifics.",
-          es: "Para trabajos despachados originales (la primera visita al hogar del cliente para un servicio programado), se garantiza un mínimo de pago de tres horas siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano. El mínimo de tres horas también aplica a despachos de técnico de recuperación a $20.00 por hora (se pagan 3 horas aunque la corrección del faltante tome menos tiempo). El mínimo de tres horas NO aplica a visitas Fix-It de re-limpieza realizadas por el técnico original, que son parte de la comisión original y no ganan pago adicional. Vea la Regla de Corrección arriba para los detalles de pago de re-limpieza.",
+          en: "For original dispatched jobs (the first visit to a client's home for a scheduled service), a three-hour pay minimum is guaranteed provided the employee remains on-site and working for the duration of the service, unless sent home early by management. The three-hour minimum also applies to recovery-tech dispatches at $20.00 per hour (paid 3 hours even if the shortfall fix takes less time). The three-hour minimum does NOT apply to Fix-It re-clean visits by the original tech, which are part of the original commission and earn no additional pay. See the Fix-It Rule above for re-clean pay specifics. Regardless of how the three-hour minimum applies to a given visit, total wages paid to any employee in any workweek will always meet or exceed the applicable federal, Illinois state, and Chicago minimum wage for all hours worked in that workweek.",
+          es: "Para trabajos despachados originales (la primera visita al hogar del cliente para un servicio programado), se garantiza un mínimo de pago de tres horas siempre y cuando el empleado permanezca en el sitio trabajando durante la duración del servicio, a menos que la gerencia lo envíe a casa más temprano. El mínimo de tres horas también aplica a despachos de técnico de recuperación a $20.00 por hora (se pagan 3 horas aunque la corrección del faltante tome menos tiempo). El mínimo de tres horas NO aplica a visitas Fix-It de re-limpieza realizadas por el técnico original, que son parte de la comisión original y no ganan pago adicional. Vea la Regla de Corrección arriba para los detalles de pago de re-limpieza. Sin importar cómo aplique el mínimo de tres horas a una visita dada, el salario total pagado a cualquier empleado en cualquier semana laboral siempre cumplirá o excederá el salario mínimo federal, estatal de Illinois, y de Chicago aplicable para todas las horas trabajadas en esa semana.",
         },
       },
 
@@ -195,6 +204,15 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Two (2) valid quality complaints within a rolling thirty-day period result in QUALITY PROBATION for thirty (30) days. During probation, compensation is paid at a flat $20.00 per hour. Return to commission eligibility requires thirty (30) consecutive days with zero valid quality complaints.",
           es: "Dos (2) quejas válidas de calidad dentro de un periodo móvil de treinta días resultan en PROBATORIA DE CALIDAD por treinta (30) días. Durante la probatoria, la compensación se paga a $20.00 por hora fija. El regreso a la elegibilidad de comisión requiere treinta (30) días consecutivos con cero quejas válidas de calidad.",
+        },
+      },
+      // LEGAL-REVIEW-PENDING (2026-05-21): defines what counts as a valid quality complaint.
+      // Carves out office-caused issues and properly documented out-of-scope items.
+      {
+        type: "p",
+        text: {
+          en: "A quality complaint is deemed valid when the office documents it in writing with specific identified quality issues, photographic or written client evidence where applicable, and a record of when the complaint was received. The office determines validity in good faith based on documented evidence. Complaints arising from circumstances outside the employee's control (such as office scheduling errors, client requests outside the standard scope, or items the employee documented as exceeding the climbing rule or lifting limit) are not counted as valid quality complaints against the employee. The office's good-faith determination is binding for purposes of Quality Probation, subject to the employee's right to raise concerns in writing.",
+          es: "Una queja de calidad se considera válida cuando la oficina la documenta por escrito con problemas de calidad específicos identificados, evidencia fotográfica o escrita del cliente cuando aplique, y un registro de cuándo se recibió la queja. La oficina determina la validez de buena fe basada en la evidencia documentada. Las quejas que surgen de circunstancias fuera del control del empleado (como errores de programación de la oficina, solicitudes del cliente fuera del alcance estándar, o artículos que el empleado documentó como excediendo la regla de escalada o el límite de levantamiento) no se cuentan como quejas válidas de calidad contra el empleado. La determinación de buena fe de la oficina es vinculante para efectos de Probatoria de Calidad, sujeto al derecho del empleado de plantear preocupaciones por escrito.",
         },
       },
 
@@ -280,8 +298,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Failure to contact the office BEFORE the end of the 20-minute grace window on a scheduled shift, AND failure to make contact within 24 hours after the missed shift, constitutes JOB ABANDONMENT and results in immediate termination effective the date of the missed shift. The 24-hour post-shift contact window provides the employee an opportunity to explain genuine incapacity (medical emergency, accident, hospitalization). Documentation of genuine incapacity may result in reinstatement at office discretion.",
-          es: "No contactar a la oficina ANTES del fin de la ventana de gracia de 20 minutos en un turno programado, Y no establecer contacto dentro de las 24 horas posteriores al turno perdido, constituye ABANDONO DEL EMPLEO y resulta en terminación inmediata efectiva en la fecha del turno perdido. La ventana de contacto de 24 horas después del turno brinda al empleado una oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización). La documentación de una incapacidad genuina puede resultar en reincorporación a discreción de la oficina.",
+          en: "Failure to contact the office BEFORE the end of the 20-minute grace window on a scheduled shift, AND failure to make contact within 24 hours after the missed shift, may result in immediate termination for job abandonment, effective the date of the missed shift. The 24-hour post-shift contact window provides the employee an opportunity to explain genuine incapacity (medical emergency, accident, hospitalization, or other circumstance preventing communication). Documentation of genuine incapacity may result in reinstatement at office discretion.",
+          es: "No contactar a la oficina ANTES del fin de la ventana de gracia de 20 minutos en un turno programado, Y no establecer contacto dentro de las 24 horas posteriores al turno perdido, puede resultar en terminación inmediata por abandono del empleo, efectiva en la fecha del turno perdido. La ventana de contacto de 24 horas después del turno brinda al empleado una oportunidad de explicar una incapacidad genuina (emergencia médica, accidente, hospitalización, u otra circunstancia que impida la comunicación). La documentación de una incapacidad genuina puede resultar en reincorporación a discreción de la oficina.",
         },
       },
 
@@ -337,6 +355,7 @@ const BASE_MODULES: Module[] = [
           // LEGAL-REVIEW-PENDING (2026-05-20): clarifies cascade only applies to planned absences.
           { en: "If you run out of PLAWA: for planned absences with 7+ days advance notice, the office can apply PTO (if you have hours and are 1+ year in) or Unpaid Personal Leave. For same-day call-offs, no other bucket applies — the absence is unexcused unless protected by law.", es: "Si se queda sin PLAWA: para ausencias planeadas con 7+ días de aviso anticipado, la oficina puede aplicar PTO (si tiene horas y tiene 1+ año) o Licencia Personal No Pagada. Para llamadas el mismo día, ninguna otra cubeta aplica — la ausencia es injustificada a menos que esté protegida por la ley." },
           { en: "No retaliation for lawful PLAWA use. Phes cannot discipline, demote, fire, or penalize you for using PLAWA legally.", es: "Sin represalias por el uso legal de PLAWA. Phes no puede disciplinar, degradar, despedir ni penalizar por usar PLAWA legalmente." },
+          { en: "Because Phes frontloads the full 40 PLAWA hours at the start of each Benefit Year, unused PLAWA hours from the prior Benefit Year do not carry over. Unused PLAWA hours are not paid out at separation, consistent with the Illinois Paid Leave for All Workers Act frontloading exception.", es: "Debido a que Phes otorga por adelantado las 40 horas completas de PLAWA al inicio de cada Año de Beneficios, las horas de PLAWA no utilizadas del Año de Beneficios anterior no se acumulan. Las horas de PLAWA no utilizadas no se pagan al separarse, conforme a la excepción de otorgamiento por adelantado de la Ley de Licencia Pagada para Todos los Trabajadores de Illinois." },
         ],
       },
       {
@@ -358,6 +377,13 @@ const BASE_MODULES: Module[] = [
           { en: "Subject to first-come-first-serve. Maximum 2 cleaners off per day. Business needs can override the cap.", es: "Sujeto a primero en llegar, primero en ser atendido. Máximo 2 cleaners libres por día. Las necesidades del negocio pueden anular el tope." },
           { en: "PTO IS paid out at separation per the Illinois Wage Payment and Collection Act.", es: "El PTO SÍ se paga al separarse conforme a la Ley de Pago y Cobranza de Salarios de Illinois." },
         ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "PTO is a separate employer-provided benefit and is distinct from your Illinois Paid Leave for All Workers Act (PLAWA) bank. PLAWA hours are governed by the rules described in the Any Reason Leave (PLAWA) subsection above and operate independently from PTO. The 80-hour PTO cap and top-up structure described here applies only to PTO and does not affect your PLAWA entitlement.",
+          es: "El PTO es un beneficio separado provisto por el empleador y es distinto de su banco de la Ley de Licencia Pagada para Todos los Trabajadores de Illinois (PLAWA). Las horas de PLAWA se rigen por las reglas descritas en la subsección Licencia por Cualquier Razón (PLAWA) arriba y operan independientemente del PTO. El tope de 80 horas de PTO y la estructura de relleno descritos aquí aplican solo al PTO y no afectan su derecho a PLAWA.",
+        },
       },
       {
         type: "callout",
@@ -517,9 +543,18 @@ const BASE_MODULES: Module[] = [
           { en: "Subject to office approval: first-come-first-serve, max 2 off per day, business needs can override.", es: "Sujeto a aprobación de la oficina: primero en llegar, máximo 2 libres por día, las necesidades del negocio pueden anular." },
           { en: "Cannot be combined with PTO, holidays, weekends, or other approved time off to create a stretch of more than three (3) consecutive scheduled workdays off without separate prior written approval from the office. To request a longer stretch using the birthday day plus PTO, submit both requests at the same time with at least fourteen (14) days advance notice. The office may deny either request — birthday, PTO, or both — if granting them (alone or together) would exceed the maximum-2-cleaners-off-per-day cap, exceed the 3-consecutive-workday limit, or otherwise create staffing risk. Requests submitted separately that reveal a combined longer stretch may be denied for that reason.", es: "No se puede combinar con PTO, feriados, fines de semana ni otro tiempo libre aprobado para crear una racha de más de tres (3) días laborales programados consecutivos libres sin aprobación previa por escrito separada de la oficina. Para solicitar una racha más larga usando el día de cumpleaños más PTO, envíe ambas solicitudes al mismo tiempo con al menos catorce (14) días de anticipación. La oficina puede negar cualquiera de las solicitudes — cumpleaños, PTO o ambas — si otorgarlas (solas o juntas) excedería el tope máximo de 2 cleaners libres por día, excedería el límite de 3 días laborales consecutivos, o crearía un riesgo de personal. Las solicitudes enviadas por separado que revelen una racha combinada más larga pueden ser negadas por esa razón." },
           { en: "Does NOT carry over. Forfeited if not used in your birth month.", es: "NO se acumula. Se pierde si no se usa en su mes de cumpleaños." },
-          { en: "NOT paid out at separation.", es: "NO se paga al separarse." },
           { en: "Employees on active written warning, final warning, or Quality Probation may have their birthday request denied at office discretion.", es: "Empleados con advertencia activa por escrito, advertencia final o Probatoria de Calidad pueden ver su solicitud de cumpleaños rechazada a discreción de la oficina." },
         ],
+      },
+      // LEGAL-REVIEW-PENDING (2026-05-21): Birthday Pay classified as discretionary benefit, not earned wages
+      // under 820 ILCS 115. Replaces the bare "NOT paid out at separation" bullet with the full discretionary-
+      // benefit framing so the no-payout rule is legally defensible.
+      {
+        type: "p",
+        text: {
+          en: "Birthday Pay is a discretionary benefit, not earned wages under the Illinois Wage Payment and Collection Act. It does not vest, accrue, or constitute compensation for services performed. The benefit is conditioned exclusively on use during the employee's birth month within the applicable Benefit Year, with proper advance request and office approval. Birthday Pay is forfeited if not used in the birth month and is not paid out at separation under any circumstance.",
+          es: "El Pago de Cumpleaños es un beneficio discrecional, no salario ganado bajo la Ley de Pago y Cobranza de Salarios de Illinois. No se consolida, acumula, ni constituye compensación por servicios prestados. El beneficio está condicionado exclusivamente al uso durante el mes de cumpleaños del empleado dentro del Año de Beneficios aplicable, con solicitud previa apropiada y aprobación de la oficina. El Pago de Cumpleaños se pierde si no se usa en el mes de cumpleaños y no se paga al separarse bajo ninguna circunstancia.",
+        },
       },
 
       { type: "h", text: { en: "Two-Step Time-Off Request Process", es: "Proceso de Solicitud de Tiempo Libre de Dos Pasos" } },
@@ -543,6 +578,13 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "If you only contact the office without submitting in the system, dispatch will not see it and the client will not be notified. If you only submit in the system without contacting the office, the office may not see it in time. Both are required, every time.",
           es: "Si solo contacta a la oficina sin enviar en el sistema, despacho no lo verá y el cliente no será notificado. Si solo envía en el sistema sin contactar a la oficina, la oficina puede no verlo a tiempo. Ambos son requeridos, cada vez.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "The two-step process applies only to PLANNED time-off requests (PTO, scheduled PLAWA use, birthday, schedule change requests). Same-day PLAWA call-offs for unforeseeable absences (sudden illness, family emergency, accident) require only the 20-minute grace-window call to the office. No advance system submission is required for unforeseeable PLAWA absences.",
+          es: "El proceso de dos pasos aplica solo a solicitudes de tiempo libre PLANEADAS (PTO, uso programado de PLAWA, cumpleaños, solicitudes de cambio de horario). Las llamadas el mismo día de PLAWA por ausencias imprevisibles (enfermedad súbita, emergencia familiar, accidente) requieren solo la llamada de la ventana de gracia de 20 minutos a la oficina. No se requiere envío anticipado en el sistema para ausencias imprevisibles de PLAWA.",
         },
       },
 
@@ -580,6 +622,7 @@ const BASE_MODULES: Module[] = [
           { en: "Music through headphones is allowed during cleaning. Keep the volume respectful and avoid explicit content in client homes.", es: "Se permite escuchar música con audífonos durante la limpieza. Mantenga el volumen respetuoso y evite contenido explícito en hogares de clientes." },
           { en: "Stay reachable for the office. Office calls and texts may come through during a job and you should respond promptly.", es: "Manténgase disponible para la oficina. Las llamadas y mensajes de la oficina pueden llegar durante un trabajo y debe responder con prontitud." },
           { en: "Personal phone calls and video calls are NOT allowed during a job, except for genuine emergencies.", es: "Las llamadas personales y videollamadas NO están permitidas durante un trabajo, salvo emergencias genuinas." },
+          { en: "Employees may call 911 or emergency services at any time during a job without prior authorization. Notify the office as soon as practicable after the emergency is addressed.", es: "Los empleados pueden llamar al 911 o a servicios de emergencia en cualquier momento durante un trabajo sin autorización previa. Notifique a la oficina lo antes posible después de atender la emergencia." },
           { en: "Personal texts and social media wait until break or after the visit.", es: "Mensajes personales y redes sociales esperan hasta el descanso o después de la visita." },
           { en: "To take a non-emergency call, exit the home entirely and notify your teammate.", es: "Para tomar una llamada que no sea emergencia, salga completamente del hogar y notifique a su compañero de equipo." },
           { en: "Photos and videos of client homes are forbidden, except through the company app for documenting work or damage.", es: "Las fotos y videos de los hogares de los clientes están prohibidos, excepto a través de la app de la compañía para documentar trabajo o daños." },
@@ -743,6 +786,15 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Violating this rule is grounds for discipline regardless of whether an injury results, up to and including immediate termination if the violation is willful or repeated. This rule exists to protect employees from fall injuries — falls are the most common preventable workplace injury in cleaning services — and to protect Phes from workers' compensation claims arising from preventable falls.",
           es: "Violar esta regla es motivo de disciplina sin importar si resulta una lesión, hasta e incluyendo terminación inmediata si la violación es intencional o repetida. Esta regla existe para proteger a los empleados de lesiones por caídas — las caídas son la lesión laboral prevenible más común en servicios de limpieza — y para proteger a Phes de reclamos de compensación al trabajador por caídas prevenibles.",
+        },
+      },
+      // LEGAL-REVIEW-PENDING (2026-05-21): explicit non-retaliation language for safety reports
+      // and workers comp claims. Decouples safety-rule discipline from any protected activity.
+      {
+        type: "p",
+        text: {
+          en: "Discipline for safety rule violations is based solely on the rule violation itself and is unrelated to whether the employee files or has filed a workers' compensation claim, an OSHA complaint, or any other protected report. Phes does not retaliate against employees for filing workers' compensation claims, reporting workplace safety concerns, or exercising any other right protected by federal, state, or local law.",
+          es: "La disciplina por violaciones a las reglas de seguridad se basa únicamente en la violación de la regla misma y no se relaciona con si el empleado presenta o ha presentado un reclamo de compensación al trabajador, una queja ante OSHA, o cualquier otro reporte protegido. Phes no toma represalias contra los empleados por presentar reclamos de compensación al trabajador, reportar preocupaciones de seguridad en el lugar de trabajo, o ejercer cualquier otro derecho protegido por la ley federal, estatal o local.",
         },
       },
 
@@ -974,6 +1026,7 @@ const BASE_MODULES: Module[] = [
           { en: "Cash tips: keep them.", es: "Propinas en efectivo: quédeselas." },
           { en: "Tips through the booking system are paid on the next paycheck.", es: "Las propinas a través del sistema de reservas se pagan en el siguiente cheque." },
           { en: "Tips received through the booking system are reported as wages on your W-2.", es: "Las propinas recibidas a través del sistema de reservas se reportan como salarios en su W-2." },
+          { en: "Tips received through the booking system are subject to standard payroll tax withholding (federal income tax, FICA, Medicare, and applicable state taxes).", es: "Las propinas recibidas a través del sistema de reservas están sujetas a retención estándar de impuestos sobre nómina (impuesto federal sobre la renta, FICA, Medicare e impuestos estatales aplicables)." },
           { en: "No kickback is owed to anyone.", es: "No se debe ningún porcentaje a nadie." },
           { en: "Tax responsibility: employees are responsible for reporting cash tips for tax purposes per IRS rules. Tips paid through the booking system are reported on your paycheck.", es: "Responsabilidad fiscal: los empleados son responsables de reportar las propinas en efectivo para fines fiscales conforme a las reglas del IRS. Las propinas pagadas a través del sistema de reservas se reportan en su cheque." },
         ],
@@ -1019,6 +1072,7 @@ const BASE_MODULES: Module[] = [
           { en: "No guarantee of specific hours. W-2 status does NOT equal guaranteed weekly hours.", es: "No hay garantía de horas específicas. El estatus W-2 NO equivale a horas semanales garantizadas." },
           { en: "Notice is given when possible.", es: "Se da aviso cuando es posible." },
           { en: "Hour reductions are NOT layoffs. The employee remains on the team.", es: "Las reducciones de horas NO son despidos. El empleado permanece en el equipo." },
+          { en: "Hour reductions do not constitute a termination of employment and do not affect at-will status.", es: "Las reducciones de horas no constituyen una terminación del empleo y no afectan el estatus de empleo a voluntad." },
         ],
       },
 
@@ -3236,24 +3290,24 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-09-sick-tomorrow",
     moduleId: "phes-policies",
-    prompt: { en: "You're feeling sick tonight and won't work tomorrow. How do you report it?", es: "Se siente mal esta noche y no trabajará mañana. ¿Cómo lo reporta?" },
+    prompt: { en: "You wake up sick and won't work today. How do you report it?", es: "Despierta enfermo y no trabajará hoy. ¿Cómo lo reporta?" },
     options: [
       { en: "Text a co-worker so they can tell the office.", es: "Mensaje a un compañero para que avise a la oficina." },
-      { en: "Submit a sick request through MaidCentral / Qleno AND make the grace-window call to the office team — that's all PLAWA needs. No advance approval, no doctor's note, no reason required.", es: "Envíe la solicitud por MaidCentral / Qleno Y haga la llamada de gracia a el equipo de la oficina — eso es todo lo que PLAWA necesita. Sin aprobación previa, sin nota médica, sin razón requerida." },
+      { en: "Make the grace-window call to the office team within 20 minutes of your scheduled start. For unforeseeable PLAWA absences (sudden illness, emergency, accident) the grace call alone is enough. No advance system submission, no doctor's note, no reason required.", es: "Haga la llamada de la ventana de gracia al equipo de la oficina dentro de los 20 minutos de su inicio programado. Para ausencias imprevisibles de PLAWA (enfermedad súbita, emergencia, accidente) la llamada de gracia sola es suficiente. No se requiere envío anticipado en el sistema, ni nota médica, ni razón." },
       { en: "Call the office in the morning when you should be at work.", es: "Llamar a la oficina en la mañana cuando debería estar trabajando." },
-      { en: "Just don't show up — they'll figure it out.", es: "Simplemente no presentarse — ya lo entenderán." },
+      { en: "Just don't show up. They will figure it out.", es: "Simplemente no presentarse. Ya lo entenderán." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-pp-10-pto-request",
     moduleId: "phes-policies",
-    prompt: { en: "You want PTO for next Friday. What do you do?", es: "Quiere PTO para el próximo viernes. ¿Qué hace?" },
+    prompt: { en: "You want PTO for next Friday (nine days from now). What do you do?", es: "Quiere PTO para el próximo viernes (a nueve días de hoy). ¿Qué hace?" },
     options: [
-      { en: "Text your manager directly", es: "Mensaje directo al gerente" },
-      { en: "Submit a PTO request through MaidCentral / Qleno — every time-off request goes through the system", es: "Solicitud de PTO en MaidCentral / Qleno — toda solicitud de tiempo libre va por el sistema" },
-      { en: "Call the office Friday morning", es: "Llamar a la oficina el viernes en la mañana" },
-      { en: "Tell a teammate to relay it", es: "Pedir a un compañero que lo transmita" },
+      { en: "Text your manager directly.", es: "Mensaje directo al gerente." },
+      { en: "Submit a PTO request through MaidCentral / Qleno AND contact the office team to confirm. PTO is a planned absence and requires the two-step process (system submit at least 7 days in advance plus office confirmation).", es: "Envíe la solicitud de PTO por MaidCentral / Qleno Y contacte al equipo de la oficina para confirmar. El PTO es una ausencia planeada y requiere el proceso de dos pasos (envío en el sistema al menos 7 días anticipados más confirmación de la oficina)." },
+      { en: "Call the office Friday morning.", es: "Llamar a la oficina el viernes en la mañana." },
+      { en: "Tell a teammate to relay it.", es: "Pedir a un compañero que lo transmita." },
     ],
     correctIndex: 1,
   },
@@ -3270,26 +3324,26 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 2,
   },
   {
-    id: "q-pp-12-uniform-forgot",
+    id: "q-pp-12-pto-plawa-distinct",
     moduleId: "phes-policies",
-    prompt: { en: "You wake up and realize your Phes shirt is in the wash. What do you do?", es: "Se despierta y su camisa Phes está en la lavadora. ¿Qué hace?" },
+    prompt: { en: "Which of the following is TRUE about PTO and PLAWA?", es: "¿Cuál de los siguientes es VERDADERO sobre el PTO y PLAWA?" },
     options: [
-      { en: "Wear a similar-looking personal shirt — clients won't notice", es: "Ponerse una camisa parecida — el cliente no notará" },
-      { en: "Skip the shirt and wear just a t-shirt", es: "Saltarse la camisa y usar solo camiseta" },
-      { en: "Contact the office before the job — never show up at a client's home out of uniform", es: "Contactar a la oficina antes del trabajo — nunca presentarse fuera de uniforme" },
-      { en: "Borrow a uniform from a teammate at the job", es: "Pedir prestado el uniforme a un compañero" },
+      { en: "PTO and PLAWA share a single 40-hour bank that you draw from for any reason.", es: "El PTO y PLAWA comparten un solo banco de 40 horas del que dispone por cualquier razón." },
+      { en: "PLAWA replaces PTO once you reach your 2-year anniversary.", es: "PLAWA reemplaza al PTO una vez que llega a su aniversario de 2 años." },
+      { en: "PTO and PLAWA are two SEPARATE benefits with different rules, eligibility, and notice requirements. PLAWA is governed by Illinois law and covers same-day call-offs with the grace call. PTO is an employer-provided benefit available after 1 year, requires 7 days advance notice, and is paid out at separation.", es: "El PTO y PLAWA son dos beneficios SEPARADOS con diferentes reglas, elegibilidad, y requisitos de aviso. PLAWA está regido por la ley de Illinois y cubre llamadas el mismo día con la llamada de gracia. El PTO es un beneficio provisto por el empleador disponible después de 1 año, requiere 7 días de aviso anticipado, y se paga al separarse." },
+      { en: "You must use all your PTO before you can use any PLAWA.", es: "Debe usar todo su PTO antes de poder usar cualquier PLAWA." },
     ],
     correctIndex: 2,
   },
   {
-    id: "q-pp-13-shoe-covers",
+    id: "q-pp-13-emergency-911",
     moduleId: "phes-policies",
-    prompt: { en: "You arrive and realize you forgot your shoe covers in your other bag. What do you do?", es: "Llega y se da cuenta que olvidó los cubrezapatos en su otra bolsa. ¿Qué hace?" },
+    prompt: { en: "You're mid-clean when a household member suffers a serious medical emergency. You need to call 911 immediately. What does Phes policy say?", es: "Está a mitad de la limpieza cuando un miembro del hogar sufre una emergencia médica seria. Necesita llamar al 911 inmediatamente. ¿Qué dice la política de Phes?" },
     options: [
-      { en: "Take off your shoes at the door and clean barefoot", es: "Quitarse los zapatos y limpiar descalzo" },
-      { en: "Walk in carefully without covers — just don't track dirt", es: "Entrar con cuidado sin cubrezapatos" },
-      { en: "Don't enter — get fresh covers from your vehicle, or call office for a teammate to bring some", es: "No entrar — buscar cubrezapatos en el vehículo, o llamar a la oficina" },
-      { en: "Ask the client if they mind", es: "Preguntar al cliente si le importa" },
+      { en: "Step outside and try to call the office first. Only call 911 if the office agrees.", es: "Salga afuera e intente llamar primero a la oficina. Llame al 911 solo si la oficina acepta." },
+      { en: "Wait until the end of the visit, then call 911.", es: "Espere hasta el final de la visita, luego llame al 911." },
+      { en: "You may call 911 or emergency services at any time during a job without prior authorization. Notify the office as soon as practicable after the emergency is addressed.", es: "Puede llamar al 911 o a servicios de emergencia en cualquier momento durante un trabajo sin autorización previa. Notifique a la oficina lo antes posible después de atender la emergencia." },
+      { en: "Have the client call 911. You cannot use your phone during a job.", es: "Pídale al cliente que llame al 911. Usted no puede usar su teléfono durante un trabajo." },
     ],
     correctIndex: 2,
   },
