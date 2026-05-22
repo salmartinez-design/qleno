@@ -3873,18 +3873,8 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 1,
   },
-  {
-    id: "q-cm-05-comm-split-200",
-    moduleId: "compensation",
-    prompt: { en: "You and a partner complete a $200 Standard Clean together with the same check-in time. How much commission does each of you earn?", es: "Tú y un compañero completan una Limpieza Estándar de $200 juntos con el mismo tiempo de Check In. ¿Cuánta comisión gana cada uno?" },
-    options: [
-      { en: "$70 each (35% each)", es: "$70 c/u (35% c/u)" },
-      { en: "$50 each", es: "$50 c/u" },
-      { en: "$35 each (35% pool split two ways)", es: "$35 c/u (el 35% dividido en dos)" },
-      { en: "Whichever the office decides", es: "Lo que decida la oficina" },
-    ],
-    correctIndex: 2,
-  },
+  // q-cm-05-comm-split-200 retired 2026-05-22: trivial 50/50 split case;
+  // q-cm-07-clock-in-difference covers the harder asymmetric scenario.
   {
     id: "q-cm-07-clock-in-difference",
     moduleId: "compensation",
@@ -3921,18 +3911,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 2,
   },
-  {
-    id: "q-cm-11-fixit",
-    moduleId: "compensation",
-    prompt: { en: "A Fix-It call is dispatched to your team because of a client complaint on yesterday's job that your team performed. How is the returning original team paid for the re-clean visit on their own job?", es: "Una llamada Fix-It es enviada a su equipo por una queja del trabajo de ayer que su equipo realizó. ¿Cómo se le paga al equipo original que regresa para la visita de re-limpieza en su propio trabajo?" },
-    options: [
-      { en: "No additional pay. The re-clean visit is part of the original commission already earned on that job, and Quality Verification is satisfied when the re-clean is completed.", es: "Sin pago adicional. La visita de re-limpieza es parte de la comisión original ya ganada en ese trabajo, y la Verificación de Calidad se satisface cuando se completa la re-limpieza." },
-      { en: "Paid normally at the standard residential commission rate again.", es: "Pago normal con la tarifa estándar de comisión residencial otra vez." },
-      { en: "A 3-hour minimum at $20.00 per hour (that rate applies to a recovery tech dispatched because the original team cannot return, not to the original team's own re-clean).", es: "Un mínimo de 3 horas a $20.00 por hora (esa tarifa aplica a un técnico de recuperación enviado porque el equipo original no puede regresar, no a la re-limpieza del propio equipo original)." },
-      { en: "Cash bonus on top of regular pay.", es: "Bono en efectivo sobre el pago regular." },
-    ],
-    correctIndex: 0,
-  },
+  // q-cm-11-fixit retired 2026-05-22: original-team Fix-It pay is
+  // partially covered by q-cm-17-recovery-tech-three-hour (recovery tech
+  // 3hr min) and q-cm-19-refused-reclean-eighteen ($18/hr default on
+  // refusal). The handbook §3 Fix-It Rule still states the no-extra-pay
+  // rule explicitly so the policy stays in the content.
   {
     id: "q-cm-12-quality-probation",
     moduleId: "compensation",
@@ -3945,18 +3928,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 1,
   },
-  {
-    id: "q-cm-13-probation-pay",
-    moduleId: "compensation",
-    prompt: { en: "You're on Quality Probation. What's your pay structure during the 30 days?", es: "Está en Periodo de Prueba. ¿Cuál es su estructura de pago durante los 30 días?" },
-    options: [
-      { en: "Normal residential commission rate stays in effect — you just don't earn client tips.", es: "La tarifa normal de comisión residencial sigue vigente — solo no gana propinas de clientes." },
-      { en: "$20/hr training rate, no commission, while riding along with senior team members.", es: "Tarifa de entrenamiento $20/hr, sin comisión, acompañando a miembros senior del equipo." },
-      { en: "Half commission rate for all jobs during the 30-day quality probation window period.", es: "Media tarifa de comisión para todos los trabajos durante los 30 días de periodo de prueba." },
-      { en: "No pay at all from Phes until you complete the full 30-day quality probation window.", es: "Sin pago alguno de Phes hasta que complete los 30 días completos del periodo de prueba." },
-    ],
-    correctIndex: 1,
-  },
+  // q-cm-13-probation-pay retired 2026-05-22: tightly coupled with
+  // q-cm-12-quality-probation. The probation pay model ($20/hr, no
+  // commission) is stated in the handbook §2 Quality Probation
+  // subsection and surfaces via the trigger question above.
   {
     id: "q-cm-14-mileage",
     moduleId: "compensation",
