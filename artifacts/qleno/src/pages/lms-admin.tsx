@@ -4059,6 +4059,18 @@ function EditEmployeeDialog({
                   <option value="admin">{T.roleAdmin}</option>
                   <option value="office">{T.roleOffice}</option>
                 </select>
+                <div
+                  style={{
+                    marginTop: 6,
+                    fontSize: 11.5,
+                    color: "#5b5851",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {lang === "es"
+                    ? "Administrador y Oficina pueden ver el panel /lms/admin. Técnico y Líder de equipo solo ven su propio entrenamiento."
+                    : "Admin and Office can see the /lms/admin dashboard. Technician and Team Lead see only their own training."}
+                </div>
               </Field>
               <Field label={T.hireDate}>
                 <input

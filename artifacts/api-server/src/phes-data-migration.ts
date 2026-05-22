@@ -2075,6 +2075,79 @@ async function runPhantomUserCleanup(): Promise<void> {
   );
 }
 
+/**
+ * 2026-05-22 (Sal): "we need to enable Francisco and Maribel to also have
+ * admin view." Bumps both to role='admin' on Phes (company_id=1). Idempotent:
+ * only acts when current role is 'technician' or 'team_lead'; never touches
+ * owners or accounts already at admin/office/super_admin. Match is by
+ * first+last name (case-insensitive), scoped to Phes, excluding the owner row.
+ *
+ * The general affordance ("a setting for everyone to enable admin view")
+ * already exists in the LMS Admin → Edit Employee dialog (role dropdown
+ * includes technician / team_lead / admin / office). This migration is the
+ * one-time grant for Francisco and Maribel so they have access immediately
+ * after this commit deploys; future promotions go through the dialog.
+ */
+const PHES_ADMIN_PROMOTIONS_2026_05_22: ReadonlyArray<{ first: string; last: string }> = [
+  { first: "Francisco", last: "Estevez" },
+  { first: "Maribel", last: "Castillo" },
+];
+
+async function runPhesAdminPromotions(): Promise<void> {
+  const PHES = 1;
+  const promoted: number[] = [];
+  const alreadyAdmin: number[] = [];
+  const ownerSkipped: number[] = [];
+  const otherRoleSkipped: Array<{ id: number; role: string }> = [];
+  const notFound: string[] = [];
+
+  for (const entry of PHES_ADMIN_PROMOTIONS_2026_05_22) {
+    const label = `${entry.first} ${entry.last}`;
+    const rows = await db.execute<{ id: number; role: string }>(sql`
+      SELECT id, role FROM users
+      WHERE company_id = ${PHES}
+        AND LOWER(first_name) = LOWER(${entry.first})
+        AND LOWER(last_name) = LOWER(${entry.last})
+      ORDER BY id ASC
+      LIMIT 1
+    `);
+    const row = ((rows as any).rows ?? rows)[0] as { id: number; role: string } | undefined;
+
+    if (!row) {
+      notFound.push(label);
+      continue;
+    }
+
+    if (row.role === "owner") {
+      ownerSkipped.push(row.id);
+      continue;
+    }
+    if (row.role === "admin") {
+      alreadyAdmin.push(row.id);
+      continue;
+    }
+    if (row.role !== "technician" && row.role !== "team_lead") {
+      otherRoleSkipped.push({ id: row.id, role: row.role });
+      continue;
+    }
+
+    await db.execute(sql`
+      UPDATE users
+      SET role = 'admin'
+      WHERE id = ${row.id} AND company_id = ${PHES}
+    `);
+    promoted.push(row.id);
+  }
+
+  console.log(
+    `[phes-migration] admin-promotions — promoted=${promoted.length} (${promoted.join(",") || "none"})`
+      + ` already-admin=${alreadyAdmin.length}`
+      + ` owner-skipped=${ownerSkipped.length}`
+      + ` other-role-skipped=${otherRoleSkipped.length}`
+      + ` not-found=${notFound.length}${notFound.length ? ` [${notFound.join("; ")}]` : ""}`,
+  );
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -2124,6 +2197,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPhantomUserCleanup();
   } catch (err: any) {
     console.warn("[phes-migration] phantom-user-cleanup — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runPhesAdminPromotions();
+  } catch (err: any) {
+    console.warn("[phes-migration] admin-promotions — non-fatal:", err?.message ?? err);
   }
 
   try {
