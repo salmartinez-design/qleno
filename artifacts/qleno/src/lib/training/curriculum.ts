@@ -1467,8 +1467,8 @@ const BASE_MODULES: Module[] = [
     iconKind: "pin",
     title: { en: "MaidCentral", es: "MaidCentral" },
     subtitle: {
-      en: "Day Clock vs Job Clock, GPS check-in, the 600-foot rule, efficiency, travel pay, and time-correction requests.",
-      es: "Reloj de Día vs Reloj de Trabajo, Check In por GPS, la regla de 600 pies, eficiencia, pago de traslado y solicitudes de corrección.",
+      en: "Day Clock vs Job Clock, the workflow Phes uses to work around MaidCentral, GPS check-in, the 600-foot rule, efficiency, and time-correction requests.",
+      es: "Reloj de Día vs Reloj de Trabajo, el flujo que Phes usa para sortear MaidCentral, Check In por GPS, la regla de 600 pies, eficiencia y solicitudes de corrección.",
     },
     estimatedMinutes: 10,
     blocks: [
@@ -1476,16 +1476,16 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "MaidCentral has TWO clocks running every workday. The Day Clock starts when you Clock In at the start of your shift and stops when you Clock Out at the end. The Job Clock starts when you Check In to a specific client and stops when you Check Out of that client. The difference between them is travel time — paid as travel pay.",
-          es: "MaidCentral tiene DOS relojes cada día. El Reloj de Día comienza cuando hace Clock In al inicio del turno y se detiene cuando hace Clock Out al final. El Reloj de Trabajo comienza cuando hace Check In en un cliente específico y se detiene en Check Out. La diferencia entre ambos es tiempo de traslado — pagado como travel pay.",
+          en: "MaidCentral has TWO clocks running every workday. The Day Clock starts when you Clock In at the start of your shift and stops when you Clock Out at the end. The Job Clock starts when you Check In to a specific client and stops when you Check Out of that client. Phes does NOT pay travel time. The dual-clock structure is a MaidCentral feature we cannot disable, so we work around it by treating the Job Clock as the source of truth for your paid hours.",
+          es: "MaidCentral tiene DOS relojes cada día laboral. El Reloj de Día comienza cuando hace Clock In al inicio del turno y se detiene cuando hace Clock Out al final. El Reloj de Trabajo comienza cuando hace Check In en un cliente específico y se detiene cuando hace Check Out de ese cliente. Phes NO paga tiempo de traslado. La estructura de dos relojes es una característica de MaidCentral que no podemos desactivar, así que la sorteamos tratando el Reloj de Trabajo como la fuente real de sus horas pagadas.",
         },
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "First action of the day is always Clock In. Every Check In after that happens INSIDE your already-running Day Clock — you do not Clock In a second time. At the end of the day, Check Out of your last job, then Clock Out for the day.",
-          es: "La primera acción del día siempre es Clock In. Cada Check In después ocurre DENTRO del Reloj de Día — no haga Clock In una segunda vez. Al final del día, haga Check Out del último trabajo, luego Clock Out del día.",
+          en: "Required workflow. Start of day: Clock In, then Check In to your first job. End of each job: Check Out, then drive to the next job and Check In again. End of day: Check Out of your last job, then Clock Out. You stay on the same Day Clock all day — you do not Clock In a second time between jobs.",
+          es: "Flujo requerido. Inicio del día: Clock In, luego Check In en el primer trabajo. Fin de cada trabajo: Check Out, maneje al siguiente y haga Check In otra vez. Fin del día: Check Out del último trabajo, luego Clock Out. Permanece en el mismo Reloj de Día todo el día — no haga Clock In una segunda vez entre trabajos.",
         },
       },
 
@@ -1511,17 +1511,17 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Your efficiency score is your total Job Clock hours divided by your total Day Clock hours. It measures how much of your day was spent actively cleaning vs travel + breaks + admin. Phes target: 70%+. Below 60% triggers a coaching conversation about route, technique, or tooling.",
-          es: "Su puntuación de eficiencia es el total de horas del Reloj de Trabajo dividido por el total de horas del Reloj de Día. Mide cuánto de su día fue limpieza activa vs traslado + descansos + administración. Meta de Phes: 70%+. Menos de 60% activa una conversación de orientación sobre ruta, técnica o herramientas.",
+          en: "Your efficiency score is your total Job Clock hours divided by your total Day Clock hours. It is a productivity reference for the office during the MaidCentral era, not a payroll metric — because Phes does not pay travel time, the Day Clock gap (driving, breaks, admin) never enters your paycheck. The score helps the office spot route inefficiencies, scheduling problems, or tooling issues that are costing you billable client time. Phes target: 70%+. Below 60% triggers a coaching conversation about route, technique, or tooling. Once Phes finishes migrating to Qleno and the Day Clock requirement goes away, efficiency tracking will be reworked.",
+          es: "Su puntuación de eficiencia es el total de horas del Reloj de Trabajo dividido por el total de horas del Reloj de Día. Es una referencia de productividad para la oficina durante la era de MaidCentral, no una métrica de nómina — como Phes no paga tiempo de traslado, el espacio del Reloj de Día (manejar, descansos, administración) nunca entra en su pago. La puntuación ayuda a la oficina a detectar ineficiencias de ruta, problemas de horario o de herramientas que le cuestan tiempo facturable con clientes. Meta de Phes: 70%+. Menos de 60% activa una conversación de orientación sobre ruta, técnica o herramientas. Una vez que Phes termine de migrar a Qleno y se elimine el requisito del Reloj de Día, el seguimiento de eficiencia se reformulará.",
         },
       },
 
-      { type: "h", text: { en: "Travel Pay", es: "Pago de Traslado" } },
+      { type: "h", text: { en: "No Travel Pay (MaidCentral Workaround)", es: "Sin Pago de Traslado (Solución para MaidCentral)" } },
       {
         type: "p",
         text: {
-          en: "Time when you're Clocked In for the day but NOT Checked Into a job — that's travel pay. Driving between client homes is paid. Driving from your home to the first job, or from the last job back home, is NOT paid (it's commute, not travel).",
-          es: "El tiempo en que está con Clock In del día pero NO con Check In en un trabajo — eso es travel pay. Manejar entre hogares se paga. Manejar de su casa al primer trabajo, o del último trabajo de regreso a casa, NO se paga (es trayecto, no traslado).",
+          en: "Phes does NOT pay travel time. The time between Check Out at one job and Check In at the next (driving, fuel stops, lunch, errands, anything in the Day Clock gap) is NOT paid wages. Your paid hours come from your Job Clock total — the active time on each Phes client. The Day Clock stays running because MaidCentral cannot be configured to turn it off, but it does not produce wages. Once Phes finishes migrating to Qleno, we will drop the Day Clock requirement entirely. Mileage reimbursement at the IRS standard rate between client homes is separate from wages (see the Compensation module).",
+          es: "Phes NO paga tiempo de traslado. El tiempo entre Check Out en un trabajo y Check In en el siguiente (manejar, paradas de gasolina, almuerzo, mandados, cualquier cosa en el espacio del Reloj de Día) NO se paga como salario. Sus horas pagadas vienen del total del Reloj de Trabajo — el tiempo activo en cada cliente de Phes. El Reloj de Día sigue corriendo porque MaidCentral no se puede configurar para apagarlo, pero no produce salario. Una vez que Phes termine de migrar a Qleno, eliminaremos el requisito del Reloj de Día por completo. El reembolso de millaje a la tarifa estándar del IRS entre hogares de clientes es separado del salario (vea el módulo de Compensación).",
         },
       },
 
@@ -4361,24 +4361,24 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-09-travel-pay",
     moduleId: "maidcentral",
-    prompt: { en: "What is travel pay?", es: "¿Qué es el pago de traslado?" },
+    prompt: { en: "Does Phes pay you for the time between Check Out at one job and Check In at the next?", es: "¿Phes le paga por el tiempo entre Check Out en un trabajo y Check In en el siguiente?" },
     options: [
-      { en: "A bonus paid out at the end of the week for long drives between distant cities.", es: "Un bono pagado al fin de la semana por manejos largos entre ciudades distantes." },
-      { en: "Time Clocked In for the day but NOT Checked Into a job — covers drive between homes.", es: "Tiempo con Clock In del día pero NO Check In en trabajo — cubre traslado entre hogares." },
-      { en: "Reimbursement for the gasoline you used during the day, paid separately from wages.", es: "Reembolso por la gasolina que usó durante el día, pagado por separado del salario." },
-      { en: "Hourly pay for the drive between your personal home and the workplace each day.", es: "Pago por hora del trayecto entre su hogar personal y el lugar de trabajo cada día." },
+      { en: "Yes — once the Day Clock is running, every minute between jobs is paid as travel time.", es: "Sí — una vez que el Reloj de Día corre, cada minuto entre trabajos se paga como traslado." },
+      { en: "No. Phes does not pay travel time. Your paid hours come from your Job Clock total. The Day Clock keeps running because MaidCentral cannot be turned off, but the gap between jobs is not wages.", es: "No. Phes no paga tiempo de traslado. Sus horas pagadas vienen del total del Reloj de Trabajo. El Reloj de Día sigue corriendo porque MaidCentral no se puede apagar, pero el tiempo entre trabajos no es salario." },
+      { en: "Only the first 30 minutes between each pair of jobs gets paid as travel time at Phes.", es: "Solo los primeros 30 minutos entre cada par de trabajos se paga como tiempo de traslado en Phes." },
+      { en: "Only if a manager approves the travel before you leave the first client property.", es: "Solo si un gerente aprueba el traslado antes de salir de la propiedad del primer cliente." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-10-commute-not-paid",
     moduleId: "maidcentral",
-    prompt: { en: "Is the drive from your home to your first job of the day paid as travel pay?", es: "¿El manejo de su casa al primer trabajo del día se paga como travel pay?" },
+    prompt: { en: "Phes does not pay travel time. Is anything still reimbursed for the drive between Phes client homes on the same workday?", es: "Phes no paga tiempo de traslado. ¿Se reembolsa algo todavía por manejar entre hogares de clientes de Phes en el mismo día laboral?" },
     options: [
-      { en: "Yes — any drive once you have officially Clocked In for the workday gets paid.", es: "Sí — cualquier manejo una vez con Clock In oficial del día se paga." },
-      { en: "No — that is your commute, not travel; travel pay covers drives BETWEEN client homes.", es: "No — eso es trayecto, no traslado; travel pay cubre manejos ENTRE hogares de clientes." },
-      { en: "Only if you happen to live more than 30 miles away from your assigned route start.", es: "Solo si por casualidad vive a más de 30 millas del inicio de su ruta asignada." },
-      { en: "Yes, but only if you remembered to Clock In before you actually leave home that morning.", es: "Sí, pero solo si recordó hacer Clock In antes de salir de casa esa mañana." },
+      { en: "Nothing — once travel time is unpaid, the entire Day Clock gap is your own cost.", es: "Nada — una vez que el traslado no se paga, todo el espacio del Reloj de Día corre por su cuenta." },
+      { en: "Yes. Mileage reimbursement at the IRS standard rate is available for drives BETWEEN client homes on the same workday. This is gas + wear-and-tear reimbursement, not wages. Home-to-first-job and last-job-to-home commute is not reimbursable.", es: "Sí. El reembolso de millaje a la tarifa estándar del IRS está disponible para manejos ENTRE hogares de clientes el mismo día laboral. Es reembolso de gasolina + desgaste, no salario. El trayecto de casa al primer trabajo y del último a casa no se reembolsa." },
+      { en: "Yes — the gap converts to paid time once the drive crosses 30 miles round trip.", es: "Sí — el espacio se convierte en tiempo pagado una vez que el manejo supera 30 millas redondo." },
+      { en: "Only if the office authorizes the specific drive between two clients in advance.", es: "Solo si la oficina autoriza específicamente el manejo entre dos clientes con anticipación." },
     ],
     correctIndex: 1,
   },
@@ -4433,10 +4433,10 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-15-day-clock-running",
     moduleId: "maidcentral",
-    prompt: { en: "Between Job A and Job B, you stop for gas and lunch. Are you on the Day Clock?", es: "Entre el Trabajo A y B, para por gasolina y almuerzo. ¿Está con Clock In del día?" },
+    prompt: { en: "Between Job A and Job B you stop for gas and lunch. What happens with the Day Clock and your pay?", es: "Entre el Trabajo A y B para por gasolina y almuerzo. ¿Qué pasa con el Reloj de Día y su pago?" },
     options: [
       { en: "The Day Clock pauses automatically — it only actively runs while you are at jobs.", es: "El Reloj de Día se pausa automáticamente — solo corre activamente durante trabajos." },
-      { en: "Yes — Day Clock keeps running; lunch is unpaid only if you Clock Out and back In.", es: "Sí — el Reloj de Día sigue corriendo; el almuerzo no es pagado solo si Clock Out y back In." },
+      { en: "Day Clock keeps running because MaidCentral cannot turn it off, but the time between Check Out and Check In is NOT paid wages. Phes does not pay travel time, fuel-stop time, or lunch — your paid hours come from your Job Clock totals.", es: "El Reloj de Día sigue corriendo porque MaidCentral no se puede apagar, pero el tiempo entre Check Out y Check In NO se paga como salario. Phes no paga tiempo de traslado, paradas de gasolina ni almuerzo — sus horas pagadas vienen de los totales del Reloj de Trabajo." },
       { en: "The Day Clock pauses automatically the moment you stop driving and park the vehicle.", es: "El Reloj de Día se pausa automáticamente cuando deja de manejar y estaciona el vehículo." },
       { en: "It depends entirely on the actual length of your stop between the two scheduled jobs.", es: "Depende totalmente de la duración real de su parada entre los dos trabajos programados." },
     ],
