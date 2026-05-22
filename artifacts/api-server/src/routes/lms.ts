@@ -830,23 +830,16 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
       );
     const liveAttemptsCount = liveAttemptsRows.length;
     const existing = progress.find((p) => p.module_id === moduleId);
-    const alreadyPassed = existing?.status === "passed";
-    // Item 11 (onboarding-readiness sprint 2026-05-15): once passed,
-    // the quiz is locked. Prevents the Pass → Fail → Pass overwrite
-    // that surfaced in Jose's audit. Owner / admin retains the
-    // existing bypass-module path for legitimate overrides; this gate
-    // only fires for the learner-driven re-attempt path.
-    if (alreadyPassed && !canBypassCap) {
-      return res.status(403).json({
-        error: "Forbidden",
-        message:
-          "This module is already passed. Ask your admin to reset the module if you want to retake it.",
-        attempts_used: liveAttemptsCount,
-        already_passed: true,
-      });
-    }
+    // 2026-05-22: learner-requested review-and-retake flow. Once passed,
+    // the module is no longer locked — learners may retake for learning
+    // value. The Pass → Fail → Pass overwrite that surfaced in Jose's
+    // audit (Item 11, 2026-05-15) is now prevented by the stayPassed +
+    // best_score logic below: once a learner has passed, status stays
+    // 'passed' and best_score never goes down, regardless of how the
+    // subsequent attempt scored. Retakes still count toward the
+    // maxAttempts cap.
     const maxAttempts = maxAttemptsFor(moduleId);
-    if (!canBypassCap && !alreadyPassed && liveAttemptsCount >= maxAttempts) {
+    if (!canBypassCap && liveAttemptsCount >= maxAttempts) {
       return res.status(403).json({
         error: "Forbidden",
         message:
