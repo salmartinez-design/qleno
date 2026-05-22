@@ -3057,27 +3057,34 @@ function QuizView({
     // 2026-05-19 (Pattern 2 — corporate compliance standard): build the
     // "questions you missed" breakdown for the fail screen. Shows the
     // prompt + the learner's selection but NOT the correct answer.
-    // Preserves assessment integrity across retries. Final Mixed Test
-    // omits perQuestion on purpose (question-bank leakage prevention),
-    // so the breakdown is empty in that case.
-    const wrongQuestions: Array<{
+    // 2026-05-22: per Sal, both pass AND fail show the full per-question
+    // review — every prompt, what the learner selected, what was correct,
+    // and a green/red indicator. Final Mixed Test still omits perQuestion
+    // (question-bank leakage prevention), so the breakdown is empty for
+    // the final.
+    const perQuestionReview: Array<{
       index: number;
       prompt: string;
       selected: string | null;
+      correct: string | null;
+      isCorrect: boolean;
     }> = [];
-    if (!result.passed && result.perQuestion) {
+    if (result.perQuestion) {
       result.perQuestion.forEach((ok, i) => {
-        if (ok) return;
         const q = questions[i];
         if (!q) return;
         const selectedIdx = answers[i];
-        wrongQuestions.push({
+        perQuestionReview.push({
           index: i + 1,
           prompt: q.prompt[locale],
           selected:
             selectedIdx != null && q.options[selectedIdx]
               ? q.options[selectedIdx][locale]
               : null,
+          correct: q.options[q.correctIndex]
+            ? q.options[q.correctIndex][locale]
+            : null,
+          isCorrect: ok,
         });
       });
     }
@@ -3089,8 +3096,16 @@ function QuizView({
         maxAttempts={result.max_attempts ?? maxAttempts}
         passThreshold={PASS_THRESHOLD_PCT}
         isOwner={isOwner}
-        wrongQuestions={wrongQuestions}
+        perQuestionReview={perQuestionReview}
         onBackHome={onCancel}
+        onRetake={() => {
+          // Reset client-side state for a fresh attempt. The server
+          // no longer blocks retake-after-pass; stayPassed + best_score
+          // GREATEST() preserve the pass record on lower-scoring retakes.
+          setAnswers(new Array(questionIds.length).fill(null));
+          setCursor(0);
+          setResult(null);
+        }}
         onContinue={async () => {
           if (result.passed) {
             await onPassed();
@@ -3399,8 +3414,9 @@ function ResultView({
   maxAttempts,
   passThreshold,
   isOwner,
-  wrongQuestions,
+  perQuestionReview,
   onContinue,
+  onRetake,
   onBackHome,
 }: {
   locale: Locale;
@@ -3410,18 +3426,21 @@ function ResultView({
   passThreshold: number;
   isOwner: boolean;
   /**
-   * 2026-05-19 (Pattern 2): on a failed per-module quiz, the list of
-   * questions the learner missed. Each entry shows the prompt + the
-   * learner's selected option, NOT the correct answer. This preserves
-   * assessment integrity across retake attempts. Empty for the Final
-   * Mixed Test (which omits perQuestion on purpose).
+   * 2026-05-22 (Sal): the full per-question review — every question
+   * with prompt, learner's selection, the correct option, and a
+   * green/red indicator. Shown on BOTH pass and fail so employees can
+   * learn from what they got right and wrong. Final Mixed Test omits
+   * perQuestion on purpose so this is empty for the final.
    */
-  wrongQuestions?: Array<{
+  perQuestionReview?: Array<{
     index: number;
     prompt: string;
     selected: string | null;
+    correct: string | null;
+    isCorrect: boolean;
   }>;
   onContinue: () => void;
+  onRetake: () => void;
   onBackHome: () => void | Promise<void>;
 }) {
   const { passed, score } = result;
@@ -3432,7 +3451,7 @@ function ResultView({
   return (
     <div
       style={{
-        maxWidth: !passed && wrongQuestions && wrongQuestions.length > 0 ? 600 : 480,
+        maxWidth: perQuestionReview && perQuestionReview.length > 0 ? 640 : 480,
         margin: "60px auto",
         padding: 18,
       }}
@@ -3473,11 +3492,12 @@ function ResultView({
                 }/${maxAttempts} ${tr("attemptsUsed", locale)})`}
           </div>
         ) : null}
-        {/* Pattern 2 (corporate compliance standard): on fail, surface
-            the prompts the learner missed + their selection so they
-            know what to re-read. Correct answer is NOT shown — keeps
-            the assessment honest across retries. */}
-        {!passed && wrongQuestions && wrongQuestions.length > 0 ? (
+        {/* 2026-05-22 (Sal): full per-question review — green for correct,
+            red for wrong, learner's selection shown, correct answer
+            revealed for wrong ones so the learner knows what they should
+            have picked. Shown on BOTH pass and fail. Final test still
+            hides this because perQuestion is omitted there on purpose. */}
+        {perQuestionReview && perQuestionReview.length > 0 ? (
           <div
             style={{
               marginTop: 18,
@@ -3496,9 +3516,13 @@ function ResultView({
                 marginBottom: 10,
               }}
             >
-              {locale === "es"
-                ? `Preguntas que necesita revisar (${wrongQuestions.length})`
-                : `Questions to review (${wrongQuestions.length})`}
+              {(() => {
+                const correctCount = perQuestionReview.filter((r) => r.isCorrect).length;
+                const total = perQuestionReview.length;
+                return locale === "es"
+                  ? `Revisión por pregunta (${correctCount} de ${total} correctas)`
+                  : `Question-by-question review (${correctCount} of ${total} correct)`;
+              })()}
             </div>
             <ul
               style={{
@@ -3510,49 +3534,63 @@ function ResultView({
                 gap: 12,
               }}
             >
-              {wrongQuestions.map((wq) => (
+              {perQuestionReview.map((r) => (
                 <li
-                  key={wq.index}
+                  key={r.index}
                   style={{
                     fontSize: 12.5,
                     color: INK,
                     lineHeight: 1.45,
+                    paddingLeft: 22,
+                    position: "relative",
                   }}
                 >
+                  <span
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      top: 1,
+                      color: r.isCorrect ? SUCCESS : DANGER,
+                      fontWeight: 800,
+                    }}
+                    aria-hidden="true"
+                  >
+                    {r.isCorrect ? "✓" : "✗"}
+                  </span>
                   <div style={{ fontWeight: 700, marginBottom: 3 }}>
-                    {locale === "es" ? "Pregunta" : "Question"} {wq.index}.{" "}
-                    {wq.prompt}
+                    {locale === "es" ? "Pregunta" : "Question"} {r.index}.{" "}
+                    {r.prompt}
                   </div>
-                  {wq.selected != null ? (
+                  {r.selected != null ? (
                     <div
                       style={{
-                        color: DANGER,
+                        color: r.isCorrect ? SUCCESS : DANGER,
                         fontSize: 12,
                       }}
                     >
                       {locale === "es" ? "Su respuesta: " : "Your answer: "}
-                      {wq.selected}
+                      {r.selected}
                     </div>
                   ) : (
                     <div style={{ color: INK_MUTE, fontSize: 12, fontStyle: "italic" }}>
                       {locale === "es" ? "Sin respuesta seleccionada" : "No answer selected"}
                     </div>
                   )}
+                  {!r.isCorrect && r.correct != null ? (
+                    <div
+                      style={{
+                        color: SUCCESS,
+                        fontSize: 12,
+                        marginTop: 2,
+                      }}
+                    >
+                      {locale === "es" ? "Respuesta correcta: " : "Correct answer: "}
+                      {r.correct}
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
-            <div
-              style={{
-                marginTop: 12,
-                fontSize: 11.5,
-                color: INK_MUTE,
-                fontStyle: "italic",
-              }}
-            >
-              {locale === "es"
-                ? "Revise la sección correspondiente del módulo antes de volver a intentarlo."
-                : "Review the relevant section of the module before retrying."}
-            </div>
           </div>
         ) : null}
         <div
@@ -3564,17 +3602,22 @@ function ResultView({
             flexWrap: "wrap",
           }}
         >
-          {/* Sal report 2026-05-19: previously the fail screen had only
-              "Try again" — no way to leave the quiz without retrying.
-              Now we always show a secondary "Back to home" alongside the
-              primary CTA, except on pass (Continue navigates forward
-              naturally). */}
-          {!passed ? (
+          {/* 2026-05-22 (Sal): retake is always offered, on pass and on
+              fail. On pass the primary CTA stays "Next" (continue to the
+              next module); on fail the primary stays "Try again" when
+              retries remain. The "Back to home" secondary is also kept
+              everywhere except after a no-retries-left fail. */}
+          {!passed && !noMoreRetries ? (
             <SecondaryButton onClick={() => { void onBackHome(); }}>
               {tr("back", locale)}
             </SecondaryButton>
           ) : null}
-          <PrimaryButton onClick={onContinue}>
+          {passed && attemptsRemaining > 0 ? (
+            <SecondaryButton onClick={onRetake}>
+              {tr("retry", locale)}
+            </SecondaryButton>
+          ) : null}
+          <PrimaryButton onClick={passed ? onContinue : onContinue}>
             {passed
               ? tr("next", locale)
               : noMoreRetries
