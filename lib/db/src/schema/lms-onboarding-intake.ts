@@ -30,6 +30,9 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
+// integer is used for vehicle_year (4-digit year).
+// boolean is used for drives_personal_vehicle and
+// vehicle_protocol_acknowledged.
 import { companiesTable } from "./companies";
 import { usersTable } from "./users";
 
@@ -59,6 +62,18 @@ export const lmsOnboardingIntakeTable = pgTable(
     emergency_contact_phone: text("emergency_contact_phone"),
 
     /**
+     * Home address fields (PR feature/onboarding-intake-vehicle-and-address
+     * 2026-05-22). Required for tax compliance and emergency response. Phes
+     * does NOT use home address for mileage reimbursement — mileage only
+     * covers driving between client locations on the same workday.
+     */
+    home_address_street: text("home_address_street"),
+    home_address_unit: text("home_address_unit"),
+    home_address_city: text("home_address_city"),
+    home_address_state: text("home_address_state").default("IL"),
+    home_address_zip: text("home_address_zip"),
+
+    /**
      * Languages the employee can communicate in with clients. Stored
      * as comma-separated text (e.g. "english,spanish") to keep the
      * schema simple. The frontend renders chips and writes back the
@@ -74,13 +89,39 @@ export const lmsOnboardingIntakeTable = pgTable(
     drives_personal_vehicle: boolean("drives_personal_vehicle")
       .notNull()
       .default(false),
-    /** Required when drives_personal_vehicle = true. */
+    /**
+     * Vehicle + insurance + DL fields (expanded for the
+     * vehicle-and-address PR). Required when drives_personal_vehicle =
+     * true. PII concern: drivers_license_number is sensitive; the
+     * codebase does not currently have at-rest encryption infrastructure,
+     * which is flagged as a follow-up security improvement (see PR
+     * description). For now stored as plain text alongside the rest of
+     * the operational PII.
+     */
+    vehicle_make: text("vehicle_make"),
+    vehicle_model: text("vehicle_model"),
+    vehicle_year: integer("vehicle_year"),
+    vehicle_color: text("vehicle_color"),
+    vehicle_license_plate: text("vehicle_license_plate"),
     vehicle_insurance_company: text("vehicle_insurance_company"),
     vehicle_insurance_policy_number: text("vehicle_insurance_policy_number"),
     vehicle_insurance_expires_at: date("vehicle_insurance_expires_at"),
-    vehicle_license_plate: text("vehicle_license_plate"),
-    drivers_license_state: text("drivers_license_state"),
+    drivers_license_number: text("drivers_license_number"),
+    drivers_license_state: text("drivers_license_state").default("IL"),
     drivers_license_expires_at: date("drivers_license_expires_at"),
+    /**
+     * Vehicle-use protocol acknowledgment. Required-true when the
+     * employee checks `drives_personal_vehicle`. Captures the moment
+     * the employee acknowledged the mileage / no-client-transport /
+     * insurance-primary / notify-on-lapse terms.
+     */
+    vehicle_protocol_acknowledged: boolean("vehicle_protocol_acknowledged")
+      .notNull()
+      .default(false),
+    vehicle_protocol_acknowledged_at: timestamp(
+      "vehicle_protocol_acknowledged_at",
+      { withTimezone: true },
+    ),
 
     /** Free-form notes (allergies, dietary restrictions, accessibility). */
     notes: text("notes"),

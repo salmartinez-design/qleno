@@ -13,11 +13,17 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   INTAKE_REQUIRED_FIELDS,
+  alphanumIdOrNull,
   boolOr,
   csvCell,
   dateOrNull,
+  futureDateOrNull,
   isIntakeSubmittable,
+  licensePlateOrNull,
+  stateOrNull,
   trimOrNull,
+  vehicleYearOrNull,
+  zipOrNull,
 } from "../lib/lms-onboarding-intake-helpers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,5 +217,164 @@ describe("csvCell", () => {
     assert.equal(csvCell(42), "42");
     assert.equal(csvCell(true), "true");
     assert.equal(csvCell(false), "false");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// zipOrNull (vehicle-and-address PR)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("zipOrNull", () => {
+  it("accepts 5-digit ZIP", () => {
+    assert.equal(zipOrNull("60805"), "60805");
+  });
+  it("accepts 5+4 ZIP with hyphen", () => {
+    assert.equal(zipOrNull("60805-1234"), "60805-1234");
+  });
+  it("rejects 4-digit ZIP", () => {
+    assert.equal(zipOrNull("6080"), null);
+  });
+  it("rejects ZIP with letters", () => {
+    assert.equal(zipOrNull("60AB5"), null);
+  });
+  it("returns null for empty / whitespace / non-string", () => {
+    assert.equal(zipOrNull(""), null);
+    assert.equal(zipOrNull("   "), null);
+    assert.equal(zipOrNull(60805), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// stateOrNull
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("stateOrNull", () => {
+  it("accepts uppercase 2-letter state code", () => {
+    assert.equal(stateOrNull("IL"), "IL");
+  });
+  it("uppercases lowercase input", () => {
+    assert.equal(stateOrNull("il"), "IL");
+  });
+  it("trims whitespace", () => {
+    assert.equal(stateOrNull("  CA  "), "CA");
+  });
+  it("rejects non-state codes", () => {
+    assert.equal(stateOrNull("XX"), null);
+    assert.equal(stateOrNull("Illinois"), null);
+  });
+  it("accepts DC + territories used on DLs", () => {
+    assert.equal(stateOrNull("DC"), "DC");
+    assert.equal(stateOrNull("PR"), "PR");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// vehicleYearOrNull
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("vehicleYearOrNull", () => {
+  it("accepts integer in range", () => {
+    assert.equal(vehicleYearOrNull(2020, 2026), 2020);
+  });
+  it("accepts 4-digit string in range", () => {
+    assert.equal(vehicleYearOrNull("2020", 2026), 2020);
+  });
+  it("rejects pre-1980", () => {
+    assert.equal(vehicleYearOrNull(1979, 2026), null);
+    assert.equal(vehicleYearOrNull("1979", 2026), null);
+  });
+  it("accepts 1980 exactly", () => {
+    assert.equal(vehicleYearOrNull(1980, 2026), 1980);
+  });
+  it("rejects more than 2 years in the future", () => {
+    assert.equal(vehicleYearOrNull(2029, 2026), null);
+  });
+  it("accepts current year + 1 and + 2", () => {
+    assert.equal(vehicleYearOrNull(2027, 2026), 2027);
+    assert.equal(vehicleYearOrNull(2028, 2026), 2028);
+  });
+  it("rejects non-integer + 3-digit + 5-digit strings", () => {
+    assert.equal(vehicleYearOrNull("20.5", 2026), null);
+    assert.equal(vehicleYearOrNull("999", 2026), null);
+    assert.equal(vehicleYearOrNull("20200", 2026), null);
+    assert.equal(vehicleYearOrNull(20.5, 2026), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// licensePlateOrNull
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("licensePlateOrNull", () => {
+  it("accepts 2-character plate", () => {
+    assert.equal(licensePlateOrNull("AB"), "AB");
+  });
+  it("accepts 8-character plate", () => {
+    assert.equal(licensePlateOrNull("ABC12345"), "ABC12345");
+  });
+  it("uppercases lowercase input", () => {
+    assert.equal(licensePlateOrNull("abc1234"), "ABC1234");
+  });
+  it("strips internal whitespace and hyphens", () => {
+    assert.equal(licensePlateOrNull("ABC-1234"), "ABC1234");
+    assert.equal(licensePlateOrNull("ABC 1234"), "ABC1234");
+  });
+  it("rejects 1-character or 9+ character plate", () => {
+    assert.equal(licensePlateOrNull("A"), null);
+    assert.equal(licensePlateOrNull("ABC123456"), null);
+  });
+  it("rejects special characters that aren't whitespace/hyphen", () => {
+    assert.equal(licensePlateOrNull("ABC@123"), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// alphanumIdOrNull (insurance policy + DL number)
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("alphanumIdOrNull", () => {
+  it("accepts 5-character id", () => {
+    assert.equal(alphanumIdOrNull("ABC12"), "ABC12");
+  });
+  it("accepts 30-character id", () => {
+    assert.equal(alphanumIdOrNull("A".repeat(30)), "A".repeat(30));
+  });
+  it("preserves embedded hyphens/spaces in returned value (length checked on stripped form)", () => {
+    assert.equal(alphanumIdOrNull("ABC-1234-5678"), "ABC-1234-5678");
+  });
+  it("rejects 4-character id", () => {
+    assert.equal(alphanumIdOrNull("ABC1"), null);
+  });
+  it("rejects 31-character id", () => {
+    assert.equal(alphanumIdOrNull("A".repeat(31)), null);
+  });
+  it("rejects special characters other than whitespace/hyphen", () => {
+    assert.equal(alphanumIdOrNull("ABC@123"), null);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// futureDateOrNull
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("futureDateOrNull", () => {
+  const now = new Date("2026-05-22T12:00:00Z");
+
+  it("accepts a date in the future", () => {
+    assert.equal(futureDateOrNull("2027-01-01", now), "2027-01-01");
+  });
+  it("rejects today (must be strictly future)", () => {
+    assert.equal(futureDateOrNull("2026-05-22", now), null);
+  });
+  it("rejects a date in the past", () => {
+    assert.equal(futureDateOrNull("2025-01-01", now), null);
+  });
+  it("rejects malformed dates", () => {
+    assert.equal(futureDateOrNull("2027-13-40", now), null);
+    assert.equal(futureDateOrNull("not-a-date", now), null);
+  });
+  it("returns null for empty / non-string", () => {
+    assert.equal(futureDateOrNull("", now), null);
+    assert.equal(futureDateOrNull(undefined, now), null);
   });
 });

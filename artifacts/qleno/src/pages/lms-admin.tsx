@@ -7015,6 +7015,11 @@ type IntakeRow = {
   pronouns: string | null;
   personal_email: string | null;
   personal_cell_phone: string | null;
+  home_address_street: string | null;
+  home_address_unit: string | null;
+  home_address_city: string | null;
+  home_address_state: string | null;
+  home_address_zip: string | null;
   emergency_contact_name: string | null;
   emergency_contact_relationship: string | null;
   emergency_contact_phone: string | null;
@@ -7022,16 +7027,43 @@ type IntakeRow = {
   shirt_size: string | null;
   apron_size: string | null;
   drives_personal_vehicle: boolean;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_year: number | null;
+  vehicle_color: string | null;
+  vehicle_license_plate: string | null;
   vehicle_insurance_company: string | null;
   vehicle_insurance_policy_number: string | null;
   vehicle_insurance_expires_at: string | null;
-  vehicle_license_plate: string | null;
+  drivers_license_number: string | null;
   drivers_license_state: string | null;
   drivers_license_expires_at: string | null;
+  vehicle_protocol_acknowledged: boolean;
+  vehicle_protocol_acknowledged_at: string | null;
   notes: string | null;
   submitted_at: string | null;
   updated_at: string;
 };
+
+/**
+ * Returns "expired" / "expiring" / "ok" for a YYYY-MM-DD expiration
+ * date string. Used by the admin panel to surface insurance + DL
+ * expiration warnings.
+ */
+function expirationStatus(
+  dateStr: string | null,
+  warningDays: number = 30,
+): "expired" | "expiring" | "ok" | "missing" {
+  if (!dateStr) return "missing";
+  const parsed = new Date(`${dateStr}T12:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return "missing";
+  const now = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const days = Math.floor((parsed.getTime() - now.getTime()) / msPerDay);
+  if (days < 0) return "expired";
+  if (days <= warningDays) return "expiring";
+  return "ok";
+}
 
 function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
   const token = useAuthStore((s) => s.token);
@@ -7204,6 +7236,9 @@ function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
             <IntakeField label="Pronouns" value={intake.pronouns} />
             <IntakeField label="Personal email" value={intake.personal_email} />
             <IntakeField label="Personal cell" value={intake.personal_cell_phone} />
+            <div style={{ gridColumn: "1 / -1" }}>
+              <IntakeAddressField intake={intake} />
+            </div>
             <IntakeField label="Emergency name" value={intake.emergency_contact_name} />
             <IntakeField
               label="Emergency relationship"
@@ -7219,6 +7254,19 @@ function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
             />
             {intake.drives_personal_vehicle ? (
               <>
+                <IntakeField label="Vehicle make" value={intake.vehicle_make} />
+                <IntakeField label="Vehicle model" value={intake.vehicle_model} />
+                <IntakeField
+                  label="Vehicle year"
+                  value={
+                    intake.vehicle_year != null ? String(intake.vehicle_year) : null
+                  }
+                />
+                <IntakeField label="Vehicle color" value={intake.vehicle_color} />
+                <IntakeField
+                  label="License plate"
+                  value={intake.vehicle_license_plate}
+                />
                 <IntakeField
                   label="Insurance company"
                   value={intake.vehicle_insurance_company}
@@ -7227,21 +7275,31 @@ function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
                   label="Insurance policy #"
                   value={intake.vehicle_insurance_policy_number}
                 />
-                <IntakeField
+                <IntakeExpiryField
                   label="Insurance expires"
                   value={intake.vehicle_insurance_expires_at}
                 />
                 <IntakeField
-                  label="License plate"
-                  value={intake.vehicle_license_plate}
+                  label="Driver's license #"
+                  value={intake.drivers_license_number}
                 />
                 <IntakeField
                   label="DL state"
                   value={intake.drivers_license_state}
                 />
-                <IntakeField
+                <IntakeExpiryField
                   label="DL expires"
                   value={intake.drivers_license_expires_at}
+                />
+                <IntakeField
+                  label="Vehicle protocol acknowledged"
+                  value={
+                    intake.vehicle_protocol_acknowledged
+                      ? intake.vehicle_protocol_acknowledged_at
+                        ? `Yes (${humanDateTime(intake.vehicle_protocol_acknowledged_at)})`
+                        : "Yes"
+                      : "No"
+                  }
                 />
               </>
             ) : null}
@@ -7283,6 +7341,129 @@ function IntakeField({
       </div>
       <div style={{ fontSize: 12, color: INK, marginTop: 2 }}>
         {value && value.toString().trim().length > 0 ? value : "(none)"}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Renders the learner's home address as a one-line summary with a
+ * Google Maps deep-link. Falls back to the labelled "(none)"
+ * placeholder when the address fields are empty.
+ */
+function IntakeAddressField({ intake }: { intake: IntakeRow }) {
+  const parts = [
+    intake.home_address_street,
+    intake.home_address_unit ? `Unit ${intake.home_address_unit}` : null,
+    intake.home_address_city,
+    intake.home_address_state,
+    intake.home_address_zip,
+  ].filter((s) => s && s.toString().trim().length > 0);
+  const full = parts.join(", ");
+  const mapsUrl = full
+    ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(full)}`
+    : null;
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        Home address
+      </div>
+      <div style={{ fontSize: 12, color: INK, marginTop: 2 }}>
+        {full ? (
+          mapsUrl ? (
+            <a
+              href={mapsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: NAVY, textDecoration: "underline" }}
+            >
+              {full}
+            </a>
+          ) : (
+            full
+          )
+        ) : (
+          "(none)"
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Renders an expiration date with an inline warning pill when the
+ * date is within 30 days of expiring or already past. Used for
+ * insurance + DL expiration in the admin panel.
+ */
+function IntakeExpiryField({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  const status = expirationStatus(value ?? null);
+  const pillBg =
+    status === "expired"
+      ? "#FEE2E2"
+      : status === "expiring"
+      ? "#FEF3C7"
+      : null;
+  const pillColor =
+    status === "expired" ? DANGER : status === "expiring" ? "#92400E" : INK;
+  const pillText =
+    status === "expired"
+      ? "Expired"
+      : status === "expiring"
+      ? "Expiring within 30 days"
+      : null;
+  return (
+    <div>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: INK_MUTE,
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: INK,
+          marginTop: 2,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          flexWrap: "wrap",
+        }}
+      >
+        {value && value.toString().trim().length > 0 ? value : "(none)"}
+        {pillText ? (
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              padding: "2px 6px",
+              borderRadius: 4,
+              background: pillBg ?? "transparent",
+              color: pillColor,
+            }}
+          >
+            {pillText}
+          </span>
+        ) : null}
       </div>
     </div>
   );

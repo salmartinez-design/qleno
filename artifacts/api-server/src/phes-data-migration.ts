@@ -983,6 +983,44 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE UNIQUE INDEX IF NOT EXISTS lms_onboarding_intake_company_user_uq ON lms_onboarding_intake(company_id, user_id)` },
     { label: "lms_onboarding_intake_company_submitted_idx",
       stmt: `CREATE INDEX IF NOT EXISTS lms_onboarding_intake_company_submitted_idx ON lms_onboarding_intake(company_id, submitted_at)` },
+
+    // [feature/onboarding-intake-vehicle-and-address 2026-05-22]
+    // Idempotent ALTER TABLE ADD COLUMN IF NOT EXISTS statements
+    // (Postgres 9.6+). Re-running is a no-op once applied.
+    //
+    // Home address: required for tax compliance + emergency response.
+    // Phes does NOT use home address for mileage reimbursement.
+    { label: "lms_onboarding_intake.home_address_street",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS home_address_street TEXT` },
+    { label: "lms_onboarding_intake.home_address_unit",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS home_address_unit TEXT` },
+    { label: "lms_onboarding_intake.home_address_city",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS home_address_city TEXT` },
+    { label: "lms_onboarding_intake.home_address_state",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS home_address_state TEXT DEFAULT 'IL'` },
+    { label: "lms_onboarding_intake.home_address_zip",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS home_address_zip TEXT` },
+
+    // Expanded vehicle fields: make / model / year / color in addition
+    // to existing insurance + license-plate columns.
+    { label: "lms_onboarding_intake.vehicle_make",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_make TEXT` },
+    { label: "lms_onboarding_intake.vehicle_model",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_model TEXT` },
+    { label: "lms_onboarding_intake.vehicle_year",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_year INTEGER` },
+    { label: "lms_onboarding_intake.vehicle_color",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_color TEXT` },
+
+    // Driver's license number (sensitive PII; encryption-at-rest TODO).
+    { label: "lms_onboarding_intake.drivers_license_number",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS drivers_license_number TEXT` },
+
+    // Vehicle-use protocol acknowledgment (boolean + timestamp).
+    { label: "lms_onboarding_intake.vehicle_protocol_acknowledged",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged BOOLEAN NOT NULL DEFAULT FALSE` },
+    { label: "lms_onboarding_intake.vehicle_protocol_acknowledged_at",
+      stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged_at TIMESTAMPTZ` },
   ];
 
   for (const { label, stmt } of guards) {
