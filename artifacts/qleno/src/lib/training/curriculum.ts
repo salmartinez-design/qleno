@@ -3960,14 +3960,17 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-cm-14-mileage",
     moduleId: "compensation",
-    prompt: { en: "Which of these is NOT covered by mileage reimbursement?", es: "¿Cuál de estos NO está cubierto por el reembolso de millaje?" },
+    prompt: {
+      en: "Which of the following drives IS reimbursed by Phes under the current mileage policy?",
+      es: "¿Cuál de los siguientes manejos SÍ es reembolsado por Phes bajo la política actual de millaje?",
+    },
     options: [
-      { en: "Driving from Client A's home to Client B's home", es: "Manejar de la casa del Cliente A a la del B" },
-      { en: "Driving back to the office mid-day to swap supplies", es: "Manejar a la oficina a media-tarde para cambiar suministros" },
-      { en: "Driving from your home to your first job of the day (commute)", es: "Manejar de su casa al primer trabajo del día (trayecto)" },
-      { en: "Driving to a Fix-It call", es: "Manejar a una llamada Fix-It" },
+      { en: "Driving from Client A's home directly to Client B's home on the same workday.", es: "Manejar de la casa del Cliente A directamente a la casa del Cliente B el mismo día laboral." },
+      { en: "Driving from your personal home to your first scheduled job of the day in the morning.", es: "Manejar de su casa personal a su primer trabajo programado del día en la mañana." },
+      { en: "Driving from your last scheduled job of the day back to your own personal home address.", es: "Manejar de su último trabajo programado del día de regreso a su propia casa personal." },
+      { en: "Driving to the Phes office to pick up supplies before your first scheduled client job.", es: "Manejar a la oficina de Phes a recoger suministros antes de su primer trabajo programado." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-cm-15-payroll-cycle",
@@ -4055,6 +4058,21 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "You are charged a flat $50 deduction from next paycheck for the callback visit.", es: "Se le cobra una deducción fija de $50 de su próximo pago por la visita de regreso." },
     ],
     correctIndex: 1,
+  },
+  {
+    id: "q-cm-21-fix-it-mileage",
+    moduleId: "compensation",
+    prompt: {
+      en: "You finish a job at Client A's home and then drive directly to Client B's home for a scheduled Fix-It call. Is the mileage reimbursable?",
+      es: "Termina un trabajo en la casa del Cliente A y luego maneja directamente a la casa del Cliente B para una llamada Fix-It programada. ¿Es reembolsable el millaje?",
+    },
+    options: [
+      { en: "Yes. The drive from Client A's home to Client B's home is between two client locations on the same workday, so it qualifies for mileage reimbursement at $0.725 per mile.", es: "Sí. El manejo de la casa del Cliente A a la del Cliente B es entre dos ubicaciones de clientes el mismo día laboral, así que califica para reembolso de millaje a $0.725 por milla." },
+      { en: "No. Fix-It re-clean visits are never reimbursable for mileage no matter where the original job was located or when the visit got scheduled by the office.", es: "No. Las visitas Fix-It de re-limpieza nunca son reembolsables por millaje sin importar dónde estuviera el trabajo original o cuándo la oficina programó la visita." },
+      { en: "Yes, but only at half of the standard mileage rate because Fix-It calls fall under a separate Quality Verification compensation category at Phes.", es: "Sí, pero solo a la mitad de la tarifa estándar de millaje porque las llamadas Fix-It caen en una categoría separada de Verificación de Calidad en Phes." },
+      { en: "No. Phes mileage reimbursement only covers original scheduled visits, not Fix-It re-clean visits, which are part of the original commission already earned on that job.", es: "No. El reembolso de millaje de Phes solo cubre las visitas programadas originales, no las visitas Fix-It de re-limpieza, que son parte de la comisión original ya ganada." },
+    ],
+    correctIndex: 0,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
