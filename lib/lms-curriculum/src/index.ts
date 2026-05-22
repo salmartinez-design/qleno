@@ -303,6 +303,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-38-heavy-furniture-25lb": 1,
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
+  "q-pp-41-parking": 1,
 
   // ── Module 2: compensation (16, alignment with handbook hardening 2026-05-21) ───
   // Dropped q-cm-04/06/10 (duplicates + non-legal); added q-cm-17/18/19
@@ -325,6 +326,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-cm-17-recovery-tech-three-hour": 1,
   "q-cm-18-valid-quality-complaint": 1,
   "q-cm-19-refused-reclean-eighteen": 1,
+  "q-cm-20-training-redo-paid": 1,
 
   // ── Module 3: cleaning-best-practices (15) ───────────────────────────────
   "q-cb-01-room-flow": 1,
@@ -563,6 +565,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-35-deep-clean-includes", "q-pp-36-deep-clean-excludes",
       "q-pp-37-deep-clean-windows", "q-pp-38-heavy-furniture-25lb",
       "q-pp-39-trash-bag-limit", "q-pp-40-no-price-discussion",
+      // Parking policy (2026-05-22)
+      "q-pp-41-parking",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
@@ -573,6 +577,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       // Handbook-alignment additions (2026-05-21)
       "q-cm-17-recovery-tech-three-hour", "q-cm-18-valid-quality-complaint",
       "q-cm-19-refused-reclean-eighteen",
+      // Training-period paid-redo window (2026-05-22)
+      "q-cm-20-training-redo-paid",
     ],
     "cleaning-best-practices": [
       "q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-03-direction",

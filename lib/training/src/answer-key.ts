@@ -68,6 +68,7 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-38-heavy-furniture-25lb": 1,
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
+  "q-pp-41-parking": 1,
 
   // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
   // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.
@@ -87,6 +88,7 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-cm-17-recovery-tech-three-hour": 1,
   "q-cm-18-valid-quality-complaint": 1,
   "q-cm-19-refused-reclean-eighteen": 1,
+  "q-cm-20-training-redo-paid": 1,
 
   // ── Module 3: cleaning-best-practices ────────────────────────────────────
   "q-cb-01-room-flow": 1,
