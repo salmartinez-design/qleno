@@ -313,13 +313,13 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-cm-01-training-pay": 1,
   "q-cm-02-standard-rate": 2,
   "q-cm-03-deep-clean-rate": 1,
-  "q-cm-05-comm-split-200": 2,
+  // q-cm-05 / q-cm-11 / q-cm-13 retired 2026-05-22 to trim Module 2 to 15
+  // (q-cm-05 50/50 split was trivial; q-cm-11 Fix-It pay overlaps with
+  // q-cm-17/19; q-cm-13 probation-pay overlaps with q-cm-12).
   "q-cm-07-clock-in-difference": 1,
   "q-cm-08-hourly-overrun": 1,
   "q-cm-09-commercial-rate": 2,
-  "q-cm-11-fixit": 0,
   "q-cm-12-quality-probation": 1,
-  "q-cm-13-probation-pay": 1,
   "q-cm-14-mileage": 0,
   "q-cm-15-payroll-cycle": 0,
   "q-cm-16-allowed-hours-math": 1,
@@ -570,10 +570,11 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-41-parking",
     ],
     compensation: [
+      // Trim-to-15 (2026-05-22): q-cm-05 / q-cm-11 / q-cm-13 dropped.
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
-      "q-cm-05-comm-split-200", "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun",
-      "q-cm-09-commercial-rate", "q-cm-11-fixit", "q-cm-12-quality-probation",
-      "q-cm-13-probation-pay", "q-cm-14-mileage", "q-cm-15-payroll-cycle",
+      "q-cm-07-clock-in-difference", "q-cm-08-hourly-overrun",
+      "q-cm-09-commercial-rate", "q-cm-12-quality-probation",
+      "q-cm-14-mileage", "q-cm-15-payroll-cycle",
       "q-cm-16-allowed-hours-math",
       // Handbook-alignment additions (2026-05-21)
       "q-cm-17-recovery-tech-three-hour", "q-cm-18-valid-quality-complaint",
