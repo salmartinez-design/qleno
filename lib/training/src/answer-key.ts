@@ -82,13 +82,14 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-cm-11-fixit": 0,
   "q-cm-12-quality-probation": 1,
   "q-cm-13-probation-pay": 1,
-  "q-cm-14-mileage": 2,
+  "q-cm-14-mileage": 0,
   "q-cm-15-payroll-cycle": 0,
   "q-cm-16-allowed-hours-math": 1,
   "q-cm-17-recovery-tech-three-hour": 1,
   "q-cm-18-valid-quality-complaint": 1,
   "q-cm-19-refused-reclean-eighteen": 1,
   "q-cm-20-training-redo-paid": 1,
+  "q-cm-21-fix-it-mileage": 0,
 
   // ── Module 3: cleaning-best-practices ────────────────────────────────────
   "q-cb-01-room-flow": 1,

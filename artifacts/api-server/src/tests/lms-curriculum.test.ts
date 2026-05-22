@@ -101,7 +101,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
 
   it("each non-policies module has its specified question count", () => {
     // phes-policies: 41 (40 baseline + parking 2026-05-22)
-    // compensation: 17 (16 baseline + training-redo-paid 2026-05-22)
+    // compensation: 18 (17 + fix-it-mileage 2026-05-22)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
     // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
@@ -119,7 +119,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "social-media": 10,
       "phes-401k": 10,
       "supply-kit": 10,
-      compensation: 17,
+      compensation: 18,
       "cleaning-best-practices": 15,
       maidcentral: 15,
       "products-tools": 15,
@@ -134,8 +134,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 190 total (41 + 17 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 190);
+  it("ALL_QUESTION_IDS is 191 total (41 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 191);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
@@ -274,10 +274,10 @@ describe("scoreQuiz", () => {
   });
 
   it("respects a custom threshold (lower bar passes more)", () => {
-    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]]; // 17 questions
-    // 9 correct of 17 = 53%
+    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]]; // 18 questions
+    // 10 correct of 18 = 56%
     const answers: number[] = qids.map((q: string, i: number) =>
-      i < 9 ? ANSWER_KEY[q] : 99,
+      i < 10 ? ANSWER_KEY[q] : 99,
     );
     const fail = scoreQuiz(answers, qids); // default 0.80
     const pass = scoreQuiz(answers, qids, 0.5); // 50% threshold
