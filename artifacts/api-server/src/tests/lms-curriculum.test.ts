@@ -87,32 +87,31 @@ describe("LMS curriculum — constants & catalog shape", () => {
     );
   });
 
-  it("FINAL_TEST_SIZE is 30 (Phase 13, PR #14: 30 sampled from the 187-question 13-module pool)", () => {
+  it("FINAL_TEST_SIZE is 30 (Phase 13, PR #14: 30 sampled from the 13-module pool)", () => {
     assert.equal(FINAL_TEST_SIZE, 30);
   });
 
-  it("phes-policies has 40 questions (35 baseline + 5 new bucket-cascade-cleanup additions 2026-05-20)", () => {
+  it("phes-policies has 41 questions (40 baseline + parking policy 2026-05-22)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      40,
-      `phes-policies should have 40 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      41,
+      `phes-policies should have 41 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
   it("each non-policies module has its specified question count", () => {
-    // phes-policies: 40 (full handbook coverage)
+    // phes-policies: 41 (40 baseline + parking 2026-05-22)
+    // compensation: 17 (16 baseline + training-redo-paid 2026-05-22)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
     // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
-    // non-solicitation: 13 (Phase 6 spec + Phase 6.5 amendment: original
-    //   10 + q-ns-11 direct-payment + q-ns-12 trade-secret +
-    //   q-ns-13 trade-secret-vs-Section-7)
+    // non-solicitation: 13 (Phase 6 + 6.5 amendment)
     // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // phes-401k: 10 (Phase 8 spec, 401(k) plan-features comprehension)
     // supply-kit: 10 (Phase 9 spec, IL Wage Payment + responsibility)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
-      "phes-policies": 40,
+      "phes-policies": 41,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
@@ -120,7 +119,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
       "social-media": 10,
       "phes-401k": 10,
       "supply-kit": 10,
-      compensation: 16,
+      compensation: 17,
       "cleaning-best-practices": 15,
       maidcentral: 15,
       "products-tools": 15,
@@ -135,8 +134,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 188 total (40 + 16 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 188);
+  it("ALL_QUESTION_IDS is 190 total (41 + 17 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 190);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
@@ -275,10 +274,10 @@ describe("scoreQuiz", () => {
   });
 
   it("respects a custom threshold (lower bar passes more)", () => {
-    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]]; // 15 questions
-    // 8 correct of 15 = 53%
+    const qids: string[] = [...QUESTIONS_BY_MODULE["compensation"]]; // 17 questions
+    // 9 correct of 17 = 53%
     const answers: number[] = qids.map((q: string, i: number) =>
-      i < 8 ? ANSWER_KEY[q] : 99,
+      i < 9 ? ANSWER_KEY[q] : 99,
     );
     const fail = scoreQuiz(answers, qids); // default 0.80
     const pass = scoreQuiz(answers, qids, 0.5); // 50% threshold
