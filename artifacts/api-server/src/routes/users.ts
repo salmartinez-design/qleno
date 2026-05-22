@@ -320,6 +320,36 @@ router.get("/:id", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    const callerRole = req.auth!.role;
+    const callerId = req.auth!.userId;
+
+    // 2026-05-22 (Sal): "Ensure Francisco and Maribel cannot edit any
+    // of their own settings as they are counterparts." Admins are peers
+    // to each other — only the owner sits above them in the chain. So:
+    //   - admin CANNOT edit themselves
+    //   - admin CANNOT edit another admin
+    // Owner / super_admin are unrestricted by this rule (the owner sits
+    // above all admins; super_admin is the Qleno-side bypass).
+    if (callerRole === "admin") {
+      if (userId === callerId) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Admins cannot edit their own user record. Ask the owner.",
+        });
+      }
+      const peer = await db
+        .select({ role: usersTable.role })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (peer[0]?.role === "admin") {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Admins cannot edit another admin's record. Ask the owner.",
+        });
+      }
+    }
+
     const {
       first_name, last_name, role, pay_rate, pay_type, is_active,
       hire_date, phone, skills,
@@ -383,6 +413,31 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
 router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    const callerRole = req.auth!.role;
+
+    // 2026-05-22 (Sal): admins cannot deactivate themselves OR another
+    // admin (same counterpart rule as PUT / lms-edit). Only the owner
+    // can deactivate an admin.
+    if (callerRole === "admin") {
+      if (userId === req.auth!.userId) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Admins cannot deactivate their own account. Ask the owner.",
+        });
+      }
+      const peer = await db
+        .select({ role: usersTable.role })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (peer[0]?.role === "admin") {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Admins cannot deactivate another admin. Ask the owner.",
+        });
+      }
+    }
+
     await db
       .update(usersTable)
       .set({ is_active: false })
@@ -887,6 +942,23 @@ router.patch(
           error: "Bad Request",
           message: "Cannot edit an owner account via this endpoint",
         });
+      }
+
+      // 2026-05-22 (Sal): admins cannot edit themselves OR another admin
+      // (they are counterparts in the chain — only the owner sits above).
+      if (callerRole === "admin") {
+        if (targetId === req.auth!.userId) {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "Admins cannot edit their own user record. Ask the owner.",
+          });
+        }
+        if (target[0].role === "admin") {
+          return res.status(403).json({
+            error: "Forbidden",
+            message: "Admins cannot edit another admin's record. Ask the owner.",
+          });
+        }
       }
 
       const patch: {

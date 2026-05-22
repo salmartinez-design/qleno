@@ -954,8 +954,15 @@ function RosterTable({
                     ) : null}
                     {/* Sprint 2026-05-15: owner-default Edit Employee.
                         Admin sees it when admin_edit_employee_allowed
-                        is on. Office never sees it. */}
-                    {canEdit ? (
+                        is on. Office never sees it.
+                        2026-05-22 (Sal): admins cannot edit themselves
+                        or another admin — they are counterparts in the
+                        chain. Owner can edit anyone. */}
+                    {canEdit
+                      && !(
+                        callerRole === "admin"
+                        && (r.user_id === callerUserId || r.role === "admin")
+                      ) ? (
                       <button
                         type="button"
                         onClick={() => onEdit(r)}
@@ -1747,7 +1754,11 @@ function RosterCards({
               >
                 <RotateCcw size={11} /> Reset
               </button>
-              {canEdit ? (
+              {canEdit
+                && !(
+                  callerRole === "admin"
+                  && (r.user_id === callerUserId || r.role === "admin")
+                ) ? (
                 <button
                   type="button"
                   onClick={() => onEdit(r)}
