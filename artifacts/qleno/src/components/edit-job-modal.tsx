@@ -291,6 +291,14 @@ export default function EditJobModal({
   const [initialPropertySqft, setInitialPropertySqft] = useState<number | null>(null);
   const [primaryHomeId, setPrimaryHomeId] = useState<number | null>(null);
 
+  // [PR #63] Per-client hourly rate. Pulled from GET /api/jobs/:id (which
+  // joins clients.hourly_rate). Passed to /api/pricing/calculate as
+  // `hourly_rate_override` so the engine uses the per-client rate
+  // instead of the tenant-wide scope rate. For Nicholas Cooper this
+  // makes the modal compute 3 hrs × $60 = $180 + parking $15 = $195
+  // instead of 3 hrs × $71.67 (scope rate) = $215.
+  const [clientHourlyRate, setClientHourlyRate] = useState<number | null>(null);
+
   const [baseFee, setBaseFee] = useState<number>(initialBaseFee);
   const [manualRate, setManualRate] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
@@ -527,6 +535,8 @@ export default function EditJobModal({
         setPropertySqft(sqft);
         setInitialPropertySqft(sqft);
         setPrimaryHomeId(d.client_home_id != null ? Number(d.client_home_id) : null);
+        // [PR #63] Per-client hourly rate from the GET /:id response.
+        setClientHourlyRate(d.client_hourly_rate != null ? Number(d.client_hourly_rate) : null);
 
         // Recurring schedule snapshot.
         const rs = d.recurring_schedule;
@@ -730,6 +740,10 @@ export default function EditJobModal({
             // the "sqft is required for sqft-based scopes" 400 path. null
             // is passed through (engine still runs for hourly scopes).
             sqft: propertySqft,
+            // [PR #63] Per-client hourly rate override. Engine uses this
+            // instead of scope.hourly_rate when provided. Closes the
+            // Nicholas Cooper math gap ($60/hr vs scope ~$71.67/hr).
+            hourly_rate_override: clientHourlyRate,
             frequency,
             addon_ids: Array.from(selectedAddons.keys()),
             addon_quantities: Object.fromEntries(
@@ -748,7 +762,7 @@ export default function EditJobModal({
       }
     }, 250);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, isCommercial, hourlyRate, availableAddons, propertySqft]);
+  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, isCommercial, hourlyRate, availableAddons, propertySqft, clientHourlyRate]);
 
   // ── Validation / dirty check ────────────────────────────────────────────
   const dirty = useMemo(() => {
