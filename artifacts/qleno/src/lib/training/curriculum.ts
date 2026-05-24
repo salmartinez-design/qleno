@@ -2846,6 +2846,15 @@ const BASE_MODULES: Module[] = [
         ],
       },
 
+      { type: "h", text: { en: "Personal Accounts vs Official Phes Channels", es: "Cuentas Personales vs Canales Oficiales de Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "This Social Media Policy governs what YOU post on your PERSONAL accounts (your Instagram, your TikTok, your Facebook). It does NOT govern what Phes posts on its OFFICIAL channels (the Phes-operated Instagram, the Phes website, recruiting graphics, training materials). Phes's own posts of client homes or employee likeness are governed by the Video and Photo Release that each photographed employee signs, not by this policy. If you see Phes posting a recruiting graphic that includes a client kitchen, that is permitted under the signed release — it is not a violation of this Social Media Policy, which applies only to employee personal accounts.",
+          es: "Esta Política de Redes Sociales rige lo que USTED publica en sus cuentas PERSONALES (su Instagram, su TikTok, su Facebook). NO rige lo que Phes publica en sus canales OFICIALES (el Instagram operado por Phes, el sitio web de Phes, gráficos de reclutamiento, materiales de capacitación). Las publicaciones de Phes con hogares de clientes o la semejanza de empleados se rigen por la Autorización de Video y Foto que firma cada empleado fotografiado, no por esta política. Si ve a Phes publicando un gráfico de reclutamiento que incluya la cocina de un cliente, eso está permitido bajo la autorización firmada — no es una violación de esta Política de Redes Sociales, la cual aplica solo a las cuentas personales de los empleados.",
+        },
+      },
+
       { type: "h", text: { en: "What You May NOT Do in Phes Uniform", es: "Lo Que NO Puede Hacer en Uniforme de Phes" } },
       {
         type: "p",
@@ -3045,6 +3054,14 @@ const BASE_MODULES: Module[] = [
           { en: "Super catch-up: if you will be age 60 to 63 by December 31, you may contribute an additional $11,250 per year.", es: "Súper recuperación: si tendrá entre 60 y 63 años al 31 de diciembre, puede contribuir $11,250 adicionales al año." },
           { en: "Required Roth on catch-up: if you earned more than $150,000 in Social Security wages (Box 3 of W-2) from Phes in the prior year, ALL of your catch-up contributions must be designated as Roth.", es: "Roth requerido en recuperación: si ganó más de $150,000 en salarios del Seguro Social (Casilla 3 del W-2) de Phes el año anterior, TODAS sus contribuciones de recuperación deben ser designadas como Roth." },
         ],
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "Limits are subject to annual IRS adjustment. The figures shown above match the Phes plan document as currently published by ADP. The IRS announces new limits each fall for the following tax year; ADP updates the plan document accordingly. If you are planning contributions near the cap for a specific year, log into My.ADP.com or call 1-800-695-7526 to confirm the current-year numbers before you elect.",
+          es: "Los límites están sujetos a ajuste anual del IRS. Las cifras mostradas arriba coinciden con el documento del plan de Phes según lo publica actualmente ADP. El IRS anuncia nuevos límites cada otoño para el año fiscal siguiente; ADP actualiza el documento del plan en consecuencia. Si planea contribuciones cerca del límite máximo de un año específico, inicie sesión en My.ADP.com o llame al 1-800-695-7526 para confirmar los números del año en curso antes de hacer su elección.",
+        },
       },
 
       { type: "h", text: { en: "Phes Safe Harbor Match (The Free Money)", es: "Contribución Safe Harbor de Phes (El Dinero Gratis)" } },
