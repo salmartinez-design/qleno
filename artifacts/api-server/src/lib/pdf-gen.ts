@@ -26,8 +26,85 @@ import {
   StandardFonts,
   rgb,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from "pdf-lib";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Logo loading — Qleno + tenant logos embedded into every issued PDF.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Both logos live under uploads/logos on disk (Phes ships with their own;
+// Qleno is the platform brand mark, same file the frontend uses at
+// /images/logo-mark.png). UPLOADS_DIR is set by app.ts when the server
+// boots; the fallback below covers both the dev cwd and the bundled
+// dist layout so tests that import pdf-gen.ts directly still resolve.
+
+function resolveUploadsDir(): string {
+  return (
+    process.env.UPLOADS_DIR ||
+    path.resolve(process.cwd(), "artifacts/api-server/uploads")
+  );
+}
+
+let cachedLogoBytes: {
+  qleno: Uint8Array | null;
+  phes: Uint8Array | null;
+} | null = null;
+
+async function loadLogoBytes(): Promise<{
+  qleno: Uint8Array | null;
+  phes: Uint8Array | null;
+}> {
+  if (cachedLogoBytes) return cachedLogoBytes;
+  const dir = resolveUploadsDir();
+  const tryRead = async (rel: string): Promise<Uint8Array | null> => {
+    try {
+      const buf = await readFile(path.join(dir, rel));
+      return new Uint8Array(buf);
+    } catch {
+      return null;
+    }
+  };
+  const [qleno, phes] = await Promise.all([
+    tryRead("logos/qleno-logo.png"),
+    tryRead("logos/phes-logo.jpeg"),
+  ]);
+  cachedLogoBytes = { qleno, phes };
+  return cachedLogoBytes;
+}
+
+/** Embed both brand logos into the document. Either may return null if
+ *  the file is missing — callers must handle that (skip drawing) so the
+ *  PDF still renders end-to-end without the logo when a tenant hasn't
+ *  uploaded one yet. Exported so lms-handbook-pdf.ts can reuse the same
+ *  loader + cache. */
+export async function embedBrandLogos(doc: PDFDocument): Promise<{
+  qleno: PDFImage | null;
+  phes: PDFImage | null;
+}> {
+  const bytes = await loadLogoBytes();
+  const tryEmbed = async (
+    data: Uint8Array | null,
+    kind: "png" | "jpg",
+  ): Promise<PDFImage | null> => {
+    if (!data) return null;
+    try {
+      return kind === "png"
+        ? await doc.embedPng(data)
+        : await doc.embedJpg(data);
+    } catch {
+      return null;
+    }
+  };
+  const [qleno, phes] = await Promise.all([
+    tryEmbed(bytes.qleno, "png"),
+    tryEmbed(bytes.phes, "jpg"),
+  ]);
+  return { qleno, phes };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Color palette — Plus Jakarta Sans isn't embeddable by pdf-lib without a
@@ -89,14 +166,19 @@ export async function generateCertificatePdf(
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
   const helvItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
 
-  drawCertificateChrome(page, helv);
+  const logos = await embedBrandLogos(doc);
+  drawCertificateChrome(page, helv, logos);
   drawCertificateBody(page, helvBold, helv, helvItalic, input);
   drawCertificateFooter(page, helv, input);
 
   return doc.save();
 }
 
-function drawCertificateChrome(page: PDFPage, helv: PDFFont): void {
+function drawCertificateChrome(
+  page: PDFPage,
+  helv: PDFFont,
+  logos: { qleno: PDFImage | null; phes: PDFImage | null },
+): void {
   const { width, height } = page.getSize();
   // Thin border
   page.drawRectangle({
@@ -124,6 +206,29 @@ function drawCertificateChrome(page: PDFPage, helv: PDFFont): void {
     color: rgb(0.95, 0.95, 0.95),
     opacity: 0.4,
   });
+
+  // Brand logos — Phes top-left, Qleno top-right. The mint accent bar
+  // sits at y = height - 32; place logos just below it so they don't
+  // overlap the bar. Phes JPEG and the Qleno PNG are scaled to a
+  // common 44px height so the chrome looks balanced regardless of the
+  // source aspect ratios. If a logo failed to load (missing file on a
+  // fresh tenant) it just skips drawing and the certificate still
+  // renders.
+  const logoH = 44;
+  const logoY = height - 88;
+  if (logos.phes) {
+    const w = logos.phes.width * (logoH / logos.phes.height);
+    page.drawImage(logos.phes, { x: 40, y: logoY, width: w, height: logoH });
+  }
+  if (logos.qleno) {
+    const w = logos.qleno.width * (logoH / logos.qleno.height);
+    page.drawImage(logos.qleno, {
+      x: width - 40 - w,
+      y: logoY,
+      width: w,
+      height: logoH,
+    });
+  }
 }
 
 function drawCertificateBody(
@@ -353,6 +458,7 @@ export async function generateSignedDocumentPdf(
   const helv = await doc.embedFont(StandardFonts.Helvetica);
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
   const helvItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const logos = await embedBrandLogos(doc);
 
   // Page geometry (US Letter portrait).
   const PAGE_W = 612;
@@ -467,7 +573,7 @@ export async function generateSignedDocumentPdf(
     const page = doc.addPage([PAGE_W, PAGE_H]);
 
     // Header
-    drawSignedDocHeader(page, helvBold, helv, input, p + 1);
+    drawSignedDocHeader(page, helvBold, helv, input, p + 1, logos);
 
     // Body
     const linesOnPage = pages[p] ?? [];
@@ -516,6 +622,7 @@ function drawSignedDocHeader(
   helv: PDFFont,
   input: SignedDocumentInput,
   pageNumber: number,
+  logos: { qleno: PDFImage | null; phes: PDFImage | null },
 ): void {
   const { width } = page.getSize();
   // Mint accent bar
@@ -526,19 +633,33 @@ function drawSignedDocHeader(
     height: 8,
     color: COLORS.mint,
   });
-  // Tenant tag (upper left)
-  page.drawText(input.tenantName.toUpperCase(), {
-    x: 56,
-    y: 740,
-    size: 10,
-    font: helvBold,
-    color: COLORS.inkMute,
-  });
-  // Document title (upper right)
+  // Brand logos — Phes top-left, Qleno top-right. Both scaled to a
+  // common 28px height. Document title centered between them on the
+  // same horizontal band so the header reads "[Phes logo]  TITLE
+  // [Qleno logo]". Missing files just skip drawing. The legacy text
+  // tenant tag is gone — the Phes logo conveys the same signal more
+  // strongly.
+  const logoH = 28;
+  const logoY = 720;
+  if (logos.phes) {
+    const w = logos.phes.width * (logoH / logos.phes.height);
+    page.drawImage(logos.phes, { x: 56, y: logoY, width: w, height: logoH });
+  }
+  if (logos.qleno) {
+    const w = logos.qleno.width * (logoH / logos.qleno.height);
+    page.drawImage(logos.qleno, {
+      x: width - 56 - w,
+      y: logoY,
+      width: w,
+      height: logoH,
+    });
+  }
+  // Document title — centered across the page on the same band as the
+  // logos. Body content starts below (MARGIN_TOP = 100 → y ≈ 692).
   const titleW = helvBold.widthOfTextAtSize(input.documentTitle, 12);
   page.drawText(input.documentTitle, {
-    x: width - 56 - titleW,
-    y: 740,
+    x: (width - titleW) / 2,
+    y: logoY + 9,
     size: 12,
     font: helvBold,
     color: COLORS.navy,
