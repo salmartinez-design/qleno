@@ -37,7 +37,11 @@ import {
   type PDFImage,
   type PDFPage,
 } from "pdf-lib";
-import { embedBrandLogos } from "./pdf-gen.js";
+import {
+  embedBrandLogos,
+  drawQlenoMark,
+  measureQlenoLockup,
+} from "./pdf-gen.js";
 
 // Color palette mirrors pdf-gen.ts. Kept inline to avoid coupling the
 // modules; if either drifts, the audit notes capture the cert visuals.
@@ -174,25 +178,26 @@ function drawCover(
     color: COLORS.mint,
   });
 
-  // Brand logos below the mint bar — Phes top-left, Qleno top-right.
-  // Both at 44px so the cover page (the most visible surface of the
-  // signed handbook) leads with the dual-brand mark before any text.
-  // Tenant tag is dropped — the Phes logo replaces it.
+  // Brand logos below the mint bar — Phes JPEG top-left, Qleno mark +
+  // wordmark top-right (drawn programmatically from the canonical SVG
+  // via drawQlenoMark, no PNG). Both at 44px so the cover page (the
+  // most visible surface of the signed handbook) leads with the
+  // dual-brand mark before any text.
   const logoH = 44;
   const logoY = PAGE_HEIGHT - 70;
   if (logos.phes) {
     const w = logos.phes.width * (logoH / logos.phes.height);
     page.drawImage(logos.phes, { x: MARGIN, y: logoY, width: w, height: logoH });
   }
-  if (logos.qleno) {
-    const w = logos.qleno.width * (logoH / logos.qleno.height);
-    page.drawImage(logos.qleno, {
-      x: PAGE_WIDTH - MARGIN - w,
-      y: logoY,
-      width: w,
-      height: logoH,
-    });
-  }
+  const qlenoW = measureQlenoLockup(fontBold, logoH, { withWordmark: true });
+  drawQlenoMark(
+    page,
+    fontBold,
+    PAGE_WIDTH - MARGIN - qlenoW,
+    logoY,
+    logoH,
+    { withWordmark: true },
+  );
 
   const isEn = input.locale === "en";
   const title = isEn
