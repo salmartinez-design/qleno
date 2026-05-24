@@ -485,14 +485,27 @@ router.post("/module/start", requireAuth, async (req, res) => {
     const progress = await loadProgress(enrollment.id);
     const completed = completedModuleIds(progress);
 
+    // Owner / admin / office / super_admin bypass the sequential lock
+    // so they can spot-check any module or the final exam without
+    // grinding through prior modules first. They are already exempt
+    // from the attempts cap and the standalone-ack gate; gating
+    // /module/start is inconsistent with that and made the owner-as-
+    // tester workflow impossible (drug-alcohol returned 403 "Module
+    // is locked" before the first quiz answer could be submitted).
+    const canBypassGating =
+      req.auth!.role === "owner" ||
+      req.auth!.role === "admin" ||
+      req.auth!.role === "office" ||
+      req.auth!.role === "super_admin";
+
     if (moduleId === FINAL_MODULE_ID) {
-      if (!isFinalUnlocked(completed)) {
+      if (!canBypassGating && !isFinalUnlocked(completed)) {
         return res.status(403).json({
           error: "Forbidden",
           message: "Final mixed test is locked — finish all modules first",
         });
       }
-    } else if (!isModuleUnlocked(moduleId, completed)) {
+    } else if (!canBypassGating && !isModuleUnlocked(moduleId, completed)) {
       return res.status(403).json({
         error: "Forbidden",
         message: `Module "${moduleId}" is locked — pass the prior module first`,
@@ -761,25 +774,26 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
     }
 
     // Gate: per-module quizzes follow MODULE_ORDER; final test needs every
-    // preceding module complete.
+    // preceding module complete. Owner / admin / office / super_admin bypass
+    // the sequential lock entirely so they can QA any module at will —
+    // matches the same exemption already in place for the attempts cap
+    // below + the standalone-ack sign gate on the final exam.
+    const callerRole = req.auth!.role;
+    const exemptFromGating =
+      callerRole === "owner" ||
+      callerRole === "admin" ||
+      callerRole === "office" ||
+      callerRole === "super_admin";
     if (moduleId === FINAL_MODULE_ID) {
-      if (!isFinalUnlocked(completed)) {
+      if (!exemptFromGating && !isFinalUnlocked(completed)) {
         return res.status(403).json({
           error: "Forbidden",
           message: "Final mixed test is locked",
         });
       }
       // PR #4 policy: final exam additionally requires every standalone
-      // signed acknowledgment to be in place. Bypass: owners / admins /
-      // office are exempt from this gate (they don't need to sign their
-      // own training to take the exam).
-      const callerRole = req.auth!.role;
-      const exemptFromSignGate =
-        callerRole === "owner" ||
-        callerRole === "admin" ||
-        callerRole === "office" ||
-        callerRole === "super_admin";
-      if (!exemptFromSignGate) {
+      // signed acknowledgment to be in place. Same exempt set as above.
+      if (!exemptFromGating) {
         const missing = await getMissingRequiredSignedDocs(companyId, userId);
         if (missing.length > 0) {
           return res.status(403).json({
@@ -790,7 +804,7 @@ router.post("/quiz/submit", requireAuth, async (req, res) => {
           });
         }
       }
-    } else if (!isModuleUnlocked(moduleId, completed)) {
+    } else if (!exemptFromGating && !isModuleUnlocked(moduleId, completed)) {
       return res.status(403).json({
         error: "Forbidden",
         message: `Module "${moduleId}" is locked`,
@@ -1075,7 +1089,12 @@ router.post("/module/acknowledge", requireAuth, async (req, res) => {
     const progress = await loadProgress(enrollment.id);
     const completed = completedModuleIds(progress);
 
-    if (!isModuleUnlocked(moduleId, completed)) {
+    const canBypassGating =
+      req.auth!.role === "owner" ||
+      req.auth!.role === "admin" ||
+      req.auth!.role === "office" ||
+      req.auth!.role === "super_admin";
+    if (!canBypassGating && !isModuleUnlocked(moduleId, completed)) {
       return res.status(403).json({
         error: "Forbidden",
         message: `Module "${moduleId}" is locked`,
