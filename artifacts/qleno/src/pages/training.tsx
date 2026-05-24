@@ -432,6 +432,33 @@ async function downloadCertificatePdf(
   URL.revokeObjectURL(objectUrl);
 }
 
+// Fetch + open a signed acknowledgment PDF in a new tab. Used by the
+// post-sign confirmation screen so the owner / employee can see the
+// PDF that was generated immediately after signing. Mirrors the
+// download-cert helper but opens in a tab (preview-style) instead of
+// auto-downloading, because the typical first action after signing
+// is "let me see what got generated" rather than "save to disk".
+async function viewSignedDocumentPdf(
+  token: string | null,
+  signedDocumentId: number,
+): Promise<void> {
+  const url = `${API_BASE}/lms/signatures/${signedDocumentId}/pdf`;
+  const res = await fetch(url, {
+    headers: token ? { authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `GET /lms/signatures/${signedDocumentId}/pdf → ${res.status}: ${text}`,
+    );
+  }
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, "_blank", "noopener,noreferrer");
+  // Release the object URL once the new tab has had time to load.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Token helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1752,6 +1779,86 @@ function Home({
                     {locale === "es" ? "Firmar →" : "Sign →"}
                   </div>
                 </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Signed acknowledgments the learner has already completed.
+          Lets the owner / employee re-open the PDF that was generated
+          at signing. Without this section, once you signed an ack the
+          tile vanished and there was no surface to verify the PDF was
+          generated correctly — which is exactly the gap the owner hit
+          while spot-checking the workflow as a test signer. */}
+      {(() => {
+        const signedTiles: Array<{
+          documentType: string;
+          title: { en: string; es: string };
+          signedDocumentId: number;
+        }> = [];
+        const TITLES: Record<string, { en: string; es: string }> = {
+          drug_alcohol: {
+            en: "Drug & Alcohol Policy",
+            es: "Política de Drogas y Alcohol",
+          },
+          code_of_conduct: {
+            en: "Code of Conduct",
+            es: "Código de Conducta",
+          },
+          video_photo_release: {
+            en: "Video & Photo Release",
+            es: "Autorización de Video y Foto",
+          },
+          non_solicitation: {
+            en: "Non-Solicitation Agreement",
+            es: "Acuerdo de No Solicitación",
+          },
+          social_media: {
+            en: "Social Media Policy",
+            es: "Política de Redes Sociales",
+          },
+          supply_kit: {
+            en: "Supply Kit Responsibility",
+            es: "Responsabilidad del Kit de Suministros",
+          },
+        };
+        for (const documentType of Object.keys(TITLES)) {
+          const id = signedDocByType[documentType];
+          if (typeof id === "number") {
+            signedTiles.push({
+              documentType,
+              title: TITLES[documentType],
+              signedDocumentId: id,
+            });
+          }
+        }
+        if (signedTiles.length === 0) return null;
+        return (
+          <div style={{ marginTop: 22 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: INK_MUTE,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                marginBottom: 8,
+              }}
+            >
+              {locale === "es"
+                ? "Documentos firmados"
+                : "Your signed documents"}
+            </div>
+            <div style={{ display: "grid", gap: 8 }}>
+              {signedTiles.map((t) => (
+                <SignedDocTile
+                  key={t.documentType}
+                  locale={locale}
+                  title={t.title[locale]}
+                  signedDocumentId={t.signedDocumentId}
+                  token={token}
+                />
               ))}
             </div>
           </div>
@@ -3746,6 +3853,90 @@ function FinalIntroView({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SignedDocTile — already-signed acknowledgment row with View PDF button.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Rendered in the home view "Your signed documents" section. Gives the
+// owner (and any learner) a way to re-open the PDF for an ack they've
+// already signed. Pre-fix there was no such surface: signing made the
+// pending tile disappear and no replacement appeared, so the owner
+// couldn't verify the generated PDF without poking at the database.
+
+function SignedDocTile({
+  locale,
+  title,
+  signedDocumentId,
+  token,
+}: {
+  locale: Locale;
+  title: string;
+  signedDocumentId: number;
+  token: string | null;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isNarrow = useIsMobile();
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: isNarrow ? "auto 1fr" : "auto 1fr auto",
+        alignItems: "center",
+        gap: 12,
+        background: SURFACE,
+        border: `1px solid ${LINE}`,
+        borderLeft: `4px solid ${SUCCESS}`,
+        borderRadius: RADIUS,
+        padding: "12px 14px",
+        fontFamily: FONT,
+      }}
+    >
+      <CircleCheck size={18} style={{ color: SUCCESS }} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontWeight: 800, fontSize: 14, color: INK }}>
+          {title}
+        </div>
+        <div style={{ fontSize: 11.5, color: INK_MUTE, marginTop: 2 }}>
+          {locale === "es" ? "Firmado" : "Signed"} · #{signedDocumentId}
+        </div>
+        {error ? (
+          <div
+            style={{
+              marginTop: 6,
+              color: DANGER,
+              fontSize: 11.5,
+              wordBreak: "break-word",
+            }}
+          >
+            {error}
+          </div>
+        ) : null}
+      </div>
+      <SecondaryButton
+        onClick={async () => {
+          setBusy(true);
+          setError(null);
+          try {
+            await viewSignedDocumentPdf(token, signedDocumentId);
+          } catch (e) {
+            setError(String((e as Error).message));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? (
+          <Loader2 size={14} className="qleno-spin" />
+        ) : (
+          <Download size={14} />
+        )}
+        {locale === "es" ? "Ver PDF" : "View PDF"}
+      </SecondaryButton>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SignDocumentView — generic signed-acknowledgment flow (Phase 3+ PR #4)
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -3780,6 +3971,18 @@ function SignDocumentView({
   const [name, setName] = useState(suggested);
   const [affirmed, setAffirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Post-sign confirmation state. Captured from the POST /sign response
+  // so the success screen can render the timestamp + open the generated
+  // PDF without an extra round-trip. Mirrors HandbookSignView's signedAt
+  // pattern. Owners testing the flow couldn't previously see the PDF
+  // they just produced — the tile would disappear and there was no
+  // surface to view what got generated. This closes that gap for the
+  // six standalone signed acknowledgments.
+  const [signedAt, setSignedAt] = useState<string | null>(null);
+  const [signedDocumentId, setSignedDocumentId] = useState<number | null>(null);
+  // PDF-view error kept separate from the load/sign error so a failed
+  // view-PDF click doesn't blow away the confirmation card.
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -3805,6 +4008,34 @@ function SignDocumentView({
   const canSubmit =
     !busy && affirmed && name.trim().length >= 2 && content !== null;
 
+  // Post-sign confirmation screen. Shows the signed timestamp + a
+  // "View signed PDF" button that streams /lms/signatures/:id/pdf and
+  // opens it in a new tab. The auto-close is intentionally long so the
+  // owner can read the confirmation and tap the View button. Tapping
+  // "Return to training" forces an immediate refresh + home navigation.
+  if (signedAt && signedDocumentId !== null && content) {
+    return (
+      <SignedDocConfirmation
+        locale={locale}
+        documentTitle={content.title}
+        signedAt={signedAt}
+        signerName={name.trim()}
+        token={token}
+        signedDocumentId={signedDocumentId}
+        pdfError={pdfError}
+        onViewPdf={async () => {
+          setPdfError(null);
+          try {
+            await viewSignedDocumentPdf(token, signedDocumentId);
+          } catch (e) {
+            setPdfError(String((e as Error).message));
+          }
+        }}
+        onClose={onSigned}
+      />
+    );
+  }
+
   return (
     <div style={{ maxWidth: 760, margin: "0 auto", padding: "20px 18px" }}>
       <BackLink label={tr("back", locale)} onClick={onCancel} />
@@ -3817,15 +4048,52 @@ function SignDocumentView({
           padding: 24,
         }}
       >
-        {error ? (
-          <div style={{ color: DANGER, fontSize: 13 }}>{error}</div>
-        ) : !content ? (
+        {!content && !error ? (
           <div
             style={{ padding: 40, textAlign: "center", color: INK_MUTE }}
           >
             <Loader2 className="qleno-spin" size={20} />
           </div>
-        ) : (
+        ) : !content && error ? (
+          // Content failed to load: render a recoverable error card.
+          // Previously this branch fell through to the loader and the
+          // user saw a spinner forever — they had no way to know GET
+          // /content failed unless they opened devtools.
+          <div>
+            <div
+              style={{
+                background: "#FEF2F2",
+                border: `1px solid #FECACA`,
+                borderLeft: `3px solid ${DANGER}`,
+                color: DANGER,
+                padding: 12,
+                borderRadius: 6,
+                fontSize: 13,
+                lineHeight: 1.55,
+                wordBreak: "break-word",
+              }}
+            >
+              <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                {locale === "es"
+                  ? "No se pudo cargar el documento"
+                  : "Could not load the document"}
+              </div>
+              {error}
+            </div>
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                gap: 10,
+                justifyContent: "flex-end",
+              }}
+            >
+              <SecondaryButton onClick={onCancel}>
+                {tr("back", locale)}
+              </SecondaryButton>
+            </div>
+          </div>
+        ) : content ? (
           <>
             <div
               style={{
@@ -3945,6 +4213,34 @@ function SignDocumentView({
               }}
             />
 
+            {/* Inline submit error — kept ABOVE the action row so the
+                form stays mounted and the user can retry. Pre-fix this
+                error replaced the entire form so a transient 400/500
+                looked like a hard crash. */}
+            {error ? (
+              <div
+                style={{
+                  marginTop: 14,
+                  background: "#FEF2F2",
+                  border: `1px solid #FECACA`,
+                  borderLeft: `3px solid ${DANGER}`,
+                  color: DANGER,
+                  padding: 12,
+                  borderRadius: 6,
+                  fontSize: 13,
+                  lineHeight: 1.55,
+                  wordBreak: "break-word",
+                }}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                  {locale === "es"
+                    ? "No se pudo registrar la firma"
+                    : "Could not record the signature"}
+                </div>
+                {error}
+              </div>
+            ) : null}
+
             <div
               style={{
                 marginTop: 16,
@@ -3961,14 +4257,20 @@ function SignDocumentView({
                 disabled={!canSubmit}
                 onClick={async () => {
                   setBusy(true);
+                  setError(null);
                   try {
-                    await lmsApi.signDocument(token, {
+                    const result = await lmsApi.signDocument(token, {
                       documentType,
                       locale,
                       signatureMethod: "typed",
                       signature: name.trim(),
                     });
-                    await onSigned();
+                    // Stamp the confirmation card with the server's
+                    // canonical signed_at + id. Don't call onSigned
+                    // yet — that navigates away and unmounts; the
+                    // owner needs to see the PDF first.
+                    setSignedDocumentId(result.id);
+                    setSignedAt(result.signed_at);
                   } catch (e) {
                     setError(String((e as Error).message));
                   } finally {
@@ -3986,8 +4288,184 @@ function SignDocumentView({
               </PrimaryButton>
             </div>
           </>
-        )}
+        ) : null}
       </div>
+    </div>
+  );
+}
+
+// SignedDocConfirmation — post-sign success screen for the 6 standalone
+// acknowledgments. Mirrors HandbookSignedConfirmation but routes the PDF
+// fetch through /lms/signatures/:id/pdf and uses an open-in-new-tab
+// "View" verb instead of "Download" because the owner's first need is
+// confirming the PDF exists + looks correct. The 8-second auto-close
+// matches the handbook flow so the screen doesn't trap the learner.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function SignedDocConfirmation({
+  locale,
+  documentTitle,
+  signedAt,
+  signerName,
+  token,
+  signedDocumentId,
+  pdfError,
+  onViewPdf,
+  onClose,
+}: {
+  locale: Locale;
+  documentTitle: string;
+  signedAt: string;
+  signerName: string;
+  token: string | null;
+  signedDocumentId: number;
+  pdfError: string | null;
+  onViewPdf: () => Promise<void>;
+  onClose: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  // Long enough that the owner can read the screen and tap "View PDF"
+  // without it auto-dismissing mid-action.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void onClose();
+    }, 12_000);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
+  const dt = new Date(signedAt);
+  const formatted = `${dt.toLocaleDateString(
+    locale === "es" ? "es-MX" : "en-US",
+  )} ${dt.toLocaleTimeString(
+    locale === "es" ? "es-MX" : "en-US",
+    { hour: "2-digit", minute: "2-digit" },
+  )}`;
+
+  return (
+    <div
+      style={{
+        maxWidth: 560,
+        margin: "40px auto",
+        padding: "26px 24px",
+        background: SURFACE,
+        border: `1px solid ${LINE}`,
+        borderRadius: RADIUS,
+        textAlign: "center",
+        fontFamily: FONT,
+      }}
+    >
+      <CircleCheck size={48} style={{ color: SUCCESS, margin: "0 auto" }} />
+      <div
+        style={{
+          fontSize: 20,
+          fontWeight: 800,
+          color: INK,
+          marginTop: 12,
+        }}
+      >
+        {locale === "es" ? "Firma registrada" : "Signature recorded"}
+      </div>
+      <div
+        style={{
+          fontSize: 14,
+          fontWeight: 700,
+          color: INK,
+          marginTop: 4,
+        }}
+      >
+        {documentTitle}
+      </div>
+      <div
+        style={{
+          fontSize: 13,
+          color: INK_MUTE,
+          marginTop: 8,
+          lineHeight: 1.5,
+        }}
+      >
+        {locale === "es" ? "Firmado por" : "Signed by"}
+        <span style={{ fontWeight: 700, color: INK }}> {signerName}</span>
+        <br />
+        {formatted} ·{" "}
+        {locale === "es" ? "firma escrita" : "typed signature"}
+      </div>
+
+      {pdfError ? (
+        <div
+          style={{
+            marginTop: 14,
+            background: "#FEF2F2",
+            border: `1px solid #FECACA`,
+            borderLeft: `3px solid ${DANGER}`,
+            color: DANGER,
+            padding: 10,
+            borderRadius: 6,
+            fontSize: 12,
+            lineHeight: 1.55,
+            textAlign: "left",
+            wordBreak: "break-word",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>
+            {locale === "es"
+              ? "No se pudo abrir el PDF"
+              : "Could not open the PDF"}
+          </div>
+          {pdfError}
+        </div>
+      ) : null}
+
+      <div
+        style={{
+          marginTop: 20,
+          display: "flex",
+          gap: 10,
+          justifyContent: "center",
+          flexWrap: "wrap",
+        }}
+      >
+        <PrimaryButton
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onViewPdf();
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? (
+            <Loader2 size={14} className="qleno-spin" />
+          ) : (
+            <Download size={14} />
+          )}
+          {locale === "es" ? "Ver PDF firmado" : "View signed PDF"}
+        </PrimaryButton>
+        <SecondaryButton
+          onClick={() => {
+            void onClose();
+          }}
+        >
+          {locale === "es" ? "Volver al entrenamiento" : "Return to training"}
+        </SecondaryButton>
+      </div>
+      <div
+        style={{
+          marginTop: 16,
+          fontSize: 11,
+          color: INK_LIGHT,
+        }}
+      >
+        {locale === "es"
+          ? `Documento firmado #${signedDocumentId} · esta pantalla se cerrará automáticamente.`
+          : `Signed document #${signedDocumentId} · this screen will close automatically.`}
+      </div>
+      {/* token is referenced so eslint doesn't flag the prop as unused;
+          the actual fetch happens inside onViewPdf which closes over
+          the same token in the parent component. */}
+      <span style={{ display: "none" }} aria-hidden>
+        {token ? "" : ""}
+      </span>
     </div>
   );
 }
