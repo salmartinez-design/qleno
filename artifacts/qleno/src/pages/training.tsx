@@ -5476,6 +5476,11 @@ interface IntakeRow {
   pronouns: string | null;
   personal_email: string | null;
   personal_cell_phone: string | null;
+  home_address_street: string | null;
+  home_address_unit: string | null;
+  home_address_city: string | null;
+  home_address_state: string | null;
+  home_address_zip: string | null;
   emergency_contact_name: string | null;
   emergency_contact_relationship: string | null;
   emergency_contact_phone: string | null;
@@ -5483,12 +5488,19 @@ interface IntakeRow {
   shirt_size: string | null;
   apron_size: string | null;
   drives_personal_vehicle: boolean;
+  vehicle_make: string | null;
+  vehicle_model: string | null;
+  vehicle_year: number | null;
+  vehicle_color: string | null;
+  vehicle_license_plate: string | null;
   vehicle_insurance_company: string | null;
   vehicle_insurance_policy_number: string | null;
   vehicle_insurance_expires_at: string | null;
-  vehicle_license_plate: string | null;
+  drivers_license_number: string | null;
   drivers_license_state: string | null;
   drivers_license_expires_at: string | null;
+  vehicle_protocol_acknowledged: boolean;
+  vehicle_protocol_acknowledged_at: string | null;
   notes: string | null;
   submitted_at: string | null;
   updated_at: string;
@@ -5616,6 +5628,11 @@ interface IntakeFormState {
   pronouns: string;
   personal_email: string;
   personal_cell_phone: string;
+  home_address_street: string;
+  home_address_unit: string;
+  home_address_city: string;
+  home_address_state: string;
+  home_address_zip: string;
   emergency_contact_name: string;
   emergency_contact_relationship: string;
   emergency_contact_phone: string;
@@ -5623,12 +5640,18 @@ interface IntakeFormState {
   shirt_size: string;
   apron_size: string;
   drives_personal_vehicle: boolean;
+  vehicle_make: string;
+  vehicle_model: string;
+  vehicle_year: string;
+  vehicle_color: string;
+  vehicle_license_plate: string;
   vehicle_insurance_company: string;
   vehicle_insurance_policy_number: string;
   vehicle_insurance_expires_at: string;
-  vehicle_license_plate: string;
+  drivers_license_number: string;
   drivers_license_state: string;
   drivers_license_expires_at: string;
+  vehicle_protocol_acknowledged: boolean;
   notes: string;
 }
 
@@ -5637,6 +5660,11 @@ const EMPTY_INTAKE: IntakeFormState = {
   pronouns: "",
   personal_email: "",
   personal_cell_phone: "",
+  home_address_street: "",
+  home_address_unit: "",
+  home_address_city: "",
+  home_address_state: "IL",
+  home_address_zip: "",
   emergency_contact_name: "",
   emergency_contact_relationship: "",
   emergency_contact_phone: "",
@@ -5644,12 +5672,18 @@ const EMPTY_INTAKE: IntakeFormState = {
   shirt_size: "",
   apron_size: "",
   drives_personal_vehicle: false,
+  vehicle_make: "",
+  vehicle_model: "",
+  vehicle_year: "",
+  vehicle_color: "",
+  vehicle_license_plate: "",
   vehicle_insurance_company: "",
   vehicle_insurance_policy_number: "",
   vehicle_insurance_expires_at: "",
-  vehicle_license_plate: "",
-  drivers_license_state: "",
+  drivers_license_number: "",
+  drivers_license_state: "IL",
   drivers_license_expires_at: "",
+  vehicle_protocol_acknowledged: false,
   notes: "",
 };
 
@@ -5685,6 +5719,11 @@ function OnboardingIntakeView({
             pronouns: row.pronouns ?? "",
             personal_email: row.personal_email ?? "",
             personal_cell_phone: row.personal_cell_phone ?? "",
+            home_address_street: row.home_address_street ?? "",
+            home_address_unit: row.home_address_unit ?? "",
+            home_address_city: row.home_address_city ?? "",
+            home_address_state: row.home_address_state ?? "IL",
+            home_address_zip: row.home_address_zip ?? "",
             emergency_contact_name: row.emergency_contact_name ?? "",
             emergency_contact_relationship: row.emergency_contact_relationship ?? "",
             emergency_contact_phone: row.emergency_contact_phone ?? "",
@@ -5692,12 +5731,19 @@ function OnboardingIntakeView({
             shirt_size: row.shirt_size ?? "",
             apron_size: row.apron_size ?? "",
             drives_personal_vehicle: row.drives_personal_vehicle,
+            vehicle_make: row.vehicle_make ?? "",
+            vehicle_model: row.vehicle_model ?? "",
+            vehicle_year:
+              row.vehicle_year != null ? String(row.vehicle_year) : "",
+            vehicle_color: row.vehicle_color ?? "",
+            vehicle_license_plate: row.vehicle_license_plate ?? "",
             vehicle_insurance_company: row.vehicle_insurance_company ?? "",
             vehicle_insurance_policy_number: row.vehicle_insurance_policy_number ?? "",
             vehicle_insurance_expires_at: row.vehicle_insurance_expires_at ?? "",
-            vehicle_license_plate: row.vehicle_license_plate ?? "",
-            drivers_license_state: row.drivers_license_state ?? "",
+            drivers_license_number: row.drivers_license_number ?? "",
+            drivers_license_state: row.drivers_license_state ?? "IL",
             drivers_license_expires_at: row.drivers_license_expires_at ?? "",
+            vehicle_protocol_acknowledged: row.vehicle_protocol_acknowledged,
             notes: row.notes ?? "",
           });
         }
@@ -5712,11 +5758,125 @@ function OnboardingIntakeView({
     };
   }, [token]);
 
+  function validate(): string | null {
+    const ZIP_RE = /^\d{5}(-\d{4})?$/;
+    const STATE_RE = /^[A-Z]{2}$/;
+    const need = (s: string) => s.trim().length > 0;
+    if (!need(form.home_address_street))
+      return locale === "es"
+        ? "La calle es requerida."
+        : "Street address is required.";
+    if (!need(form.home_address_city))
+      return locale === "es" ? "La ciudad es requerida." : "City is required.";
+    if (!need(form.home_address_state) || !STATE_RE.test(form.home_address_state))
+      return locale === "es"
+        ? "El estado debe ser un código de 2 letras (ej. IL)."
+        : "State must be a 2-letter US code (e.g. IL).";
+    if (!need(form.home_address_zip) || !ZIP_RE.test(form.home_address_zip))
+      return locale === "es"
+        ? "El código postal debe tener 5 dígitos (o 5+4)."
+        : "ZIP code must be 5 digits (or 5+4 format).";
+    if (!need(form.emergency_contact_name))
+      return locale === "es"
+        ? "El nombre del contacto de emergencia es requerido."
+        : "Emergency contact name is required.";
+    if (!need(form.emergency_contact_relationship))
+      return locale === "es"
+        ? "La relación del contacto de emergencia es requerida."
+        : "Emergency contact relationship is required.";
+    if (!need(form.emergency_contact_phone))
+      return locale === "es"
+        ? "El teléfono del contacto de emergencia es requerido."
+        : "Emergency contact phone is required.";
+    if (form.drives_personal_vehicle) {
+      const now = new Date();
+      const yearN = Number.parseInt(form.vehicle_year, 10);
+      if (!need(form.vehicle_make))
+        return locale === "es"
+          ? "La marca del vehículo es requerida."
+          : "Vehicle make is required.";
+      if (!need(form.vehicle_model))
+        return locale === "es"
+          ? "El modelo del vehículo es requerido."
+          : "Vehicle model is required.";
+      if (
+        !Number.isInteger(yearN) ||
+        yearN < 1980 ||
+        yearN > now.getFullYear() + 2
+      )
+        return locale === "es"
+          ? "El año del vehículo debe ser 1980 o posterior."
+          : "Vehicle year must be 1980 or later.";
+      if (!need(form.vehicle_color))
+        return locale === "es"
+          ? "El color del vehículo es requerido."
+          : "Vehicle color is required.";
+      const plate = form.vehicle_license_plate.replace(/[\s-]/g, "");
+      if (!/^[A-Z0-9]{2,8}$/.test(plate))
+        return locale === "es"
+          ? "La placa debe ser alfanumérica, 2 a 8 caracteres."
+          : "License plate must be alphanumeric, 2 to 8 characters.";
+      if (!need(form.vehicle_insurance_company))
+        return locale === "es"
+          ? "La compañía de seguro es requerida."
+          : "Auto insurance company is required.";
+      const policy = form.vehicle_insurance_policy_number.replace(/[\s-]/g, "");
+      if (!/^[A-Za-z0-9]{5,30}$/.test(policy))
+        return locale === "es"
+          ? "El número de póliza debe ser alfanumérico, 5 a 30 caracteres."
+          : "Insurance policy number must be alphanumeric, 5 to 30 characters.";
+      const insExp = new Date(`${form.vehicle_insurance_expires_at}T12:00:00Z`);
+      if (
+        !form.vehicle_insurance_expires_at ||
+        Number.isNaN(insExp.getTime()) ||
+        insExp <= now
+      )
+        return locale === "es"
+          ? "La expiración del seguro debe ser una fecha futura."
+          : "Insurance expiration date must be in the future.";
+      const dln = form.drivers_license_number.replace(/[\s-]/g, "");
+      if (!/^[A-Za-z0-9]{5,30}$/.test(dln))
+        return locale === "es"
+          ? "El número de licencia de conducir debe ser alfanumérico, 5 a 30 caracteres."
+          : "Driver's license number must be alphanumeric, 5 to 30 characters.";
+      if (!STATE_RE.test(form.drivers_license_state))
+        return locale === "es"
+          ? "El estado de la licencia debe ser un código de 2 letras."
+          : "Driver's license state must be a 2-letter US code.";
+      const dlExp = new Date(`${form.drivers_license_expires_at}T12:00:00Z`);
+      if (
+        !form.drivers_license_expires_at ||
+        Number.isNaN(dlExp.getTime()) ||
+        dlExp <= now
+      )
+        return locale === "es"
+          ? "La expiración de la licencia debe ser una fecha futura."
+          : "Driver's license expiration date must be in the future.";
+      if (!form.vehicle_protocol_acknowledged)
+        return locale === "es"
+          ? "Debe reconocer el protocolo de uso de vehículo para continuar."
+          : "You must acknowledge the vehicle use protocol to continue.";
+    }
+    return null;
+  }
+
   async function submit() {
+    const v = validate();
+    if (v) {
+      setErr(v);
+      return;
+    }
     setSaving(true);
     setErr(null);
     try {
-      await api("POST", "/lms/onboarding-intake/save", token, form);
+      // Coerce vehicle_year string to integer for the JSON payload.
+      const payload = {
+        ...form,
+        vehicle_year: form.vehicle_year
+          ? Number.parseInt(form.vehicle_year, 10)
+          : null,
+      };
+      await api("POST", "/lms/onboarding-intake/save", token, payload);
       onSaved();
     } catch (e) {
       setErr(String((e as Error).message));
@@ -5798,6 +5958,55 @@ function OnboardingIntakeView({
       </FormSection>
 
       <FormSection
+        title={locale === "es" ? "Dirección de domicilio" : "Home address"}
+      >
+        <div
+          style={{
+            fontSize: 12,
+            color: INK_MUTE,
+            lineHeight: 1.55,
+            marginBottom: 4,
+          }}
+        >
+          {locale === "es"
+            ? "Su dirección de domicilio es requerida para cumplimiento fiscal y respuesta a emergencias. Phes no utiliza su dirección de domicilio para reembolso de millas (que solo cubre el manejo entre ubicaciones de clientes en el mismo día de trabajo)."
+            : "Your home address is required for tax compliance and emergency response purposes. Phes does not use your home address for mileage reimbursement (which only covers driving between client locations on the same workday)."}
+        </div>
+        <Field
+          label={required(locale === "es" ? "Calle" : "Street address")}
+          value={form.home_address_street}
+          onChange={(v) => set("home_address_street", v)}
+          placeholder={locale === "es" ? "Calle y número" : "Street address"}
+        />
+        <Field
+          label={
+            locale === "es"
+              ? "Apartamento / unidad (opcional)"
+              : "Apartment / unit / suite (optional)"
+          }
+          value={form.home_address_unit}
+          onChange={(v) => set("home_address_unit", v)}
+        />
+        <Field
+          label={required(locale === "es" ? "Ciudad" : "City")}
+          value={form.home_address_city}
+          onChange={(v) => set("home_address_city", v)}
+        />
+        <Field
+          label={required(locale === "es" ? "Estado" : "State")}
+          value={form.home_address_state}
+          onChange={(v) => set("home_address_state", v.toUpperCase())}
+          placeholder="IL"
+        />
+        <Field
+          label={required(locale === "es" ? "Código postal" : "ZIP code")}
+          value={form.home_address_zip}
+          onChange={(v) => set("home_address_zip", v)}
+          placeholder="60805"
+        />
+      </FormSection>
+
+      <FormSection
         title={locale === "es" ? "Contacto de emergencia" : "Emergency contact"}
       >
         <Field
@@ -5875,50 +6084,179 @@ function OnboardingIntakeView({
         {form.drives_personal_vehicle ? (
           <>
             <Field
-              label={locale === "es" ? "Compañía de seguro" : "Insurance company"}
-              value={form.vehicle_insurance_company}
-              onChange={(v) => set("vehicle_insurance_company", v)}
+              label={required(locale === "es" ? "Marca del vehículo" : "Vehicle make")}
+              value={form.vehicle_make}
+              onChange={(v) => set("vehicle_make", v)}
+              placeholder={locale === "es" ? "Toyota" : "Toyota"}
             />
             <Field
-              label={locale === "es" ? "Número de póliza" : "Policy number"}
+              label={required(locale === "es" ? "Modelo del vehículo" : "Vehicle model")}
+              value={form.vehicle_model}
+              onChange={(v) => set("vehicle_model", v)}
+              placeholder={locale === "es" ? "Camry" : "Camry"}
+            />
+            <Field
+              label={required(locale === "es" ? "Año del vehículo" : "Vehicle year")}
+              value={form.vehicle_year}
+              onChange={(v) => set("vehicle_year", v)}
+              placeholder="2020"
+            />
+            <Field
+              label={required(locale === "es" ? "Color del vehículo" : "Vehicle color")}
+              value={form.vehicle_color}
+              onChange={(v) => set("vehicle_color", v)}
+              placeholder={locale === "es" ? "Plateado" : "Silver"}
+            />
+            <Field
+              label={required(locale === "es" ? "Número de placa" : "License plate number")}
+              value={form.vehicle_license_plate}
+              onChange={(v) => set("vehicle_license_plate", v.toUpperCase())}
+            />
+            <Field
+              label={required(locale === "es" ? "Compañía de seguro" : "Auto insurance company")}
+              value={form.vehicle_insurance_company}
+              onChange={(v) => set("vehicle_insurance_company", v)}
+              placeholder={locale === "es" ? "State Farm" : "State Farm"}
+            />
+            <Field
+              label={required(locale === "es" ? "Número de póliza" : "Insurance policy number")}
               value={form.vehicle_insurance_policy_number}
               onChange={(v) => set("vehicle_insurance_policy_number", v)}
             />
             <Field
-              label={
+              label={required(
                 locale === "es"
-                  ? "Fecha de expiración del seguro (AAAA-MM-DD)"
-                  : "Insurance expiration date (YYYY-MM-DD)"
-              }
+                  ? "Expiración del seguro (AAAA-MM-DD)"
+                  : "Insurance policy expiration date (YYYY-MM-DD)",
+              )}
               type="date"
               value={form.vehicle_insurance_expires_at}
               onChange={(v) => set("vehicle_insurance_expires_at", v)}
             />
             <Field
-              label={locale === "es" ? "Placa" : "License plate"}
-              value={form.vehicle_license_plate}
-              onChange={(v) => set("vehicle_license_plate", v)}
+              label={required(
+                locale === "es"
+                  ? "Número de licencia de conducir"
+                  : "Driver's license number",
+              )}
+              value={form.drivers_license_number}
+              onChange={(v) => set("drivers_license_number", v)}
             />
             <Field
-              label={
+              label={required(
                 locale === "es"
-                  ? "Estado de la licencia de conducir (ej. IL)"
-                  : "Driver's license state (e.g. IL)"
-              }
+                  ? "Estado de la licencia (ej. IL)"
+                  : "Driver's license state (e.g. IL)",
+              )}
               value={form.drivers_license_state}
-              onChange={(v) => set("drivers_license_state", v)}
+              onChange={(v) => set("drivers_license_state", v.toUpperCase())}
               placeholder="IL"
             />
             <Field
-              label={
+              label={required(
                 locale === "es"
                   ? "Expiración de la licencia (AAAA-MM-DD)"
-                  : "Driver's license expiration (YYYY-MM-DD)"
-              }
+                  : "Driver's license expiration date (YYYY-MM-DD)",
+              )}
               type="date"
               value={form.drivers_license_expires_at}
               onChange={(v) => set("drivers_license_expires_at", v)}
             />
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                fontSize: 12,
+                cursor: "pointer",
+                marginTop: 6,
+                padding: 10,
+                background: SURFACE,
+                border: `1px solid ${LINE}`,
+                borderRadius: 6,
+                lineHeight: 1.55,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={form.vehicle_protocol_acknowledged}
+                onChange={(e) =>
+                  set("vehicle_protocol_acknowledged", e.target.checked)
+                }
+                style={{ marginTop: 2 }}
+              />
+              <span>
+                {locale === "es" ? (
+                  <>
+                    Reconozco y acepto el protocolo de uso de vehículo de Phes
+                    según se describe en el manual de Políticas y Procedimientos
+                    de Phes.
+                    <span style={{ color: DANGER, marginLeft: 3 }}>*</span>
+                    <br />
+                    Entiendo que:
+                    <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                      <li>
+                        El millaje se reembolsa solo entre ubicaciones de
+                        clientes en el mismo día de trabajo, no para ir o
+                        regresar entre la casa y el trabajo
+                      </li>
+                      <li>
+                        No transportaré clientes, propiedad de clientes ni
+                        mascotas en mi vehículo personal sin aprobación de la
+                        oficina
+                      </li>
+                      <li>
+                        Mantendré seguro automotor válido que cumpla con los
+                        requisitos mínimos de Illinois durante todo mi empleo
+                      </li>
+                      <li>
+                        Mi seguro automotor personal es primario en caso de un
+                        accidente, con cualquier cobertura de Phes como
+                        secundaria
+                      </li>
+                      <li>
+                        Notificaré inmediatamente a la oficina si mi seguro se
+                        cancela, mi licencia de conducir es suspendida, o mi
+                        vehículo sufre cualquier accidente durante horas
+                        laborales
+                      </li>
+                    </ul>
+                  </>
+                ) : (
+                  <>
+                    I acknowledge and agree to the Phes vehicle use protocol as
+                    described in the Phes Policies and Procedures handbook.
+                    <span style={{ color: DANGER, marginLeft: 3 }}>*</span>
+                    <br />
+                    I understand that:
+                    <ul style={{ margin: "6px 0 0 18px", padding: 0 }}>
+                      <li>
+                        Mileage is reimbursed only between client locations on
+                        the same workday, not for home-to-job or job-to-home
+                        commuting
+                      </li>
+                      <li>
+                        I will not transport clients, client property, or pets
+                        in my personal vehicle without office approval
+                      </li>
+                      <li>
+                        I will maintain valid auto insurance meeting Illinois
+                        minimum requirements throughout my employment
+                      </li>
+                      <li>
+                        My personal auto insurance is primary in the event of
+                        an accident, with any Phes coverage as secondary
+                      </li>
+                      <li>
+                        I will notify the office immediately if my insurance
+                        lapses, my driver's license is suspended, or my vehicle
+                        is involved in any accident during work hours
+                      </li>
+                    </ul>
+                  </>
+                )}
+              </span>
+            </label>
           </>
         ) : null}
       </FormSection>

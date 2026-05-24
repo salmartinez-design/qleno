@@ -29,11 +29,17 @@ import {
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import {
+  alphanumIdOrNull,
   boolOr,
   csvCell,
   dateOrNull,
+  futureDateOrNull,
   isIntakeSubmittable,
+  licensePlateOrNull,
+  stateOrNull,
   trimOrNull,
+  vehicleYearOrNull,
+  zipOrNull,
 } from "../lib/lms-onboarding-intake-helpers.js";
 
 const router = Router();
@@ -86,11 +92,27 @@ router.post("/save", requireAuth, async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
 
     const drivesPersonalVehicle = boolOr(body.drives_personal_vehicle, false);
+    const vehicleProtocolAck = drivesPersonalVehicle
+      ? boolOr(body.vehicle_protocol_acknowledged, false)
+      : false;
+    // Validators return null when the input fails — we persist the
+    // (possibly-null) value either way. Stricter cross-field
+    // required-ness is enforced on the frontend; the backend is
+    // permissive so drafts (partial saves) still persist.
     const fields = {
       preferred_name: trimOrNull(body.preferred_name),
       pronouns: trimOrNull(body.pronouns),
       personal_email: trimOrNull(body.personal_email),
       personal_cell_phone: trimOrNull(body.personal_cell_phone),
+      // Home address (always applicable, never cleared by toggle).
+      home_address_street: trimOrNull(body.home_address_street),
+      home_address_unit: trimOrNull(body.home_address_unit),
+      home_address_city: trimOrNull(body.home_address_city),
+      home_address_state:
+        stateOrNull(body.home_address_state) ??
+        trimOrNull(body.home_address_state),
+      home_address_zip:
+        zipOrNull(body.home_address_zip) ?? trimOrNull(body.home_address_zip),
       emergency_contact_name: trimOrNull(body.emergency_contact_name),
       emergency_contact_relationship: trimOrNull(
         body.emergency_contact_relationship,
@@ -100,24 +122,50 @@ router.post("/save", requireAuth, async (req, res) => {
       shirt_size: trimOrNull(body.shirt_size),
       apron_size: trimOrNull(body.apron_size),
       drives_personal_vehicle: drivesPersonalVehicle,
+      // Vehicle fields cleared to null when toggle is off; otherwise
+      // validated. Validators return null for invalid input — the
+      // frontend should be catching invalid values before submission,
+      // so a null here means the user typed garbage past the frontend.
+      vehicle_make: drivesPersonalVehicle
+        ? trimOrNull(body.vehicle_make)
+        : null,
+      vehicle_model: drivesPersonalVehicle
+        ? trimOrNull(body.vehicle_model)
+        : null,
+      vehicle_year: drivesPersonalVehicle
+        ? vehicleYearOrNull(body.vehicle_year)
+        : null,
+      vehicle_color: drivesPersonalVehicle
+        ? trimOrNull(body.vehicle_color)
+        : null,
+      vehicle_license_plate: drivesPersonalVehicle
+        ? (licensePlateOrNull(body.vehicle_license_plate) ??
+          trimOrNull(body.vehicle_license_plate))
+        : null,
       vehicle_insurance_company: drivesPersonalVehicle
         ? trimOrNull(body.vehicle_insurance_company)
         : null,
       vehicle_insurance_policy_number: drivesPersonalVehicle
-        ? trimOrNull(body.vehicle_insurance_policy_number)
+        ? (alphanumIdOrNull(body.vehicle_insurance_policy_number) ??
+          trimOrNull(body.vehicle_insurance_policy_number))
         : null,
       vehicle_insurance_expires_at: drivesPersonalVehicle
-        ? dateOrNull(body.vehicle_insurance_expires_at)
+        ? (futureDateOrNull(body.vehicle_insurance_expires_at) ??
+          dateOrNull(body.vehicle_insurance_expires_at))
         : null,
-      vehicle_license_plate: drivesPersonalVehicle
-        ? trimOrNull(body.vehicle_license_plate)
+      drivers_license_number: drivesPersonalVehicle
+        ? (alphanumIdOrNull(body.drivers_license_number) ??
+          trimOrNull(body.drivers_license_number))
         : null,
       drivers_license_state: drivesPersonalVehicle
-        ? trimOrNull(body.drivers_license_state)
+        ? (stateOrNull(body.drivers_license_state) ??
+          trimOrNull(body.drivers_license_state))
         : null,
       drivers_license_expires_at: drivesPersonalVehicle
-        ? dateOrNull(body.drivers_license_expires_at)
+        ? (futureDateOrNull(body.drivers_license_expires_at) ??
+          dateOrNull(body.drivers_license_expires_at))
         : null,
+      vehicle_protocol_acknowledged: vehicleProtocolAck,
       notes: trimOrNull(body.notes),
     };
 
@@ -138,12 +186,27 @@ router.post("/save", requireAuth, async (req, res) => {
     const submittedAt =
       previousSubmittedAt ?? (submittableNow ? now : null);
 
+    // Stamp vehicle_protocol_acknowledged_at on the first save that
+    // captures the affirmative acknowledgment. If the user later
+    // un-acknowledges (toggles off drives_personal_vehicle and the ack
+    // resets to false), the timestamp is cleared so re-acknowledgment
+    // produces a fresh audit timestamp.
+    const previousAck = existing[0]?.vehicle_protocol_acknowledged ?? false;
+    const previousAckAt =
+      existing[0]?.vehicle_protocol_acknowledged_at ?? null;
+    const vehicleAckAt = vehicleProtocolAck
+      ? previousAck && previousAckAt
+        ? previousAckAt
+        : now
+      : null;
+
     let row: LmsOnboardingIntake;
     if (existing[0]) {
       const updated = await db
         .update(lmsOnboardingIntakeTable)
         .set({
           ...fields,
+          vehicle_protocol_acknowledged_at: vehicleAckAt,
           submitted_at: submittedAt,
           updated_at: now,
         })
@@ -162,6 +225,7 @@ router.post("/save", requireAuth, async (req, res) => {
           company_id: companyId,
           user_id: userId,
           ...fields,
+          vehicle_protocol_acknowledged_at: vehicleAckAt,
           submitted_at: submittedAt,
           created_at: now,
           updated_at: now,
@@ -280,6 +344,11 @@ router.get(
         "pronouns",
         "personal_email",
         "personal_cell_phone",
+        "home_address_street",
+        "home_address_unit",
+        "home_address_city",
+        "home_address_state",
+        "home_address_zip",
         "emergency_contact_name",
         "emergency_contact_relationship",
         "emergency_contact_phone",
@@ -287,12 +356,19 @@ router.get(
         "shirt_size",
         "apron_size",
         "drives_personal_vehicle",
+        "vehicle_make",
+        "vehicle_model",
+        "vehicle_year",
+        "vehicle_color",
+        "vehicle_license_plate",
         "vehicle_insurance_company",
         "vehicle_insurance_policy_number",
         "vehicle_insurance_expires_at",
-        "vehicle_license_plate",
+        "drivers_license_number",
         "drivers_license_state",
         "drivers_license_expires_at",
+        "vehicle_protocol_acknowledged",
+        "vehicle_protocol_acknowledged_at",
         "notes",
         "submitted_at",
         "updated_at",
@@ -309,6 +385,11 @@ router.get(
             i.pronouns,
             i.personal_email,
             i.personal_cell_phone,
+            i.home_address_street,
+            i.home_address_unit,
+            i.home_address_city,
+            i.home_address_state,
+            i.home_address_zip,
             i.emergency_contact_name,
             i.emergency_contact_relationship,
             i.emergency_contact_phone,
@@ -316,12 +397,19 @@ router.get(
             i.shirt_size,
             i.apron_size,
             i.drives_personal_vehicle ? "true" : "false",
+            i.vehicle_make,
+            i.vehicle_model,
+            i.vehicle_year,
+            i.vehicle_color,
+            i.vehicle_license_plate,
             i.vehicle_insurance_company,
             i.vehicle_insurance_policy_number,
             i.vehicle_insurance_expires_at,
-            i.vehicle_license_plate,
+            i.drivers_license_number,
             i.drivers_license_state,
             i.drivers_license_expires_at,
+            i.vehicle_protocol_acknowledged ? "true" : "false",
+            i.vehicle_protocol_acknowledged_at?.toISOString() ?? "",
             i.notes,
             i.submitted_at?.toISOString() ?? "",
             i.updated_at?.toISOString() ?? "",
