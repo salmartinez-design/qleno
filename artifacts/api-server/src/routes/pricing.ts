@@ -525,7 +525,16 @@ export function calcAddonAmount(addon: any, base_price: number, sqft: number | n
 router.post("/calculate", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { scope_id, sqft, hours, frequency, addon_ids, discount_code, manual_adjustment, addon_quantities } = req.body;
+    const { scope_id, sqft, hours, frequency, addon_ids, discount_code, manual_adjustment, addon_quantities,
+            // [PR #63] Per-client hourly rate override. When the caller
+            // (edit-job modal) passes a positive number, it wins over the
+            // scope's tenant-wide hourly_rate. Frequency multipliers still
+            // apply on top so a "twice a month" multiplier still works.
+            // Closes the math gap where Phes's Standard Clean scope rate
+            // is ~$71.67/hr (averaged across MC migration data) but
+            // individual clients like Nicholas Cooper are billed at $60/hr.
+            hourly_rate_override,
+    } = req.body;
 
     if (!scope_id) return res.status(400).json({ error: "scope_id is required" });
 
@@ -538,7 +547,14 @@ router.post("/calculate", requireAuth, async (req, res) => {
     const freqs = await db.select().from(pricingFrequenciesTable)
       .where(and(eq(pricingFrequenciesTable.scope_id, scope_id), eq(pricingFrequenciesTable.company_id, companyId)));
     const freqFactor = frequency ? freqs.find(f => f.frequency === frequency) : null;
-    const scope_hourly = parseFloat(String(scope.hourly_rate));
+    // [PR #63] Prefer per-client override when present. Falls back to scope
+    // rate. Both still go through the frequency multiplier path below so
+    // Weekly/Biweekly/etc. discounts continue to apply.
+    const overrideNum = hourly_rate_override != null && hourly_rate_override !== ""
+      ? parseFloat(String(hourly_rate_override))
+      : NaN;
+    const useOverride = !isNaN(overrideNum) && overrideNum > 0;
+    const scope_hourly = useOverride ? overrideNum : parseFloat(String(scope.hourly_rate));
     let hourly_rate: number;
     if (freqFactor?.rate_override != null && freqFactor.rate_override !== "") {
       hourly_rate = parseFloat(String(freqFactor.rate_override));

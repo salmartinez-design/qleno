@@ -679,6 +679,21 @@ router.get("/:id", requireAuth, async (req, res) => {
     const clientHomeId = primaryHome ? Number(primaryHome.id) : null;
     const clientHomeSqFootage = primaryHome ? primaryHome.sq_footage : null;
 
+    // [PR #63] Surface the per-client hourly rate (from clients.hourly_rate,
+    // backfilled in PR #60) so the edit-job modal can pass it to
+    // /api/pricing/calculate as an override on scope.hourly_rate. Without
+    // this, the engine uses the tenant-wide scope rate (which for Phes's
+    // Standard Clean works out to ~$71.67/hr from MC migration math) —
+    // Nicholas Cooper's modal returns 3 × $71.67 = $215 instead of his
+    // actual 3 × $60 = $180. Per-client variability is the real-world
+    // pricing model; the column was already there, we just weren't using it.
+    const clientRateRows = await db.execute(sql`
+      SELECT hourly_rate FROM clients WHERE id = ${job[0].client_id} LIMIT 1
+    `);
+    const clientHourlyRate = clientRateRows.rows[0]
+      ? (clientRateRows.rows[0] as any).hourly_rate
+      : null;
+
     return res.json({
       ...job[0],
       recurring_schedule_id: jobMeta.recurring_schedule_id ?? null,
@@ -687,6 +702,7 @@ router.get("/:id", requireAuth, async (req, res) => {
       account_id: jobMeta.account_id ?? null,
       client_home_id: clientHomeId,
       client_home_sq_footage: clientHomeSqFootage != null ? Number(clientHomeSqFootage) : null,
+      client_hourly_rate: clientHourlyRate != null ? Number(clientHourlyRate) : null,
       before_photo_count: beforePhotos.length,
       after_photo_count: afterPhotos.length,
       photos: photos.map(p => ({
