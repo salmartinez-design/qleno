@@ -265,6 +265,42 @@
 - Always dry-run before any destructive DB operation
 - RLS is enabled on Supabase — test queries with the correct role
 
+## LMS Quiz Authoring Rules — NON-NEGOTIABLE
+
+When writing new quiz questions for any LMS module, follow these rules.
+Length imbalance turns a comprehension check into a length-spotting
+exercise: learners pick "the long one" without reading the content.
+
+1. **Match option lengths.** All four options should be within roughly
+   ±20% of each other in word count. The correct answer should NEVER
+   be visibly longer or shorter than the distractors.
+2. **Tighten the correct answer.** Pick the shortest plausible phrasing
+   that still captures the concept. Cut policy citations, lists, and
+   qualifiers down to a single tight clause.
+3. **Make distractors plausible.** Avoid the "no reason / any reason /
+   only a doctor's note" extremes pattern — that telegraphs the
+   moderate option as correct. Use plausible-sounding wrong answers
+   that test whether the learner knows the right scope.
+4. **Test the concept, not the keyword.** If the only difference
+   between options is a phrase copy-pasted from the module text, the
+   learner is being tested on memory, not understanding. Reframe.
+5. **Avoid putting enumerations only in the correct answer.** If the
+   correct answer has a list ("X, Y, Z, or any other Q"), the others
+   shouldn't be single-clause statements. Either match list-vs-list or
+   collapse the correct answer to a single clause.
+6. **Avoid putting policy citations only in the correct answer.** A
+   reference like "(see Phes Policies handbook)" or "(820 ILCS 90)" in
+   only the right option is a length AND content giveaway. Put the
+   citation in the explanation, not the option.
+7. **Keep correctIndex distributed.** Don't bias toward index 1 for
+   every question in a new module. Look at the surrounding
+   correctIndex pattern when authoring.
+8. **Before merging, eyeball the option lengths.** If the correct
+   answer is 2 lines and the distractors are 1 line each, rewrite.
+
+Applies to every module: existing AND new. When updating one question,
+take a look at neighbors and fix the same problem if you see it.
+
 ## Known Bugs — Fix Before May 12
 1. ~~Booking widget add-on ID mapping~~ — FIXED (dynamic lookup by name)
 2. ~~Zone check failing for valid zips (e.g. 60805)~~ — FIXED (branchRouter updated)
