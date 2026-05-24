@@ -1616,7 +1616,9 @@ function Home({
 
       {/* Required signed acknowledgments. One tile per quiz module that
           has a registered signed-document type the learner still owes.
-          Phase 3 PR #4 ships the first: drug-alcohol. PRs #5+ extend. */}
+          All six standalone signed docs from PRs #4-#10 must be listed
+          here; previously only drug_alcohol was — which made the
+          remaining five unreachable once drug_alcohol was signed. */}
       {(() => {
         const passedModuleIds = new Set(completed);
         const tiles: Array<{
@@ -1630,6 +1632,46 @@ function Home({
             title: {
               en: "Drug & Alcohol Policy",
               es: "Política de Drogas y Alcohol",
+            },
+          },
+          {
+            moduleId: "code-of-conduct",
+            documentType: "code_of_conduct",
+            title: {
+              en: "Code of Conduct",
+              es: "Código de Conducta",
+            },
+          },
+          {
+            moduleId: "video-photo-release",
+            documentType: "video_photo_release",
+            title: {
+              en: "Video & Photo Release",
+              es: "Autorización de Video y Foto",
+            },
+          },
+          {
+            moduleId: "non-solicitation",
+            documentType: "non_solicitation",
+            title: {
+              en: "Non-Solicitation Agreement",
+              es: "Acuerdo de No Solicitación",
+            },
+          },
+          {
+            moduleId: "social-media",
+            documentType: "social_media",
+            title: {
+              en: "Social Media Policy",
+              es: "Política de Redes Sociales",
+            },
+          },
+          {
+            moduleId: "supply-kit",
+            documentType: "supply_kit",
+            title: {
+              en: "Supply Kit Responsibility",
+              es: "Responsabilidad del Kit de Suministros",
             },
           },
         ];

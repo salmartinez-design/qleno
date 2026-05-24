@@ -1412,7 +1412,7 @@ const BASE_MODULES: Module[] = [
           { en: "6. Spray and let dwell — spray a surface, then move to another task in the same room while the chemical does its work. Wipe when you come back.", es: "6. Rocíe y deje reposar — rocíe una superficie, pase a otra tarea, regrese y limpie. El químico trabaja por usted." },
           { en: "7. Pre-treat the toughest spots first — soap scum, grease, hard-water stains get product first so they soak while you do the easy parts.", es: "7. Pretrate las manchas más difíciles primero — sarro, grasa y manchas duras reciben producto primero para que se ablanden mientras hace lo fácil." },
           { en: "8. Wipe in S-pattern on glass and mirrors — circles leave streaks; the S lifts dirt cleanly.", es: "8. Limpie en patrón de S en vidrio y espejos — los círculos dejan rayas; la S levanta la suciedad limpiamente." },
-          { en: "9. Color-coded cloths — yellow for kitchens, blue for glass, green for bathrooms. Never cross-contaminate.", es: "9. Paños por color — amarillo para cocinas, azul para vidrio, verde para baños. Nunca contamine cruzado." },
+          { en: "9. Color-coded cloths — yellow for kitchens, white for bathrooms, green for glass and mirrors, blue for neutral or general dusting. Never cross-contaminate.", es: "9. Paños por color — amarillo para cocinas, blanco para baños, verde para vidrio y espejos, azul para neutral o polvo general. Nunca contamine cruzado." },
           { en: "10. Vacuum before mopping — never mop dust; you'll smear it.", es: "10. Aspire antes de trapear — nunca trapee polvo; se esparcirá." },
           { en: "11. Mop yourself out of the room — start at the far corner and back out toward the door so you don't walk on a wet floor.", es: "11. Trapee saliendo de la habitación — empiece en la esquina más lejana y salga de espaldas hacia la puerta para no caminar sobre piso mojado." },
           { en: "12. Finish each room completely before moving on — don't half-clean and circle back.", es: "12. Termine cada habitación por completo antes de moverse — no limpie a medias y regrese." },
@@ -1701,7 +1701,7 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Use on: stainless steel sinks, porcelain tubs, ceramic toilets, glass cooktops.", es: "Use en: fregaderos de acero, tinas de porcelana, inodoros de cerámica, estufas de vidrio." },
+          { en: "Use on: stainless steel sinks, porcelain tubs, ceramic toilets, glass cooktops, chrome (faucets, fixtures).", es: "Use en: fregaderos de acero, tinas de porcelana, inodoros de cerámica, estufas de vidrio, cromo (llaves, accesorios)." },
           { en: "Method: small dab on a damp cloth, gentle circular motions, rinse fully.", es: "Método: pequeña cantidad en paño húmedo, movimientos circulares suaves, enjuague total." },
         ],
       },
@@ -1883,6 +1883,14 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Before EVERY use of the company step stool, run the 3-point check: rubber feet present and not worn smooth, hinges fully locked open with no wobble, top platform clean and dry. A stool with worn feet on a tile floor is a fall waiting to happen. If any check fails, do not use it; mark it for replacement and tell the office.",
           es: "Antes de CADA uso del banquito de la compañía, realice la revisión de 3 puntos: patas de goma presentes y no lisas, bisagras totalmente abiertas sin movimiento, plataforma limpia y seca. Un banquito con patas gastadas en piso de baldosa es una caída esperando suceder. Si algo falla, no lo use; márquelo para reemplazo y avise a la oficina.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          en: "THE THREE POINTS to memorize: FEET (rubber, not worn) · HINGES (locked open, no wobble) · PLATFORM (clean and dry). Weight rating, height, and manufacture date are NOT the Phes pre-use check — those are factory specs printed on the label that do not change between uses.",
+          es: "LOS TRES PUNTOS para memorizar: PATAS (de goma, no lisas) · BISAGRAS (abiertas, sin movimiento) · PLATAFORMA (limpia y seca). El peso máximo, altura y fecha de fabricación NO son la revisión previa de Phes — esos son datos de fábrica en la etiqueta que no cambian entre usos.",
         },
       },
       {
@@ -3406,7 +3414,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "A client hands you $20 in cash as a tip at the end of the job. What's the right thing to do?", es: "Un cliente le da $20 en efectivo como propina al final. ¿Qué es correcto?" },
     options: [
       { en: "Refuse — Phes does not allow techs to accept tips from any client.", es: "Rechácela — Phes no permite que los técnicos acepten propinas de ningún cliente." },
-      { en: "Take it and split with your teammate if you have one — tips are 100% yours.", es: "Tómela y divídala con su compañero si lo tiene — las propinas son 100% suyas." },
+      { en: "Take it and keep all of it — tips are 100% yours, no kickback owed.", es: "Tómela y quédese con todo — las propinas son 100% suyas, sin porcentaje." },
       { en: "Take it but turn it in to the office to be redistributed across the team.", es: "Tómela pero entréguela a la oficina para redistribuirla entre el equipo." },
       { en: "Take it and report it to the office as additional revenue from the job.", es: "Tómela y repórtela a la oficina como ingreso adicional del trabajo." },
     ],
@@ -4611,7 +4619,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Soap and water diluted in a clean spray bottle for general light cleaning use.", es: "Jabón y agua diluidos en una botella limpia para limpieza ligera general." },
       { en: "Bar Keepers Friend powder applied with a damp non-abrasive sponge to the area.", es: "Polvo Bar Keepers Friend aplicado con una esponja no abrasiva húmeda al área." },
-      { en: "Ammonia-based products like Windex — mixing the two creates toxic chlorine fumes.", es: "Productos con amoníaco como Windex — mezclar ambos crea gases tóxicos de cloro." },
+      { en: "Ammonia-based products like Windex — mixing the two creates toxic chloramine vapors.", es: "Productos con amoníaco como Windex — mezclar ambos crea vapores tóxicos de cloramina." },
       { en: "Pumice stone used dry directly on the dampened bathroom surface being treated.", es: "Piedra pómez usada seca directamente sobre la superficie del baño humedecida." },
     ],
     correctIndex: 2,
