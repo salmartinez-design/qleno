@@ -1467,89 +1467,199 @@ const BASE_MODULES: Module[] = [
     iconKind: "pin",
     title: { en: "MaidCentral", es: "MaidCentral" },
     subtitle: {
-      en: "Day Clock vs Job Clock, the workflow Phes uses to work around MaidCentral, GPS check-in, the 600-foot rule, efficiency, and time-correction requests.",
-      es: "Reloj de Día vs Reloj de Trabajo, el flujo que Phes usa para sortear MaidCentral, Check In por GPS, la regla de 600 pies, eficiencia y solicitudes de corrección.",
+      en: "Your scheduled workday, assigned jobs, the one-clock-per-job workflow, GPS check-in, the 600-foot rule, mileage between jobs, and time-correction requests.",
+      es: "Su jornada laboral programada, trabajos asignados, el flujo de un reloj por trabajo, Check In por GPS, la regla de 600 pies, millaje entre trabajos y solicitudes de corrección.",
     },
     estimatedMinutes: 10,
     blocks: [
-      { type: "h", text: { en: "The Two-Clock System", es: "El Sistema de Dos Relojes" } },
+      // ── Section 1: Your Workday at Phes ─────────────────────────────────
+      { type: "h", text: { en: "Your Workday at Phes", es: "Su Jornada Laboral en Phes" } },
       {
         type: "p",
         text: {
-          en: "MaidCentral has TWO clocks running every workday. The Day Clock starts when you Clock In at the start of your shift and stops when you Clock Out at the end. The Job Clock starts when you Check In to a specific client and stops when you Check Out of that client. Phes does NOT pay travel time. The dual-clock structure is a MaidCentral feature we cannot disable, so we work around it by treating the Job Clock as the source of truth for your paid hours.",
-          es: "MaidCentral tiene DOS relojes cada día laboral. El Reloj de Día comienza cuando hace Clock In al inicio del turno y se detiene cuando hace Clock Out al final. El Reloj de Trabajo comienza cuando hace Check In en un cliente específico y se detiene cuando hace Check Out de ese cliente. Phes NO paga tiempo de traslado. La estructura de dos relojes es una característica de MaidCentral que no podemos desactivar, así que la sorteamos tratando el Reloj de Trabajo como la fuente real de sus horas pagadas.",
+          en: "Phes is a residential and commercial cleaning company. As a Phes technician, you work assigned jobs throughout your scheduled workday. Your scheduled workday consists of dispatched client jobs, which are assigned to you in advance and may be added throughout the day based on client demand.",
+          es: "Phes es una empresa de limpieza residencial y comercial. Como técnico de Phes, usted realiza trabajos asignados durante toda su jornada laboral programada. Su jornada laboral programada se compone de trabajos de clientes despachados, los cuales se le asignan con anticipación y pueden agregarse durante el día según la demanda de los clientes.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Your scheduled workday runs from 9:00 AM to 6:00 PM on your scheduled workdays. During your workday, you complete assigned jobs that may include pre-scheduled jobs and same-day assignments added by the office.",
+          es: "Su jornada laboral programada se desarrolla de 9:00 AM a 6:00 PM en sus días laborales programados. Durante su jornada, completa trabajos asignados que pueden incluir trabajos pre-programados y asignaciones del mismo día agregadas por la oficina.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "You are paid commission on each completed job at the rates described in the Compensation module. Your commission is calculated based on each job's total value, not based on how long the job takes you. This means you can earn an effective hourly rate that increases with your efficiency. The current median effective hourly rate across the Phes team is approximately $25 per hour, well above the Illinois minimum wage of $15 per hour. The Phes compensation structure produces effective hourly rates that meet or exceed all applicable federal, Illinois state, and Chicago minimum wage requirements.",
+          es: "Se le paga comisión sobre cada trabajo completado a las tarifas descritas en el módulo de Compensación. Su comisión se calcula con base en el valor total de cada trabajo, no con base en el tiempo que le toma. Esto significa que puede ganar una tarifa efectiva por hora que aumenta con su eficiencia. La tarifa efectiva mediana actual del equipo de Phes es aproximadamente $25 por hora, muy por encima del salario mínimo de Illinois de $15 por hora. La estructura de compensación de Phes produce tarifas efectivas por hora que cumplen o superan todos los requisitos de salario mínimo federal, estatal de Illinois y de la ciudad de Chicago aplicables.",
+        },
+      },
+
+      // ── Section 2: How the Clock Works at Phes ─────────────────────────
+      { type: "h", text: { en: "How the Clock Works at Phes", es: "Cómo Funciona el Reloj en Phes" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes uses MaidCentral to record your time at each assigned job. At each job, you Clock In and Check In together at the same time when you arrive at the client's property. When the job is complete, you Clock Out and Check Out together at the same time.",
+          es: "Phes usa MaidCentral para registrar su tiempo en cada trabajo asignado. En cada trabajo, hace Clock In y Check In juntos al mismo tiempo cuando llega a la propiedad del cliente. Cuando el trabajo está completo, hace Clock Out y Check Out juntos al mismo tiempo.",
         },
       },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "Required workflow. Start of day: Clock In, then Check In to your first job. End of each job: Check Out, then drive to the next job and Check In again. End of day: Check Out of your last job, then Clock Out. You stay on the same Day Clock all day — you do not Clock In a second time between jobs.",
-          es: "Flujo requerido. Inicio del día: Clock In, luego Check In en el primer trabajo. Fin de cada trabajo: Check Out, maneje al siguiente y haga Check In otra vez. Fin del día: Check Out del último trabajo, luego Clock Out. Permanece en el mismo Reloj de Día todo el día — no haga Clock In una segunda vez entre trabajos.",
+          en: "The required workflow at every job: Arrive at the assigned client property. Clock In and Check In together at the moment of arrival. Complete the job per the Worksheet and any client notes. Clock Out and Check Out together at the moment the job is complete. Travel to your next assigned job. Clock In and Check In together when you arrive. Repeat through your scheduled workday.",
+          es: "El flujo requerido en cada trabajo: Llegue a la propiedad del cliente asignado. Haga Clock In y Check In juntos al momento de llegar. Complete el trabajo según la Hoja de Trabajo y las notas del cliente. Haga Clock Out y Check Out juntos al momento que el trabajo esté completo. Maneje al siguiente trabajo asignado. Haga Clock In y Check In juntos al llegar. Repita durante toda su jornada laboral programada.",
         },
       },
-
-      { type: "h", text: { en: "Individual Per-Tech Check-In", es: "Check In Individual por Técnico" } },
       {
         type: "p",
         text: {
-          en: "Every tech checks in INDIVIDUALLY — even when working as a team. If two techs arrive at 9:00 AM but one waits in the car until 9:20, MaidCentral records the actual check-in time for each. Commission split is calculated by actual minutes on site, not by who's listed first.",
-          es: "Cada técnico hace Check In INDIVIDUAL — incluso trabajando en equipo. Si dos técnicos llegan a las 9:00 AM pero uno espera en el auto hasta las 9:20, MaidCentral registra el tiempo real de cada uno. La división de comisión se calcula por minutos reales en sitio.",
+          en: "You are paid for the time you are on the job, recorded through Clock In to Clock Out at each assigned job.",
+          es: "Se le paga por el tiempo que está en el trabajo, registrado mediante Clock In a Clock Out en cada trabajo asignado.",
         },
       },
 
+      // ── Section 3: The 600-Foot GPS Rule ───────────────────────────────
       { type: "h", text: { en: "The 600-Foot GPS Rule", es: "La Regla GPS de 600 Pies" } },
       {
         type: "p",
         text: {
-          en: "MaidCentral verifies your physical location at Check In. You must be within 600 feet of the property to Check In successfully. If you try from your car parked two blocks away, the app will reject the check-in with a GPS warning. Walk to the door first, then check in.",
-          es: "MaidCentral verifica su ubicación física al hacer Check In. Debe estar a 600 pies o menos de la propiedad. Si intenta desde el auto a dos cuadras, la app rechazará el Check In con advertencia de GPS. Camine hasta la puerta primero, luego haga Check In.",
+          en: "MaidCentral verifies your physical location at Check In. You must be within 600 feet of the property to Check In successfully. If you try to Check In from your car parked two blocks away, the app will reject the check-in. Walk to the door first, then Check In.",
+          es: "MaidCentral verifica su ubicación física al hacer Check In. Debe estar a 600 pies o menos de la propiedad para hacer Check In exitosamente. Si intenta hacer Check In desde su auto estacionado a dos cuadras, la aplicación rechazará el Check In. Camine hasta la puerta primero, luego haga Check In.",
         },
       },
-
-      { type: "h", text: { en: "Efficiency Score", es: "Puntuación de Eficiencia" } },
       {
         type: "p",
         text: {
-          en: "Your efficiency score is your total Job Clock hours divided by your total Day Clock hours. It is a productivity reference for the office during the MaidCentral era, not a payroll metric — because Phes does not pay travel time, the Day Clock gap (driving, breaks, admin) never enters your paycheck. The score helps the office spot route inefficiencies, scheduling problems, or tooling issues that are costing you billable client time. Phes target: 70%+. Below 60% triggers a coaching conversation about route, technique, or tooling. Once Phes finishes migrating to Qleno and the Day Clock requirement goes away, efficiency tracking will be reworked.",
-          es: "Su puntuación de eficiencia es el total de horas del Reloj de Trabajo dividido por el total de horas del Reloj de Día. Es una referencia de productividad para la oficina durante la era de MaidCentral, no una métrica de nómina — como Phes no paga tiempo de traslado, el espacio del Reloj de Día (manejar, descansos, administración) nunca entra en su pago. La puntuación ayuda a la oficina a detectar ineficiencias de ruta, problemas de horario o de herramientas que le cuestan tiempo facturable con clientes. Meta de Phes: 70%+. Menos de 60% activa una conversación de orientación sobre ruta, técnica o herramientas. Una vez que Phes termine de migrar a Qleno y se elimine el requisito del Reloj de Día, el seguimiento de eficiencia se reformulará.",
+          en: "If GPS Check In fails repeatedly even though you are at the property, take a timestamped photo of the front door or address number, call the office immediately, and the office will manually approve your check-in. Do not skip the check-in. Do not estimate the time later. The office handles manual GPS overrides through the Clock/Job Change Request process.",
+          es: "Si el Check In por GPS falla repetidamente aunque esté en la propiedad, tome una foto con marca de tiempo de la puerta principal o el número de dirección, llame a la oficina inmediatamente, y la oficina aprobará manualmente su check-in. No omita el check-in. No estime el tiempo después. La oficina maneja anulaciones manuales de GPS a través del proceso de Clock/Job Change Request.",
         },
       },
 
-      { type: "h", text: { en: "No Travel Pay (MaidCentral Workaround)", es: "Sin Pago de Traslado (Solución para MaidCentral)" } },
+      // ── Section 4: Individual Per-Tech Check-In ────────────────────────
+      { type: "h", text: { en: "Individual Per-Tech Check-In", es: "Check In Individual por Técnico" } },
       {
         type: "p",
         text: {
-          en: "Phes does NOT pay travel time. The time between Check Out at one job and Check In at the next (driving, fuel stops, lunch, errands, anything in the Day Clock gap) is NOT paid wages. Your paid hours come from your Job Clock total — the active time on each Phes client. The Day Clock stays running because MaidCentral cannot be configured to turn it off, but it does not produce wages. Once Phes finishes migrating to Qleno, we will drop the Day Clock requirement entirely. Mileage reimbursement at the IRS standard rate between client homes is separate from wages (see the Compensation module).",
-          es: "Phes NO paga tiempo de traslado. El tiempo entre Check Out en un trabajo y Check In en el siguiente (manejar, paradas de gasolina, almuerzo, mandados, cualquier cosa en el espacio del Reloj de Día) NO se paga como salario. Sus horas pagadas vienen del total del Reloj de Trabajo — el tiempo activo en cada cliente de Phes. El Reloj de Día sigue corriendo porque MaidCentral no se puede configurar para apagarlo, pero no produce salario. Una vez que Phes termine de migrar a Qleno, eliminaremos el requisito del Reloj de Día por completo. El reembolso de millaje a la tarifa estándar del IRS entre hogares de clientes es separado del salario (vea el módulo de Compensación).",
+          en: "Every tech checks in individually, even when working as a team on a multi-tech job. If two techs arrive at 9:00 AM but one waits in the car until 9:20, MaidCentral records the actual check-in time for each tech. Commission split on multi-tech jobs is calculated by actual minutes on site for each individual.",
+          es: "Cada técnico hace Check In individualmente, incluso cuando trabaja en equipo en un trabajo de varios técnicos. Si dos técnicos llegan a las 9:00 AM pero uno espera en el auto hasta las 9:20, MaidCentral registra el tiempo real de check-in para cada técnico. La división de comisión en trabajos de varios técnicos se calcula por los minutos reales en sitio de cada individuo.",
         },
       },
 
-      { type: "h", text: { en: "Clock / Job Change Requests", es: "Solicitudes de Cambio de Reloj / Trabajo" } },
+      // ── Section 5: Your Scheduled Workday and Job Assignments ──────────
+      { type: "h", text: { en: "Your Scheduled Workday and Job Assignments", es: "Su Jornada Laboral Programada y Asignaciones de Trabajo" } },
       {
         type: "p",
         text: {
-          en: "If you forgot to Check Out, missed a Check In, or have any other clock-time error, submit a Clock/Job Change Request through MaidCentral. The office reviews and approves. Do NOT text managers, DM the office, or hope payroll figures it out — only the system creates an audit trail that lands on your paycheck correctly.",
-          es: "Si olvidó hacer Check Out, no hizo Check In, o tiene cualquier error de tiempo, envíe una Clock/Job Change Request en MaidCentral. La oficina revisa y aprueba. NO mande mensaje a gerentes, ni DM a la oficina, ni espere que la nómina lo resuelva — solo el sistema crea un registro de auditoría.",
+          en: "Your scheduled workday at Phes runs from 9:00 AM to 6:00 PM on your scheduled workdays. During this scheduled workday, you receive job assignments from the office. The office schedules your jobs in advance and may add additional jobs during your workday based on same-day client requests, route optimization, or other operational needs.",
+          es: "Su jornada laboral programada en Phes se desarrolla de 9:00 AM a 6:00 PM en sus días laborales programados. Durante esta jornada laboral programada, recibe asignaciones de trabajo de la oficina. La oficina programa sus trabajos con anticipación y puede agregar trabajos adicionales durante su jornada según solicitudes de clientes del mismo día, optimización de rutas u otras necesidades operativas.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Your job assignments are communicated to you through MaidCentral and through direct contact from the office (text or call). Same-day job assignments are a regular and expected part of your scheduled workday, not a separate request for your time. Phes commission rates and the structure of the workday are designed to compensate you for completing assigned work efficiently.",
+          es: "Sus asignaciones de trabajo se le comunican a través de MaidCentral y mediante contacto directo de la oficina (mensaje de texto o llamada). Las asignaciones de trabajo del mismo día son una parte regular y esperada de su jornada laboral programada, no una solicitud separada de su tiempo. Las tarifas de comisión de Phes y la estructura de la jornada están diseñadas para compensarle por completar el trabajo asignado de manera eficiente.",
+        },
+      },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Refusing an assigned job during your scheduled workday without a lawful or protected reason is treated as an unexcused absence on your attendance record. This is consistent with how unexcused absences are handled for missed scheduled shifts in any workplace. Five unexcused absences in a Benefit Year may result in termination, as described in the Phes Policies and Procedures handbook.",
+          es: "Rechazar un trabajo asignado durante su jornada laboral programada sin una razón legal o protegida se trata como una ausencia injustificada en su registro de asistencia. Esto es consistente con cómo se manejan las ausencias injustificadas por turnos programados perdidos en cualquier lugar de trabajo. Cinco ausencias injustificadas en un Año de Beneficios pueden resultar en terminación, según se describe en el manual de Políticas y Procedimientos de Phes.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Lawful and protected reasons for declining a job assignment include but are not limited to: medical emergency, protected leave under Illinois law (PLAWA, FBLA, VESSA, jury duty, voting time, etc.), workplace safety concern at the assigned property, religious accommodation, disability accommodation, or other reason protected by federal, state, or local law. When you decline a job assignment for a lawful or protected reason, inform the office immediately so the office can reassign the work. Documentation may be requested only as required by the underlying protected category.",
+          es: "Las razones legales y protegidas para declinar una asignación de trabajo incluyen pero no se limitan a: emergencia médica, licencia protegida bajo la ley de Illinois (PLAWA, FBLA, VESSA, deber de jurado, tiempo para votar, etc.), preocupación de seguridad laboral en la propiedad asignada, acomodación religiosa, acomodación por discapacidad, u otra razón protegida por la ley federal, estatal o local. Cuando declina una asignación de trabajo por una razón legal o protegida, informe a la oficina inmediatamente para que la oficina pueda reasignar el trabajo. Solo se puede solicitar documentación según lo requiera la categoría protegida correspondiente.",
         },
       },
 
+      // ── Section 6: Activity Between Job Assignments ────────────────────
+      { type: "h", text: { en: "Activity Between Job Assignments", es: "Actividad Entre Asignaciones de Trabajo" } },
+      {
+        type: "p",
+        text: {
+          en: "When you complete one job assignment and travel to your next assigned job, you are traveling between jobs. During this travel time, you should:",
+          es: "Cuando completa una asignación de trabajo y maneja a su siguiente trabajo asignado, está viajando entre trabajos. Durante este tiempo de viaje, debe:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Travel directly to your next assigned job in a reasonable manner.", es: "Manejar directamente a su siguiente trabajo asignado de manera razonable." },
+          { en: "Remain reachable by phone or text for office communications about your remaining assignments, schedule changes, or operational matters.", es: "Permanecer disponible por teléfono o mensaje de texto para comunicaciones de la oficina sobre sus asignaciones restantes, cambios de horario o asuntos operativos." },
+          { en: "Use the time for personal needs (lunch, fuel, restroom, brief errands) as long as you arrive at your next assigned job on time.", es: "Usar el tiempo para necesidades personales (almuerzo, gasolina, baño, mandados breves) siempre que llegue a su siguiente trabajo asignado a tiempo." },
+        ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "Phes does not require you to perform work tasks during travel between jobs. The expectation is only that you remain reachable by the office regarding your assigned work and arrive at your next assignment on time.",
+          es: "Phes no le exige realizar tareas de trabajo durante el viaje entre trabajos. La expectativa es solo que permanezca disponible para la oficina respecto a su trabajo asignado y llegue a su siguiente asignación a tiempo.",
+        },
+      },
+
+      // ── Section 7: Mileage Reimbursement Between Jobs ──────────────────
+      { type: "h", text: { en: "Mileage Reimbursement Between Jobs", es: "Reembolso de Millaje Entre Trabajos" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes reimburses mileage at $0.725 per mile (at or above the IRS standard mileage rate in effect at the time of travel) for driving between client homes on the same workday. The drive from your home to your first job of the day, and the drive from your last job back to your home, are not reimbursable, as those are considered ordinary commuting time. Mileage reimbursement is separate from wages and is paid through the standard mileage submission process. See the Compensation module for full mileage reimbursement details.",
+          es: "Phes reembolsa el millaje a $0.725 por milla (al nivel o por encima de la tarifa estándar de millaje del IRS vigente al momento del viaje) por manejar entre hogares de clientes en el mismo día laboral. El manejo de su casa a su primer trabajo del día, y el manejo de su último trabajo de regreso a su casa, no son reembolsables, ya que se consideran tiempo de trayecto ordinario. El reembolso de millaje es separado del salario y se paga mediante el proceso estándar de presentación de millaje. Vea el módulo de Compensación para detalles completos del reembolso de millaje.",
+        },
+      },
+
+      // ── Section 8: Clock/Job Change Requests ────────────────────────────
+      { type: "h", text: { en: "Clock/Job Change Requests", es: "Solicitudes de Cambio de Reloj/Trabajo" } },
+      {
+        type: "p",
+        text: {
+          en: "If you forgot to Check Out, missed a Check In, or have any clock-time error, submit a Clock/Job Change Request through MaidCentral. The office reviews and approves the change. Do not text managers, do not DM the office, do not hope payroll figures it out. Only the system creates the audit trail that lands on your paycheck correctly.",
+          es: "Si olvidó hacer Check Out, no hizo Check In, o tiene cualquier error de tiempo, envíe una Clock/Job Change Request en MaidCentral. La oficina revisa y aprueba el cambio. No envíe mensaje a los gerentes, no envíe DM a la oficina, no espere que la nómina lo resuelva. Solo el sistema crea el registro de auditoría que llega correctamente a su pago.",
+        },
+      },
+
+      // ── Section 9: When Worksheet and Client Note Conflict ─────────────
       { type: "h", text: { en: "When Worksheet and Client Note Conflict", es: "Cuando la Hoja de Trabajo y la Nota del Cliente se Contradicen" } },
       {
         type: "p",
         text: {
-          en: "The Worksheet shows the standard scope. Client notes can override specific items (\"don't move the rug under the dining table,\" \"my cat is hiding in the laundry closet — don't open it\"). Client note wins on the specific item; the rest of the Worksheet still applies. Never ask the client to choose mid-clean — read both BEFORE you start.",
-          es: "La Hoja de Trabajo muestra el alcance estándar. Las notas del cliente pueden anular elementos específicos (\"no mueva la alfombra bajo la mesa del comedor\", \"mi gato está en el closet de lavandería — no lo abra\"). La nota del cliente gana en lo específico; el resto de la Hoja sigue aplicando. Nunca pregunte al cliente durante la limpieza — lea ambas ANTES.",
+          en: "The Worksheet shows the standard scope for the service type. Client notes may modify specific items (example: \"do not move the rug under the dining table\" or \"the cat is hiding in the laundry closet, do not open it\"). When a client note conflicts with the Worksheet on a specific item, follow the client note for that item. The rest of the Worksheet still applies normally. Never ask the client to choose between Worksheet items mid-clean. Read both the Worksheet and any client notes before you start.",
+          es: "La Hoja de Trabajo muestra el alcance estándar para el tipo de servicio. Las notas del cliente pueden modificar elementos específicos (ejemplo: \"no mueva la alfombra debajo de la mesa del comedor\" o \"el gato está escondido en el armario de lavandería, no lo abra\"). Cuando una nota del cliente entra en conflicto con la Hoja de Trabajo en un elemento específico, siga la nota del cliente para ese elemento. El resto de la Hoja de Trabajo sigue aplicando normalmente. Nunca pida al cliente que elija entre elementos de la Hoja de Trabajo durante la limpieza. Lea tanto la Hoja de Trabajo como cualquier nota del cliente antes de comenzar.",
         },
       },
 
+      // ── Section 10: If MaidCentral Goes Down ───────────────────────────
+      { type: "h", text: { en: "If MaidCentral Goes Down", es: "Si MaidCentral Deja de Funcionar" } },
+      {
+        type: "p",
+        text: {
+          en: "If MaidCentral is unavailable (app down, server outage, your phone offline), document your arrival and departure times manually with a timestamped photo of your phone clock at the client's address. Call the office immediately to log a manual time entry. The office submits a Clock/Job Change Request retroactively when the system is restored.",
+          es: "Si MaidCentral no está disponible (aplicación caída, falla del servidor, su teléfono sin conexión), documente manualmente sus tiempos de llegada y salida con una foto con marca de tiempo del reloj de su teléfono en la dirección del cliente. Llame a la oficina inmediatamente para registrar una entrada de tiempo manual. La oficina envía una Clock/Job Change Request retroactivamente cuando el sistema se restaura.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Keep your phone charged and your data plan active. Your phone is the primary tool for Check In, Check Out, photos, and client notes. If your phone dies mid-day, call the office immediately from a coworker's phone, a client's phone (with permission), or your car. The office logs a manual time entry until your phone is back online.",
+          es: "Mantenga su teléfono cargado y su plan de datos activo. Su teléfono es la herramienta principal para Check In, Check Out, fotos y notas del cliente. Si su teléfono se descarga durante el día, llame a la oficina inmediatamente desde el teléfono de un compañero, el teléfono de un cliente (con permiso) o su auto. La oficina registra una entrada de tiempo manual hasta que su teléfono vuelva a estar en línea.",
+        },
+      },
+
+      // ── Section 11: Coming Next: Qleno ─────────────────────────────────
       { type: "h", text: { en: "Coming Next: Qleno", es: "Próximamente: Qleno" } },
       {
         type: "callout",
         tone: "info",
         text: {
-          en: "Phes is migrating from MaidCentral to Qleno over the next several months. Qleno is the company's own platform — same two-clock system, same GPS check-in, same Worksheet, but a faster mobile app with offline support, simpler day view, and integrated quotes / invoices. You'll be trained on Qleno before the cutover; until then, MaidCentral is the system of record.",
-          es: "Phes está migrando de MaidCentral a Qleno en los próximos meses. Qleno es la plataforma propia de la compañía — mismo sistema de dos relojes, mismo Check In por GPS, misma Hoja de Trabajo, pero una app móvil más rápida con soporte offline, vista de día más simple, y cotizaciones / facturas integradas. Lo entrenaremos en Qleno antes del cambio; hasta entonces, MaidCentral es el sistema oficial.",
+          en: "Phes is migrating from MaidCentral to Qleno over the next several months. Qleno is the company's own platform with the same one-clock-per-job model, same GPS check-in, same Worksheet review process, and a faster mobile app with offline support, simpler day view, and integrated quotes and invoices. You will be trained on Qleno before the cutover. Until then, MaidCentral is the system of record and the workflow described in this module applies.",
+          es: "Phes está migrando de MaidCentral a Qleno en los próximos meses. Qleno es la plataforma propia de la compañía con el mismo modelo de un reloj por trabajo, el mismo Check In por GPS, el mismo proceso de revisión de Hoja de Trabajo, y una aplicación móvil más rápida con soporte sin conexión, vista de día más simple y cotizaciones y facturas integradas. Se le entrenará en Qleno antes del cambio. Hasta entonces, MaidCentral es el sistema oficial y el flujo descrito en este módulo aplica.",
         },
       },
     ],
@@ -4265,24 +4375,24 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-01-clock-vs-check",
     moduleId: "maidcentral",
-    prompt: { en: "You start your workday at 8:00 AM. What's the very first thing you do in MaidCentral?", es: "Comienza su día a las 8:00 AM. ¿Qué es lo primero que hace en MaidCentral?" },
+    prompt: { en: "What is your scheduled workday at Phes?", es: "¿Cuál es su jornada laboral programada en Phes?" },
     options: [
-      { en: "Check In to your first job", es: "Check In en su primer trabajo" },
-      { en: "Clock In for the workday", es: "Clock In para el día de trabajo" },
-      { en: "Open the Job Worksheet for the day", es: "Abrir la Hoja de Trabajo del día" },
-      { en: "Submit yesterday's mileage", es: "Enviar el millaje de ayer" },
+      { en: "I am only required to work the hours of pre-scheduled jobs and nothing else.", es: "Solo estoy obligado a trabajar las horas de los trabajos pre-programados y nada más." },
+      { en: "My scheduled workday runs from 9:00 AM to 6:00 PM on my scheduled workdays. During my workday, I complete assigned jobs that may include both pre-scheduled jobs and same-day assignments added by the office.", es: "Mi jornada laboral programada se desarrolla de 9:00 AM a 6:00 PM en mis días laborales programados. Durante mi jornada, completo trabajos asignados que pueden incluir tanto trabajos pre-programados como asignaciones del mismo día agregadas por la oficina." },
+      { en: "My workday is whatever hours I choose to work each day.", es: "Mi jornada laboral son las horas que yo elija trabajar cada día." },
+      { en: "I am on call from 9 AM to 6 PM and may or may not work depending on client demand.", es: "Estoy de guardia de 9 AM a 6 PM y puede o no que trabaje dependiendo de la demanda del cliente." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-02-arrive-first-job",
     moduleId: "maidcentral",
-    prompt: { en: "You arrive at a client's home. You already Clocked In for the day. What do you do now?", es: "Llega al hogar del cliente. Ya hizo Clock In del día. ¿Qué hace ahora?" },
+    prompt: { en: "The office contacts you at 11 AM and assigns you an additional client job for 3 PM today. You do not want to do another job. What happens if you refuse without a lawful or protected reason?", es: "La oficina lo contacta a las 11 AM y le asigna un trabajo de cliente adicional para las 3 PM hoy. Usted no quiere hacer otro trabajo. ¿Qué pasa si lo rechaza sin una razón legal o protegida?" },
     options: [
-      { en: "Clock In a second time for the day to log onto the new client visit start.", es: "Hacer Clock In una segunda vez del día para registrar el inicio del cliente." },
-      { en: "Check In on the specific job — your Day Clock keeps running in background.", es: "Hacer Check In en el trabajo específico — el Reloj de Día sigue corriendo." },
-      { en: "Open the Worksheet first since the Check In step can safely wait a few minutes.", es: "Abrir la Hoja de Trabajo primero ya que el Check In puede esperar unos minutos." },
-      { en: "Submit yesterday's mileage report before doing anything else on today's job.", es: "Enviar el reporte de millaje de ayer antes de hacer cualquier otra cosa hoy." },
+      { en: "Nothing happens, the office finds another tech.", es: "Nada pasa, la oficina encuentra a otro técnico." },
+      { en: "Refusing an assigned job during my scheduled workday without a lawful or protected reason is treated as an unexcused absence on my attendance record. Five unexcused absences in a Benefit Year may result in termination.", es: "Rechazar un trabajo asignado durante mi jornada laboral programada sin una razón legal o protegida se trata como una ausencia injustificada en mi registro de asistencia. Cinco ausencias injustificadas en un Año de Beneficios pueden resultar en terminación." },
+      { en: "I receive a verbal warning but it does not go on my record.", es: "Recibo una advertencia verbal pero no queda en mi registro." },
+      { en: "I am required to accept all jobs regardless of any reason.", es: "Estoy obligado a aceptar todos los trabajos sin importar la razón." },
     ],
     correctIndex: 1,
   },
@@ -4325,24 +4435,24 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-06-efficiency",
     moduleId: "maidcentral",
-    prompt: { en: "What is your efficiency score and how is it calculated?", es: "¿Qué es su puntuación de eficiencia y cómo se calcula?" },
+    prompt: { en: "Which of the following are lawful or protected reasons to decline an assigned job?", es: "¿Cuáles de las siguientes son razones legales o protegidas para declinar un trabajo asignado?" },
     options: [
-      { en: "The total number of cleaning jobs that you completed and closed out for the day.", es: "El número total de trabajos de limpieza que completó y cerró durante el día." },
-      { en: "Total Job Clock hours divided by Day Clock hours — share of day actively cleaning.", es: "Reloj de Trabajo dividido por Reloj de Día — porción del día limpiando activamente." },
-      { en: "Your average client-satisfaction score across all the cleanings you did that week.", es: "Su puntuación promedio de satisfacción del cliente en todas las limpiezas semanales." },
-      { en: "Total tip dollars earned during the week divided by the total hours actually worked.", es: "Dólares totales de propinas ganados en la semana divididos por las horas trabajadas." },
+      { en: "Any reason at all, because I have the right to refuse any work assignment.", es: "Cualquier razón, porque tengo el derecho de rechazar cualquier asignación de trabajo." },
+      { en: "A medical emergency, protected leave under Illinois law (PLAWA, FBLA, VESSA, jury duty), a workplace safety concern at the assigned property, religious accommodation, disability accommodation, or any other reason protected by federal, state, or local law.", es: "Una emergencia médica, licencia protegida bajo la ley de Illinois (PLAWA, FBLA, VESSA, deber de jurado), una preocupación de seguridad laboral en la propiedad asignada, acomodación religiosa, acomodación por discapacidad, o cualquier otra razón protegida por la ley federal, estatal o local." },
+      { en: "Only a doctor's note can excuse declining a job assignment.", es: "Solo una nota del doctor puede justificar declinar una asignación de trabajo." },
+      { en: "I cannot decline any job assignment for any reason.", es: "No puedo declinar ninguna asignación de trabajo por ninguna razón." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-07-efficiency-target",
     moduleId: "maidcentral",
-    prompt: { en: "What is the Phes target efficiency score?", es: "¿Cuál es la meta de eficiencia de Phes?" },
+    prompt: { en: "You completed a job at 12:30 PM and your next assigned job is at 2:00 PM. What can you do during the travel time between these jobs?", es: "Completó un trabajo a las 12:30 PM y su siguiente trabajo asignado es a las 2:00 PM. ¿Qué puede hacer durante el tiempo de viaje entre estos trabajos?" },
     options: [
-      { en: "50%+", es: "50%+" },
-      { en: "60%+", es: "60%+" },
-      { en: "70%+", es: "70%+" },
-      { en: "100%", es: "100%" },
+      { en: "I must drive directly from one job to the next without stopping for any reason.", es: "Debo manejar directamente de un trabajo al siguiente sin parar por ninguna razón." },
+      { en: "I am completely off duty and not required to respond to anything from the office.", es: "Estoy completamente fuera de servicio y no obligado a responder a nada de la oficina." },
+      { en: "Travel directly to my next assigned job in a reasonable manner. I can stop for lunch, fuel, restroom, or brief errands as long as I arrive at my next assigned job on time. I should remain reachable by phone for office communications about my remaining assignments.", es: "Manejar directamente a mi siguiente trabajo asignado de manera razonable. Puedo parar para almuerzo, gasolina, baño o mandados breves siempre que llegue a mi siguiente trabajo asignado a tiempo. Debo permanecer disponible por teléfono para comunicaciones de la oficina sobre mis asignaciones restantes." },
+      { en: "I should clock back in to record my travel time as work hours.", es: "Debo hacer Clock In otra vez para registrar mi tiempo de viaje como horas laborales." },
     ],
     correctIndex: 2,
   },
@@ -4361,36 +4471,36 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-09-travel-pay",
     moduleId: "maidcentral",
-    prompt: { en: "Does Phes pay you for the time between Check Out at one job and Check In at the next?", es: "¿Phes le paga por el tiempo entre Check Out en un trabajo y Check In en el siguiente?" },
+    prompt: { en: "Which of the following drives is reimbursed by Phes under the mileage policy?", es: "¿Cuál de los siguientes manejos es reembolsado por Phes bajo la política de millaje?" },
     options: [
-      { en: "Yes — once the Day Clock is running, every minute between jobs is paid as travel time.", es: "Sí — una vez que el Reloj de Día corre, cada minuto entre trabajos se paga como traslado." },
-      { en: "No. Phes does not pay travel time. Your paid hours come from your Job Clock total. The Day Clock keeps running because MaidCentral cannot be turned off, but the gap between jobs is not wages.", es: "No. Phes no paga tiempo de traslado. Sus horas pagadas vienen del total del Reloj de Trabajo. El Reloj de Día sigue corriendo porque MaidCentral no se puede apagar, pero el tiempo entre trabajos no es salario." },
-      { en: "Only the first 30 minutes between each pair of jobs gets paid as travel time at Phes.", es: "Solo los primeros 30 minutos entre cada par de trabajos se paga como tiempo de traslado en Phes." },
-      { en: "Only if a manager approves the travel before you leave the first client property.", es: "Solo si un gerente aprueba el traslado antes de salir de la propiedad del primer cliente." },
+      { en: "Driving from your home to your first job of the day.", es: "Manejar de su casa a su primer trabajo del día." },
+      { en: "Driving from Client A's home directly to Client B's home on the same workday at the IRS standard mileage rate.", es: "Manejar de la casa del Cliente A directamente a la casa del Cliente B en el mismo día laboral a la tarifa estándar de millaje del IRS." },
+      { en: "Driving from your last job of the day back to your home.", es: "Manejar de su último trabajo del día de regreso a su casa." },
+      { en: "Driving to the Phes office to pick up supplies before your first job.", es: "Manejar a la oficina de Phes para recoger suministros antes de su primer trabajo." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-10-commute-not-paid",
     moduleId: "maidcentral",
-    prompt: { en: "Phes does not pay travel time. Is anything still reimbursed for the drive between Phes client homes on the same workday?", es: "Phes no paga tiempo de traslado. ¿Se reembolsa algo todavía por manejar entre hogares de clientes de Phes en el mismo día laboral?" },
+    prompt: { en: "You arrive at your assigned client's property. What is the correct MaidCentral action at the moment of arrival?", es: "Llega a la propiedad de su cliente asignado. ¿Cuál es la acción correcta en MaidCentral al momento de llegar?" },
     options: [
-      { en: "Nothing — once travel time is unpaid, the entire Day Clock gap is your own cost.", es: "Nada — una vez que el traslado no se paga, todo el espacio del Reloj de Día corre por su cuenta." },
-      { en: "Yes. Mileage reimbursement at the IRS standard rate is available for drives BETWEEN client homes on the same workday. This is gas + wear-and-tear reimbursement, not wages. Home-to-first-job and last-job-to-home commute is not reimbursable.", es: "Sí. El reembolso de millaje a la tarifa estándar del IRS está disponible para manejos ENTRE hogares de clientes el mismo día laboral. Es reembolso de gasolina + desgaste, no salario. El trayecto de casa al primer trabajo y del último a casa no se reembolsa." },
-      { en: "Yes — the gap converts to paid time once the drive crosses 30 miles round trip.", es: "Sí — el espacio se convierte en tiempo pagado una vez que el manejo supera 30 millas redondo." },
-      { en: "Only if the office authorizes the specific drive between two clients in advance.", es: "Solo si la oficina autoriza específicamente el manejo entre dos clientes con anticipación." },
+      { en: "Clock In first, then wait 5 minutes before Check In to make sure GPS picks up the location.", es: "Hacer Clock In primero, luego esperar 5 minutos antes de Check In para que el GPS detecte la ubicación." },
+      { en: "Clock In and Check In together at the moment of arrival. Repeat at every assigned job throughout the workday.", es: "Hacer Clock In y Check In juntos al momento de llegar. Repita en cada trabajo asignado durante toda la jornada laboral." },
+      { en: "Only Check In; the Clock part happens automatically when you Check In to a job.", es: "Solo Check In; la parte del Clock pasa automáticamente cuando hace Check In en un trabajo." },
+      { en: "Wait until the client greets you, then Clock In and Check In separately a few minutes apart.", es: "Esperar a que el cliente le salude, luego hacer Clock In y Check In por separado con unos minutos de diferencia." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-11-end-of-day",
     moduleId: "maidcentral",
-    prompt: { en: "You finish your last job of the day. What's the correct order of actions?", es: "Termina su último trabajo del día. ¿Cuál es el orden correcto?" },
+    prompt: { en: "You arrive at a client's property but MaidCentral rejects your Check In with a GPS warning even though you are at the front door. What do you do?", es: "Llega a la propiedad de un cliente pero MaidCentral rechaza su Check In con una advertencia de GPS aunque está en la puerta principal. ¿Qué hace?" },
     options: [
-      { en: "Clock Out, then Check Out of the job", es: "Clock Out, luego Check Out del trabajo" },
-      { en: "Check Out of the job, then Clock Out for the day", es: "Check Out del trabajo, luego Clock Out del día" },
-      { en: "Just Clock Out — Check Out happens automatically", es: "Solo Clock Out — el Check Out se hace solo" },
-      { en: "Order doesn't matter", es: "El orden no importa" },
+      { en: "Skip the Check In and write down the time on paper to enter later.", es: "Sáltese el Check In y escriba la hora en papel para ingresarla después." },
+      { en: "Take a timestamped photo of the front door or address number, call the office immediately, and the office will manually approve the check-in through the Clock/Job Change Request process.", es: "Tome una foto con marca de tiempo de la puerta principal o el número de dirección, llame a la oficina inmediatamente, y la oficina aprobará manualmente el check-in mediante el proceso de Clock/Job Change Request." },
+      { en: "Drive around the block and try again until it works.", es: "Maneje alrededor de la cuadra y vuelva a intentar hasta que funcione." },
+      { en: "Tell the client there is a system problem and reschedule the job.", es: "Dígale al cliente que hay un problema del sistema y reprograme el trabajo." },
     ],
     correctIndex: 1,
   },
@@ -4433,12 +4543,12 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-15-day-clock-running",
     moduleId: "maidcentral",
-    prompt: { en: "Between Job A and Job B you stop for gas and lunch. What happens with the Day Clock and your pay?", es: "Entre el Trabajo A y B para por gasolina y almuerzo. ¿Qué pasa con el Reloj de Día y su pago?" },
+    prompt: { en: "You finish your assigned job at a client's property. What is the correct MaidCentral action at the moment the job is complete?", es: "Termina su trabajo asignado en la propiedad de un cliente. ¿Cuál es la acción correcta en MaidCentral al momento que el trabajo esté completo?" },
     options: [
-      { en: "The Day Clock pauses automatically — it only actively runs while you are at jobs.", es: "El Reloj de Día se pausa automáticamente — solo corre activamente durante trabajos." },
-      { en: "Day Clock keeps running because MaidCentral cannot turn it off, but the time between Check Out and Check In is NOT paid wages. Phes does not pay travel time, fuel-stop time, or lunch — your paid hours come from your Job Clock totals.", es: "El Reloj de Día sigue corriendo porque MaidCentral no se puede apagar, pero el tiempo entre Check Out y Check In NO se paga como salario. Phes no paga tiempo de traslado, paradas de gasolina ni almuerzo — sus horas pagadas vienen de los totales del Reloj de Trabajo." },
-      { en: "The Day Clock pauses automatically the moment you stop driving and park the vehicle.", es: "El Reloj de Día se pausa automáticamente cuando deja de manejar y estaciona el vehículo." },
-      { en: "It depends entirely on the actual length of your stop between the two scheduled jobs.", es: "Depende totalmente de la duración real de su parada entre los dos trabajos programados." },
+      { en: "Stay clocked in until you arrive at the next job, then Check Out and Check In there.", es: "Permanezca con Clock In hasta llegar al siguiente trabajo, luego haga Check Out y Check In allí." },
+      { en: "Clock Out and Check Out together at the moment the job is complete. Travel to my next assigned job and Clock In and Check In together when I arrive.", es: "Hacer Clock Out y Check Out juntos al momento que el trabajo esté completo. Manejar a mi siguiente trabajo asignado y hacer Clock In y Check In juntos al llegar." },
+      { en: "Only Clock Out; the Check Out part happens automatically when you Clock In to the next job.", es: "Solo Clock Out; la parte del Check Out pasa automáticamente cuando hace Clock In en el siguiente trabajo." },
+      { en: "Wait until the client signs the completion confirmation, then Clock Out from your car.", es: "Esperar a que el cliente firme la confirmación de finalización, luego hacer Clock Out desde el auto." },
     ],
     correctIndex: 1,
   },
