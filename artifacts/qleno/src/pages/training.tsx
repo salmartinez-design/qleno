@@ -967,6 +967,15 @@ export default function TrainingPage() {
             await refresh();
             setView({ kind: "home" });
           }}
+          onBypass={
+            state.is_owner
+              ? async () => {
+                  await lmsApi.bypassModule(token, view.moduleId);
+                  await refresh();
+                  setView({ kind: "home" });
+                }
+              : undefined
+          }
         />
       )}
       {view.kind === "final-intro" && (
@@ -996,6 +1005,15 @@ export default function TrainingPage() {
             await refresh();
             setView({ kind: "home" });
           }}
+          onBypass={
+            state.is_owner
+              ? async () => {
+                  await lmsApi.bypassModule(token, FINAL_MODULE_ID);
+                  await refresh();
+                  setView({ kind: "home" });
+                }
+              : undefined
+          }
         />
       )}
       {view.kind === "ack" && (
@@ -3066,6 +3084,7 @@ function QuizView({
   isOwner,
   onCancel,
   onPassed,
+  onBypass,
 }: {
   curriculum: Curriculum;
   moduleId: string;
@@ -3077,6 +3096,12 @@ function QuizView({
   // routing away (closes stale-attempts-badge bug).
   onCancel: () => void | Promise<void>;
   onPassed: () => Promise<void>;
+  // Owner-only escape hatch. Calls /admin/bypass-module then navigates
+  // home so the signature step / next module is reachable. Without
+  // this, an owner QAing the workflow has to actually answer every
+  // question correctly to reach the signature tile — which is not
+  // the point of an owner walkthrough.
+  onBypass?: () => Promise<void>;
 }) {
   const isFinal = moduleId === FINAL_MODULE_ID;
   const maxAttempts = maxAttemptsFor(moduleId);
@@ -3263,6 +3288,7 @@ function QuizView({
         passThreshold={PASS_THRESHOLD_PCT}
         isOwner={isOwner}
         perQuestionReview={perQuestionReview}
+        onBypass={onBypass}
         onBackHome={onCancel}
         onRetake={() => {
           // Reset client-side state for a fresh attempt. The server
@@ -3439,6 +3465,29 @@ function QuizView({
             >
               <ChevronLeft size={14} /> {tr("back", locale)}
             </SecondaryButton>
+            {/* Owner skip — bypasses the rest of the quiz and marks the
+                module passed via /admin/bypass-module. Routes the owner
+                home so the next step (signature tile / next module)
+                surfaces immediately. Owner-walkthrough QA mode: lets
+                the owner emulate the signature flow without having to
+                actually answer every question correctly. */}
+            {isOwner && onBypass ? (
+              <SecondaryButton
+                onClick={async () => {
+                  if (busy) return;
+                  setBusy(true);
+                  try {
+                    await onBypass();
+                  } catch (e) {
+                    setError(String((e as Error).message));
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                <FastForward size={14} /> {tr("bypassOwner", locale)}
+              </SecondaryButton>
+            ) : null}
             {cursor < total - 1 ? (
               <PrimaryButton
                 onClick={() => setCursor((c) => Math.min(total - 1, c + 1))}
@@ -3581,6 +3630,7 @@ function ResultView({
   passThreshold,
   isOwner,
   perQuestionReview,
+  onBypass,
   onContinue,
   onRetake,
   onBackHome,
@@ -3591,6 +3641,12 @@ function ResultView({
   maxAttempts: number;
   passThreshold: number;
   isOwner: boolean;
+  /**
+   * Owner-only escape hatch shown on the FAILED result. Calls
+   * /admin/bypass-module then navigates home so the signature tile is
+   * reachable without grinding through the quiz with correct answers.
+   */
+  onBypass?: () => Promise<void>;
   /**
    * 2026-05-22 (Sal): the full per-question review — every question
    * with prompt, learner's selection, the correct option, and a
@@ -3781,6 +3837,21 @@ function ResultView({
           {passed && attemptsRemaining > 0 ? (
             <SecondaryButton onClick={onRetake}>
               {tr("retry", locale)}
+            </SecondaryButton>
+          ) : null}
+          {/* Owner-only bypass shown when the attempt did not pass.
+              Marks the module passed via /admin/bypass-module then
+              routes home so the next employee-flow step (signature
+              tile / next module) is reachable. Lets the owner emulate
+              the full LMS workflow end-to-end without having to score
+              80% on every quiz themselves. */}
+          {!passed && isOwner && onBypass ? (
+            <SecondaryButton
+              onClick={() => {
+                void onBypass();
+              }}
+            >
+              <FastForward size={14} /> {tr("bypassOwner", locale)}
             </SecondaryButton>
           ) : null}
           <PrimaryButton onClick={passed ? onContinue : onContinue}>
