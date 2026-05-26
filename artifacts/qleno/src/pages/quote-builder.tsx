@@ -180,6 +180,9 @@ export default function QuoteBuilderPage() {
   const [inputMounted, setInputMounted] = useState(false);
   const [addressVerified, setAddressVerified] = useState<boolean | null>(null);
   const [addressFormatted, setAddressFormatted] = useState("");
+  // [maps-runtime-fallback] Cache the resolved Maps key so the geocode
+  // helper (separate REST call) doesn't need to know how it was sourced.
+  const mapsKeyRef = useRef<string>("");
   const [callNoteTooltip, setCallNoteTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [pushConfirmed, setPushConfirmed] = useState(false);
 
@@ -379,8 +382,11 @@ export default function QuoteBuilderPage() {
   }, [sqft]);
 
   // ── Load Google Maps Places API ──────────────────────────────────────────
+  // [maps-runtime-fallback 2026-05-26] Same pattern as jobs.tsx — fetch the
+  // key from /api/config/google-maps-key first so we stay resilient when
+  // the Railway build didn't inject VITE_GOOGLE_MAPS_API_KEY. Falls back
+  // to the build-time var if the server endpoint is unreachable.
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -388,14 +394,34 @@ export default function QuoteBuilderPage() {
       if (existing) { existing.addEventListener("load", () => setMapsReady(true)); }
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true;
-    s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const r = await fetch(`${API}/api/config/google-maps-key`, { headers: getAuthHeaders() });
+        if (r.ok) {
+          const body = await r.json().catch(() => ({}));
+          key = String(body?.key ?? "");
+        }
+      } catch { /* fall through to build-time fallback */ }
+      if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      if (cancelled || !key) return;
+      mapsKeyRef.current = key;
+
+      // Re-check whether another instance already injected the script
+      // while we were awaiting the fetch.
+      if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
+      if (document.getElementById(scriptId)) return;
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true;
+      s.defer = true;
+      s.onload = () => { if (!cancelled) setMapsReady(true); };
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Wire autocomplete after Maps ready + input mounted ──────────────────
@@ -428,7 +454,7 @@ export default function QuoteBuilderPage() {
 
   // ── Geocode helper for client-loaded addresses ───────────────────────────
   async function geocodeVerify(addressStr: string) {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    const key = mapsKeyRef.current || (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || "";
     if (!key || !addressStr.trim()) { setAddressVerified(false); return; }
     try {
       const r = await fetch(
@@ -2422,8 +2448,11 @@ export default function QuoteBuilderPage() {
                             )}
                             {cs.mode === "equal" && cs.perTech.length > 0 && (
                               <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
-                                ${cs.totalCommission.toFixed(2)} / {techCount} tech = ${cs.perTech[0].commission.toFixed(2)} each
-                                {estHrs > 0 && ` | ${cs.perTech[0].hours} hrs each`}
+                                {techCount === 1 ? (
+                                  <>${cs.perTech[0].commission.toFixed(2)}{estHrs > 0 && ` · ${cs.perTech[0].hours} hrs`}</>
+                                ) : (
+                                  <>${cs.totalCommission.toFixed(2)} ÷ {techCount} techs = ${cs.perTech[0].commission.toFixed(2)} each{estHrs > 0 && ` · ${cs.perTech[0].hours} hrs each`}</>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2482,7 +2511,11 @@ export default function QuoteBuilderPage() {
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 2, fontFamily: FF }}>Commission (blended): ${csTotalCommission.toFixed(2)}</div>
                     {cs.mode === "unassigned" && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Will calculate once techs are assigned</div>}
                     {cs.mode === "equal" && cs.perTech.length > 0 && (
-                      <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>${cs.perTech[0].commission.toFixed(2)} / tech | {cs.perTech[0].hours} hrs / tech</div>
+                      <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                        {techCount === 1
+                          ? <>${cs.perTech[0].commission.toFixed(2)} · {cs.perTech[0].hours} hrs</>
+                          : <>${cs.perTech[0].commission.toFixed(2)} / tech · {cs.perTech[0].hours} hrs / tech</>}
+                      </div>
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 10, textAlign: "center", fontFamily: FF }}>
