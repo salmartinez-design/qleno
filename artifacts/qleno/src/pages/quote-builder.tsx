@@ -64,7 +64,8 @@ interface PricingAddon {
 
 interface CalcResult {
   scope_id: number; pricing_method: string; sqft: number | null; frequency: string | null;
-  base_hours: number; hourly_rate: number; base_price: number; minimum_applied: boolean;
+  base_hours: number; addon_hours: number; total_hours: number;
+  hourly_rate: number; base_price: number; minimum_applied: boolean;
   minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
   bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
@@ -539,7 +540,7 @@ export default function QuoteBuilderPage() {
 
   function resetScopeHours(scopeId: number) {
     const s = selectedScopes.find(sc => sc.scope_id === scopeId);
-    const calcHours = s?.calc?.base_hours ?? 0;
+    const calcHours = s?.calc?.total_hours ?? s?.calc?.base_hours ?? 0;
     setSelectedScopes(prev => prev.map(sc => sc.scope_id === scopeId ? { ...sc, hours: calcHours, hoursOverrideSet: false } : sc));
     setTimeout(() => recalcScopeById(scopeId), 50);
   }
@@ -616,7 +617,7 @@ export default function QuoteBuilderPage() {
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
       total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total) : null),
-      estimated_hours: cr ? String(cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
+      estimated_hours: cr ? String(cr.total_hours ?? cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
       hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,
@@ -1952,7 +1953,7 @@ export default function QuoteBuilderPage() {
                         const scope = scopes.find(sc => sc.id === s.scope_id);
                         if (!scope) return null;
                         const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
-                        const estHours = s.hours || s.calc?.base_hours || 0;
+                        const estHours = s.hours || s.calc?.total_hours || s.calc?.base_hours || 0;
                         const subtotal = s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : (isHourly && !s.hours ? "Enter hours" : "\u2014");
                         return (
                           <div key={s.scope_id} style={{ border: "0.5px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
@@ -2375,9 +2376,9 @@ export default function QuoteBuilderPage() {
                         </div>
                       )}
                       {/* Estimated hours */}
-                      {(s.hours || s.calc?.base_hours) && (
+                      {(s.hours || s.calc?.total_hours || s.calc?.base_hours) && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B6860" }}>
-                          <span>Est. hours</span><span>{s.hours || s.calc?.base_hours} hrs</span>
+                          <span>Est. hours</span><span>{s.hours || s.calc?.total_hours || s.calc?.base_hours} hrs</span>
                         </div>
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
@@ -2387,7 +2388,7 @@ export default function QuoteBuilderPage() {
                       {/* Commission breakdown */}
                       {(() => {
                         const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
-                        const estHrs = s.hours || s.calc?.base_hours || 0;
+                        const estHrs = s.hours || s.calc?.total_hours || s.calc?.base_hours || 0;
                         const techCount = selectedTechId ? 1 : 0;
                         const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
@@ -2422,7 +2423,7 @@ export default function QuoteBuilderPage() {
             {/* 2+ scopes — list with hours + commission */}
             {selectedScopes.length >= 2 && (() => {
               const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
-              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.base_hours || 0), 0);
+              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.total_hours || s.calc?.base_hours || 0), 0);
               const techCount = selectedTechId ? 1 : 0;
               // [tiered-residential] Per-scope commission so a quote
               // with mixed Standard + Deep Clean shows the right total
@@ -2438,7 +2439,7 @@ export default function QuoteBuilderPage() {
                 <div>
                   {selectedScopes.map(s => {
                     const scope = scopes.find(sc => sc.id === s.scope_id);
-                    const estHrs = s.hours || s.calc?.base_hours || 0;
+                    const estHrs = s.hours || s.calc?.total_hours || s.calc?.base_hours || 0;
                     return (
                       <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
