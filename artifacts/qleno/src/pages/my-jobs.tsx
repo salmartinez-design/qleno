@@ -8,6 +8,7 @@ import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress } from "@/lib/format-address";
 import { QlenoMark } from "@/components/brand/QlenoMark";
+import { QuoteAttachments } from "@/components/quote-attachments";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -215,6 +216,36 @@ function DistanceBadge({ jobLat, jobLng, empPos }: {
     }}>
       {parseFloat(miles) < 0.1 ? `${ft} ft` : `${miles} mi`} away — {label}
     </span>
+  );
+}
+
+// [quote-attachments] Tech-facing read-only view of files the office
+// attached on the source quote. Pre-fetches count so the section header
+// only renders when there's actually something to show.
+function OfficeAttachments({ jobId }: { jobId: number }) {
+  const [hasAny, setHasAny] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch(`/jobs/${jobId}/attachments`)
+      .then(r => r.json())
+      .then((rows: unknown[]) => { if (!cancelled) setHasAny(Array.isArray(rows) && rows.length > 0); })
+      .catch(() => { if (!cancelled) setHasAny(false); });
+    return () => { cancelled = true; };
+  }, [jobId]);
+
+  if (!hasAny) return null;
+  return (
+    <div style={{ marginTop: 12 }}>
+      <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 6px" }}>
+        Office Attachments
+      </p>
+      <QuoteAttachments
+        readOnly
+        ensureQuoteId={async () => jobId}
+        endpointOverride={`/api/jobs/${jobId}/attachments`}
+        compact
+      />
+    </div>
   );
 }
 
@@ -481,6 +512,11 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
           <p style={{ fontSize: 12, color: "#1A1917", margin: 0 }}>{job.client_notes}</p>
         </div>
       )}
+
+      {/* [quote-attachments] Files the office attached on the source quote.
+          Read-only here — techs see photos/PDFs the client sent or the
+          office screenshotted during the booking call. */}
+      <OfficeAttachments jobId={job.id} />
 
       <PhotoGrid jobId={job.id} type="before" photos={photosBefore} onUploaded={loadPhotos} />
       <PhotoGrid jobId={job.id} type="after" photos={photosAfter} onUploaded={loadPhotos} />

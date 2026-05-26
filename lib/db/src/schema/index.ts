@@ -32,6 +32,7 @@ export * from "./agreement_templates";
 export * from "./form_templates";
 export * from "./form_submissions";
 export * from "./quote_scopes";
+export * from "./quote_attachments";
 export * from "./daily_summaries";
 export * from "./app_audit_log";
 export * from "./payment_links";

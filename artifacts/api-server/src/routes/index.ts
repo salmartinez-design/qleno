@@ -26,6 +26,7 @@ import jobSmsRouter from "./job-sms.js";
 import quotesRouter from "./quotes.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
+import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
 import billingRouter from "./billing.js";
@@ -109,6 +110,10 @@ router.use("/notifications", notificationsRouter);
 router.use("/quotes", quotesRouter);
 router.use("/payments", paymentsRouter);
 router.use("/attachments", attachmentsRouter);
+// [quote-attachments] The routers define full paths internally
+// (`:id/attachments`), so mount them at the resource root.
+router.use("/quotes", quoteAttachmentsRouter);
+router.use("/jobs", jobAttachmentsRouter);
 router.use("/property-groups", propertyGroupsRouter);
 router.use("/agreement-templates", agreementTemplatesRouter);
 router.use("/billing", billingRouter);

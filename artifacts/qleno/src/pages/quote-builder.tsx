@@ -14,6 +14,7 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
+import { QuoteAttachments } from "@/components/quote-attachments";
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2, Check,
@@ -331,6 +332,22 @@ export default function QuoteBuilderPage() {
       }
     }
   }, [existingQuote, scopes.length]);
+
+  // [quote-attachments] Async resolver passed to the <QuoteAttachments>
+  // component. Returns the working quote id; if no quote exists yet
+  // (brand-new draft, no auto-save fired), mints a draft now so an
+  // attachment can be associated. Subsequent uploads reuse the id.
+  const ensureQuoteId = useCallback(async (): Promise<number | null> => {
+    if (isEdit && id) return parseInt(id);
+    if (autoSavedIdRef.current) return parseInt(autoSavedIdRef.current);
+    try {
+      const result = await apiFetch("/api/quotes", { method: "POST", body: { status: "draft" } });
+      autoSavedIdRef.current = String(result.id);
+      return result.id;
+    } catch {
+      return null;
+    }
+  }, [isEdit, id]);
 
   // ── Call Notes auto-save (10s debounce) ─────────────────────────────────
   useEffect(() => {
@@ -2328,6 +2345,9 @@ export default function QuoteBuilderPage() {
               rows={10}
               style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: "1.6", color: "#1A1917", fontFamily: FF, background: "#FAFAF9", outline: "none" }}
             />
+            {/* [quote-attachments] Drop zone + thumbnail row. Photos and
+                PDFs office uploads stay private to office + assigned techs. */}
+            <QuoteAttachments ensureQuoteId={ensureQuoteId} />
           </div>
 
           {/* Price Preview */}
@@ -2395,7 +2415,7 @@ export default function QuoteBuilderPage() {
                           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
                             <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Commission ({ratePct}%)</div>
                             <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
-                              Pool: ${cs.totalCommission.toFixed(2)}
+                              Tech Pay: ${cs.totalCommission.toFixed(2)}
                             </div>
                             {cs.mode === "unassigned" && (
                               <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>Will calculate once techs are assigned</div>
