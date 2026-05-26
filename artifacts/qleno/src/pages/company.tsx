@@ -14,21 +14,52 @@ import { AddonsTab } from "./company/addons-tab";
 
 type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'general', label: 'General' },
-  { id: 'branding', label: 'Branding' },
-  { id: 'pricing', label: 'Pricing & Scopes' },
-  { id: 'addons', label: 'Add-ons' },
-  { id: 'online-booking', label: 'Online Booking' },
-  { id: 'service-zones', label: 'Service Zones' },
-  { id: 'follow-up', label: 'Follow-Up Sequences' },
-  { id: 'notifications', label: 'Notifications' },
-  { id: 'clock-inout', label: 'Clock In/Out' },
-  { id: 'invoicing', label: 'Invoicing' },
-  { id: 'payroll', label: 'Payroll Options' },
-  { id: 'hr-policies', label: 'HR Policies' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'integrations', label: 'Integrations' },
+// [settings-nav 2026-05-26] Grouped sidebar replaces the 14-tab flat strip.
+// Groups reflect how the day actually flows: Business (identity), Pricing &
+// Money (revenue mechanics), People (HR + payroll), Customer Comms (outbound
+// automations), Integrations (third-party). When adding a new tab, drop it
+// into the bucket that matches its mental model — don't grow a 6th bucket
+// unless 3+ tabs share a new theme.
+const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
+  {
+    label: 'Business',
+    tabs: [
+      { id: 'general', label: 'General' },
+      { id: 'branding', label: 'Branding' },
+      { id: 'service-zones', label: 'Service Zones' },
+      { id: 'documents', label: 'Documents' },
+    ],
+  },
+  {
+    label: 'Pricing & Money',
+    tabs: [
+      { id: 'pricing', label: 'Pricing & Scopes' },
+      { id: 'addons', label: 'Add-ons' },
+      { id: 'online-booking', label: 'Online Booking' },
+      { id: 'invoicing', label: 'Invoicing' },
+    ],
+  },
+  {
+    label: 'People',
+    tabs: [
+      { id: 'payroll', label: 'Payroll Options' },
+      { id: 'clock-inout', label: 'Clock In/Out' },
+      { id: 'hr-policies', label: 'HR Policies' },
+    ],
+  },
+  {
+    label: 'Customer Comms',
+    tabs: [
+      { id: 'follow-up', label: 'Follow-Up Sequences' },
+      { id: 'notifications', label: 'Notifications' },
+    ],
+  },
+  {
+    label: 'Integrations',
+    tabs: [
+      { id: 'integrations', label: 'Integrations' },
+    ],
+  },
 ];
 
 export default function CompanyPage() {
@@ -51,48 +82,62 @@ export default function CompanyPage() {
           )}
         </div>
 
-        {/* Tabs */}
-        <div style={{ borderBottom: '1px solid #E5E2DC', flexShrink: 0 }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0' }}>
-            {TABS.map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                style={{
-                  padding: '9px 16px',
-                  fontSize: '13px',
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  fontWeight: activeTab === tab.id ? 600 : 400,
-                  cursor: 'pointer',
-                  border: 'none',
-                  backgroundColor: 'transparent',
-                  color: activeTab === tab.id ? 'var(--brand)' : '#6B7280',
-                  borderBottom: `2px solid ${activeTab === tab.id ? 'var(--brand)' : 'transparent'}`,
-                  marginBottom: '-1px',
-                  transition: 'color 0.15s',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tab.label}
-              </button>
+        {/* Grouped sidebar nav + content */}
+        <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
+          <nav style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
+            {TAB_GROUPS.map(group => (
+              <div key={group.label}>
+                <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 12px 6px' }}>
+                  {group.label}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {group.tabs.map(tab => {
+                    const active = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        onClick={() => setActiveTab(tab.id)}
+                        style={{
+                          padding: '8px 12px',
+                          fontSize: 13,
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          fontWeight: active ? 600 : 500,
+                          cursor: 'pointer',
+                          border: 'none',
+                          backgroundColor: active ? '#EAF9F4' : 'transparent',
+                          color: active ? '#2D9B83' : '#1A1917',
+                          borderRadius: 7,
+                          textAlign: 'left',
+                          transition: 'background 0.15s, color 0.15s',
+                          width: '100%',
+                        }}
+                      >
+                        {tab.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ))}
+          </nav>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {activeTab === 'branding' && <BrandingTab />}
+            {activeTab === 'general' && <GeneralTab />}
+            {activeTab === 'notifications' && <NotificationsTab />}
+            {activeTab === 'clock-inout' && <ClockInOutTab />}
+            {activeTab === 'invoicing' && <InvoicingTab />}
+            {activeTab === 'integrations' && <IntegrationsTab />}
+            {activeTab === 'payroll' && <PayrollOptionsTab />}
+            {activeTab === 'pricing' && <PricingTab />}
+            {activeTab === 'addons' && <AddonsTab />}
+            {activeTab === 'online-booking' && <OnlineBookingTab />}
+            {activeTab === 'service-zones' && <ServiceZonesTab />}
+            {activeTab === 'follow-up' && <FollowUpSequencesTab />}
+            {activeTab === 'hr-policies' && <HRPoliciesTab />}
+            {activeTab === 'documents' && <DocumentsTab />}
           </div>
         </div>
-
-        {activeTab === 'branding' && <BrandingTab />}
-        {activeTab === 'general' && <GeneralTab />}
-        {activeTab === 'notifications' && <NotificationsTab />}
-        {activeTab === 'clock-inout' && <ClockInOutTab />}
-        {activeTab === 'invoicing' && <InvoicingTab />}
-        {activeTab === 'integrations' && <IntegrationsTab />}
-        {activeTab === 'payroll' && <PayrollOptionsTab />}
-        {activeTab === 'pricing' && <PricingTab />}
-        {activeTab === 'addons' && <AddonsTab />}
-        {activeTab === 'online-booking' && <OnlineBookingTab />}
-        {activeTab === 'service-zones' && <ServiceZonesTab />}
-        {activeTab === 'follow-up' && <FollowUpSequencesTab />}
-        {activeTab === 'hr-policies' && <HRPoliciesTab />}
-        {activeTab === 'documents' && <DocumentsTab />}
       </div>
     </DashboardLayout>
   );
