@@ -3321,7 +3321,24 @@ export default function JobsPage() {
   const [legendOpen, setLegendOpen] = useState(false);
   const legendBtnRef = useRef<HTMLButtonElement | null>(null);
   const [legendAnchor, setLegendAnchor] = useState<DOMRect | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  // Read ?date=YYYY-MM-DD on mount so quote-builder's convert-to-job navigation
+  // (which targets the scheduled day) actually lands on that day instead of today.
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const param = new URLSearchParams(window.location.search).get("date");
+    const m = param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+    if (m) { const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])); d.setHours(0, 0, 0, 0); return d; }
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  });
+  // Keep ?date= in sync as the user navigates days — refresh + back-button preserve the view.
+  useEffect(() => {
+    const next = dateKey(selectedDate);
+    const cur = new URLSearchParams(window.location.search).get("date");
+    if (cur !== next) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("date", next);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [selectedDate]);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
@@ -4183,8 +4200,8 @@ export default function JobsPage() {
 
               {/* View toggle */}
               <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-                <button onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex" }}><LayoutGrid size={14} /></button>
-                <button onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex" }}><List size={14} /></button>
+                <button title="Timeline view — techs as rows, time across the top" onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><Calendar size={14} /> Timeline</button>
+                <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
               </div>
             </div>
           </div>
