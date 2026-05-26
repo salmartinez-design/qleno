@@ -3148,12 +3148,19 @@ export async function runPhesDataMigration(): Promise<void> {
           is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 31,
         },
         {
+          // [baseboards-mc-parity 2026-05-26] Baseboards is now an office-only
+          // add-on available on every scope ($30 flat / 45 min). MC's
+          // production data has it on Deep Clean + Move In/Out + One-Time
+          // Standard; Sal confirmed it should appear on ALL scopes including
+          // Hourly + Commercial + PPM Turnover, and stay hidden from the
+          // online widget + customer portal (office can still add it on a
+          // quote or job).
           name: "Baseboards",
           addon_type: "cleaning_extras",
-          scope_ids: [S].filter(Boolean),
+          scope_ids: [D, MIO, S, R, HD, HS, C, P].filter(Boolean),
           price_type: "flat", price_value: 30,
           time_minutes: 45, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 40,
+          is_itemized: true, show_office: true, show_online: false, show_portal: false, sort_order: 40,
         },
         {
           name: "Baseboards — Deep Clean (Sq Ft %)",
@@ -3173,10 +3180,14 @@ export async function runPhesDataMigration(): Promise<void> {
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 50,
         },
         {
+          // [windows-mc-parity 2026-05-26] Windows now uses 15% across every
+          // flat-rate scope (was 12% on Standard/Recurring while Deep Clean
+          // was already 15%). MC's source-of-truth screen showed both 12 and
+          // 15 in different views; Sal called 15 as the canonical rate.
           name: "Windows (inside panes) — Standard / Recurring",
           addon_type: "cleaning_extras",
           scope_ids: [S, R].filter(Boolean),
-          price_type: "percentage", price_value: 12,
+          price_type: "percentage", price_value: 15,
           time_minutes: 45, time_unit: "each",
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 51,
         },
@@ -3339,6 +3350,12 @@ export async function runPhesDataMigration(): Promise<void> {
     console.error("[phes-migration] Migration error (non-fatal):", err);
   }
 
+  // [baseboards-windows-mc-parity 2026-05-26] Idempotent fix for
+  // already-seeded Phes data (the addon block above is one-shot — it
+  // only fires when pricing_addons is empty, so existing tenants need
+  // an explicit UPDATE pass).
+  await runBaseboardsWindowsParityMigration();
+
   // Run employee-specific migrations
   await runAleCuervoMigration();
 
@@ -3353,6 +3370,73 @@ export async function runPhesDataMigration(): Promise<void> {
 }
 
 // ── MaidCentral Discount Migration (2026-04-16) ─────────────────────────────
+// [baseboards-windows-mc-parity 2026-05-26] Bring already-seeded Phes
+// pricing_addons in line with the corrected seed values above.
+//   1. Baseboards becomes office-only ($30 / 45 min) on ALL active scopes.
+//   2. Windows (inside panes) — Standard / Recurring goes 12% → 15%.
+// Idempotent — UPDATEs converge to the same row regardless of starting
+// state, so safe to re-run on every cold start.
+async function runBaseboardsWindowsParityMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const allScopeIds = [
+      scopeMap["Deep Clean"],
+      scopeMap["Move In / Move Out"],
+      scopeMap["One-Time Standard Clean"],
+      scopeMap["Recurring Cleaning"],
+      scopeMap["Hourly Deep Clean"],
+      scopeMap["Hourly Standard Cleaning"],
+      scopeMap["Commercial Cleaning"],
+      scopeMap["PPM Turnover"],
+    ].filter(Boolean);
+
+    if (allScopeIds.length === 0) {
+      console.log("[baseboards-windows-parity] No active scopes — skipping.");
+      return;
+    }
+
+    const scopeIdsJson = JSON.stringify(allScopeIds);
+    const firstScopeId = allScopeIds[0];
+
+    // Baseboards: scope_ids → all 8 scopes, show_portal → false, price/time stable.
+    // Match on name = 'Baseboards' (NOT the sqft% variant which has a longer name).
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET scope_ids = ${scopeIdsJson},
+          scope_id = ${firstScopeId},
+          show_portal = false,
+          show_online = false,
+          show_office = true,
+          price_type = 'flat',
+          price_value = 30,
+          time_add_minutes = 45,
+          time_unit = 'each',
+          is_active = true
+      WHERE company_id = ${PHES}
+        AND name = 'Baseboards'
+    `);
+
+    // Windows Standard/Recurring: 12 → 15. Other Windows variants untouched.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET price_value = 15
+      WHERE company_id = ${PHES}
+        AND name = 'Windows (inside panes) — Standard / Recurring'
+        AND price_value <> 15
+    `);
+
+    console.log("[baseboards-windows-parity] Baseboards + Windows brought to MC parity.");
+  } catch (err) {
+    console.error("[baseboards-windows-parity] Migration error (non-fatal):", err);
+  }
+}
+
 async function runDiscountMigration() {
   try {
     const scopeResult = await db.execute(sql`
