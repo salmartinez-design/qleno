@@ -56,40 +56,50 @@ const NAV_SECTIONS = [
       // MULTI_URL_HIGHLIGHT below.
       { title: "Jobs",      url: "/dispatch",  icon: Briefcase },
       { title: "Customers", url: "/customers", icon: Users },
-      { title: "Accounts",       url: "/accounts",   icon: Building2, roles: ["owner", "admin", "office"] },
-      { title: "Employees",      url: "/employees",  icon: UserCheck },
+      { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office"] },
+    ],
+  },
+  {
+    label: "Sales",
+    items: [
+      { title: "Leads",  url: "/leads",  icon: UserPlus,   roles: ["owner", "admin", "office"], badge: "needs_contacted" },
+      { title: "Quotes", url: "/quotes", icon: FileTextIcon, roles: ["owner", "admin", "office"] },
+    ],
+  },
+  {
+    label: "Team",
+    items: [
+      { title: "Employees", url: "/employees", icon: UserCheck },
+      { title: "Payroll",   url: "/payroll",   icon: DollarSign, roles: ["owner", "admin"] },
     ],
   },
   {
     label: "Money",
     items: [
       { title: "Invoices", url: "/invoices", icon: FileText },
-      { title: "Payroll",  url: "/payroll",  icon: DollarSign, roles: ["owner", "admin"] },
-      { title: "Quotes",   url: "/quotes",   icon: FileTextIcon, roles: ["owner", "admin", "office"] },
     ],
   },
   {
-    label: "Grow",
+    label: "Insights",
     items: [
-      { title: "Leads",     url: "/leads",             icon: UserPlus,   roles: ["owner", "admin", "office"], badge: "needs_contacted" },
-      { title: "Reports",   url: "/reports",           icon: BarChart2,  roles: ["owner", "admin", "office"] },
-      { title: "Core KPIs", url: "/reports/insights",  icon: TrendingUp, roles: ["owner", "admin", "office"] },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
+      { title: "Reports",        url: "/reports",                icon: BarChart2,     roles: ["owner", "admin", "office"] },
+      { title: "Core KPIs",      url: "/reports/insights",       icon: TrendingUp,    roles: ["owner", "admin", "office"] },
       { title: "Churn Board",    url: "/intelligence/churn",     icon: AlertTriangle, roles: ["owner", "admin"] },
       { title: "Tech Retention", url: "/intelligence/retention", icon: HeartPulse,    roles: ["owner", "admin"] },
     ],
   },
   {
-    label: "Company",
+    label: "Learning",
     items: [
-      { title: "Settings",        url: "/company",         icon: Settings, roles: ["owner", "admin"] },
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
       { title: "Training",        url: "/training",        icon: GraduationCap },
       { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
+    ],
+  },
+  {
+    label: "Admin",
+    items: [
+      { title: "Settings", url: "/company", icon: Settings, roles: ["owner", "admin"] },
     ],
   },
 ];
