@@ -77,21 +77,49 @@ const inp: React.CSSProperties = {
   boxSizing: "border-box" as const,
 };
 
-const btn = (variant: "primary" | "secondary" | "ghost" | "danger" = "secondary"): React.CSSProperties => ({
-  fontFamily: "'Plus Jakarta Sans', sans-serif",
-  fontSize: 13,
-  fontWeight: 600,
-  borderRadius: 7,
-  padding: "7px 14px",
-  border: "none",
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: 6,
-  background: variant === "primary" ? "var(--brand)" : variant === "danger" ? "#FEE2E2" : variant === "ghost" ? "transparent" : "#F7F6F3",
-  color: variant === "primary" ? "#fff" : variant === "danger" ? "#DC2626" : "#1A1917",
-  transition: "opacity 0.15s",
-});
+const btn = (variant: "primary" | "secondary" | "ghost" | "danger" | "outline" = "secondary"): React.CSSProperties => {
+  // [pricing-restyle] Tab-scoped colors. Primary uses mint #2D9B83 directly
+  // (not var(--brand)) because the global brand token is the legacy blue and
+  // changing it would restyle every primary button across the app. Danger
+  // and outline read as outline buttons — subtle border, transparent fill —
+  // matching the row-action treatment used in other modern Phes screens.
+  const base: React.CSSProperties = {
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 13,
+    fontWeight: 600,
+    borderRadius: 7,
+    padding: "7px 14px",
+    cursor: "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    transition: "background 0.15s, border-color 0.15s, color 0.15s",
+    border: "1px solid transparent",
+  };
+  if (variant === "primary") return { ...base, background: "#2D9B83", color: "#FFFFFF", borderColor: "#2D9B83" };
+  if (variant === "danger") return { ...base, background: "transparent", color: "#DC2626", borderColor: "#FCA5A5" };
+  if (variant === "outline") return { ...base, background: "transparent", color: "#1A1917", borderColor: "#E5E2DC" };
+  if (variant === "ghost") return { ...base, background: "transparent", color: "#1A1917", borderColor: "transparent" };
+  return { ...base, background: "#F7F6F3", color: "#1A1917", borderColor: "#F7F6F3" };
+};
+
+// [pricing-restyle] One-time hover stylesheet keyed off inline-style color
+// hex so we don't have to thread classNames through every button site.
+// `[style*="2D9B83"]` matches buttons where the inline style attribute
+// contains that hex — primary buttons via btn("primary"). Same pattern for
+// outline and danger.
+function ensurePricingButtonStyles() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById("qleno-pricing-btn-styles")) return;
+  const s = document.createElement("style");
+  s.id = "qleno-pricing-btn-styles";
+  s.textContent = `
+    button[style*="2D9B83"]:hover:not(:disabled) { background: #258774 !important; border-color: #258774 !important; }
+    button[style*="FCA5A5"]:hover:not(:disabled) { background: #FEF2F2 !important; }
+    button[style*="E5E2DC"]:hover:not(:disabled) { background: #F7F6F3 !important; }
+  `;
+  document.head.appendChild(s);
+}
 
 function Badge({ children, color = "#6B6860" }: { children: React.ReactNode; color?: string }) {
   return (
@@ -131,6 +159,8 @@ export function PricingTab() {
   const [recurringSubTab, setRecurringSubTab] = useState<"tiers" | "frequencies" | "addons">("tiers");
   const [editingScope, setEditingScope] = useState<number | null>(null);
   const [editForm, setEditForm] = useState({ name: "", scope_group: "", pricing_method: "", hourly_rate: "", minimum_bill: "" });
+
+  useEffect(() => { ensurePricingButtonStyles(); }, []);
 
   const { data: scopes = [] } = useQuery<Scope[]>({ queryKey: ["pricing-scopes"], queryFn: () => apiFetch("/api/pricing/scopes") });
   const RECURRING_IDS = scopes.filter(s => s.scope_group === 'Recurring Cleaning').map(s => s.id);
@@ -1436,8 +1466,8 @@ function CommercialServiceTypesSection() {
                       <button style={btn("ghost")} onClick={() => setEditingId(null)}>Cancel</button>
                     </div>
                   ) : (
-                    <div style={{ display: "inline-flex", gap: 6 }}>
-                      <button style={btn("ghost")} onClick={() => {
+                    <div style={{ display: "inline-flex", gap: 8 }}>
+                      <button style={btn("outline")} onClick={() => {
                         setEditingId(t.id);
                         setEditForm({
                           name: t.name,
