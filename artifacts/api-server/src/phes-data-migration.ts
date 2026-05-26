@@ -393,6 +393,27 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "recurring_schedules.custom_frequency_weeks",
       stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS custom_frequency_weeks INTEGER` },
 
+    // [quote-attachments 2026-05-26] Files attached to a quote's Call
+    // Notes panel — photos clients send, screenshots the office takes,
+    // PDFs. Office-only on the quote screen. After convert-to-job,
+    // assigned techs read them via GET /api/jobs/:id/attachments which
+    // resolves back through quotes.booked_job_id.
+    { label: "CREATE quote_attachments", stmt: `
+      CREATE TABLE IF NOT EXISTS quote_attachments (
+        id           SERIAL PRIMARY KEY,
+        company_id   INTEGER NOT NULL REFERENCES companies(id),
+        quote_id     INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        file_url     TEXT NOT NULL,
+        file_type    TEXT,
+        file_size    INTEGER,
+        uploaded_by  INTEGER REFERENCES users(id),
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_quote_attachments_quote",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_quote_attachments_quote ON quote_attachments(quote_id)` },
+
     // Recurring add-ons junction — parent template for what spawns onto
     // each child job.
     { label: "CREATE recurring_schedule_add_ons", stmt: `
