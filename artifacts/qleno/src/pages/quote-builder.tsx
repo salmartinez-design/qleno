@@ -65,7 +65,8 @@ interface PricingAddon {
 
 interface CalcResult {
   scope_id: number; pricing_method: string; sqft: number | null; frequency: string | null;
-  base_hours: number; hourly_rate: number; base_price: number; minimum_applied: boolean;
+  base_hours: number; addon_hours?: number; total_hours?: number;
+  hourly_rate: number; base_price: number; minimum_applied: boolean;
   minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
   bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
@@ -117,6 +118,17 @@ export default function QuoteBuilderPage() {
 
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // [scroll-on-step 2026-05-27] Snap viewport to top whenever the user
+  // advances or backs up a section. Without this the page keeps its
+  // prior scroll position — the new section's "Next" button sat in view
+  // while the section header was off-screen above, so it looked like the
+  // form had jumped to its bottom. Mobile already did this inline at the
+  // step-button onClick; mirroring it here covers every entry point
+  // (top-tab clicks, programmatic setActiveSection on convert, etc.).
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeSection]);
 
   // ── Section 0: Customer Info ─────────────────────────────────────────────
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
@@ -2420,10 +2432,12 @@ export default function QuoteBuilderPage() {
                           <span>−{s.adjMinusReason || "Adjustment"}</span><span>-${s.adjMinus.toFixed(2)}</span>
                         </div>
                       )}
-                      {/* Estimated hours */}
-                      {(s.hours || s.calc?.base_hours) && (
+                      {/* Estimated hours — total_hours from the backend already includes
+                          add-on time-adds (Oven +45 min, etc). Falls back to base_hours
+                          when the calc hasn't returned yet. */}
+                      {(s.hours || s.calc?.total_hours || s.calc?.base_hours) && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B6860" }}>
-                          <span>Est. hours</span><span>{s.hours || s.calc?.base_hours} hrs</span>
+                          <span>Est. hours</span><span>{s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours} hrs</span>
                         </div>
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
@@ -2433,7 +2447,10 @@ export default function QuoteBuilderPage() {
                       {/* Commission breakdown */}
                       {(() => {
                         const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
-                        const estHrs = s.hours || s.calc?.base_hours || 0;
+                        // [addon-time 2026-05-27] Use total_hours so commission-per-tech
+                        // hours reflect add-on time (e.g. Oven +45 min) just like the
+                        // Est. hours line above.
+                        const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
                         const techCount = selectedTechId ? 1 : 0;
                         const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
@@ -2471,7 +2488,10 @@ export default function QuoteBuilderPage() {
             {/* 2+ scopes — list with hours + commission */}
             {selectedScopes.length >= 2 && (() => {
               const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
-              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.base_hours || 0), 0);
+              // [addon-time 2026-05-27] Sum total_hours so add-on time-adds roll up
+              // into the multi-scope grand total (was summing base_hours and dropping
+              // Oven/Refrigerator/etc. minutes).
+              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0), 0);
               const techCount = selectedTechId ? 1 : 0;
               // [tiered-residential] Per-scope commission so a quote
               // with mixed Standard + Deep Clean shows the right total
@@ -2487,7 +2507,7 @@ export default function QuoteBuilderPage() {
                 <div>
                   {selectedScopes.map(s => {
                     const scope = scopes.find(sc => sc.id === s.scope_id);
-                    const estHrs = s.hours || s.calc?.base_hours || 0;
+                    const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
                     return (
                       <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
