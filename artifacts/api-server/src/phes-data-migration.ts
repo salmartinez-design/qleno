@@ -3377,6 +3377,11 @@ export async function runPhesDataMigration(): Promise<void> {
   // an explicit UPDATE pass).
   await runBaseboardsWindowsParityMigration();
 
+  // [top10-addons 2026-05-27] Seed the top-10 tenant-add-on catalog +
+  // the Oven+Refrigerator bundle for Phes. Idempotent — checks by name
+  // before insert, safe to re-run.
+  await runTop10AddonsAndBundleMigration();
+
   // Run employee-specific migrations
   await runAleCuervoMigration();
 
@@ -3397,6 +3402,161 @@ export async function runPhesDataMigration(): Promise<void> {
 //   2. Windows (inside panes) — Standard / Recurring goes 12% → 15%.
 // Idempotent — UPDATEs converge to the same row regardless of starting
 // state, so safe to re-run on every cold start.
+// [top10-addons 2026-05-27] Seed 10 common tenant-add-on options as
+// INACTIVE for Phes so the office can flip them on per-job from the
+// Pricing & Scopes settings page. Also seeds the Oven+Refrigerator
+// combo bundle as ACTIVE (per Sal — most-requested combo).
+//
+// Idempotent: checks pricing_addons.name uniqueness per company before
+// inserting. Existing rows are not touched (no UPDATE pass — operators
+// may have already customized the price/time after first seed).
+async function runTop10AddonsAndBundleMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const D = scopeMap["Deep Clean"];
+    const MIO = scopeMap["Move In / Move Out"];
+    const S = scopeMap["One-Time Standard Clean"];
+    const R = scopeMap["Recurring Cleaning"];
+    const HD = scopeMap["Hourly Deep Clean"];
+    const HS = scopeMap["Hourly Standard Cleaning"];
+
+    const flatScopes = [D, MIO, S, R].filter(Boolean);
+    const hourlyScopes = [HD, HS].filter(Boolean);
+
+    if (flatScopes.length === 0) {
+      console.log("[top10-addons] No active residential scopes — skipping.");
+      return;
+    }
+
+    // Top-10 catalog. Sort orders 200+ to keep them after existing
+    // add-ons. show_office=true so they appear in Pricing & Scopes
+    // settings; is_active=false so they DON'T appear on quote screens
+    // until Sal flips them on per add-on.
+    const top10: Array<{
+      name: string;
+      price_type: string; price_value: number;
+      time_minutes: number;
+      sort_order: number;
+    }> = [
+      { name: "Laundry (wash + dry + fold)", price_type: "flat", price_value: 30, time_minutes: 60, sort_order: 200 },
+      { name: "Make Beds",                   price_type: "flat", price_value: 10, time_minutes: 10, sort_order: 210 },
+      { name: "Inside Window Tracks",        price_type: "flat", price_value: 20, time_minutes: 30, sort_order: 220 },
+      { name: "Pet Hair / Pet Cleanup",      price_type: "flat", price_value: 25, time_minutes: 30, sort_order: 230 },
+      { name: "Wash Dishes",                 price_type: "flat", price_value: 20, time_minutes: 30, sort_order: 240 },
+      { name: "Patio / Balcony Sweep",       price_type: "flat", price_value: 25, time_minutes: 30, sort_order: 250 },
+      { name: "Inside Microwave",            price_type: "flat", price_value: 15, time_minutes: 15, sort_order: 260 },
+      { name: "Ceiling Fan Dusting",         price_type: "flat", price_value:  5, time_minutes: 15, sort_order: 270 },
+      { name: "Blinds Detail Clean",         price_type: "flat", price_value:  5, time_minutes:  5, sort_order: 280 },
+      { name: "Garage Sweep",                price_type: "flat", price_value: 40, time_minutes: 60, sort_order: 290 },
+    ];
+
+    for (const a of top10) {
+      // Idempotency: skip if a row with this name already exists for Phes.
+      const existing = await db.execute(sql`
+        SELECT id FROM pricing_addons
+         WHERE company_id = ${PHES} AND lower(name) = lower(${a.name}) LIMIT 1
+      `);
+      if (((existing as any).rows ?? []).length > 0) continue;
+
+      const scopeIdsJson = JSON.stringify(flatScopes);
+      const firstScopeId = flatScopes[0];
+      await db.execute(sql`
+        INSERT INTO pricing_addons
+          (company_id, scope_id, name, addon_type, scope_ids,
+           price_type, price_value, time_add_minutes, time_unit,
+           is_itemized, show_office, show_online, show_portal,
+           is_active, sort_order)
+        VALUES
+          (${PHES}, ${firstScopeId}, ${a.name}, 'cleaning_extras', ${scopeIdsJson},
+           ${a.price_type}, ${a.price_value}, ${a.time_minutes}, 'each',
+           true, true, false, false,
+           false, ${a.sort_order})
+      `);
+
+      // Hourly variants — $0 time-only mirror, also inactive by default.
+      if (hourlyScopes.length > 0) {
+        const hourlyName = `${a.name} (Hourly — Time Add)`;
+        const hourlyExists = await db.execute(sql`
+          SELECT id FROM pricing_addons
+           WHERE company_id = ${PHES} AND lower(name) = lower(${hourlyName}) LIMIT 1
+        `);
+        if (((hourlyExists as any).rows ?? []).length === 0) {
+          const hourlyScopeJson = JSON.stringify(hourlyScopes);
+          await db.execute(sql`
+            INSERT INTO pricing_addons
+              (company_id, scope_id, name, addon_type, scope_ids,
+               price_type, price_value, time_add_minutes, time_unit,
+               is_itemized, show_office, show_online, show_portal,
+               is_active, sort_order)
+            VALUES
+              (${PHES}, ${hourlyScopes[0]}, ${hourlyName}, 'cleaning_extras', ${hourlyScopeJson},
+               'time_only', 0, ${a.time_minutes}, 'each',
+               false, true, false, false,
+               false, ${a.sort_order + 1})
+          `);
+        }
+      }
+    }
+    console.log("[top10-addons] Catalog seeded (inactive).");
+
+    // ── Oven + Refrigerator combo bundle (ACTIVE) ─────────────────────
+    // Pulls the canonical Oven Cleaning + Refrigerator Cleaning add-ons
+    // by name. $15 off when both are on the quote. Bundle stays disabled
+    // automatically if either constituent add-on is inactive.
+    const bundleName = "Oven + Refrigerator Combo";
+    const bundleExists = await db.execute(sql`
+      SELECT id FROM addon_bundles
+       WHERE company_id = ${PHES} AND lower(name) = lower(${bundleName}) LIMIT 1
+    `);
+    if (((bundleExists as any).rows ?? []).length > 0) {
+      console.log("[top10-addons] Bundle already present — skipping.");
+      return;
+    }
+
+    const ovenRow = await db.execute(sql`
+      SELECT id FROM pricing_addons
+       WHERE company_id = ${PHES} AND name = 'Oven Cleaning' LIMIT 1
+    `);
+    const fridgeRow = await db.execute(sql`
+      SELECT id FROM pricing_addons
+       WHERE company_id = ${PHES} AND name = 'Refrigerator Cleaning' LIMIT 1
+    `);
+    const ovenId = ((ovenRow as any).rows ?? [])[0]?.id;
+    const fridgeId = ((fridgeRow as any).rows ?? [])[0]?.id;
+    if (!ovenId || !fridgeId) {
+      console.warn("[top10-addons] Oven or Refrigerator add-on missing — bundle skipped.");
+      return;
+    }
+
+    const bundleInsert = await db.execute(sql`
+      INSERT INTO addon_bundles (company_id, name, description, discount_type, discount_value, active)
+      VALUES (${PHES}, ${bundleName}, 'Save $15 when both Oven and Refrigerator cleaning are added.',
+              'flat_total', 15, true)
+      RETURNING id
+    `);
+    const bundleId = ((bundleInsert as any).rows ?? [])[0]?.id;
+    if (!bundleId) {
+      console.warn("[top10-addons] Bundle insert returned no id — items not linked.");
+      return;
+    }
+    await db.execute(sql`
+      INSERT INTO addon_bundle_items (bundle_id, addon_id) VALUES (${bundleId}, ${ovenId})
+    `);
+    await db.execute(sql`
+      INSERT INTO addon_bundle_items (bundle_id, addon_id) VALUES (${bundleId}, ${fridgeId})
+    `);
+    console.log("[top10-addons] Oven + Refrigerator Combo bundle seeded (active).");
+  } catch (err) {
+    console.error("[top10-addons] Migration error (non-fatal):", err);
+  }
+}
+
 async function runBaseboardsWindowsParityMigration() {
   try {
     const scopeResult = await db.execute(sql`

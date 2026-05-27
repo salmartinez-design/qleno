@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Save, X, Check, ToggleLeft, ToggleRight, Trash2, Edit2 } from "lucide-react";
+import { AddonIcon } from "@/lib/addon-icons";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -391,7 +392,12 @@ export function AddonsTab() {
                     <td style={{ ...td, fontWeight: 500 }}>
                       {isEditing
                         ? <input style={{ ...inputStyle, width: 180 }} value={String(editRow.name ?? "")} onChange={e => setEditRow(p => ({ ...p, name: e.target.value }))} />
-                        : addon.name}
+                        : (
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <AddonIcon name={addon.name} size={14} />
+                            {addon.name}
+                          </span>
+                        )}
                     </td>
                     <td style={td}>
                       {isEditing
