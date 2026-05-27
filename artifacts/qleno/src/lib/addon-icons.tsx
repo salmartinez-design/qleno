@@ -1,10 +1,11 @@
 import * as React from "react";
 import {
-  ChefHat,
+  Flame,
   Refrigerator,
-  Archive,
+  LayoutGrid,
   RectangleHorizontal,
-  Layers,
+  AppWindow,
+  Boxes,
   Car,
   Sliders,
   Shirt,
@@ -30,14 +31,22 @@ import {
 // ever ship per-addon icon configuration (column on pricing_addons),
 // route the explicit choice through here and use this map only as the
 // default. Keep the map readable — one row per add-on family.
+// [addon-icons audit 2026-05-27] Replaced the first-pass picks that
+// didn't read intuitively:
+//   Oven    ChefHat   → Flame       (heat source, not a chef hat)
+//   Cabinet Archive   → LayoutGrid  (grid of cabinet doors)
+//   Window  RectHoriz → AppWindow   (literal window icon)
+//   Basement Layers   → Boxes       (storage-room intent)
+// Baseboards keeps RectangleHorizontal — closest match to a long flat
+// board. Window-tracks keeps Frame (frame within a window).
 const ICON_RULES: Array<{ pattern: RegExp; icon: LucideIcon }> = [
-  { pattern: /\boven\b/i,                       icon: ChefHat },
+  { pattern: /\boven\b/i,                       icon: Flame },
   { pattern: /\brefrigerator\b|\bfridge\b/i,    icon: Refrigerator },
-  { pattern: /\bcabinet/i,                      icon: Archive },
+  { pattern: /\bcabinet/i,                      icon: LayoutGrid },
   { pattern: /\bwindow tracks?\b/i,             icon: Frame },
-  { pattern: /\bwindow/i,                       icon: RectangleHorizontal },
+  { pattern: /\bwindow/i,                       icon: AppWindow },
   { pattern: /\bbaseboard/i,                    icon: RectangleHorizontal },
-  { pattern: /\bbasement/i,                     icon: Layers },
+  { pattern: /\bbasement/i,                     icon: Boxes },
   { pattern: /\bparking/i,                      icon: Car },
   { pattern: /manual adjustment|adjustment/i,   icon: Sliders },
   { pattern: /\blaundry|wash.*fold\b/i,         icon: Shirt },
