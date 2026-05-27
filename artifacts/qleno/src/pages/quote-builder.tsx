@@ -231,7 +231,6 @@ export default function QuoteBuilderPage() {
   const [recentServices, setRecentServices] = useState<RecentService[]>([]);
   const [quickBookDismissed, setQuickBookDismissed] = useState(false);
   const [quickBookBanner, setQuickBookBanner] = useState<{ scope: string; date: string } | null>(null);
-  const [quickBookPrice, setQuickBookPrice] = useState<number | null>(null);
   const [hourlyExpanded, setHourlyExpanded] = useState(false);
   const [hourlySubType, setHourlySubType] = useState<string | null>(null);
   const [callNotesOpen, setCallNotesOpen] = useState(false);
@@ -694,10 +693,10 @@ export default function QuoteBuilderPage() {
       pets, dirt_level: dirtLevel,
       addons: cr?.addon_breakdown ?? [],
       discount_code: discountCode || null,
-      base_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.base_price) : null),
+      base_price: cr ? String(cr.base_price) : null,
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
-      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total) : null),
+      total_price: cr ? String(cr.final_total) : null,
       estimated_hours: cr ? String(cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
       hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
@@ -876,7 +875,6 @@ export default function QuoteBuilderPage() {
     setReferralSource("existing_client");
     setQuickBookDismissed(false);
     setQuickBookBanner(null);
-    setQuickBookPrice(null);
     setPreferredTech(null);
     setRecentServices([]);
     // Existing client with an address on file — trust it, skip geocode verification.
@@ -913,7 +911,6 @@ export default function QuoteBuilderPage() {
     setRecentServices([]);
     setQuickBookDismissed(false);
     setQuickBookBanner(null);
-    setQuickBookPrice(null);
     setAddressVerified(null);
     setAddressFormatted("");
     setAddress("");
@@ -932,6 +929,11 @@ export default function QuoteBuilderPage() {
   }
 
   async function handleQuickBook(service: RecentService) {
+    // Quick Re-Book pre-fills scope/frequency/tech from a previous service but
+    // does NOT lock the historical price. Per Sal 2026-05-27: price must always
+    // be calculated fresh from square footage, never pulled from history.
+    // Routes to Property Details (section 2) so the user enters sqft and the
+    // calc engine produces a current price.
     setSelectedScopes([]);
     const matchedScope = scopes.find(s => s.name.toLowerCase().trim() === service.scope.toLowerCase().trim());
     if (matchedScope) {
@@ -939,9 +941,8 @@ export default function QuoteBuilderPage() {
       setFinalScopeId(matchedScope.id);
     }
     if (preferredTech) setSelectedTechId(preferredTech.id);
-    setQuickBookPrice(service.last_price);
     setQuickBookBanner({ scope: service.scope, date: service.last_date });
-    setActiveSection(4);
+    setActiveSection(2);
   }
 
   // ── Highlight-to-push ────────────────────────────────────────────────────
@@ -1642,7 +1643,7 @@ export default function QuoteBuilderPage() {
                 <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>Quick Re-Book</div>
-                    <div style={{ fontSize: 11, color: "#6B6860", marginTop: 1, fontFamily: FF }}>Re-book a previous service at the same price — skips straight to Review</div>
+                    <div style={{ fontSize: 11, color: "#6B6860", marginTop: 1, fontFamily: FF }}>Pre-fill scope and frequency from a previous service — enter square footage to calculate fresh price</div>
                   </div>
                   <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                     {recentServices.map((svc, i) => {
@@ -1664,14 +1665,11 @@ export default function QuoteBuilderPage() {
                         >
                           <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{svc.scope}</div>
                           <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2, fontFamily: FF }}>Last: {lastDate}</div>
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
-                              ${svc.last_price > 0 ? svc.last_price.toLocaleString("en-US") : "\u2014"}
-                            </div>
-                            {freqLabel && (
+                          {freqLabel && (
+                            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}>
                               <span style={{ fontSize: 10, background: "#F0EDE8", color: "#4A4845", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freqLabel}</span>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
