@@ -118,6 +118,17 @@ export default function QuoteBuilderPage() {
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // [scroll-on-step 2026-05-27] Snap viewport to top whenever the user
+  // advances or backs up a section. Without this the page keeps its
+  // prior scroll position — the new section's "Next" button sat in view
+  // while the section header was off-screen above, so it looked like the
+  // form had jumped to its bottom. Mobile already did this inline at the
+  // step-button onClick; mirroring it here covers every entry point
+  // (top-tab clicks, programmatic setActiveSection on convert, etc.).
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeSection]);
+
   // ── Section 0: Customer Info ─────────────────────────────────────────────
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [clientSearch, setClientSearch] = useState("");
