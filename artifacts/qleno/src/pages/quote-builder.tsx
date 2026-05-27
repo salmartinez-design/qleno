@@ -27,6 +27,23 @@ import { calculateCommissionSplit } from "@/lib/commission";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// [counter-unify 2026-05-27] Centralized rule for which add-ons render
+// with the +/- counter UI vs a checkbox. Name-matched (case-insensitive)
+// so it works regardless of slug/scope-id. Kept narrow on purpose —
+// Baseboards and Manual Adjustment intentionally stay as checkboxes
+// because their semantics aren't qty-multiplied (per Sal).
+function isCounterAddon(name: string): boolean {
+  const n = name.toLowerCase();
+  return (
+    n.includes("oven") ||
+    n.includes("refrigerator") ||
+    n.includes("cabinet") ||
+    n.includes("window") ||
+    n.includes("basement") ||
+    n.includes("parking")
+  );
+}
+
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
   const { body, ...rest } = opts;
   const r = await fetch(`${API}${path}`, {
@@ -546,13 +563,22 @@ export default function QuoteBuilderPage() {
       const defaultFreq = (freqs as PricingFrequency[]).find(f =>
         f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single") || f.frequency.toLowerCase().includes("once")
       ) ?? (freqs as PricingFrequency[])[0];
+      // [counter-unify 2026-05-27] Seed qty=1 for any counter-style addon
+      // that came in via addon_ids on quote restore. quote_addons doesn't
+      // persist qty (pre-existing schema gap), so existing drafts would
+      // otherwise show the counter at 0 even though the addon is selected.
+      const seededQtys: Record<number, number> = {};
+      for (const aid of initialState?.addon_ids ?? []) {
+        const a = (addons as PricingAddon[]).find(x => x.id === aid);
+        if (a && isCounterAddon(a.name)) seededQtys[aid] = 1;
+      }
       const newState: SelectedScopeState = {
         scope_id: scope.id,
         frequency: initialState?.frequency ?? defaultFreq?.frequency ?? "",
         hours: initialState?.hours ?? 0,
         hoursOverrideSet: false,
         addon_ids: initialState?.addon_ids ?? [],
-        addonQtys: {},
+        addonQtys: seededQtys,
         addonRecurring: {},
         adjPlus: 0,
         adjPlusReason: "",
@@ -2062,8 +2088,7 @@ export default function QuoteBuilderPage() {
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Add-ons &amp; Discounts</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                           {activeAddons.map(addon => {
-                            const addonNameLc = addon.name.toLowerCase();
-                            const isCounter = addonNameLc.includes("oven") || addonNameLc.includes("refrigerator") || addonNameLc.includes("cabinet");
+                            const isCounter = isCounterAddon(addon.name);
                             const targetScope = primaryScope;
                             const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
                             const priceText = fromCalc
