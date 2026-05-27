@@ -69,6 +69,7 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
   "q-pp-41-parking": 1,
+  "q-pp-42-supply-maintenance": 1,
 
   // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
   // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.
@@ -236,14 +237,14 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
 
   // ── Module 13: supply-kit (10, Phase 9 PR #10) ─────────────────────────
   "q-sk-01-property-of-phes": 1,
-  "q-sk-02-reasonable-wear-vs-negligence": 1,
+  "q-sk-02-supply-pickup-responsibility": 1,
   "q-sk-03-report-damage-promptly": 1,
   "q-sk-04-lost-key-procedure": 1,
-  "q-sk-05-return-at-separation": 1,
+  "q-sk-05-supply-pickup-out-of-supplies": 1,
   "q-sk-06-no-automatic-deduction": 1,
-  "q-sk-07-no-personal-use": 1,
-  "q-sk-08-no-modifications": 1,
-  "q-sk-09-uniform-care": 1,
+  "q-sk-07-supply-pickup-office-hours": 1,
+  "q-sk-08-supply-pickup-not-compensated": 1,
+  "q-sk-09-supply-pickup-planning": 1,
   "q-sk-10-replacement-process": 1,
 });
 

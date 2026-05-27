@@ -304,6 +304,7 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-39-trash-bag-limit": 1,
   "q-pp-40-no-price-discussion": 1,
   "q-pp-41-parking": 1,
+  "q-pp-42-supply-maintenance": 1,
 
   // ── Module 2: compensation (16, alignment with handbook hardening 2026-05-21) ───
   // Dropped q-cm-04/06/10 (duplicates + non-legal); added q-cm-17/18/19
@@ -528,14 +529,14 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   // Collection Act (820 ILCS 115) which requires contemporaneous written
   // authorization for any specific deduction.
   "q-sk-01-property-of-phes": 1,
-  "q-sk-02-reasonable-wear-vs-negligence": 1,
+  "q-sk-02-supply-pickup-responsibility": 1,
   "q-sk-03-report-damage-promptly": 1,
   "q-sk-04-lost-key-procedure": 1,
-  "q-sk-05-return-at-separation": 1,
+  "q-sk-05-supply-pickup-out-of-supplies": 1,
   "q-sk-06-no-automatic-deduction": 1,
-  "q-sk-07-no-personal-use": 1,
-  "q-sk-08-no-modifications": 1,
-  "q-sk-09-uniform-care": 1,
+  "q-sk-07-supply-pickup-office-hours": 1,
+  "q-sk-08-supply-pickup-not-compensated": 1,
+  "q-sk-09-supply-pickup-planning": 1,
   "q-sk-10-replacement-process": 1,
 });
 
@@ -568,6 +569,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-39-trash-bag-limit", "q-pp-40-no-price-discussion",
       // Parking policy (2026-05-22)
       "q-pp-41-parking",
+      // Supply pickup responsibility (2026-05-24)
+      "q-pp-42-supply-maintenance",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
@@ -657,11 +660,11 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-401-09-beneficiary-importance", "q-401-10-opt-out-paths",
     ],
     "supply-kit": [
-      "q-sk-01-property-of-phes", "q-sk-02-reasonable-wear-vs-negligence",
+      "q-sk-01-property-of-phes", "q-sk-02-supply-pickup-responsibility",
       "q-sk-03-report-damage-promptly", "q-sk-04-lost-key-procedure",
-      "q-sk-05-return-at-separation", "q-sk-06-no-automatic-deduction",
-      "q-sk-07-no-personal-use", "q-sk-08-no-modifications",
-      "q-sk-09-uniform-care", "q-sk-10-replacement-process",
+      "q-sk-05-supply-pickup-out-of-supplies", "q-sk-06-no-automatic-deduction",
+      "q-sk-07-supply-pickup-office-hours", "q-sk-08-supply-pickup-not-compensated",
+      "q-sk-09-supply-pickup-planning", "q-sk-10-replacement-process",
     ],
   });
 
