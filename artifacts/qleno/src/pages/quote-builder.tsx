@@ -23,6 +23,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { calculateCommissionSplit } from "@/lib/commission";
+import { AddonIcon } from "@/lib/addon-icons";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -2084,7 +2085,10 @@ export default function QuoteBuilderPage() {
                                 ) : (
                                   <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
                                 )}
-                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF }}>{addon.name}</span>
+                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                                  <AddonIcon name={addon.name} size={13} />
+                                  {addon.name}
+                                </span>
                                 <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
                               </div>
                             );
