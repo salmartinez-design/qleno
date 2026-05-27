@@ -45,6 +45,83 @@ function isCounterAddon(name: string): boolean {
   );
 }
 
+// [translate-job-notes 2026-05-27] Inline "Translate to Spanish" button +
+// expandable Spanish display below the Job Notes textarea. Hits
+// /api/translate (Claude API) — server-side, so the API key stays off the
+// client bundle. Hidden when the textarea is empty so the form doesn't
+// scream "translate" at draft-time.
+function JobNotesTranslate({ text }: { text: string }) {
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset the translation if the source text changes after a translation
+  // — stale output is worse than no output.
+  useEffect(() => { setTranslated(null); setError(null); }, [text]);
+
+  if (!text.trim()) return null;
+
+  async function translate() {
+    setLoading(true); setError(null);
+    try {
+      const result = await apiFetch("/api/translate", { method: "POST", body: { text, target: "es" } });
+      setTranslated(String(result?.translated ?? "").trim() || null);
+    } catch (e: any) {
+      setError(e?.message?.includes("503")
+        ? "Translation isn't configured yet — ask an admin to set ANTHROPIC_API_KEY in Railway."
+        : "Translation failed. Try again in a moment.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copy() {
+    if (!translated) return;
+    try { navigator.clipboard.writeText(translated); } catch { /* ignore */ }
+  }
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <button
+        type="button"
+        onClick={translate}
+        disabled={loading}
+        style={{
+          fontSize: 11, fontWeight: 600, fontFamily: FF,
+          padding: "3px 9px", borderRadius: 6,
+          border: "1px solid #E5E2DC", background: "#FFF", color: "#1A1917",
+          cursor: loading ? "wait" : "pointer", opacity: loading ? 0.6 : 1,
+        }}
+        title="Translate the current Job Notes to Spanish using Claude"
+      >
+        {loading ? "Translating..." : translated ? "Re-translate" : "Translate to Spanish"}
+      </button>
+      {translated && (
+        <button
+          type="button"
+          onClick={copy}
+          style={{ fontSize: 11, fontWeight: 600, fontFamily: FF, padding: "3px 9px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFF", color: "#1A1917", cursor: "pointer" }}
+          title="Copy Spanish to clipboard"
+        >
+          Copy
+        </button>
+      )}
+      {(translated || error) && (
+        <div style={{ flexBasis: "100%" }}>
+          {translated && (
+            <div style={{ marginTop: 6, padding: "8px 10px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 12, color: "#1A1917", fontFamily: FF, whiteSpace: "pre-wrap" }}>
+              {translated}
+            </div>
+          )}
+          {error && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#DC2626", fontFamily: FF }}>{error}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
   const { body, ...rest } = opts;
   const r = await fetch(`${API}${path}`, {
@@ -2153,7 +2230,10 @@ export default function QuoteBuilderPage() {
               {/* Notes section */}
               <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Job Notes</div>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>Job Notes</div>
+                    <JobNotesTranslate text={internalMemo} />
+                  </div>
                   <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to technician.</div>
                   <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Instructions and notes for the technician..." rows={3} className="mt-1 text-sm" />
                   {pushConfirmed && <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>✓ Added from call notes.</p>}
