@@ -3382,6 +3382,13 @@ export async function runPhesDataMigration(): Promise<void> {
   // before insert, safe to re-run.
   await runTop10AddonsAndBundleMigration();
 
+  // [hourly-addon-cleanup 2026-05-27] After the audit, Hourly scopes
+  // should expose exactly 6 add-ons (Oven/Refrigerator/Cabinets/
+  // Windows/Basement/Parking) with ZERO time impact (clients are
+  // already billed by clock-time). Removes Baseboards + the +15%
+  // markup from Hourly, renames the "Time Add" suffix, zeros time.
+  await runHourlyAddonCleanupMigration();
+
   // Run employee-specific migrations
   await runAleCuervoMigration();
 
@@ -3410,6 +3417,82 @@ export async function runPhesDataMigration(): Promise<void> {
 // Idempotent: checks pricing_addons.name uniqueness per company before
 // inserting. Existing rows are not touched (no UPDATE pass — operators
 // may have already customized the price/time after first seed).
+// [hourly-addon-cleanup 2026-05-27] Bring Hourly scopes (Hourly Deep
+// Clean + Hourly Standard Cleaning) in line with Sal's post-audit
+// spec: exactly 6 add-ons (Oven, Refrigerator, Kitchen Cabinets,
+// Windows, Basement, Parking Fee) with ZERO time impact — clients are
+// already paying for clock-time, so a time-add would double-count.
+// Also strips Baseboards (added in MC parity PR) and the +15% Second
+// Appointment markup which don't belong on the Hourly add-on list.
+// Idempotent — UPDATEs converge to the same end-state regardless of
+// starting state.
+async function runHourlyAddonCleanupMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const HD = scopeMap["Hourly Deep Clean"];
+    const HS = scopeMap["Hourly Standard Cleaning"];
+    if (!HD && !HS) {
+      console.log("[hourly-addon-cleanup] No active hourly scopes — skipping.");
+      return;
+    }
+
+    // 1) Zero out time_add_minutes on every Hourly variant, drop the
+    //    "— Time Add" suffix from the name, mirror price = 0 / time = 0.
+    //    Match on the "(Hourly" substring to catch both naming styles.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET time_add_minutes = 0,
+          price_value = 0,
+          price_type = 'time_only',
+          name = regexp_replace(name, '\\s*[—-]\\s*Time Add', '', 'gi')
+      WHERE company_id = ${PHES}
+        AND (name ILIKE '%(Hourly%' OR name ILIKE '%Hourly — Time Add%')
+    `);
+
+    // 2) Strip Baseboards from Hourly scope_ids. The MC parity migration
+    //    put Baseboards on all 8 scopes; Hourly drops it per audit.
+    const flatScopes = [
+      scopeMap["Deep Clean"],
+      scopeMap["Move In / Move Out"],
+      scopeMap["One-Time Standard Clean"],
+      scopeMap["Recurring Cleaning"],
+      scopeMap["Commercial Cleaning"],
+      scopeMap["PPM Turnover"],
+    ].filter(Boolean);
+    if (flatScopes.length > 0) {
+      const flatScopesJson = JSON.stringify(flatScopes);
+      const flatFirst = flatScopes[0];
+      await db.execute(sql`
+        UPDATE pricing_addons
+        SET scope_ids = ${flatScopesJson},
+            scope_id = ${flatFirst}
+        WHERE company_id = ${PHES}
+          AND name = 'Baseboards'
+      `);
+    }
+
+    // 3) Deactivate the "+15% markup" Second Appointment row on HS.
+    //    The discount version (-15%) stays — only the markup is wrong
+    //    for the new Hourly add-on layout.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET is_active = false
+      WHERE company_id = ${PHES}
+        AND name = 'Second Appointment — +15% (markup)'
+    `);
+
+    console.log("[hourly-addon-cleanup] Hourly add-on list aligned (6 items, zero-time).");
+  } catch (err) {
+    console.error("[hourly-addon-cleanup] Migration error (non-fatal):", err);
+  }
+}
+
 async function runTop10AddonsAndBundleMigration() {
   try {
     const scopeResult = await db.execute(sql`
