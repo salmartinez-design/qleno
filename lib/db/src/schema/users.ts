@@ -107,6 +107,17 @@ export const usersTable = pgTable("users", {
   last_login_at: timestamp("last_login_at"),
   crew_id: integer("crew_id"),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
+  // ── Cutover 1A (data backbone) — additive columns for geofence /
+  //    dispatch defaults. The existing address/city/state/zip cover the
+  //    home address; what we add here is the geocoded lat/lng (cached
+  //    once, used by 1C's commute exclusion + mileage logic) plus the
+  //    operator-friendly default-team / default-position labels used by
+  //    the day view (1B) to pre-fill assignment chips. All nullable so
+  //    the additive migration is safe on the existing user rows.
+  home_lat: numeric("home_lat", { precision: 10, scale: 7 }),
+  home_lng: numeric("home_lng", { precision: 10, scale: 7 }),
+  default_team: text("default_team"),
+  default_position: text("default_position"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
