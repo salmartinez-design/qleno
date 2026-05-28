@@ -1042,6 +1042,27 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged BOOLEAN NOT NULL DEFAULT FALSE` },
     { label: "lms_onboarding_intake.vehicle_protocol_acknowledged_at",
       stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged_at TIMESTAMPTZ` },
+
+    // ── Job rate mods (per-job time and fee adjustments) ──────────────────
+    // Layered onto the flat jobs.amount/base_fee: each mod is either a
+    // 'time' adjustment (minutes + computed amount) or a 'flat' fee adjustment.
+    // The route handler recomputes jobs.amount = base_fee + SUM(mods.amount)
+    // on every write.
+    { label: "CREATE job_rate_mods", stmt: `
+      CREATE TABLE IF NOT EXISTS job_rate_mods (
+        id          SERIAL PRIMARY KEY,
+        company_id  INT NOT NULL REFERENCES companies(id),
+        job_id      INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        mod_type    TEXT NOT NULL CHECK (mod_type IN ('time', 'flat')),
+        minutes     INT,
+        amount      NUMERIC(10,2) NOT NULL,
+        reason      TEXT NOT NULL,
+        created_by  INT REFERENCES users(id),
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_job_rate_mods_job",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_job_rate_mods_job ON job_rate_mods(company_id, job_id)` },
   ];
 
   for (const { label, stmt } of guards) {
