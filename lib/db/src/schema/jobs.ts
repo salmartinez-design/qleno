@@ -114,6 +114,30 @@ export const jobsTable = pgTable("jobs", {
   // the edit modal. Cleared when scope/freq/add-ons change AND base_fee is
   // omitted from the patch (recalc pulls a fresh value from pricing engine).
   manual_rate_override: boolean("manual_rate_override").notNull().default(false),
+  // ── Cutover 1A (data backbone) — additive columns ───────────────────────
+  // Scope flags lifted off the MaidCentral worksheet header. 1B (day
+  // view) reads these as chips on the job card; 1C (clock-in) doesn't
+  // touch them; pay logic (later) consumes scope_deep_clean +
+  // scope_first_time_in for surcharge math. All default false so the
+  // additive migration is safe on existing job rows.
+  scope_deep_clean: boolean("scope_deep_clean").notNull().default(false),
+  scope_first_time_in: boolean("scope_first_time_in").notNull().default(false),
+  scope_priority: boolean("scope_priority").notNull().default(false),
+  special_equipment_needed: boolean("special_equipment_needed").notNull().default(false),
+  out_of_rotation: boolean("out_of_rotation").notNull().default(false),
+  // job_kind separates real cleaning visits from office events / meetings
+  // that show up on the same daily timeline. Office events have no
+  // client_id, no scorecard, no commission — just a slot on the day
+  // view with allowed_hours so the tech sees "9:00 AM team huddle, 0.25h".
+  // 1B renders these; later pay/commission logic skips them via this flag.
+  job_kind: text("job_kind").notNull().default("cleaning"),
+  // FK alias to service_types.id. Coexists with the existing
+  // `service_type` (text/enum) column — the enum stays as the historical
+  // source of truth on existing rows, and the FK is populated for new
+  // rows + backfilled in a later migration once every existing slug is
+  // confirmed mapped. The dispatch UI in 1B reads service_type_id when
+  // present and falls back to service_type otherwise.
+  service_type_id: integer("service_type_id"),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });
