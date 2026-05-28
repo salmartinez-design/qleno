@@ -64,6 +64,7 @@ import coreRouter from "./core.js";
 import techRouter from "./tech.js";
 import techClockRouter from "./tech-clock.js";
 import officeClockRouter from "./office-clock.js";
+import opsRouter from "./ops.js";
 import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
@@ -164,6 +165,8 @@ router.use("/core", coreRouter);
 router.use("/tech/jobs", techClockRouter);
 router.use("/tech", techRouter);
 router.use("/office", officeClockRouter);
+// Cutover 1D — office live view (the first demo proof point)
+router.use("/ops", opsRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);
