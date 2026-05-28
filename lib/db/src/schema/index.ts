@@ -113,3 +113,9 @@ export * from "./job_clock_events";
 export * from "./job_worksheet";
 export * from "./technician_notes";
 export * from "./on_my_way_events";
+
+// Cutover 1E (pay summary + export). Provider-neutral pay pipeline:
+// dated rates, periods with lifecycle gates, computed summaries
+// driven by an application-level eligibility filter on clock events,
+// and an adjustments ledger.
+export * from "./pay";

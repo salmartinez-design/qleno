@@ -1,0 +1,818 @@
+/**
+ * Cutover 1E — Pay-period routes (provider-neutral).
+ *
+ * Mounted at /api/pay. Gated to owner / admin / office / super_admin
+ * for reads + adjustments; only owner / admin / super_admin may lock,
+ * approve, unapprove, export, or change rates. Techs receive 403 by
+ * router-level gate.
+ *
+ * Endpoints:
+ *   POST   /periods                       create + auto-compute
+ *   GET    /periods                       list (tenant-scoped)
+ *   GET    /periods/:id                   detail + summaries
+ *   GET    /periods/:id/summary/:userId   per-user detail
+ *   POST   /periods/:id/recompute         re-run summary calc
+ *   POST   /periods/:id/lock              snapshot for review
+ *   POST   /periods/:id/approve           sign off
+ *   POST   /periods/:id/unapprove         (logged)
+ *   POST   /periods/:id/export            generate CSV
+ *   GET    /periods/:id/export-file       download
+ *   POST   /adjustments                   add (refuses if period approved)
+ *   PATCH  /adjustments/:id               edit (refuses if period approved)
+ *   DELETE /adjustments/:id               delete (refuses if period approved)
+ *   POST   /rates                         add a dated rate row
+ *   GET    /rates?userId=                 rate history
+ */
+import { Router, type Request, type Response } from "express";
+import { db } from "@workspace/db";
+import {
+  payPeriodsTable,
+  payPeriodSummariesTable,
+  payAdjustmentsTable,
+  employeePayRatesTable,
+  usersTable,
+  jobClockEventsTable,
+} from "@workspace/db/schema";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { requireAuth, requireRole } from "../lib/auth.js";
+import {
+  computeHoursForUser,
+  minutesToHours,
+  type ClockEventForPay,
+} from "../lib/pay-hours.js";
+import {
+  computeSummary,
+  dollarsToCents,
+  centsToDollarString,
+} from "../lib/pay-summary.js";
+import { pickRateForDate } from "../lib/pay-rate-lookup.js";
+import {
+  buildPayExportCsv,
+  buildPayExportFilename,
+  type PayExportRow,
+} from "../lib/pay-export.js";
+
+const router = Router();
+
+const officeReadGate = requireRole("owner", "admin", "office", "super_admin");
+const adminWriteGate = requireRole("owner", "admin", "super_admin");
+
+router.use(requireAuth, officeReadGate);
+
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function loadPeriod(
+  companyId: number,
+  periodId: number,
+): Promise<typeof payPeriodsTable.$inferSelect | null> {
+  const rows = await db
+    .select()
+    .from(payPeriodsTable)
+    .where(
+      and(
+        eq(payPeriodsTable.company_id, companyId),
+        eq(payPeriodsTable.id, periodId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+function badRequest(res: Response, message: string, code?: string) {
+  return res.status(400).json({ error: "Bad Request", message, code });
+}
+
+function notFound(res: Response, message: string) {
+  return res.status(404).json({ error: "Not Found", message });
+}
+
+function refusedDueToPeriodState(res: Response, status: string) {
+  return res.status(409).json({
+    error: "Conflict",
+    message: `Period is ${status}; required action is not permitted in this state.`,
+    code: "period_state_invalid",
+  });
+}
+
+/** Internal: compute + write the per-user summaries for a period. */
+async function recomputeSummariesForPeriod(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+): Promise<{ written: number }> {
+  // Pull every active employee in this tenant whose hire_date is <=
+  // endDate.
+  const employees = await db
+    .select({
+      id: usersTable.id,
+      hire_date: usersTable.hire_date,
+      is_active: usersTable.is_active,
+    })
+    .from(usersTable)
+    .where(eq(usersTable.company_id, companyId));
+
+  const eligibleEmployees = employees.filter(
+    (e) =>
+      e.is_active &&
+      e.hire_date != null &&
+      String(e.hire_date) <= endDate,
+  );
+  const userIds = eligibleEmployees.map((e) => e.id);
+  if (userIds.length === 0) return { written: 0 };
+
+  // Period boundary timestamps (inclusive start, exclusive end+1 day).
+  const periodStartTs = new Date(`${startDate}T00:00:00Z`);
+  const periodEndTs = new Date(`${endDate}T23:59:59.999Z`);
+
+  // Pull clock events for these users in the period.
+  const events = await db
+    .select({
+      id: jobClockEventsTable.id,
+      job_id: jobClockEventsTable.job_id,
+      user_id: jobClockEventsTable.user_id,
+      event_type: jobClockEventsTable.event_type,
+      event_at: jobClockEventsTable.event_at,
+      gps_status: jobClockEventsTable.gps_status,
+      latitude: jobClockEventsTable.latitude,
+      longitude: jobClockEventsTable.longitude,
+      exception_reason: jobClockEventsTable.exception_reason,
+      exception_reviewed_at: jobClockEventsTable.exception_reviewed_at,
+    })
+    .from(jobClockEventsTable)
+    .where(
+      and(
+        eq(jobClockEventsTable.company_id, companyId),
+        inArray(jobClockEventsTable.user_id, userIds),
+        gte(jobClockEventsTable.event_at, periodStartTs),
+        lte(jobClockEventsTable.event_at, periodEndTs),
+      ),
+    );
+
+  // Rate rows.
+  const rates = await db
+    .select({
+      user_id: employeePayRatesTable.user_id,
+      hourly_rate: employeePayRatesTable.hourly_rate,
+      effective_date: employeePayRatesTable.effective_date,
+      end_date: employeePayRatesTable.end_date,
+    })
+    .from(employeePayRatesTable)
+    .where(
+      and(
+        eq(employeePayRatesTable.company_id, companyId),
+        inArray(employeePayRatesTable.user_id, userIds),
+      ),
+    );
+  const ratesByUser = new Map<number, typeof rates>();
+  for (const r of rates) {
+    const arr = ratesByUser.get(r.user_id) ?? [];
+    arr.push(r);
+    ratesByUser.set(r.user_id, arr);
+  }
+
+  // Adjustments assigned to this period.
+  const adjustments = await db
+    .select({
+      user_id: payAdjustmentsTable.user_id,
+      amount: payAdjustmentsTable.amount,
+    })
+    .from(payAdjustmentsTable)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.pay_period_id, periodId),
+      ),
+    );
+  const adjustmentsByUser = new Map<number, number>();
+  for (const a of adjustments) {
+    const cents = dollarsToCents(a.amount);
+    adjustmentsByUser.set(
+      a.user_id,
+      (adjustmentsByUser.get(a.user_id) ?? 0) + cents,
+    );
+  }
+
+  // Group events by user.
+  const eventsByUser = new Map<number, ClockEventForPay[]>();
+  for (const ev of events) {
+    const arr = eventsByUser.get(ev.user_id) ?? [];
+    arr.push({
+      id: ev.id,
+      job_id: ev.job_id,
+      user_id: ev.user_id,
+      event_type: ev.event_type as "clock_in" | "clock_out",
+      event_at: ev.event_at,
+      gps_status: ev.gps_status,
+      latitude: ev.latitude != null ? Number(ev.latitude) : null,
+      longitude: ev.longitude != null ? Number(ev.longitude) : null,
+      exception_reason: ev.exception_reason,
+      exception_reviewed_at: ev.exception_reviewed_at,
+    });
+    eventsByUser.set(ev.user_id, arr);
+  }
+
+  // Compute + upsert one summary per eligible employee.
+  let written = 0;
+  for (const emp of eligibleEmployees) {
+    const evs = eventsByUser.get(emp.id) ?? [];
+    const hours = computeHoursForUser(evs);
+    const rateRows = ratesByUser.get(emp.id) ?? [];
+    const rate = pickRateForDate(
+      rateRows.map((r) => ({
+        hourly_rate: r.hourly_rate,
+        effective_date: String(r.effective_date),
+        end_date: r.end_date != null ? String(r.end_date) : null,
+      })),
+      endDate,
+    );
+    const flags = new Set(hours.flags);
+    if (rate == null) flags.add("missing_rate");
+    const adjCents = adjustmentsByUser.get(emp.id) ?? 0;
+    const summary = computeSummary({
+      regular_minutes: hours.regular_minutes,
+      overtime_minutes: hours.overtime_minutes,
+      hourly_rate: rate,
+      adjustments_cents: adjCents,
+    });
+    await db
+      .insert(payPeriodSummariesTable)
+      .values({
+        company_id: companyId,
+        pay_period_id: periodId,
+        user_id: emp.id,
+        regular_hours: summary.regular_hours.toFixed(2),
+        overtime_hours: summary.overtime_hours.toFixed(2),
+        regular_pay: centsToDollarString(summary.regular_pay_cents),
+        overtime_pay: centsToDollarString(summary.overtime_pay_cents),
+        adjustments_total: centsToDollarString(summary.adjustments_cents),
+        gross_total: centsToDollarString(summary.gross_cents),
+        flags: Array.from(flags).sort(),
+        computed_at: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [
+          payPeriodSummariesTable.company_id,
+          payPeriodSummariesTable.pay_period_id,
+          payPeriodSummariesTable.user_id,
+        ],
+        set: {
+          regular_hours: summary.regular_hours.toFixed(2),
+          overtime_hours: summary.overtime_hours.toFixed(2),
+          regular_pay: centsToDollarString(summary.regular_pay_cents),
+          overtime_pay: centsToDollarString(summary.overtime_pay_cents),
+          adjustments_total: centsToDollarString(summary.adjustments_cents),
+          gross_total: centsToDollarString(summary.gross_cents),
+          flags: Array.from(flags).sort(),
+          computed_at: new Date(),
+        },
+      });
+    written += 1;
+  }
+
+  return { written };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /periods — create + auto-compute
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/periods", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const body = req.body as { start_date?: string; end_date?: string; notes?: string };
+    if (!body?.start_date || !ISO_DATE_RE.test(body.start_date)) {
+      return badRequest(res, "start_date must be YYYY-MM-DD");
+    }
+    if (!body?.end_date || !ISO_DATE_RE.test(body.end_date)) {
+      return badRequest(res, "end_date must be YYYY-MM-DD");
+    }
+    if (body.end_date < body.start_date) {
+      return badRequest(res, "end_date must be on or after start_date");
+    }
+    const inserted = await db
+      .insert(payPeriodsTable)
+      .values({
+        company_id: companyId,
+        start_date: body.start_date,
+        end_date: body.end_date,
+        notes: body.notes ?? null,
+        created_by_user_id: userId,
+      })
+      .returning();
+    const period = inserted[0]!;
+    await recomputeSummariesForPeriod(
+      companyId,
+      period.id,
+      body.start_date,
+      body.end_date,
+    );
+    return res.json({ data: period });
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "A pay period with that start/end already exists",
+        code: "duplicate_period",
+      });
+    }
+    console.error("[pay] create period error:", err);
+    return res
+      .status(500)
+      .json({ error: "Internal Server Error", message: "Failed to create period" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /periods — list
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/periods", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const rows = await db
+    .select()
+    .from(payPeriodsTable)
+    .where(eq(payPeriodsTable.company_id, companyId))
+    .orderBy(desc(payPeriodsTable.start_date));
+  return res.json({ data: rows });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /periods/:id — detail + summaries
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/periods/:id", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  const summaries = await db
+    .select({
+      id: payPeriodSummariesTable.id,
+      user_id: payPeriodSummariesTable.user_id,
+      first_name: usersTable.first_name,
+      last_name: usersTable.last_name,
+      regular_hours: payPeriodSummariesTable.regular_hours,
+      overtime_hours: payPeriodSummariesTable.overtime_hours,
+      regular_pay: payPeriodSummariesTable.regular_pay,
+      overtime_pay: payPeriodSummariesTable.overtime_pay,
+      adjustments_total: payPeriodSummariesTable.adjustments_total,
+      gross_total: payPeriodSummariesTable.gross_total,
+      flags: payPeriodSummariesTable.flags,
+      computed_at: payPeriodSummariesTable.computed_at,
+    })
+    .from(payPeriodSummariesTable)
+    .leftJoin(usersTable, eq(payPeriodSummariesTable.user_id, usersTable.id))
+    .where(
+      and(
+        eq(payPeriodSummariesTable.company_id, companyId),
+        eq(payPeriodSummariesTable.pay_period_id, periodId),
+      ),
+    )
+    .orderBy(asc(usersTable.last_name), asc(usersTable.first_name));
+  return res.json({ data: { period, summaries } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /periods/:id/summary/:userId — per-user detail
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/periods/:id/summary/:userId", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  const userId = Number(req.params.userId);
+  if (!Number.isFinite(periodId) || !Number.isFinite(userId)) {
+    return badRequest(res, "Invalid ids");
+  }
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+
+  const summaryRows = await db
+    .select()
+    .from(payPeriodSummariesTable)
+    .where(
+      and(
+        eq(payPeriodSummariesTable.company_id, companyId),
+        eq(payPeriodSummariesTable.pay_period_id, periodId),
+        eq(payPeriodSummariesTable.user_id, userId),
+      ),
+    )
+    .limit(1);
+  if (!summaryRows[0]) return notFound(res, "Summary not found");
+
+  const adjustments = await db
+    .select()
+    .from(payAdjustmentsTable)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.pay_period_id, periodId),
+        eq(payAdjustmentsTable.user_id, userId),
+      ),
+    )
+    .orderBy(asc(payAdjustmentsTable.created_at));
+
+  return res.json({
+    data: {
+      summary: summaryRows[0],
+      adjustments,
+    },
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /periods/:id/recompute — only while open
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/periods/:id/recompute", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
+  const result = await recomputeSummariesForPeriod(
+    companyId,
+    periodId,
+    String(period.start_date),
+    String(period.end_date),
+  );
+  return res.json({ data: result });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lifecycle gates: lock → approve → export
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/periods/:id/lock", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
+  await db
+    .update(payPeriodsTable)
+    .set({
+      status: "locked",
+      locked_at: new Date(),
+      locked_by_user_id: userId,
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(payPeriodsTable.company_id, companyId),
+        eq(payPeriodsTable.id, periodId),
+      ),
+    );
+  return res.json({ data: { id: periodId, status: "locked" } });
+});
+
+router.post("/periods/:id/approve", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "locked") return refusedDueToPeriodState(res, period.status);
+  await db
+    .update(payPeriodsTable)
+    .set({
+      status: "approved",
+      approved_at: new Date(),
+      approved_by_user_id: userId,
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(payPeriodsTable.company_id, companyId),
+        eq(payPeriodsTable.id, periodId),
+      ),
+    );
+  return res.json({ data: { id: periodId, status: "approved" } });
+});
+
+router.post("/periods/:id/unapprove", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "approved") return refusedDueToPeriodState(res, period.status);
+  await db
+    .update(payPeriodsTable)
+    .set({
+      status: "locked",
+      approved_at: null,
+      approved_by_user_id: null,
+      updated_at: new Date(),
+    })
+    .where(
+      and(
+        eq(payPeriodsTable.company_id, companyId),
+        eq(payPeriodsTable.id, periodId),
+      ),
+    );
+  console.log(
+    `[pay] period ${periodId} (company ${companyId}) UN-APPROVED by user ${req.auth!.userId}`,
+  );
+  return res.json({ data: { id: periodId, status: "locked" } });
+});
+
+router.post("/periods/:id/export", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "approved" && period.status !== "exported") {
+    return refusedDueToPeriodState(res, period.status);
+  }
+
+  const rows = await buildExportRowsForPeriod(companyId, periodId);
+  const csv = buildPayExportCsv({
+    period_start: String(period.start_date),
+    period_end: String(period.end_date),
+    rows,
+  });
+  const filename = buildPayExportFilename(
+    String(period.start_date),
+    String(period.end_date),
+  );
+
+  if (period.status !== "exported") {
+    await db
+      .update(payPeriodsTable)
+      .set({
+        status: "exported",
+        exported_at: new Date(),
+        exported_by_user_id: userId,
+        updated_at: new Date(),
+      })
+      .where(
+        and(
+          eq(payPeriodsTable.company_id, companyId),
+          eq(payPeriodsTable.id, periodId),
+        ),
+      );
+  }
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${filename}"`,
+  );
+  return res.send(csv);
+});
+
+router.get("/periods/:id/export-file", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "exported") {
+    return refusedDueToPeriodState(res, period.status);
+  }
+  const rows = await buildExportRowsForPeriod(companyId, periodId);
+  const csv = buildPayExportCsv({
+    period_start: String(period.start_date),
+    period_end: String(period.end_date),
+    rows,
+  });
+  const filename = buildPayExportFilename(
+    String(period.start_date),
+    String(period.end_date),
+  );
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="${filename}"`,
+  );
+  return res.send(csv);
+});
+
+async function buildExportRowsForPeriod(
+  companyId: number,
+  periodId: number,
+): Promise<PayExportRow[]> {
+  const rows = await db
+    .select({
+      user_id: payPeriodSummariesTable.user_id,
+      first_name: usersTable.first_name,
+      last_name: usersTable.last_name,
+      external_id: usersTable.id, // External identifier hook; tenants
+      // wanting a separate external ID can store it in a tenant-defined
+      // user field and we'd swap this column. Defaulting to user.id
+      // keeps the export deterministic.
+      regular_hours: payPeriodSummariesTable.regular_hours,
+      overtime_hours: payPeriodSummariesTable.overtime_hours,
+      regular_pay: payPeriodSummariesTable.regular_pay,
+      overtime_pay: payPeriodSummariesTable.overtime_pay,
+      adjustments_total: payPeriodSummariesTable.adjustments_total,
+      gross_total: payPeriodSummariesTable.gross_total,
+    })
+    .from(payPeriodSummariesTable)
+    .leftJoin(usersTable, eq(payPeriodSummariesTable.user_id, usersTable.id))
+    .where(
+      and(
+        eq(payPeriodSummariesTable.company_id, companyId),
+        eq(payPeriodSummariesTable.pay_period_id, periodId),
+      ),
+    )
+    .orderBy(asc(usersTable.last_name), asc(usersTable.first_name));
+  return rows.map((r) => ({
+    employee_identifier: String(r.external_id ?? r.user_id),
+    employee_first_name: r.first_name ?? "",
+    employee_last_name: r.last_name ?? "",
+    regular_hours: Number(r.regular_hours),
+    overtime_hours: Number(r.overtime_hours),
+    regular_pay_cents: dollarsToCents(r.regular_pay),
+    overtime_pay_cents: dollarsToCents(r.overtime_pay),
+    adjustments_cents: dollarsToCents(r.adjustments_total),
+    gross_cents: dollarsToCents(r.gross_total),
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Adjustments
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/adjustments", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const body = req.body as {
+    user_id?: number;
+    pay_period_id?: number | null;
+    adjustment_type?: string;
+    amount?: number | string;
+    note?: string | null;
+  };
+  if (!body?.user_id || !Number.isFinite(Number(body.user_id))) {
+    return badRequest(res, "user_id is required");
+  }
+  const type = (body?.adjustment_type ?? "").trim();
+  if (!type) return badRequest(res, "adjustment_type is required");
+  if (body?.amount == null || !Number.isFinite(Number(body.amount))) {
+    return badRequest(res, "amount is required");
+  }
+  if (body.pay_period_id != null) {
+    const period = await loadPeriod(companyId, Number(body.pay_period_id));
+    if (!period) return notFound(res, "Period not found");
+    if (period.status === "approved" || period.status === "exported") {
+      return refusedDueToPeriodState(res, period.status);
+    }
+  }
+  const inserted = await db
+    .insert(payAdjustmentsTable)
+    .values({
+      company_id: companyId,
+      pay_period_id:
+        body.pay_period_id != null ? Number(body.pay_period_id) : null,
+      user_id: Number(body.user_id),
+      adjustment_type: type,
+      amount: Number(body.amount).toFixed(2),
+      note: body.note ?? null,
+      created_by_user_id: userId,
+    })
+    .returning();
+  return res.json({ data: inserted[0] });
+});
+
+router.patch("/adjustments/:id", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return badRequest(res, "Invalid id");
+  const existing = await db
+    .select()
+    .from(payAdjustmentsTable)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.id, id),
+      ),
+    )
+    .limit(1);
+  if (!existing[0]) return notFound(res, "Adjustment not found");
+  if (existing[0].pay_period_id != null) {
+    const period = await loadPeriod(companyId, existing[0].pay_period_id);
+    if (period && (period.status === "approved" || period.status === "exported")) {
+      return refusedDueToPeriodState(res, period.status);
+    }
+  }
+  const body = req.body as {
+    adjustment_type?: string;
+    amount?: number | string;
+    note?: string | null;
+  };
+  const updates: Partial<typeof payAdjustmentsTable.$inferInsert> = {
+    updated_at: new Date(),
+  };
+  if (body.adjustment_type != null) updates.adjustment_type = body.adjustment_type;
+  if (body.amount != null) updates.amount = Number(body.amount).toFixed(2);
+  if (body.note !== undefined) updates.note = body.note;
+  await db
+    .update(payAdjustmentsTable)
+    .set(updates)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.id, id),
+      ),
+    );
+  return res.json({ data: { id, updated: true } });
+});
+
+router.delete("/adjustments/:id", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return badRequest(res, "Invalid id");
+  const existing = await db
+    .select()
+    .from(payAdjustmentsTable)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.id, id),
+      ),
+    )
+    .limit(1);
+  if (!existing[0]) return notFound(res, "Adjustment not found");
+  if (existing[0].pay_period_id != null) {
+    const period = await loadPeriod(companyId, existing[0].pay_period_id);
+    if (period && (period.status === "approved" || period.status === "exported")) {
+      return refusedDueToPeriodState(res, period.status);
+    }
+  }
+  await db
+    .delete(payAdjustmentsTable)
+    .where(
+      and(
+        eq(payAdjustmentsTable.company_id, companyId),
+        eq(payAdjustmentsTable.id, id),
+      ),
+    );
+  return res.json({ data: { id, deleted: true } });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Rates
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post("/rates", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const actingUserId = req.auth!.userId!;
+  const body = req.body as {
+    user_id?: number;
+    hourly_rate?: number | string;
+    effective_date?: string;
+  };
+  if (!body?.user_id || !Number.isFinite(Number(body.user_id))) {
+    return badRequest(res, "user_id is required");
+  }
+  if (body?.hourly_rate == null || !Number.isFinite(Number(body.hourly_rate))) {
+    return badRequest(res, "hourly_rate is required");
+  }
+  if (!body?.effective_date || !ISO_DATE_RE.test(body.effective_date)) {
+    return badRequest(res, "effective_date must be YYYY-MM-DD");
+  }
+  const inserted = await db
+    .insert(employeePayRatesTable)
+    .values({
+      company_id: companyId,
+      user_id: Number(body.user_id),
+      hourly_rate: Number(body.hourly_rate).toFixed(2),
+      effective_date: body.effective_date,
+      created_by_user_id: actingUserId,
+    })
+    .returning();
+  return res.json({ data: inserted[0] });
+});
+
+router.get("/rates", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = Number(req.query.userId ?? NaN);
+  if (!Number.isFinite(userId)) return badRequest(res, "userId is required");
+  const rows = await db
+    .select()
+    .from(employeePayRatesTable)
+    .where(
+      and(
+        eq(employeePayRatesTable.company_id, companyId),
+        eq(employeePayRatesTable.user_id, userId),
+      ),
+    )
+    .orderBy(desc(employeePayRatesTable.effective_date));
+  return res.json({ data: rows });
+});
+
+export default router;
