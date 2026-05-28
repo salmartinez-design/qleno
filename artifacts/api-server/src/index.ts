@@ -2,6 +2,7 @@ import app from "./app";
 import { seedIfNeeded } from "./seed";
 import { startRecurringJobCron } from "./lib/recurring-jobs";
 import { runPhesDataMigration } from "./phes-data-migration";
+import { runCutoverDataMigration } from "./cutover-data-migration";
 import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
@@ -151,6 +152,11 @@ async function startup() {
     await runPhesDataMigration();
   } catch (err: any) {
     console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+  }
+  try {
+    await runCutoverDataMigration();
+  } catch (err: any) {
+    console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
   }
   try {
     const r = await runLmsCompletionBackfill();

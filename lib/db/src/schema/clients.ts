@@ -91,6 +91,12 @@ export const clientsTable = pgTable("clients", {
   // by recurring_schedules.parking_fee_enabled or a manual modal toggle.
   parking_fee_enabled: boolean("parking_fee_enabled").notNull().default(false),
   parking_fee_amount: numeric("parking_fee_amount", { precision: 10, scale: 2 }),
+  // Cutover 1C — per-client opt-in/out for on-my-way SMS. Tenant-level
+  // gating via companies.sms_on_my_way_enabled still wins; this is the
+  // client's per-record preference. Default true (most clients want
+  // the heads-up); office flips false when a specific client asks not
+  // to receive them.
+  wants_on_my_way_notifications: boolean("wants_on_my_way_notifications").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

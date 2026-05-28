@@ -103,3 +103,13 @@ export * from "./lms-settings";
 // insurance for techs who drive, languages, preferred name + pronouns.
 // Multi-tenant via company_id; one row per (company_id, user_id).
 export * from "./lms-onboarding-intake";
+
+// Cutover 1C (execution engine). Clock events carry the GPS integrity
+// guarantees enforced both at the route layer and via the CHECK
+// constraint installed by cutover-data-migration.ts. Worksheet +
+// technician notes + on-my-way events round out the per-job working
+// surface that the tech writes to during a shift.
+export * from "./job_clock_events";
+export * from "./job_worksheet";
+export * from "./technician_notes";
+export * from "./on_my_way_events";
