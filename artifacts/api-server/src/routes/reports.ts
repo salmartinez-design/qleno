@@ -124,6 +124,20 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     // stamped at completion.
     const effectiveAmount = sql`coalesce(billed_amount, base_fee)`;
 
+    // [revenue] Match MaidCentral semantics: include every job scheduled in
+    // the window regardless of completion status. The previous filter
+    // (`status = 'complete'`) hid ~$15.9K of April revenue — cancelled +
+    // scheduled + in_progress jobs that still represent booked work and
+    // carry real dollar values. Cancelled jobs may carry a cancellation
+    // fee on base_fee; if a customer truly owes nothing the row should
+    // be base_fee=0 (or the job deleted), not silently excluded.
+    //
+    // Pass `?status=complete` to get the legacy cash-recognized-only view.
+    const statusFilter = (req.query.status as string) || "all";
+    const statusCond = statusFilter === "all"
+      ? sql`true`
+      : sql`status = ${statusFilter}`;
+
     const trend = await db.execute(sql`
       SELECT
         ${groupExpr} AS period,
@@ -133,7 +147,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         coalesce(sum(allowed_hours), 0) AS allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
-        AND status = 'complete'
+        AND ${statusCond}
         AND scheduled_date BETWEEN ${fromStr} AND ${toStr}
       GROUP BY 1
       ORDER BY 1
@@ -147,7 +161,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         coalesce(sum(allowed_hours), 0) AS total_allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
-        AND status = 'complete'
+        AND ${statusCond}
         AND scheduled_date BETWEEN ${fromStr} AND ${toStr}
     `);
 
