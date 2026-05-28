@@ -2566,17 +2566,89 @@ router.patch("/:id", requireAuth, async (req, res) => {
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const role = req.auth!.role;
+    const force = req.query.force === "true";
+
+    // Force-delete branch: admin/owner can wipe a completed job's clock entries
+    // and then delete the job in a single transaction.
+    if (force) {
+      if (role !== "owner" && role !== "admin") {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Only owner or admin can force-delete a job",
+        });
+      }
+      const [existing] = await db
+        .select({ id: jobsTable.id, status: jobsTable.status })
+        .from(jobsTable)
+        .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+        .limit(1);
+      if (!existing) {
+        return res.status(404).json({ error: "Not Found", message: "Job not found" });
+      }
+      if (existing.status !== "complete") {
+        return res.status(409).json({
+          error: "Conflict",
+          message: "force=true only allowed on completed jobs",
+        });
+      }
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
+        await tx
+          .delete(jobsTable)
+          .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+      });
+      logAudit(req, "DELETE", "job", jobId, null, { force: true });
+      return res.json({ success: true, message: "Job and clock entries deleted" });
+    }
+
     await db
       .delete(jobsTable)
       .where(and(
         eq(jobsTable.id, jobId),
-        eq(jobsTable.company_id, req.auth!.companyId)
+        eq(jobsTable.company_id, companyId)
       ));
     logAudit(req, "DELETE", "job", jobId, null, null);
     return res.json({ success: true, message: "Job deleted" });
   } catch (err) {
     console.error("Delete job error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete job" });
+  }
+});
+
+// DELETE /api/jobs/:id/clock-entries — wipe all clock entries on a job
+// (admin/owner only). Useful before deleting a completed job.
+router.delete("/:id/clock-entries", requireAuth, async (req, res) => {
+  try {
+    const role = req.auth!.role;
+    if (role !== "owner" && role !== "admin") {
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "Only owner or admin can delete clock entries",
+      });
+    }
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+
+    const [existing] = await db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .limit(1);
+    if (!existing) {
+      return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    }
+
+    const result = await db.execute(sql`
+      DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}
+    `);
+    const deleted = (result as any).rowCount ?? 0;
+    logAudit(req, "DELETE", "clock_entries", jobId, null, { count: deleted });
+    return res.json({ success: true, deleted });
+  } catch (err) {
+    console.error("Delete clock entries error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete clock entries" });
   }
 });
 
@@ -4121,6 +4193,134 @@ router.get("/v2/export", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("GET /jobs/v2/export error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Job rate mods ────────────────────────────────────────────────────────────
+// Per-job time and fee adjustments layered on top of jobs.base_fee.
+//   - mod_type='time': minutes is required; amount is the computed dollar adjustment
+//   - mod_type='flat': minutes ignored; amount is the dollar adjustment (+ or -)
+// After every write the route recomputes billed_amount = base_fee + SUM(mods.amount).
+// billed_amount is the field every downstream surface (invoicing, payroll commission,
+// revenue rollups, manual charge) reads via COALESCE(billed_amount, base_fee), so
+// pushing the post-mod total there flows through automatically.
+
+async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
+  const [job] = await db
+    .select({ base_fee: jobsTable.base_fee })
+    .from(jobsTable)
+    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+    .limit(1);
+  if (!job) return 0;
+  const base = parseFloat(String(job.base_fee || "0"));
+  const sumRows = await db.execute(sql`
+    SELECT COALESCE(SUM(amount), 0)::numeric AS total
+    FROM job_rate_mods
+    WHERE job_id = ${jobId} AND company_id = ${companyId}
+  `);
+  const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
+  const newBilled = base + modsTotal;
+  await db
+    .update(jobsTable)
+    .set({ billed_amount: newBilled.toFixed(2) })
+    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+  return newBilled;
+}
+
+// GET /api/jobs/:id/rate-mods — list all mods on a job
+router.get("/:id/rate-mods", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT m.id, m.mod_type, m.minutes, m.amount, m.reason,
+             m.created_by, m.created_at,
+             concat(u.first_name, ' ', u.last_name) AS created_by_name
+      FROM job_rate_mods m
+      LEFT JOIN users u ON u.id = m.created_by
+      WHERE m.job_id = ${jobId} AND m.company_id = ${companyId}
+      ORDER BY m.created_at ASC
+    `);
+    return res.json({ mods: rows.rows });
+  } catch (err) {
+    console.error("GET /jobs/:id/rate-mods error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list rate mods" });
+  }
+});
+
+// POST /api/jobs/:id/rate-mods — add a mod
+router.post("/:id/rate-mods", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
+    const { mod_type, minutes, amount, reason } = req.body ?? {};
+
+    if (mod_type !== "time" && mod_type !== "flat") {
+      return res.status(400).json({ error: "Bad Request", message: "mod_type must be 'time' or 'flat'" });
+    }
+    if (mod_type === "time" && (minutes === undefined || minutes === null || Number.isNaN(Number(minutes)))) {
+      return res.status(400).json({ error: "Bad Request", message: "minutes is required for mod_type='time'" });
+    }
+    const amt = Number(amount);
+    if (Number.isNaN(amt)) {
+      return res.status(400).json({ error: "Bad Request", message: "amount must be numeric" });
+    }
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({ error: "Bad Request", message: "reason is required" });
+    }
+
+    const [existing] = await db
+      .select({ id: jobsTable.id })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .limit(1);
+    if (!existing) {
+      return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    }
+
+    const insert = await db.execute(sql`
+      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by)
+      VALUES (
+        ${companyId}, ${jobId}, ${mod_type},
+        ${mod_type === "time" ? Number(minutes) : null},
+        ${amt.toFixed(2)}, ${reason.trim()}, ${userId}
+      )
+      RETURNING id, mod_type, minutes, amount, reason, created_by, created_at
+    `);
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    logAudit(req, "CREATE", "job_rate_mod", jobId, null, { mod_type, minutes, amount: amt });
+    return res.status(201).json({
+      mod: insert.rows[0],
+      billed_amount: newBilled.toFixed(2),
+    });
+  } catch (err) {
+    console.error("POST /jobs/:id/rate-mods error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to add rate mod" });
+  }
+});
+
+// DELETE /api/jobs/:id/rate-mods/:modId — remove a mod
+router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const modId = parseInt(req.params.modId);
+    const companyId = req.auth!.companyId;
+
+    const result = await db.execute(sql`
+      DELETE FROM job_rate_mods
+      WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId}
+    `);
+    const deleted = (result as any).rowCount ?? 0;
+    if (!deleted) {
+      return res.status(404).json({ error: "Not Found", message: "Rate mod not found" });
+    }
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    logAudit(req, "DELETE", "job_rate_mod", modId, null, null);
+    return res.json({ success: true, billed_amount: newBilled.toFixed(2) });
+  } catch (err) {
+    console.error("DELETE /jobs/:id/rate-mods/:modId error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete rate mod" });
   }
 });
 
