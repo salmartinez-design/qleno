@@ -62,6 +62,8 @@ import commercialServiceTypesRouter from "./commercial-service-types.js";
 import serviceTypesRouter from "./service-types.js";
 import coreRouter from "./core.js";
 import techRouter from "./tech.js";
+import techClockRouter from "./tech-clock.js";
+import officeClockRouter from "./office-clock.js";
 import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
@@ -155,7 +157,13 @@ router.use("/pricing", pricingRouter);
 router.use("/commercial-service-types", commercialServiceTypesRouter);
 router.use("/service-types", serviceTypesRouter);
 router.use("/core", coreRouter);
+// Cutover 1B — tech day view (read-only timeline at /api/tech/today)
+// Cutover 1C — execution engine at /api/tech/jobs/:jobId/* and office
+// correction/exception review at /api/office/*. Mount the more
+// specific /tech/jobs path BEFORE /tech so Express dispatches correctly.
+router.use("/tech/jobs", techClockRouter);
 router.use("/tech", techRouter);
+router.use("/office", officeClockRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);
