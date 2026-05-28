@@ -116,12 +116,20 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
       : groupBy === "week" ? sql`to_char(date_trunc('week', ${jobsTable.scheduled_date}::date), 'YYYY-MM-DD')`
       : sql`${jobsTable.scheduled_date}::text`;
 
+    // [revenue] Pick the effective per-job amount via the canonical waterfall
+    // used elsewhere in the codebase (clients.ts revenue rollups, payroll
+    // commission, manual charge): billed_amount when set (covers job rate
+    // mods + completion-time overrides), else base_fee. Summing base_fee
+    // alone would miss rate-mod adjustments and ignore any billed_amount
+    // stamped at completion.
+    const effectiveAmount = sql`coalesce(billed_amount, base_fee)`;
+
     const trend = await db.execute(sql`
       SELECT
         ${groupExpr} AS period,
         count(*) AS job_count,
-        coalesce(sum(base_fee), 0) AS revenue,
-        coalesce(avg(base_fee), 0) AS avg_per_job,
+        coalesce(sum(${effectiveAmount}), 0) AS revenue,
+        coalesce(avg(${effectiveAmount}), 0) AS avg_per_job,
         coalesce(sum(allowed_hours), 0) AS allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
@@ -134,8 +142,8 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const summary = await db.execute(sql`
       SELECT
         count(*) AS job_count,
-        coalesce(sum(base_fee), 0) AS total_revenue,
-        coalesce(avg(base_fee), 0) AS avg_job_value,
+        coalesce(sum(${effectiveAmount}), 0) AS total_revenue,
+        coalesce(avg(${effectiveAmount}), 0) AS avg_job_value,
         coalesce(sum(allowed_hours), 0) AS total_allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
@@ -147,7 +155,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     const monthStart = dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const monthEnd   = dateStr(new Date(now.getFullYear(), now.getMonth() + 1, 0));
     const projected  = await db.execute(sql`
-      SELECT coalesce(sum(base_fee), 0) AS projected
+      SELECT coalesce(sum(${effectiveAmount}), 0) AS projected
       FROM jobs
       WHERE company_id = ${companyId} AND status IN ('scheduled','in_progress','complete')
         AND scheduled_date BETWEEN ${monthStart} AND ${monthEnd}

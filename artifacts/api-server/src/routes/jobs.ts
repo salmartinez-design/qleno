@@ -2587,20 +2587,27 @@ router.delete("/:id", requireAuth, async (req, res) => {
       if (!existing) {
         return res.status(404).json({ error: "Not Found", message: "Job not found" });
       }
-      if (existing.status !== "complete") {
+      // Allow on any non-active status. in_progress jobs have a tech actively
+      // on-site (clock-in in flight); deleting under them produces UI ghosts
+      // and confused techs — that one stays gated.
+      if (existing.status === "in_progress") {
         return res.status(409).json({
           error: "Conflict",
-          message: "force=true only allowed on completed jobs",
+          message: "force=true is not allowed on in-progress jobs",
         });
       }
       await db.transaction(async (tx) => {
+        // Cascade child rows that FK to jobs.id with ON DELETE NO ACTION.
+        // Tables with ON DELETE CASCADE (job_audit_log, job_rate_mods,
+        // job_technicians) drop automatically with the parent row.
         await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
+        await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
         await tx
           .delete(jobsTable)
           .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
       });
       logAudit(req, "DELETE", "job", jobId, null, { force: true });
-      return res.json({ success: true, message: "Job and clock entries deleted" });
+      return res.json({ success: true, message: "Job, clock entries, and add-ons deleted" });
     }
 
     await db
