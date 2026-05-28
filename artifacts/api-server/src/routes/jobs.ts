@@ -2602,6 +2602,9 @@ router.delete("/:id", requireAuth, async (req, res) => {
         // job_technicians) drop automatically with the parent row.
         await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
         await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+        // Soft links — keep the parent row, sever the back-reference. The
+        // quote that converted into this job (if any) survives the deletion.
+        await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
         await tx
           .delete(jobsTable)
           .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
