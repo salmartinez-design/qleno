@@ -4,15 +4,15 @@
  * Runs once per cold start (idempotent). Mirrors phes-data-migration's
  * pattern but scoped to the MaidCentral cutover pieces (1A onward).
  *
- * Currently does ONE thing — installs the integrity CHECK constraint
- * on job_clock_events (1C). The constraint is the legal backbone of
- * the wage record; without it the route layer would be the only line
- * of defense and a future direct-INSERT (admin tool, script, migration
- * helper) could silently produce a bad row. With it, the bad shape is
- * rejected by the database itself.
- *
- * The constraint name + SQL text come from the schema file so the
- * runtime SQL and the test assertion read the same string.
+ * Today it does three things:
+ *   1C. Installs the integrity CHECK constraint on job_clock_events
+ *       (the legal backbone of the wage record).
+ *   2A. Backs out the first-cut 2A schema (structured mileage columns
+ *       + partial unique index on pay_adjustments). Those moved to
+ *       the new mileage_legs table where they belong.
+ *   2A. Seeds an initial mileage_rates row from companies.mileage_rate
+ *       for every tenant that has no rate row yet, so the dated rate
+ *       table starts populated and past behavior is preserved.
  */
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
@@ -28,61 +28,118 @@ export async function runCutoverDataMigration(): Promise<void> {
     console.error("[cutover-migration] failed (non-fatal):", err);
   }
   try {
-    await runMileageAdjustmentUniqueIndex();
+    await backoutFirstCut2AMileageOnPayAdjustments();
   } catch (err) {
-    console.error("[cutover-migration] mileage idx failed (non-fatal):", err);
+    console.error(
+      "[cutover-migration] 2A back-out (pay_adjustments) failed (non-fatal):",
+      err,
+    );
+  }
+  try {
+    await seedMileageRatesFromCompaniesScalar();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] mileage_rates seed failed (non-fatal):",
+      err,
+    );
   }
 }
 
 /**
- * Cutover 2A — partial unique index on
- * (company_id, source_on_my_way_event_id) WHERE
- * adjustment_type = 'mileage' AND source_on_my_way_event_id IS NOT NULL.
- *
- * Stops a recompute from double-writing the same leg as two mileage
- * adjustment rows. Drizzle-kit cannot express partial uniqueness
- * directly, so we install it via runtime SQL with the same idempotent
- * pattern as the CHECK constraint above.
+ * Cutover 2A (corrective) — back out the first-cut mileage shape from
+ * pay_adjustments. The first 2A added 8 columns + a partial unique
+ * index on pay_adjustments for adjustment_type='mileage' rows; the
+ * corrective version moved all of that to mileage_legs, where a
+ * computed-but-not-applied lifecycle exists. Safe to drop because no
+ * production data uses the columns yet (mileage hasn't been computed
+ * against a real period; the office workflow wasn't shipped).
  */
-const MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME =
+const PAY_ADJUSTMENTS_OLD_MILEAGE_INDEX_NAME =
   "pay_adjustments_mileage_source_uq";
+const PAY_ADJUSTMENTS_OLD_MILEAGE_COLUMNS = [
+  "source_on_my_way_event_id",
+  "from_job_id",
+  "to_job_id",
+  "miles",
+  "minutes",
+  "rate_per_mile",
+  "measurement_source",
+  "measurement_is_estimated",
+];
 
-async function runMileageAdjustmentUniqueIndex(): Promise<void> {
-  await db.execute(sql.raw(`
+async function backoutFirstCut2AMileageOnPayAdjustments(): Promise<void> {
+  // Drop the partial unique index. IF EXISTS keeps this idempotent
+  // across deploys whether or not the first 2A ever landed in this
+  // tenant's DB.
+  await db.execute(
+    sql.raw(`
+    DROP INDEX IF EXISTS public.${PAY_ADJUSTMENTS_OLD_MILEAGE_INDEX_NAME};
+  `),
+  );
+  for (const col of PAY_ADJUSTMENTS_OLD_MILEAGE_COLUMNS) {
+    await db.execute(
+      sql.raw(`
+      ALTER TABLE IF EXISTS public.pay_adjustments
+        DROP COLUMN IF EXISTS ${col};
+    `),
+    );
+  }
+}
+
+/**
+ * Cutover 2A (corrective) — seed mileage_rates row 1 from
+ * companies.mileage_rate. Runs idempotently: only inserts when the
+ * tenant has zero rate rows. effective_date defaults to a far-past
+ * date so the seeded row covers every historical period.
+ *
+ * Future rate changes happen via INSERTs to mileage_rates, NOT by
+ * editing companies.mileage_rate. The scalar stays on companies for
+ * backwards-compatibility (other parts of the codebase may read it
+ * for display) but is no longer the source of truth for pay.
+ */
+async function seedMileageRatesFromCompaniesScalar(): Promise<void> {
+  await db.execute(
+    sql.raw(`
     DO $$
     BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = 'pay_adjustments'
+        WHERE table_schema = 'public' AND table_name = 'mileage_rates'
       ) THEN
-        RAISE NOTICE 'cutover-migration: pay_adjustments not present yet, skipping mileage idx';
+        RAISE NOTICE 'cutover-migration: mileage_rates not present yet, skipping seed';
         RETURN;
       END IF;
       IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'pay_adjustments'
-          AND column_name = 'source_on_my_way_event_id'
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'companies'
       ) THEN
-        RAISE NOTICE 'cutover-migration: source_on_my_way_event_id column not present yet, skipping mileage idx';
+        RAISE NOTICE 'cutover-migration: companies not present yet, skipping seed';
         RETURN;
       END IF;
-      IF EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE schemaname = 'public'
-          AND indexname = '${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME}'
-      ) THEN
-        RAISE NOTICE 'cutover-migration: mileage idx already present';
-        RETURN;
-      END IF;
-      EXECUTE 'CREATE UNIQUE INDEX ${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME} ON pay_adjustments (company_id, source_on_my_way_event_id) WHERE adjustment_type = ''mileage'' AND source_on_my_way_event_id IS NOT NULL';
-      RAISE NOTICE 'cutover-migration: installed ${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME}';
+      INSERT INTO mileage_rates (
+        company_id, rate, effective_date, end_date,
+        created_by_user_id
+      )
+      SELECT
+        c.id,
+        c.mileage_rate,
+        DATE '2000-01-01',
+        NULL,
+        (SELECT u.id FROM users u WHERE u.company_id = c.id ORDER BY u.id LIMIT 1)
+      FROM companies c
+      WHERE c.mileage_rate IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM mileage_rates mr WHERE mr.company_id = c.id
+        )
+        AND EXISTS (
+          SELECT 1 FROM users u WHERE u.company_id = c.id
+        );
+      RAISE NOTICE 'cutover-migration: seeded mileage_rates from companies.mileage_rate';
     END
     $$;
-  `));
+  `),
+  );
 }
-
-export { MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME };
 
 /**
  * Install the CHECK constraint on job_clock_events. Idempotent:
@@ -95,8 +152,6 @@ export { MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME };
  *     new so the constraint is added in full-validate mode.
  */
 async function runClockEventsIntegrityConstraint(): Promise<void> {
-  // Skip when the table is not yet provisioned (drizzle-kit push hasn't
-  // run for this deploy). The DO block guards both lookups.
   await db.execute(sql.raw(`
     DO $$
     BEGIN

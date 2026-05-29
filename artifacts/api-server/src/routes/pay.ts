@@ -34,8 +34,9 @@ import {
   jobClockEventsTable,
   jobsTable,
   clientsTable,
-  companiesTable,
   onMyWayEventsTable,
+  mileageRatesTable,
+  mileageLegsTable,
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -57,14 +58,13 @@ import {
 } from "../lib/pay-export.js";
 import {
   computeMileageForLegs,
-  MILEAGE_ADJUSTMENT_TYPE,
   type JobCoords,
   type MileageLegInput,
+  type DateToCalendarDay,
 } from "../lib/mileage-compute.js";
-import {
-  defaultDistanceProvider,
-  type DistanceProvider,
-} from "../lib/distance-provider.js";
+import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
+import { getDistanceProvider } from "../lib/distance-provider-factory.js";
+import type { DistanceProvider } from "../lib/distance-provider.js";
 
 const router = Router();
 
@@ -124,30 +124,42 @@ function refusedDueToPeriodState(res: Response, status: string) {
  * endpoint never double-pays a leg.
  *
  * Exposed for tests via the `provider` parameter; production callers
- * pass `defaultDistanceProvider`.
+ * pass the result of `getDistanceProvider(companyId)` so the swap
+ * point stays the factory, not the route.
  */
 async function recomputeMileageForPeriod(
   companyId: number,
   periodId: number,
   startDate: string,
   endDate: string,
-  actingUserId: number,
   provider: DistanceProvider,
 ): Promise<{
   legs_considered: number;
   inserted: number;
   skipped: Record<string, number>;
 }> {
-  const companyRow = await db
-    .select({ mileage_rate: companiesTable.mileage_rate })
-    .from(companiesTable)
-    .where(eq(companiesTable.id, companyId))
-    .limit(1);
-  const ratePerMile = Number(companyRow[0]?.mileage_rate ?? "0.7250");
+  const rateRows = await db
+    .select({
+      rate: mileageRatesTable.rate,
+      effective_date: mileageRatesTable.effective_date,
+      end_date: mileageRatesTable.end_date,
+    })
+    .from(mileageRatesTable)
+    .where(eq(mileageRatesTable.company_id, companyId));
+  const rateInputs = rateRows.map((r) => ({
+    rate: r.rate,
+    effective_date: String(r.effective_date),
+    end_date: r.end_date != null ? String(r.end_date) : null,
+  }));
+  const rateForDate = (date: string) => pickMileageRateForDate(rateInputs, date);
 
   const periodStartTs = new Date(`${startDate}T00:00:00Z`);
   const periodEndTs = new Date(`${endDate}T23:59:59.999Z`);
 
+  // Pull every sent leg in the period. We DO NOT filter on
+  // from_job_id at the DB level any more — the compute layer makes
+  // the bookend + non-job-waypoint exclusion explicit, and we want
+  // skip counts surfaced for the office.
   const legs = await db
     .select({
       id: onMyWayEventsTable.id,
@@ -161,7 +173,6 @@ async function recomputeMileageForPeriod(
       and(
         eq(onMyWayEventsTable.company_id, companyId),
         isNotNull(onMyWayEventsTable.sent_at),
-        isNotNull(onMyWayEventsTable.from_job_id),
         gte(onMyWayEventsTable.sent_at, periodStartTs),
         lte(onMyWayEventsTable.sent_at, periodEndTs),
       ),
@@ -208,11 +219,23 @@ async function recomputeMileageForPeriod(
     sent_at: l.sent_at,
   }));
 
+  // Phes is America/Chicago. Long-term this becomes a per-tenant
+  // setting. Using Intl avoids dragging in a TZ library for one
+  // format call.
+  const phesTzFormatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Chicago",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const toCalendarDay: DateToCalendarDay = (d) => phesTzFormatter.format(d);
+
   const outcomes = await computeMileageForLegs(
     legInputs,
     coordsByJobId,
-    ratePerMile,
+    rateForDate,
     provider,
+    toCalendarDay,
   );
 
   const skipped: Record<string, number> = {};
@@ -223,27 +246,30 @@ async function recomputeMileageForPeriod(
       continue;
     }
     const spec = outcome.spec;
+    // INSERT into mileage_legs (status: 'computed'). Nothing flows
+    // into pay_adjustments yet — that promotion is 2B. The unique
+    // index on (company_id, source_on_my_way_event_id) collapses
+    // re-runs into a no-op.
     const result = await db
-      .insert(payAdjustmentsTable)
+      .insert(mileageLegsTable)
       .values({
         company_id: companyId,
         pay_period_id: periodId,
         user_id: spec.user_id,
-        adjustment_type: MILEAGE_ADJUSTMENT_TYPE,
-        amount: centsToDollarString(spec.amount_cents),
-        note: null,
         source_on_my_way_event_id: spec.source_on_my_way_event_id,
         from_job_id: spec.from_job_id,
         to_job_id: spec.to_job_id,
+        leg_date: spec.leg_date,
         miles: spec.miles.toFixed(2),
         minutes: spec.minutes,
         rate_per_mile: spec.rate_per_mile.toFixed(4),
+        amount: centsToDollarString(spec.amount_cents),
         measurement_source: spec.measurement_source,
-        measurement_is_estimated: spec.measurement_is_estimated ? 1 : 0,
-        created_by_user_id: actingUserId,
+        measurement_is_estimated: spec.measurement_is_estimated,
+        status: "computed",
       })
       .onConflictDoNothing()
-      .returning({ id: payAdjustmentsTable.id });
+      .returning({ id: mileageLegsTable.id });
     if (result.length > 0) inserted += 1;
   }
 
@@ -615,19 +641,19 @@ router.post("/periods/:id/recompute", adminWriteGate, async (req, res) => {
 
 router.post("/periods/:id/recompute-mileage", adminWriteGate, async (req, res) => {
   const companyId = req.auth!.companyId!;
-  const actingUserId = req.auth!.userId!;
   const periodId = Number(req.params.id);
   if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
   const period = await loadPeriod(companyId, periodId);
   if (!period) return notFound(res, "Period not found");
   if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
+  // Provider is resolved at the factory — the route doesn't name a
+  // vendor. Per-tenant cache is layered in there too.
   const result = await recomputeMileageForPeriod(
     companyId,
     periodId,
     String(period.start_date),
     String(period.end_date),
-    actingUserId,
-    defaultDistanceProvider,
+    getDistanceProvider(companyId),
   );
   return res.json({ data: result });
 });
