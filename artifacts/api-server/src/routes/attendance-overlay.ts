@@ -100,12 +100,12 @@ const chicagoTimeFormatter = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-function toChicagoDate(d: Date): string {
+export function toChicagoDate(d: Date): string {
   // en-CA + 2-digit gives YYYY-MM-DD.
   return chicagoDateFormatter.format(d);
 }
 
-function toChicagoMinutesOfDay(d: Date): number {
+export function toChicagoMinutesOfDay(d: Date): number {
   // en-US 24h "HH:MM". Chrome ICU sometimes emits "24:MM" at the day
   // boundary — normalize.
   const s = chicagoTimeFormatter.format(d);
@@ -478,6 +478,140 @@ router.get("/proposals", async (req, res) => {
 // POST /proposals/:id/confirm
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Test-visible inner handler. Exported for the mocked-DB E-series so
+ * tests can inject a fake tx without booting Express + Postgres. The
+ * router wrapper below pulls companyId/userId off req.auth, runs the
+ * real db.transaction, and delegates here.
+ */
+export interface ConfirmProposalInput {
+  companyId: number;
+  actingUserId: number;
+  id: number;
+  body: {
+    override_attendance_type?: "absent" | "tardy" | "ncns";
+    override_hours?: number;
+    decision_note?: string;
+    protected?: boolean;
+  };
+}
+
+export interface ConfirmProposalOutput {
+  status: number;
+  body: any;
+}
+
+export async function confirmProposalWithTx(
+  tx: any,
+  input: ConfirmProposalInput,
+): Promise<ConfirmProposalOutput> {
+  const { companyId, actingUserId, id, body } = input;
+  const proposalRows = await tx.execute(
+    sql`SELECT * FROM attendance_proposals
+        WHERE id = ${id} AND company_id = ${companyId}
+        FOR UPDATE`,
+  );
+  const row = (proposalRows as { rows?: any[] }).rows?.[0];
+  if (!row) {
+    return { status: 404, body: { error: "Not Found", message: "Proposal not found" } };
+  }
+  if (row.status !== "pending") {
+    return {
+      status: 409,
+      body: { error: "Conflict", message: `Proposal is already ${row.status}` },
+    };
+  }
+  if (row.kind === "missing_clockout" && body?.override_attendance_type == null) {
+    return {
+      status: 400,
+      body: {
+        error: "Bad Request",
+        message: "missing_clockout proposals require override_attendance_type",
+        code: "missing_clockout_requires_override",
+      },
+    };
+  }
+  const resolvedType: "absent" | "tardy" | "ncns" =
+    body?.override_attendance_type === "tardy" ||
+    body?.override_attendance_type === "ncns" ||
+    body?.override_attendance_type === "absent"
+      ? body.override_attendance_type
+      : "absent";
+
+  let resolvedHours: number | null = null;
+  if (
+    typeof body?.override_hours === "number" &&
+    Number.isFinite(body.override_hours) &&
+    body.override_hours > 0
+  ) {
+    resolvedHours = body.override_hours;
+  } else if (row.kind === "late" && row.minutes_late != null) {
+    resolvedHours = Number(row.minutes_late) / 60;
+  } else if (row.kind === "short" && row.minutes_short != null) {
+    resolvedHours = Number(row.minutes_short) / 60;
+  } else if (row.kind === "no_show") {
+    resolvedHours = row.estimated_hours != null ? Number(row.estimated_hours) : 8;
+  }
+  if (resolvedHours == null || !(resolvedHours > 0)) {
+    return {
+      status: 400,
+      body: {
+        error: "Bad Request",
+        message: "Could not resolve hours; supply override_hours",
+        code: "hours_required",
+      },
+    };
+  }
+
+  const ladder = await recordUnexcusedEntryAndDriveLadder(tx, {
+    company_id: companyId,
+    employee_id: Number(row.user_id),
+    log_date: String(row.scheduled_date),
+    hours: resolvedHours,
+    type: resolvedType,
+    protected: body?.protected ?? false,
+    note: body?.decision_note ?? undefined,
+    logged_by: actingUserId,
+  });
+
+  const updated = await tx.execute(
+    sql`UPDATE attendance_proposals
+        SET status = 'confirmed',
+            decided_at = now(),
+            decided_by_user_id = ${actingUserId},
+            decision_note = ${body?.decision_note ?? null},
+            created_attendance_log_id = ${ladder.attendance_log_id}
+        WHERE id = ${id}
+          AND company_id = ${companyId}
+          AND status = 'pending'`,
+  );
+  const rowCount = (updated as { rowCount?: number }).rowCount ?? 0;
+  if (rowCount !== 1) {
+    return {
+      status: 409,
+      body: { error: "Conflict", message: "Proposal status changed during confirm" },
+    };
+  }
+
+  return {
+    status: 200,
+    body: {
+      data: {
+        proposal: {
+          id,
+          status: "confirmed",
+          decided_at: new Date().toISOString(),
+          decided_by_user_id: actingUserId,
+        },
+        attendance_log_id: ladder.attendance_log_id,
+        ladder_eval: ladder.ladder_eval,
+        discipline_log_id: ladder.discipline_log_id,
+        notification_sent: ladder.notification_sent,
+      },
+    },
+  };
+}
+
 router.post("/proposals/:id/confirm", async (req, res) => {
   const companyId = req.auth!.companyId!;
   const actingUserId = req.auth!.userId!;
@@ -491,100 +625,13 @@ router.post("/proposals/:id/confirm", async (req, res) => {
   };
 
   return await db.transaction(async (tx) => {
-    // SELECT … FOR UPDATE on the proposal row, tenant-guarded.
-    const proposalRows = await tx.execute(
-      sql`SELECT * FROM attendance_proposals
-          WHERE id = ${id} AND company_id = ${companyId}
-          FOR UPDATE`,
-    );
-    const row = (proposalRows as { rows?: any[] }).rows?.[0];
-    if (!row) {
-      return notFound(res, "Proposal not found");
-    }
-    if (row.status !== "pending") {
-      return res
-        .status(409)
-        .json({ error: "Conflict", message: `Proposal is already ${row.status}` });
-    }
-
-    if (row.kind === "missing_clockout" && body?.override_attendance_type == null && body?.override_hours == null) {
-      return res.status(400).json({
-        error: "Bad Request",
-        message:
-          "Resolve via 1C clock correction or provide override_hours + override_attendance_type",
-        code: "missing_clockout_requires_override",
-      });
-    }
-
-    const resolvedType: "absent" | "tardy" | "ncns" =
-      body?.override_attendance_type === "tardy" ||
-      body?.override_attendance_type === "ncns" ||
-      body?.override_attendance_type === "absent"
-        ? body.override_attendance_type
-        : "absent";
-
-    let resolvedHours: number | null = null;
-    if (typeof body?.override_hours === "number" && Number.isFinite(body.override_hours) && body.override_hours > 0) {
-      resolvedHours = body.override_hours;
-    } else if (row.kind === "late" && row.minutes_late != null) {
-      resolvedHours = Number(row.minutes_late) / 60;
-    } else if (row.kind === "short" && row.minutes_short != null) {
-      resolvedHours = Number(row.minutes_short) / 60;
-    } else if (row.kind === "no_show") {
-      resolvedHours = row.estimated_hours != null ? Number(row.estimated_hours) : 8;
-    }
-    if (resolvedHours == null || !(resolvedHours > 0)) {
-      return res.status(400).json({
-        error: "Bad Request",
-        message: "Could not resolve hours; supply override_hours",
-        code: "hours_required",
-      });
-    }
-
-    const ladder = await recordUnexcusedEntryAndDriveLadder(tx as any, {
-      company_id: companyId,
-      employee_id: Number(row.user_id),
-      log_date: String(row.scheduled_date),
-      hours: resolvedHours,
-      type: resolvedType,
-      protected: body?.protected ?? false,
-      note: body?.decision_note ?? undefined,
-      logged_by: actingUserId,
+    const r = await confirmProposalWithTx(tx as any, {
+      companyId,
+      actingUserId,
+      id,
+      body,
     });
-
-    // Update the proposal; second writer racing us sees rowCount 0
-    // because status='pending' clause no longer matches.
-    const updated = await tx.execute(
-      sql`UPDATE attendance_proposals
-          SET status = 'confirmed',
-              decided_at = now(),
-              decided_by_user_id = ${actingUserId},
-              decision_note = ${body?.decision_note ?? null},
-              created_attendance_log_id = ${ladder.attendance_log_id}
-          WHERE id = ${id}
-            AND company_id = ${companyId}
-            AND status = 'pending'`,
-    );
-    const rowCount = (updated as { rowCount?: number }).rowCount ?? 0;
-    if (rowCount !== 1) {
-      // Race: another confirm got there first. Surface as 409.
-      return res.status(409).json({ error: "Conflict", message: "Proposal status changed during confirm" });
-    }
-
-    return res.json({
-      data: {
-        proposal: {
-          id,
-          status: "confirmed",
-          decided_at: new Date().toISOString(),
-          decided_by_user_id: actingUserId,
-        },
-        attendance_log_id: ladder.attendance_log_id,
-        ladder_eval: ladder.ladder_eval,
-        discipline_log_id: ladder.discipline_log_id,
-        notification_sent: ladder.notification_sent,
-      },
-    });
+    return res.status(r.status).json(r.body);
   });
 });
 
