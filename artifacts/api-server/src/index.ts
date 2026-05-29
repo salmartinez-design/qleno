@@ -3,6 +3,7 @@ import { seedIfNeeded } from "./seed";
 import { startRecurringJobCron } from "./lib/recurring-jobs";
 import { runPhesDataMigration } from "./phes-data-migration";
 import { runCutoverDataMigration } from "./cutover-data-migration";
+import { verifyClockIntegrityConstraint } from "./lib/clock-integrity-self-check";
 import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
@@ -157,6 +158,15 @@ async function startup() {
     await runCutoverDataMigration();
   } catch (err: any) {
     console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
+  }
+  // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
+  // is live AND enforced in production. Non-fatal: pay computation
+  // independently filters at the application layer, but the deploy log
+  // makes the DB-layer guarantee visible to anyone watching.
+  try {
+    await verifyClockIntegrityConstraint();
+  } catch (err: any) {
+    console.error("[startup] clock-integrity self-check — non-fatal:", err?.message ?? err);
   }
   try {
     const r = await runLmsCompletionBackfill();

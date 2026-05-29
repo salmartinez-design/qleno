@@ -64,6 +64,8 @@ import coreRouter from "./core.js";
 import techRouter from "./tech.js";
 import techClockRouter from "./tech-clock.js";
 import officeClockRouter from "./office-clock.js";
+import payRouter from "./pay.js";
+import opsIntegrityRouter from "./ops-integrity.js";
 import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
@@ -164,6 +166,10 @@ router.use("/core", coreRouter);
 router.use("/tech/jobs", techClockRouter);
 router.use("/tech", techRouter);
 router.use("/office", officeClockRouter);
+// Cutover 1E — pay periods, summaries, adjustments, rates, generic CSV export
+router.use("/pay", payRouter);
+// Cutover 1E — on-demand re-run of the startup clock-integrity self-check
+router.use("/ops", opsIntegrityRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);
