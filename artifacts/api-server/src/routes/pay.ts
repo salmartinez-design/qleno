@@ -38,6 +38,12 @@ import {
   mileageRatesTable,
   mileageLegsTable,
 } from "@workspace/db/schema";
+import {
+  detectCarpoolCandidates,
+  refusalForTransition,
+  MILEAGE_REIMBURSEMENT_ADJUSTMENT_TYPE,
+  type MileageLegStatus,
+} from "../lib/mileage-approval.js";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import {
@@ -1026,5 +1032,379 @@ router.get("/rates", async (req, res) => {
     .orderBy(desc(employeePayRatesTable.effective_date));
   return res.json({ data: rows });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cutover 2B — Mileage approval gate
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// The office's review surface for computed mileage_legs. Lifecycle is
+// computed → reviewed → applied | discarded, with applied being the
+// only state that moves money (creates a pay_adjustments row of type
+// 'mileage_reimbursement' and sets the leg's applied_pay_adjustment_id
+// bridge). Apply is blocked on approved/exported periods; discard is
+// always allowed for non-terminal legs.
+
+router.get(
+  "/periods/:id/mileage-legs",
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const periodId = Number(req.params.id);
+    if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+    const period = await loadPeriod(companyId, periodId);
+    if (!period) return notFound(res, "Period not found");
+
+    const rows = await db
+      .select({
+        id: mileageLegsTable.id,
+        user_id: mileageLegsTable.user_id,
+        first_name: usersTable.first_name,
+        last_name: usersTable.last_name,
+        leg_date: mileageLegsTable.leg_date,
+        from_job_id: mileageLegsTable.from_job_id,
+        to_job_id: mileageLegsTable.to_job_id,
+        miles: mileageLegsTable.miles,
+        minutes: mileageLegsTable.minutes,
+        rate_per_mile: mileageLegsTable.rate_per_mile,
+        amount: mileageLegsTable.amount,
+        measurement_source: mileageLegsTable.measurement_source,
+        measurement_is_estimated: mileageLegsTable.measurement_is_estimated,
+        status: mileageLegsTable.status,
+        reviewed_at: mileageLegsTable.reviewed_at,
+        reviewed_by_user_id: mileageLegsTable.reviewed_by_user_id,
+        applied_at: mileageLegsTable.applied_at,
+        applied_pay_adjustment_id: mileageLegsTable.applied_pay_adjustment_id,
+        discarded_at: mileageLegsTable.discarded_at,
+        discard_reason: mileageLegsTable.discard_reason,
+      })
+      .from(mileageLegsTable)
+      .leftJoin(usersTable, eq(mileageLegsTable.user_id, usersTable.id))
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.pay_period_id, periodId),
+        ),
+      )
+      .orderBy(
+        asc(mileageLegsTable.leg_date),
+        asc(usersTable.last_name),
+        asc(mileageLegsTable.id),
+      );
+
+    // Per-tech totals + flag detection for the review screen. Only
+    // non-discarded legs count toward the "still-to-decide" totals
+    // the office uses to triage. Estimated-distance and missing-
+    // address shapes get surfaced as flags.
+    const byTech = new Map<
+      number,
+      {
+        user_id: number;
+        first_name: string | null;
+        last_name: string | null;
+        computed_count: number;
+        reviewed_count: number;
+        applied_count: number;
+        discarded_count: number;
+        pending_amount_cents: number;
+        applied_amount_cents: number;
+        flag_count: number;
+      }
+    >();
+    for (const r of rows) {
+      let bucket = byTech.get(r.user_id);
+      if (!bucket) {
+        bucket = {
+          user_id: r.user_id,
+          first_name: r.first_name,
+          last_name: r.last_name,
+          computed_count: 0,
+          reviewed_count: 0,
+          applied_count: 0,
+          discarded_count: 0,
+          pending_amount_cents: 0,
+          applied_amount_cents: 0,
+          flag_count: 0,
+        };
+        byTech.set(r.user_id, bucket);
+      }
+      const cents = dollarsToCents(r.amount);
+      if (r.status === "computed") {
+        bucket.computed_count += 1;
+        bucket.pending_amount_cents += cents;
+      } else if (r.status === "reviewed") {
+        bucket.reviewed_count += 1;
+        bucket.pending_amount_cents += cents;
+      } else if (r.status === "applied") {
+        bucket.applied_count += 1;
+        bucket.applied_amount_cents += cents;
+      } else if (r.status === "discarded") {
+        bucket.discarded_count += 1;
+      }
+      if (r.status !== "discarded" && r.measurement_is_estimated) {
+        bucket.flag_count += 1;
+      }
+    }
+
+    return res.json({
+      data: {
+        period,
+        legs: rows,
+        techs: Array.from(byTech.values()).sort((a, b) =>
+          (a.last_name ?? "").localeCompare(b.last_name ?? ""),
+        ),
+      },
+    });
+  },
+);
+
+router.get(
+  "/periods/:id/mileage-carpool-candidates",
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const periodId = Number(req.params.id);
+    if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+    const period = await loadPeriod(companyId, periodId);
+    if (!period) return notFound(res, "Period not found");
+    const rows = await db
+      .select({
+        id: mileageLegsTable.id,
+        user_id: mileageLegsTable.user_id,
+        leg_date: mileageLegsTable.leg_date,
+        from_job_id: mileageLegsTable.from_job_id,
+        to_job_id: mileageLegsTable.to_job_id,
+        status: mileageLegsTable.status,
+      })
+      .from(mileageLegsTable)
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.pay_period_id, periodId),
+        ),
+      );
+    const candidates = detectCarpoolCandidates(
+      rows.map((r) => ({
+        id: r.id,
+        user_id: r.user_id,
+        leg_date: String(r.leg_date),
+        from_job_id: r.from_job_id,
+        to_job_id: r.to_job_id,
+        status: r.status as
+          | "computed"
+          | "reviewed"
+          | "applied"
+          | "discarded",
+      })),
+    );
+    return res.json({ data: { candidates } });
+  },
+);
+
+async function loadLegOrNotFound(
+  companyId: number,
+  legId: number,
+): Promise<typeof mileageLegsTable.$inferSelect | null> {
+  const rows = await db
+    .select()
+    .from(mileageLegsTable)
+    .where(
+      and(
+        eq(mileageLegsTable.company_id, companyId),
+        eq(mileageLegsTable.id, legId),
+      ),
+    )
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+router.post(
+  "/mileage-legs/:id/review",
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const legId = Number(req.params.id);
+    if (!Number.isFinite(legId)) return badRequest(res, "Invalid id");
+    const leg = await loadLegOrNotFound(companyId, legId);
+    if (!leg) return notFound(res, "Mileage leg not found");
+    const refusal = refusalForTransition(
+      leg.status as MileageLegStatus,
+      "review",
+    );
+    if (refusal) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: refusal,
+        code: "leg_state_invalid",
+      });
+    }
+    const now = new Date();
+    await db
+      .update(mileageLegsTable)
+      .set({
+        status: "reviewed",
+        reviewed_at: now,
+        reviewed_by_user_id: userId,
+        updated_at: now,
+      })
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.id, legId),
+        ),
+      );
+    return res.json({ data: { id: legId, status: "reviewed" } });
+  },
+);
+
+router.post(
+  "/mileage-legs/:id/discard",
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const legId = Number(req.params.id);
+    if (!Number.isFinite(legId)) return badRequest(res, "Invalid id");
+    const body = req.body as { reason?: string };
+    const reason = (body?.reason ?? "").trim();
+    if (!reason) return badRequest(res, "reason is required for discard");
+    const leg = await loadLegOrNotFound(companyId, legId);
+    if (!leg) return notFound(res, "Mileage leg not found");
+    const refusal = refusalForTransition(
+      leg.status as MileageLegStatus,
+      "discard",
+    );
+    if (refusal) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: refusal,
+        code: "leg_state_invalid",
+      });
+    }
+    const now = new Date();
+    await db
+      .update(mileageLegsTable)
+      .set({
+        status: "discarded",
+        discarded_at: now,
+        discarded_by_user_id: userId,
+        discard_reason: reason,
+        updated_at: now,
+      })
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.id, legId),
+        ),
+      );
+    return res.json({ data: { id: legId, status: "discarded" } });
+  },
+);
+
+/** Promote ONE reviewed leg to a pay_adjustments row. Atomic at the
+ *  app level: INSERT the adjustment, then UPDATE the leg with the
+ *  bridge id + applied state. The leg's status='reviewed' precondition
+ *  + the period-state check upstream prevent double-apply (a second
+ *  call observes status='applied' and refuses). */
+async function applyLegInternal(
+  companyId: number,
+  actingUserId: number,
+  leg: typeof mileageLegsTable.$inferSelect,
+): Promise<{ leg_id: number; pay_adjustment_id: number }> {
+  const inserted = await db
+    .insert(payAdjustmentsTable)
+    .values({
+      company_id: companyId,
+      pay_period_id: leg.pay_period_id,
+      user_id: leg.user_id,
+      adjustment_type: MILEAGE_REIMBURSEMENT_ADJUSTMENT_TYPE,
+      amount: leg.amount, // already numeric(10,2) string from 2A
+      note: `mileage_leg #${leg.id}: ${leg.miles} mi × $${leg.rate_per_mile}/mi`,
+      created_by_user_id: actingUserId,
+    })
+    .returning({ id: payAdjustmentsTable.id });
+  const adjustmentId = inserted[0]!.id;
+  const now = new Date();
+  await db
+    .update(mileageLegsTable)
+    .set({
+      status: "applied",
+      applied_at: now,
+      applied_pay_adjustment_id: adjustmentId,
+      updated_at: now,
+    })
+    .where(
+      and(
+        eq(mileageLegsTable.company_id, companyId),
+        eq(mileageLegsTable.id, leg.id),
+      ),
+    );
+  return { leg_id: leg.id, pay_adjustment_id: adjustmentId };
+}
+
+router.post(
+  "/mileage-legs/:id/apply",
+  adminWriteGate,
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const legId = Number(req.params.id);
+    if (!Number.isFinite(legId)) return badRequest(res, "Invalid id");
+    const leg = await loadLegOrNotFound(companyId, legId);
+    if (!leg) return notFound(res, "Mileage leg not found");
+
+    const refusal = refusalForTransition(
+      leg.status as MileageLegStatus,
+      "apply",
+    );
+    if (refusal) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: refusal,
+        code: "leg_state_invalid",
+      });
+    }
+    // Period state gate. Mirrors 1E's adjustments write rule: no
+    // money moves into a period that's already approved or exported.
+    const period = await loadPeriod(companyId, leg.pay_period_id);
+    if (!period) return notFound(res, "Period not found");
+    if (period.status === "approved" || period.status === "exported") {
+      return refusedDueToPeriodState(res, period.status);
+    }
+
+    const result = await applyLegInternal(companyId, userId, leg);
+    return res.json({ data: { ...result, status: "applied" } });
+  },
+);
+
+router.post(
+  "/periods/:id/mileage-legs/apply-all-reviewed",
+  adminWriteGate,
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const periodId = Number(req.params.id);
+    if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+    const period = await loadPeriod(companyId, periodId);
+    if (!period) return notFound(res, "Period not found");
+    if (period.status === "approved" || period.status === "exported") {
+      return refusedDueToPeriodState(res, period.status);
+    }
+    const reviewedLegs = await db
+      .select()
+      .from(mileageLegsTable)
+      .where(
+        and(
+          eq(mileageLegsTable.company_id, companyId),
+          eq(mileageLegsTable.pay_period_id, periodId),
+          eq(mileageLegsTable.status, "reviewed"),
+        ),
+      );
+    const applied: Array<{ leg_id: number; pay_adjustment_id: number }> = [];
+    for (const leg of reviewedLegs) {
+      const r = await applyLegInternal(companyId, userId, leg);
+      applied.push(r);
+    }
+    return res.json({
+      data: { applied_count: applied.length, applied },
+    });
+  },
+);
 
 export default router;
