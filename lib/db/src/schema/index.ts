@@ -119,3 +119,12 @@ export * from "./on_my_way_events";
 // driven by an application-level eligibility filter on clock events,
 // and an adjustments ledger.
 export * from "./pay";
+
+// Cutover 2A (corrective). Mileage automation lives in its own table
+// pair so "computed work" and "billable money" stay separate:
+//   - mileage_rates: dated $/mi, append-only
+//   - mileage_legs:  per-leg computed work with computed → reviewed →
+//                    applied lifecycle. Until applied (set by 2B), the
+//                    leg DOES NOT roll up into pay_period_summaries.
+//   - distance_cache: per-tenant cache of mapping-API measurements.
+export * from "./mileage";
