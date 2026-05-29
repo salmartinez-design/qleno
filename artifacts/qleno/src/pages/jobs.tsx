@@ -17,6 +17,7 @@ import {
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
 import LegendPopover from "@/components/legend-popover";
+import MobileDateSheet from "@/components/mobile-date-sheet";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -3489,6 +3490,8 @@ export default function JobsPage() {
   const [legendOpen, setLegendOpen] = useState(false);
   const legendBtnRef = useRef<HTMLButtonElement | null>(null);
   const [legendAnchor, setLegendAnchor] = useState<DOMRect | null>(null);
+  // Mobile date picker — opened by tapping the date header.
+  const [dateSheetOpen, setDateSheetOpen] = useState(false);
   // Read ?date=YYYY-MM-DD on mount so quote-builder's convert-to-job navigation
   // (which targets the scheduled day) actually lands on that day instead of today.
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -3883,12 +3886,18 @@ export default function JobsPage() {
             {/* Date navigation */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
-              <div style={{ textAlign: "center" }}>
+              {/* Tap the date label to open the month picker — saves
+                  chevron-stepping a day at a time. */}
+              <button
+                onClick={() => setDateSheetOpen(true)}
+                aria-label="Pick a date"
+                style={{ textAlign: "center", border: "none", background: "transparent", padding: "4px 8px", borderRadius: 8, cursor: "pointer", fontFamily: FF }}
+              >
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>
                   {isToday ? "Today" : selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </div>
                 {isToday && <div style={{ fontSize: 11, color: "#9E9B94" }}>{selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>}
-              </div>
+              </button>
               <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
             </div>
           </div>
@@ -4242,6 +4251,7 @@ export default function JobsPage() {
         )}
         <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
+        <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>
     );
   }
