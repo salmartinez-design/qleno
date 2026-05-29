@@ -125,13 +125,20 @@ export async function refreshQBToken(companyId: number, refreshToken: string, re
     const data = await resp.json();
     const expiresAt = new Date(Date.now() + data.expires_in * 1000);
 
+    // Intuit usually rotates the refresh_token on each access-token refresh, but the
+    // bearer response can omit it. Only overwrite when present so we don't blow away
+    // the existing refresh_token with `encrypt(undefined)`.
+    const updates: Partial<typeof companiesTable.$inferInsert> = {
+      qb_access_token: encrypt(data.access_token),
+      qb_token_expires_at: expiresAt,
+    };
+    if (data.refresh_token) {
+      updates.qb_refresh_token = encrypt(data.refresh_token);
+    }
+
     await db
       .update(companiesTable)
-      .set({
-        qb_access_token: encrypt(data.access_token),
-        qb_refresh_token: encrypt(data.refresh_token),
-        qb_token_expires_at: expiresAt,
-      })
+      .set(updates)
       .where(eq(companiesTable.id, companyId));
 
     serviceItemCache.delete(companyId);
@@ -181,6 +188,45 @@ async function qbPost(token: string, realmId: string, path: string, body: object
   });
   if (!resp.ok) throw new Error(`QB POST ${path} → ${resp.status}: ${await resp.text()}`);
   return resp.json();
+}
+
+// ── Customer dedup lookup ──────────────────────────────────────────────────
+// Match by PrimaryEmailAddr first, then DisplayName. Returns the QB Customer Id
+// if a match exists, else null. Quote single-quotes per QB's QBO query syntax.
+async function findExistingQbCustomer(
+  token: string,
+  realmId: string,
+  email: string | null | undefined,
+  displayName: string | null | undefined,
+): Promise<string | null> {
+  const qbQuote = (s: string) => s.replace(/'/g, "\\'");
+  try {
+    if (email) {
+      const q = await qbGet(
+        token,
+        realmId,
+        `/query?query=${encodeURIComponent(
+          `SELECT Id, DisplayName, PrimaryEmailAddr FROM Customer WHERE PrimaryEmailAddr = '${qbQuote(email)}' MAXRESULTS 1`,
+        )}&`,
+      );
+      const hit = q.QueryResponse?.Customer?.[0]?.Id;
+      if (hit) return hit;
+    }
+    if (displayName) {
+      const q = await qbGet(
+        token,
+        realmId,
+        `/query?query=${encodeURIComponent(
+          `SELECT Id, DisplayName FROM Customer WHERE DisplayName = '${qbQuote(displayName)}' MAXRESULTS 1`,
+        )}&`,
+      );
+      const hit = q.QueryResponse?.Customer?.[0]?.Id;
+      if (hit) return hit;
+    }
+  } catch (e: any) {
+    console.warn(`[QB] findExistingQbCustomer failed (non-fatal):`, e.message);
+  }
+  return null;
 }
 
 // ── Service item resolution ────────────────────────────────────────────────
@@ -317,9 +363,30 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
       });
       qbCustomerId = updateData.Customer?.Id || map.qb_customer_id;
     } else {
-      // Create new QB customer
-      const createData = await qbPost(token, realmId, "/customer", payload);
-      qbCustomerId = createData.Customer?.Id;
+      // No local map yet — dedup against QB first to avoid creating a duplicate
+      // for a customer that already exists in QB (manual entry or earlier import).
+      // Match by email first, then DisplayName.
+      const existingQbId = await findExistingQbCustomer(token, realmId, client.email, payload.DisplayName);
+
+      if (existingQbId) {
+        qbCustomerId = existingQbId;
+        // Refresh QB fields from Qleno (sparse merge), so the linked record stays current.
+        try {
+          const existing = await qbGet(token, realmId, `/customer/${qbCustomerId}?`);
+          const syncToken = existing.Customer?.SyncToken;
+          await qbPost(token, realmId, "/customer", {
+            ...payload,
+            Id: qbCustomerId,
+            SyncToken: syncToken,
+            sparse: true,
+          });
+        } catch (e: any) {
+          console.warn(`[QB] dedup-merge update failed for QB customer ${qbCustomerId} (non-fatal):`, e.message);
+        }
+      } else {
+        const createData = await qbPost(token, realmId, "/customer", payload);
+        qbCustomerId = createData.Customer?.Id;
+      }
 
       await db.insert(qbCustomerMapTable).values({
         company_id: companyId,
@@ -485,6 +552,23 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 // ── SYNC PAYMENT ──────────────────────────────────────────────────────────
 export async function syncPayment(companyId: number, invoiceId: number): Promise<void> {
   try {
+    // Idempotency: if a payment for this invoice was already pushed (queue row
+    // with status='synced' and a stored QB payment Id), do not double-push.
+    // QB's /payment endpoint has no client-side dedup, so a retry would create
+    // a duplicate Payment in the customer ledger.
+    const [existingPaymentSync] = await db
+      .select({ status: qbSyncQueueTable.status, qb_entity_id: qbSyncQueueTable.qb_entity_id })
+      .from(qbSyncQueueTable)
+      .where(and(
+        eq(qbSyncQueueTable.company_id, companyId),
+        eq(qbSyncQueueTable.entity_type, "payment"),
+        eq(qbSyncQueueTable.entity_id, invoiceId),
+      ))
+      .limit(1);
+    if (existingPaymentSync?.status === "synced" && existingPaymentSync.qb_entity_id) {
+      return;
+    }
+
     const auth = await getValidToken(companyId);
     if (!auth) return;
 
@@ -534,7 +618,7 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
     const re_invoice = await db.select({ qbo_invoice_id: invoicesTable.qbo_invoice_id }).from(invoicesTable).where(eq(invoicesTable.id, invoiceId)).limit(1);
     const qboInvId = re_invoice[0]?.qbo_invoice_id;
 
-    await qbPost(token, realmId, "/payment", {
+    const paymentResp = await qbPost(token, realmId, "/payment", {
       CustomerRef: { value: map.qb_customer_id },
       TotalAmt: parseFloat(invoice.total || "0"),
       TxnDate: invoice.paid_at ? new Date(invoice.paid_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
@@ -547,7 +631,8 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
       ],
     });
 
-    await upsertQueue(companyId, "payment", invoiceId, "synced");
+    const qbPaymentId = paymentResp.Payment?.Id;
+    await upsertQueue(companyId, "payment", invoiceId, "synced", qbPaymentId);
   } catch (err: any) {
     console.error("[QB] syncPayment failed:", err.message);
     await upsertQueue(companyId, "payment", invoiceId, "failed", undefined, err.message);
