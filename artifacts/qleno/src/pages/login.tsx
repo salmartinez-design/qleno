@@ -20,6 +20,7 @@ export default function Login() {
   const [, setLocation] = useLocation();
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
+  const setAvailableCompanies = useAuthStore(state => state.setAvailableCompanies);
   const { toast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
 
@@ -41,8 +42,11 @@ export default function Login() {
     loginMutation.mutate(
       { data },
       {
-        onSuccess: (res) => {
+        onSuccess: (res: any) => {
           setToken(res.token);
+          if (res.available_companies?.length) {
+            setAvailableCompanies(res.available_companies);
+          }
           toast({ title: "Welcome back", description: `Logged in as ${res.user.first_name}` });
           if (res.user.role === 'super_admin') {
             setLocation("/admin");
