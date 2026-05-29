@@ -32,8 +32,12 @@ import {
   employeePayRatesTable,
   usersTable,
   jobClockEventsTable,
+  jobsTable,
+  clientsTable,
+  companiesTable,
+  onMyWayEventsTable,
 } from "@workspace/db/schema";
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import {
   computeHoursForUser,
@@ -51,6 +55,16 @@ import {
   buildPayExportFilename,
   type PayExportRow,
 } from "../lib/pay-export.js";
+import {
+  computeMileageForLegs,
+  MILEAGE_ADJUSTMENT_TYPE,
+  type JobCoords,
+  type MileageLegInput,
+} from "../lib/mileage-compute.js";
+import {
+  defaultDistanceProvider,
+  type DistanceProvider,
+} from "../lib/distance-provider.js";
 
 const router = Router();
 
@@ -96,6 +110,144 @@ function refusedDueToPeriodState(res: Response, status: string) {
     message: `Period is ${status}; required action is not permitted in this state.`,
     code: "period_state_invalid",
   });
+}
+
+/**
+ * Cutover 2A — Recompute mileage adjustments for a period.
+ *
+ * Loads every on_my_way row whose `sent_at` falls in the period
+ * window, pre-joins client coords for both endpoint jobs, walks the
+ * legs through the distance provider via `computeMileageForLegs`, and
+ * INSERTs every eligible spec as a pay_adjustments row. Idempotent:
+ * the partial unique index `pay_adjustments_mileage_source_uq`
+ * collapses re-runs into ON CONFLICT DO NOTHING, so re-invoking this
+ * endpoint never double-pays a leg.
+ *
+ * Exposed for tests via the `provider` parameter; production callers
+ * pass `defaultDistanceProvider`.
+ */
+async function recomputeMileageForPeriod(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+  actingUserId: number,
+  provider: DistanceProvider,
+): Promise<{
+  legs_considered: number;
+  inserted: number;
+  skipped: Record<string, number>;
+}> {
+  const companyRow = await db
+    .select({ mileage_rate: companiesTable.mileage_rate })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, companyId))
+    .limit(1);
+  const ratePerMile = Number(companyRow[0]?.mileage_rate ?? "0.7250");
+
+  const periodStartTs = new Date(`${startDate}T00:00:00Z`);
+  const periodEndTs = new Date(`${endDate}T23:59:59.999Z`);
+
+  const legs = await db
+    .select({
+      id: onMyWayEventsTable.id,
+      user_id: onMyWayEventsTable.user_id,
+      from_job_id: onMyWayEventsTable.from_job_id,
+      to_job_id: onMyWayEventsTable.job_id,
+      sent_at: onMyWayEventsTable.sent_at,
+    })
+    .from(onMyWayEventsTable)
+    .where(
+      and(
+        eq(onMyWayEventsTable.company_id, companyId),
+        isNotNull(onMyWayEventsTable.sent_at),
+        isNotNull(onMyWayEventsTable.from_job_id),
+        gte(onMyWayEventsTable.sent_at, periodStartTs),
+        lte(onMyWayEventsTable.sent_at, periodEndTs),
+      ),
+    );
+
+  if (legs.length === 0) {
+    return { legs_considered: 0, inserted: 0, skipped: {} };
+  }
+
+  const jobIds = new Set<number>();
+  for (const leg of legs) {
+    if (leg.from_job_id != null) jobIds.add(leg.from_job_id);
+    jobIds.add(leg.to_job_id);
+  }
+
+  const jobCoordRows = await db
+    .select({
+      job_id: jobsTable.id,
+      lat: clientsTable.lat,
+      lng: clientsTable.lng,
+    })
+    .from(jobsTable)
+    .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+    .where(
+      and(
+        eq(jobsTable.company_id, companyId),
+        inArray(jobsTable.id, Array.from(jobIds)),
+      ),
+    );
+  const coordsByJobId = new Map<number, JobCoords>();
+  for (const row of jobCoordRows) {
+    if (row.lat == null || row.lng == null) continue;
+    coordsByJobId.set(row.job_id, {
+      lat: Number(row.lat),
+      lng: Number(row.lng),
+    });
+  }
+
+  const legInputs: MileageLegInput[] = legs.map((l) => ({
+    id: l.id,
+    user_id: l.user_id,
+    from_job_id: l.from_job_id,
+    to_job_id: l.to_job_id,
+    sent_at: l.sent_at,
+  }));
+
+  const outcomes = await computeMileageForLegs(
+    legInputs,
+    coordsByJobId,
+    ratePerMile,
+    provider,
+  );
+
+  const skipped: Record<string, number> = {};
+  let inserted = 0;
+  for (const outcome of outcomes) {
+    if (outcome.kind !== "eligible") {
+      skipped[outcome.kind] = (skipped[outcome.kind] ?? 0) + 1;
+      continue;
+    }
+    const spec = outcome.spec;
+    const result = await db
+      .insert(payAdjustmentsTable)
+      .values({
+        company_id: companyId,
+        pay_period_id: periodId,
+        user_id: spec.user_id,
+        adjustment_type: MILEAGE_ADJUSTMENT_TYPE,
+        amount: centsToDollarString(spec.amount_cents),
+        note: null,
+        source_on_my_way_event_id: spec.source_on_my_way_event_id,
+        from_job_id: spec.from_job_id,
+        to_job_id: spec.to_job_id,
+        miles: spec.miles.toFixed(2),
+        minutes: spec.minutes,
+        rate_per_mile: spec.rate_per_mile.toFixed(4),
+        measurement_source: spec.measurement_source,
+        measurement_is_estimated: spec.measurement_is_estimated ? 1 : 0,
+        created_by_user_id: actingUserId,
+      })
+      .onConflictDoNothing()
+      .returning({ id: payAdjustmentsTable.id });
+    if (result.length > 0) inserted += 1;
+  }
+
+  return { legs_considered: legs.length, inserted, skipped };
 }
 
 /** Internal: compute + write the per-user summaries for a period. */
@@ -442,6 +594,40 @@ router.post("/periods/:id/recompute", adminWriteGate, async (req, res) => {
     periodId,
     String(period.start_date),
     String(period.end_date),
+  );
+  return res.json({ data: result });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /periods/:id/recompute-mileage — Cutover 2A
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Walks on_my_way_events whose sent_at lands in the period, asks the
+// distance provider for miles + minutes per client-to-client leg, and
+// inserts pay_adjustments rows (adjustment_type='mileage'). The
+// partial unique index on (company_id, source_on_my_way_event_id)
+// makes re-runs no-ops via ON CONFLICT DO NOTHING — safe to call
+// repeatedly while the period is open.
+//
+// Caller flow: POST /periods/:id/recompute-mileage, then
+// POST /periods/:id/recompute to fold the new adjustments into each
+// employee's summary.
+
+router.post("/periods/:id/recompute-mileage", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const actingUserId = req.auth!.userId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
+  const result = await recomputeMileageForPeriod(
+    companyId,
+    periodId,
+    String(period.start_date),
+    String(period.end_date),
+    actingUserId,
+    defaultDistanceProvider,
   );
   return res.json({ data: result });
 });
