@@ -14,6 +14,7 @@ import {
 import {
   Popover, PopoverContent, PopoverTrigger,
 } from "@/components/ui/popover";
+import { QuoteAttachments } from "@/components/quote-attachments";
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2, Check,
@@ -22,9 +23,104 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { calculateCommissionSplit } from "@/lib/commission";
+import { AddonIcon } from "@/lib/addon-icons";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
+
+// [counter-unify 2026-05-27] Centralized rule for which add-ons render
+// with the +/- counter UI vs a checkbox. Name-matched (case-insensitive)
+// so it works regardless of slug/scope-id. Kept narrow on purpose —
+// Baseboards and Manual Adjustment intentionally stay as checkboxes
+// because their semantics aren't qty-multiplied (per Sal).
+function isCounterAddon(name: string): boolean {
+  const n = name.toLowerCase();
+  return (
+    n.includes("oven") ||
+    n.includes("refrigerator") ||
+    n.includes("cabinet") ||
+    n.includes("window") ||
+    n.includes("basement") ||
+    n.includes("parking")
+  );
+}
+
+// [translate-job-notes 2026-05-27] Inline "Translate to Spanish" button +
+// expandable Spanish display below the Job Notes textarea. Hits
+// /api/translate (Claude API) — server-side, so the API key stays off the
+// client bundle. Hidden when the textarea is empty so the form doesn't
+// scream "translate" at draft-time.
+function JobNotesTranslate({ text }: { text: string }) {
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset the translation if the source text changes after a translation
+  // — stale output is worse than no output.
+  useEffect(() => { setTranslated(null); setError(null); }, [text]);
+
+  if (!text.trim()) return null;
+
+  async function translate() {
+    setLoading(true); setError(null);
+    try {
+      const result = await apiFetch("/api/translate", { method: "POST", body: { text, target: "es" } });
+      setTranslated(String(result?.translated ?? "").trim() || null);
+    } catch (e: any) {
+      setError(e?.message?.includes("503")
+        ? "Translation isn't configured yet — ask an admin to set ANTHROPIC_API_KEY in Railway."
+        : "Translation failed. Try again in a moment.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function copy() {
+    if (!translated) return;
+    try { navigator.clipboard.writeText(translated); } catch { /* ignore */ }
+  }
+
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+      <button
+        type="button"
+        onClick={translate}
+        disabled={loading}
+        style={{
+          fontSize: 11, fontWeight: 600, fontFamily: FF,
+          padding: "3px 9px", borderRadius: 6,
+          border: "1px solid #E5E2DC", background: "#FFF", color: "#1A1917",
+          cursor: loading ? "wait" : "pointer", opacity: loading ? 0.6 : 1,
+        }}
+        title="Translate the current Job Notes to Spanish using Claude"
+      >
+        {loading ? "Translating..." : translated ? "Re-translate" : "Translate to Spanish"}
+      </button>
+      {translated && (
+        <button
+          type="button"
+          onClick={copy}
+          style={{ fontSize: 11, fontWeight: 600, fontFamily: FF, padding: "3px 9px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFF", color: "#1A1917", cursor: "pointer" }}
+          title="Copy Spanish to clipboard"
+        >
+          Copy
+        </button>
+      )}
+      {(translated || error) && (
+        <div style={{ flexBasis: "100%" }}>
+          {translated && (
+            <div style={{ marginTop: 6, padding: "8px 10px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 12, color: "#1A1917", fontFamily: FF, whiteSpace: "pre-wrap" }}>
+              {translated}
+            </div>
+          )}
+          {error && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#DC2626", fontFamily: FF }}>{error}</div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
   const { body, ...rest } = opts;
@@ -64,7 +160,8 @@ interface PricingAddon {
 
 interface CalcResult {
   scope_id: number; pricing_method: string; sqft: number | null; frequency: string | null;
-  base_hours: number; hourly_rate: number; base_price: number; minimum_applied: boolean;
+  base_hours: number; addon_hours?: number; total_hours?: number;
+  hourly_rate: number; base_price: number; minimum_applied: boolean;
   minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
   bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
@@ -116,6 +213,17 @@ export default function QuoteBuilderPage() {
 
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // [scroll-on-step 2026-05-27] Snap viewport to top whenever the user
+  // advances or backs up a section. Without this the page keeps its
+  // prior scroll position — the new section's "Next" button sat in view
+  // while the section header was off-screen above, so it looked like the
+  // form had jumped to its bottom. Mobile already did this inline at the
+  // step-button onClick; mirroring it here covers every entry point
+  // (top-tab clicks, programmatic setActiveSection on convert, etc.).
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [activeSection]);
 
   // ── Section 0: Customer Info ─────────────────────────────────────────────
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
@@ -179,6 +287,9 @@ export default function QuoteBuilderPage() {
   const [inputMounted, setInputMounted] = useState(false);
   const [addressVerified, setAddressVerified] = useState<boolean | null>(null);
   const [addressFormatted, setAddressFormatted] = useState("");
+  // [maps-runtime-fallback] Cache the resolved Maps key so the geocode
+  // helper (separate REST call) doesn't need to know how it was sourced.
+  const mapsKeyRef = useRef<string>("");
   const [callNoteTooltip, setCallNoteTooltip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [pushConfirmed, setPushConfirmed] = useState(false);
 
@@ -332,6 +443,22 @@ export default function QuoteBuilderPage() {
     }
   }, [existingQuote, scopes.length]);
 
+  // [quote-attachments] Async resolver passed to the <QuoteAttachments>
+  // component. Returns the working quote id; if no quote exists yet
+  // (brand-new draft, no auto-save fired), mints a draft now so an
+  // attachment can be associated. Subsequent uploads reuse the id.
+  const ensureQuoteId = useCallback(async (): Promise<number | null> => {
+    if (isEdit && id) return parseInt(id);
+    if (autoSavedIdRef.current) return parseInt(autoSavedIdRef.current);
+    try {
+      const result = await apiFetch("/api/quotes", { method: "POST", body: { status: "draft" } });
+      autoSavedIdRef.current = String(result.id);
+      return result.id;
+    } catch {
+      return null;
+    }
+  }, [isEdit, id]);
+
   // ── Call Notes auto-save (10s debounce) ─────────────────────────────────
   useEffect(() => {
     if (!callNotes) return;
@@ -362,8 +489,11 @@ export default function QuoteBuilderPage() {
   }, [sqft]);
 
   // ── Load Google Maps Places API ──────────────────────────────────────────
+  // [maps-runtime-fallback 2026-05-26] Same pattern as jobs.tsx — fetch the
+  // key from /api/config/google-maps-key first so we stay resilient when
+  // the Railway build didn't inject VITE_GOOGLE_MAPS_API_KEY. Falls back
+  // to the build-time var if the server endpoint is unreachable.
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -371,14 +501,34 @@ export default function QuoteBuilderPage() {
       if (existing) { existing.addEventListener("load", () => setMapsReady(true)); }
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true;
-    s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const r = await fetch(`${API}/api/config/google-maps-key`, { headers: getAuthHeaders() });
+        if (r.ok) {
+          const body = await r.json().catch(() => ({}));
+          key = String(body?.key ?? "");
+        }
+      } catch { /* fall through to build-time fallback */ }
+      if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      if (cancelled || !key) return;
+      mapsKeyRef.current = key;
+
+      // Re-check whether another instance already injected the script
+      // while we were awaiting the fetch.
+      if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
+      if (document.getElementById(scriptId)) return;
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true;
+      s.defer = true;
+      s.onload = () => { if (!cancelled) setMapsReady(true); };
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Wire autocomplete after Maps ready + input mounted ──────────────────
@@ -411,7 +561,7 @@ export default function QuoteBuilderPage() {
 
   // ── Geocode helper for client-loaded addresses ───────────────────────────
   async function geocodeVerify(addressStr: string) {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+    const key = mapsKeyRef.current || (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY || "";
     if (!key || !addressStr.trim()) { setAddressVerified(false); return; }
     try {
       const r = await fetch(
@@ -491,13 +641,22 @@ export default function QuoteBuilderPage() {
       const defaultFreq = (freqs as PricingFrequency[]).find(f =>
         f.frequency.toLowerCase().includes("one") || f.frequency.toLowerCase().includes("single") || f.frequency.toLowerCase().includes("once")
       ) ?? (freqs as PricingFrequency[])[0];
+      // [counter-unify 2026-05-27] Seed qty=1 for any counter-style addon
+      // that came in via addon_ids on quote restore. quote_addons doesn't
+      // persist qty (pre-existing schema gap), so existing drafts would
+      // otherwise show the counter at 0 even though the addon is selected.
+      const seededQtys: Record<number, number> = {};
+      for (const aid of initialState?.addon_ids ?? []) {
+        const a = (addons as PricingAddon[]).find(x => x.id === aid);
+        if (a && isCounterAddon(a.name)) seededQtys[aid] = 1;
+      }
       const newState: SelectedScopeState = {
         scope_id: scope.id,
         frequency: initialState?.frequency ?? defaultFreq?.frequency ?? "",
         hours: initialState?.hours ?? 0,
         hoursOverrideSet: false,
         addon_ids: initialState?.addon_ids ?? [],
-        addonQtys: {},
+        addonQtys: seededQtys,
         addonRecurring: {},
         adjPlus: 0,
         adjPlusReason: "",
@@ -2007,8 +2166,7 @@ export default function QuoteBuilderPage() {
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Add-ons &amp; Discounts</div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                           {activeAddons.map(addon => {
-                            const addonNameLc = addon.name.toLowerCase();
-                            const isCounter = addonNameLc.includes("oven") || addonNameLc.includes("refrigerator") || addonNameLc.includes("cabinet");
+                            const isCounter = isCounterAddon(addon.name);
                             const targetScope = primaryScope;
                             const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
                             const priceText = fromCalc
@@ -2029,7 +2187,10 @@ export default function QuoteBuilderPage() {
                                 ) : (
                                   <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
                                 )}
-                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF }}>{addon.name}</span>
+                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                                  <AddonIcon name={addon.name} size={13} />
+                                  {addon.name}
+                                </span>
                                 <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
                               </div>
                             );
@@ -2069,7 +2230,10 @@ export default function QuoteBuilderPage() {
               {/* Notes section */}
               <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
                 <div>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Job Notes</div>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>Job Notes</div>
+                    <JobNotesTranslate text={internalMemo} />
+                  </div>
                   <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to technician.</div>
                   <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Instructions and notes for the technician..." rows={3} className="mt-1 text-sm" />
                   {pushConfirmed && <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>✓ Added from call notes.</p>}
@@ -2328,6 +2492,9 @@ export default function QuoteBuilderPage() {
               rows={10}
               style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: "1.6", color: "#1A1917", fontFamily: FF, background: "#FAFAF9", outline: "none" }}
             />
+            {/* [quote-attachments] Drop zone + thumbnail row. Photos and
+                PDFs office uploads stay private to office + assigned techs. */}
+            <QuoteAttachments ensureQuoteId={ensureQuoteId} />
           </div>
 
           {/* Price Preview */}
@@ -2374,10 +2541,12 @@ export default function QuoteBuilderPage() {
                           <span>−{s.adjMinusReason || "Adjustment"}</span><span>-${s.adjMinus.toFixed(2)}</span>
                         </div>
                       )}
-                      {/* Estimated hours */}
-                      {(s.hours || s.calc?.base_hours) && (
+                      {/* Estimated hours — total_hours from the backend already includes
+                          add-on time-adds (Oven +45 min, etc). Falls back to base_hours
+                          when the calc hasn't returned yet. */}
+                      {(s.hours || s.calc?.total_hours || s.calc?.base_hours) && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#6B6860" }}>
-                          <span>Est. hours</span><span>{s.hours || s.calc?.base_hours} hrs</span>
+                          <span>Est. hours</span><span>{s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours} hrs</span>
                         </div>
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
@@ -2387,7 +2556,10 @@ export default function QuoteBuilderPage() {
                       {/* Commission breakdown */}
                       {(() => {
                         const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
-                        const estHrs = s.hours || s.calc?.base_hours || 0;
+                        // [addon-time 2026-05-27] Use total_hours so commission-per-tech
+                        // hours reflect add-on time (e.g. Oven +45 min) just like the
+                        // Est. hours line above.
+                        const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
                         const techCount = selectedTechId ? 1 : 0;
                         const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
@@ -2395,15 +2567,18 @@ export default function QuoteBuilderPage() {
                           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
                             <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Commission ({ratePct}%)</div>
                             <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
-                              Pool: ${cs.totalCommission.toFixed(2)}
+                              Tech Pay: ${cs.totalCommission.toFixed(2)}
                             </div>
                             {cs.mode === "unassigned" && (
                               <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>Will calculate once techs are assigned</div>
                             )}
                             {cs.mode === "equal" && cs.perTech.length > 0 && (
                               <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
-                                ${cs.totalCommission.toFixed(2)} / {techCount} tech = ${cs.perTech[0].commission.toFixed(2)} each
-                                {estHrs > 0 && ` | ${cs.perTech[0].hours} hrs each`}
+                                {techCount === 1 ? (
+                                  <>${cs.perTech[0].commission.toFixed(2)}{estHrs > 0 && ` · ${cs.perTech[0].hours} hrs`}</>
+                                ) : (
+                                  <>${cs.totalCommission.toFixed(2)} ÷ {techCount} techs = ${cs.perTech[0].commission.toFixed(2)} each{estHrs > 0 && ` · ${cs.perTech[0].hours} hrs each`}</>
+                                )}
                               </div>
                             )}
                           </div>
@@ -2422,7 +2597,10 @@ export default function QuoteBuilderPage() {
             {/* 2+ scopes — list with hours + commission */}
             {selectedScopes.length >= 2 && (() => {
               const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
-              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.hours || s.calc?.base_hours || 0), 0);
+              // [addon-time 2026-05-27] Sum total_hours so add-on time-adds roll up
+              // into the multi-scope grand total (was summing base_hours and dropping
+              // Oven/Refrigerator/etc. minutes).
+              const totalHours = selectedScopes.reduce((sum, s) => sum + (s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0), 0);
               const techCount = selectedTechId ? 1 : 0;
               // [tiered-residential] Per-scope commission so a quote
               // with mixed Standard + Deep Clean shows the right total
@@ -2438,7 +2616,7 @@ export default function QuoteBuilderPage() {
                 <div>
                   {selectedScopes.map(s => {
                     const scope = scopes.find(sc => sc.id === s.scope_id);
-                    const estHrs = s.hours || s.calc?.base_hours || 0;
+                    const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
                     return (
                       <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2462,7 +2640,11 @@ export default function QuoteBuilderPage() {
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 2, fontFamily: FF }}>Commission (blended): ${csTotalCommission.toFixed(2)}</div>
                     {cs.mode === "unassigned" && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Will calculate once techs are assigned</div>}
                     {cs.mode === "equal" && cs.perTech.length > 0 && (
-                      <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>${cs.perTech[0].commission.toFixed(2)} / tech | {cs.perTech[0].hours} hrs / tech</div>
+                      <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                        {techCount === 1
+                          ? <>${cs.perTech[0].commission.toFixed(2)} · {cs.perTech[0].hours} hrs</>
+                          : <>${cs.perTech[0].commission.toFixed(2)} / tech · {cs.perTech[0].hours} hrs / tech</>}
+                      </div>
                     )}
                   </div>
                   <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 10, textAlign: "center", fontFamily: FF }}>

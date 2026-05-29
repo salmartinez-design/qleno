@@ -34,8 +34,14 @@ import {
   StandardFonts,
   rgb,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from "pdf-lib";
+import {
+  embedBrandLogos,
+  drawQlenoMark,
+  measureQlenoLockup,
+} from "./pdf-gen.js";
 
 // Color palette mirrors pdf-gen.ts. Kept inline to avoid coupling the
 // modules; if either drifts, the audit notes capture the cert visuals.
@@ -123,10 +129,11 @@ export async function generateComprehensiveHandbookPdf(
   const doc = await PDFDocument.create();
   const fontRegular = await doc.embedFont(StandardFonts.Helvetica);
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const logos = await embedBrandLogos(doc);
 
   // ── Page 1: Cover ──────────────────────────────────────────────────────
   const coverPage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-  drawCover(coverPage, fontRegular, fontBold, input);
+  drawCover(coverPage, fontRegular, fontBold, input, logos);
 
   // ── Page 2: Handbook Contents Summary ──────────────────────────────────
   const summaryPage = doc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
@@ -160,6 +167,7 @@ function drawCover(
   fontRegular: PDFFont,
   fontBold: PDFFont,
   input: ComprehensiveHandbookInput,
+  logos: { qleno: PDFImage | null; phes: PDFImage | null },
 ): void {
   // Mint accent bar at top, matching the existing certificate visuals.
   page.drawRectangle({
@@ -170,14 +178,26 @@ function drawCover(
     color: COLORS.mint,
   });
 
-  // Tenant brand name top-left.
-  page.drawText(input.tenantName.toUpperCase(), {
-    x: MARGIN,
-    y: PAGE_HEIGHT - 50,
-    size: 12,
-    font: fontBold,
-    color: COLORS.navy,
-  });
+  // Brand logos below the mint bar — Phes JPEG top-left, Qleno mark +
+  // wordmark top-right (drawn programmatically from the canonical SVG
+  // via drawQlenoMark, no PNG). Both at 44px so the cover page (the
+  // most visible surface of the signed handbook) leads with the
+  // dual-brand mark before any text.
+  const logoH = 44;
+  const logoY = PAGE_HEIGHT - 70;
+  if (logos.phes) {
+    const w = logos.phes.width * (logoH / logos.phes.height);
+    page.drawImage(logos.phes, { x: MARGIN, y: logoY, width: w, height: logoH });
+  }
+  const qlenoW = measureQlenoLockup(fontBold, logoH, { withWordmark: true });
+  drawQlenoMark(
+    page,
+    fontBold,
+    PAGE_WIDTH - MARGIN - qlenoW,
+    logoY,
+    logoH,
+    { withWordmark: true },
+  );
 
   const isEn = input.locale === "en";
   const title = isEn

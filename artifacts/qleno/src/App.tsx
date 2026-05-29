@@ -20,9 +20,11 @@ const InvoicesPage        = lazy(() => import("@/pages/invoices"));
 const CompanyPage         = lazy(() => import("@/pages/company"));
 const LoyaltyPage         = lazy(() => import("@/pages/loyalty"));
 const PayrollPage         = lazy(() => import("@/pages/payroll"));
+const MileageReviewPage   = lazy(() => import("@/pages/mileage-review"));
 const CleancyclopediaPage = lazy(() => import("@/pages/cleancyclopedia"));
 const DiscountsRedirect   = lazy(() => Promise.resolve({ default: () => { window.location.replace((import.meta.env.BASE_URL.replace(/\/$/, "")) + "/company?tab=pricing"); return null; } }));
 const MyJobsPage          = lazy(() => import("@/pages/my-jobs"));
+const MyDayPage           = lazy(() => import("@/pages/my-day"));
 const ClockMonitorPage    = lazy(() => import("@/pages/clock-monitor"));
 const PortalLoginPage     = lazy(() => import("@/pages/portal/login"));
 const PortalDashboardPage = lazy(() => import("@/pages/portal/dashboard"));
@@ -127,11 +129,13 @@ function Router() {
         <Route path="/invoices/:id" component={InvoiceDetailPage} />
         <Route path="/invoices" component={InvoicesPage} />
         <Route path="/payroll" component={PayrollPage} />
+        <Route path="/payroll/mileage-review" component={MileageReviewPage} />
         <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
         <Route path="/company" component={CompanyPage} />
         <Route path="/loyalty" component={LoyaltyPage} />
         <Route path="/discounts" component={DiscountsRedirect} />
         <Route path="/my-jobs" component={MyJobsPage} />
+        <Route path="/my-day" component={MyDayPage} />
 
         <Route path="/reports" component={ReportsIndexPage} />
         <Route path="/reports/insights" component={InsightsPage} />

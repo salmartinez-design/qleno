@@ -1001,6 +1001,43 @@ const BASE_MODULES: Module[] = [
         },
       },
 
+      { type: "h", text: { en: "Supply Pickup and Maintenance Responsibility", es: "Responsabilidad de Recoger y Mantener los Suministros" } },
+      {
+        type: "p",
+        text: {
+          en: "It is your responsibility as a Phes technician to maintain your supply kit and ensure you have the supplies you need to perform your assigned work. Phes provides supplies at the office. You are responsible for picking them up.",
+          es: "Es su responsabilidad como técnico de Phes mantener su kit de suministros y asegurarse de tener los suministros que necesita para realizar el trabajo asignado. Phes provee los suministros en la oficina. Usted es responsable de recogerlos.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Supply pickup is flexible. You may come to the office at any time during office hours, including before your scheduled workday, after your scheduled workday, or on your scheduled days off. Phes does not require daily check-ins at the office. We provide flexibility, and we expect you to plan your supply pickups responsibly.",
+          es: "Recoger suministros es flexible. Puede venir a la oficina en cualquier momento durante el horario de oficina, incluyendo antes de su jornada laboral, después de su jornada laboral, o en sus días libres programados. Phes no requiere visitas diarias a la oficina. Le damos flexibilidad y esperamos que planifique sus recogidas de suministros con responsabilidad.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Supply pickup is a preparatory activity. It is not part of your scheduled workday. Travel time to and from the office for supply pickup is not compensated, and mileage to the office for supply pickup is not reimbursed.",
+          es: "Recoger suministros es una actividad preparatoria. No es parte de su jornada laboral programada. El tiempo de viaje hacia y desde la oficina para recoger suministros no se compensa, y el millaje hacia la oficina para recoger suministros no se reembolsa.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "If you run out of supplies because you failed to pick them up in advance, you are responsible for solving the gap on your own time and at your own expense. Phes will not ship supplies to your home, will not deliver supplies to job sites for supply gaps caused by poor planning, and will not pay you for time spent running to retail stores in those circumstances.",
+          es: "Si se queda sin suministros porque no los recogió con anticipación, usted es responsable de resolver la falta en su propio tiempo y a su propio costo. Phes no enviará suministros a su casa, no entregará suministros en los sitios de trabajo por faltas causadas por mala planificación, y no le pagará por el tiempo dedicado a ir a tiendas minoristas en esas circunstancias.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Repeatedly running out of supplies or failing to maintain your supply kit may result in discipline up to and including termination. See the Supply Kit Responsibility module (Module 13) for full details on supply planning, office pickup hours, and supply management best practices.",
+          es: "Quedarse sin suministros repetidamente o no mantener su kit de suministros puede resultar en disciplina hasta e incluyendo la terminación. Vea el módulo de Responsabilidad del Kit de Suministros (Módulo 13) para todos los detalles sobre planificación de suministros, horarios de recogida en oficina y mejores prácticas de gestión de suministros.",
+        },
+      },
+
       { type: "h", text: { en: "Final Pay and Property Return", es: "Pago Final y Devolución de Propiedad" } },
       {
         type: "p",
@@ -3219,6 +3256,100 @@ const BASE_MODULES: Module[] = [
         },
       },
 
+      { type: "h", text: { en: "Supply Pickup is Your Responsibility", es: "Recoger Suministros es Su Responsabilidad" } },
+      {
+        type: "p",
+        text: {
+          en: "Phes provides cleaning supplies at the office for technicians to pick up and use on assigned jobs. It is your responsibility as a Phes technician to maintain your supply kit and ensure you have the supplies you need to perform your assigned work.",
+          es: "Phes provee suministros de limpieza en la oficina para que los técnicos los recojan y usen en los trabajos asignados. Es su responsabilidad como técnico de Phes mantener su kit de suministros y asegurarse de tener los suministros que necesita para realizar el trabajo asignado.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Supplies are available for pickup at the office during office hours. You may come to the office whenever it is convenient for you, including before your scheduled workday, after your scheduled workday, or on your scheduled days off. Phes does not require you to come to the office daily or at any specific time for supply pickup. We give you the flexibility to manage your supply pickup as it works with your schedule and travel patterns.",
+          es: "Los suministros están disponibles para recoger en la oficina durante el horario de oficina. Puede venir a la oficina cuando sea conveniente para usted, incluyendo antes de su jornada laboral, después de su jornada laboral, o en sus días libres programados. Phes no requiere que venga a la oficina diariamente ni en un horario específico para recoger suministros. Le damos la flexibilidad para manejar la recogida de suministros como funcione con su horario y patrones de viaje.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "With this flexibility comes responsibility. You must:",
+          es: "Con esa flexibilidad viene la responsabilidad. Usted debe:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "Check your supply kit at the end of each workday and assess what you will need for upcoming jobs.", es: "Revisar su kit de suministros al final de cada jornada y evaluar lo que necesitará para los próximos trabajos." },
+          { en: "Plan supply pickup trips when you are already in the area of the office, especially if you live a significant distance from the office.", es: "Planear viajes de recogida cuando ya está en el área de la oficina, especialmente si vive a una distancia considerable de la oficina." },
+          { en: "Come to the office in advance of running out of supplies, not after.", es: "Venir a la oficina antes de quedarse sin suministros, no después." },
+          { en: "Maintain your supplies in clean, organized, working condition.", es: "Mantener sus suministros limpios, organizados y en condición de uso." },
+          { en: "Treat company-provided supplies as Phes property.", es: "Tratar los suministros provistos por la compañía como propiedad de Phes." },
+        ],
+      },
+
+      { type: "h", text: { en: "What Happens if You Run Out of Supplies", es: "Qué Pasa si Se Queda Sin Suministros" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          en: "Phes will not pay for emergency supply shipping, will not deliver supplies to your home, and will not pay you for time spent running to retail stores because you ran out of supplies you should have picked up at the office. If you fail to pick up supplies in advance and run out before a job, you are responsible for solving the supply gap on your own time and at your own expense. This may mean coming to the office to pick up supplies even on a day you did not plan to, or purchasing supplies from a retail store at your own cost.",
+          es: "Phes no pagará por envío urgente de suministros, no entregará suministros en su casa, y no le pagará por el tiempo dedicado a ir a tiendas minoristas porque se quedó sin suministros que debió haber recogido en la oficina. Si no recoge los suministros con anticipación y se queda sin ellos antes de un trabajo, usted es responsable de resolver la falta en su propio tiempo y a su propio costo. Esto puede significar venir a la oficina a recoger suministros incluso en un día en el que no planeaba hacerlo, o comprar suministros en una tienda minorista a su propio costo.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "Repeatedly running out of supplies or failing to maintain your supply kit may result in coaching, written warning, or discipline up to and including termination. The supplies Phes provides are a fundamental tool for your work. Your reliability with supply management directly affects your ability to perform your job, the client's experience, and Phes's operations.",
+          es: "Quedarse sin suministros repetidamente o no mantener su kit de suministros puede resultar en coaching, advertencia por escrito o disciplina hasta e incluyendo la terminación. Los suministros que Phes provee son una herramienta fundamental para su trabajo. Su confiabilidad en la gestión de suministros afecta directamente su capacidad de hacer su trabajo, la experiencia del cliente y las operaciones de Phes.",
+        },
+      },
+
+      { type: "h", text: { en: "Supply Pickup is Not Part of Your Scheduled Workday", es: "Recoger Suministros No Es Parte de Su Jornada Laboral" } },
+      {
+        type: "p",
+        text: {
+          en: "Supply pickup is a preparatory activity. It is not part of your scheduled workday. Travel to and from the office for supply pickup is not compensated, and mileage to the office for supply pickup is not reimbursed because it is considered personal travel similar to your home-to-first-job commute.",
+          es: "Recoger suministros es una actividad preparatoria. No es parte de su jornada laboral programada. El viaje hacia y desde la oficina para recoger suministros no se compensa, y el millaje hacia la oficina para recoger suministros no se reembolsa porque se considera viaje personal similar a su recorrido de casa al primer trabajo.",
+        },
+      },
+      {
+        type: "p",
+        text: {
+          en: "If the office specifically requires you to come to the office during your scheduled workday for a work-related reason other than supply pickup (such as training, meetings, or a specific assigned task), that time will be compensated separately and any mileage for required office trips during the workday will be reimbursed at the standard rate.",
+          es: "Si la oficina específicamente requiere que venga a la oficina durante su jornada laboral por una razón laboral distinta a recoger suministros (como capacitación, reuniones o una tarea específica asignada), ese tiempo será compensado por separado y cualquier millaje por viajes obligatorios a la oficina durante la jornada será reembolsado a la tarifa estándar.",
+        },
+      },
+
+      { type: "h", text: { en: "Planning Tips", es: "Consejos de Planificación" } },
+      {
+        type: "p",
+        text: {
+          en: "The office is open during business hours. Plan supply pickup trips around your existing travel patterns:",
+          es: "La oficina está abierta en horario de oficina. Planee los viajes de recogida en torno a sus patrones de viaje existentes:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "If you have a job near the office, stop in before or after that job.", es: "Si tiene un trabajo cerca de la oficina, pase antes o después de ese trabajo." },
+          { en: "If you live a significant distance from the office, plan a pickup trip every 1 to 2 weeks rather than running back and forth.", es: "Si vive a una distancia considerable de la oficina, planee un viaje de recogida cada 1 o 2 semanas en lugar de ir y venir." },
+          { en: "Check your supplies weekly so you can plan a pickup before you run low.", es: "Revise sus suministros semanalmente para que pueda planear una recogida antes de que se le acaben." },
+          { en: "If you know you have a heavy job coming up (deep clean, move-in or move-out), plan your supply pickup in advance.", es: "Si sabe que tiene un trabajo grande próximamente (limpieza profunda, mudanza de entrada o salida), planee la recogida de suministros con anticipación." },
+          { en: "Coordinate with other techs in your area when possible.", es: "Coordine con otros técnicos en su área cuando sea posible." },
+        ],
+      },
+
+      { type: "h", text: { en: "Office Hours and Access", es: "Horario de Oficina y Acceso" } },
+      {
+        type: "p",
+        text: {
+          en: "The office is open for supply pickup during regular business hours [OFFICE_HOURS_TO_CONFIRM]. If you need to come to the office outside of those hours, contact the office in advance to coordinate access.",
+          es: "La oficina está abierta para recoger suministros durante el horario regular [OFFICE_HOURS_TO_CONFIRM]. Si necesita venir a la oficina fuera de ese horario, contacte a la oficina con anticipación para coordinar el acceso.",
+        },
+      },
+
       { type: "h", text: { en: "What Is in the Supply Kit", es: "Qué Está en el Kit de Suministros" } },
       {
         type: "p",
@@ -3960,6 +4091,21 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Use Phes-funded ParkChicago for meters and SpotHero for lots; personal use is prohibited.", es: "Use ParkChicago financiado por Phes para medidores y SpotHero para lotes; uso personal prohibido." },
       { en: "Parking is fully on the tech — find free street parking or pay completely out of pocket.", es: "El estacionamiento es 100% del técnico — busque parqueo gratis o pague de su propio bolsillo." },
       { en: "Phes pays it, and you may also use the ParkChicago app for personal weekend errands.", es: "Phes lo paga, y también puede usar la app ParkChicago para diligencias personales los fines de semana." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-pp-42-supply-maintenance",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "What happens if you repeatedly run out of supplies because you failed to pick them up in advance from the office?",
+      es: "¿Qué pasa si se queda sin suministros repetidamente porque no los recogió a tiempo en la oficina?",
+    },
+    options: [
+      { en: "Nothing, as long as I eventually pick up supplies, there is no consequence.", es: "Nada, mientras eventualmente recoja los suministros, no hay consecuencia." },
+      { en: "Repeated supply gaps may result in coaching, written warning, or discipline up to and including termination.", es: "Las faltas repetidas pueden resultar en coaching, advertencia por escrito o disciplina hasta e incluyendo la terminación." },
+      { en: "The office will start delivering supplies to me to prevent the issue.", es: "La oficina comenzará a entregarme suministros para prevenir el problema." },
+      { en: "I receive an automatic pay deduction for each missed supply pickup.", es: "Recibo una deducción automática de pago por cada recogida no realizada." },
     ],
     correctIndex: 1,
   },
@@ -5964,17 +6110,17 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-sk-02-reasonable-wear-vs-negligence",
+    id: "q-sk-02-supply-pickup-responsibility",
     moduleId: "supply-kit",
     prompt: {
-      en: "Your microfiber cloths are fraying after several months of regular use. Are you responsible for replacement cost?",
-      es: "Sus paños de microfibra se deshilachan después de varios meses de uso regular. ¿Es responsable del costo de reemplazo?",
+      en: "Whose responsibility is it to maintain your Phes supply kit and ensure you have the supplies you need for assigned jobs?",
+      es: "¿De quién es la responsabilidad de mantener su kit de suministros de Phes y asegurar que tenga los suministros que necesita para los trabajos asignados?",
     },
     options: [
-      { en: "Yes — anything that wears out during the course of your shifts is on the tech.", es: "Sí — cualquier cosa que se desgaste durante el curso de sus turnos es del técnico." },
-      { en: "No — reasonable wear and tear from intended use is absorbed by Phes itself.", es: "No — el desgaste razonable por el uso previsto es absorbido por Phes." },
-      { en: "Only if a client at one of the homes complains about the condition of the cloths.", es: "Solo si un cliente en uno de los hogares se queja sobre la condición de los paños." },
-      { en: "Only if you have been actively working at Phes for less than one full year.", es: "Solo si lleva trabajando activamente en Phes menos de un año completo." },
+      { en: "The office team is responsible for delivering supplies to me before each job.", es: "El equipo de oficina es responsable de entregarme los suministros antes de cada trabajo." },
+      { en: "It is my responsibility as a Phes technician to maintain my supply kit and pick up supplies from the office as needed.", es: "Es mi responsabilidad como técnico de Phes mantener mi kit y recoger suministros en la oficina cuando sea necesario." },
+      { en: "Phes is responsible for shipping supplies to my home when I need them.", es: "Phes es responsable de enviar suministros a mi casa cuando los necesito." },
+      { en: "Whichever tech is on duty first that day is responsible for collecting supplies for everyone.", es: "El técnico que esté de turno primero ese día es responsable de recoger los suministros para todos." },
     ],
     correctIndex: 1,
   },
@@ -6009,17 +6155,17 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-sk-05-return-at-separation",
+    id: "q-sk-05-supply-pickup-out-of-supplies",
     moduleId: "supply-kit",
     prompt: {
-      en: "It's your last day at Phes. The office wants the caddy, supplies, Phes phone, uniform, and client keys back. Is this in the agreement?",
-      es: "Es su último día en Phes. La oficina quiere de vuelta el caddy, suministros, teléfono de Phes, uniforme y llaves de clientes. ¿Está esto en el acuerdo?",
+      en: "You realize the night before a job that you are out of a key supply and cannot pick it up from the office in time. What does Phes do?",
+      es: "Se da cuenta la noche antes de un trabajo que está sin un suministro clave y no puede recogerlo en la oficina a tiempo. ¿Qué hace Phes?",
     },
     options: [
-      { en: "No — after your last day the entire kit becomes yours to keep as a parting gift.", es: "No — después de su último día el kit entero se vuelve suyo como regalo de despedida." },
-      { en: "Yes — on or before your last day, return ALL Phes property to the office.", es: "Sí — en o antes de su último día, devuelva TODA la propiedad de Phes a la oficina." },
-      { en: "Only if you are formally terminated by the office, not if you voluntarily resigned.", es: "Solo si la oficina lo termina formalmente, no si renunció voluntariamente por su cuenta." },
-      { en: "Only the client keys must be returned — the rest of the kit is yours to keep.", es: "Solo las llaves de cliente deben ser devueltas — el resto del kit es suyo para quedárselo." },
+      { en: "Phes ships me the supplies overnight at the company's expense.", es: "Phes me envía los suministros de un día para otro a cuenta de la compañía." },
+      { en: "Phes will not pay for emergency shipping or retail-store time. I am responsible for solving the gap on my own time and at my own expense.", es: "Phes no paga envío urgente ni tiempo en tiendas. Yo soy responsable de resolver la falta en mi tiempo y a mi costo." },
+      { en: "Phes pays me for the time and mileage to drive to a retail store to buy the supplies.", es: "Phes me paga el tiempo y millaje para ir a una tienda minorista a comprar los suministros." },
+      { en: "Phes excuses me from the job and the client is rescheduled at no fault to me.", es: "Phes me excusa del trabajo y el cliente se reagenda sin culpa para mí." },
     ],
     correctIndex: 1,
   },
@@ -6039,47 +6185,47 @@ const BASE_QUIZ: QuizQuestion[] = [
     correctIndex: 1,
   },
   {
-    id: "q-sk-07-no-personal-use",
+    id: "q-sk-07-supply-pickup-office-hours",
     moduleId: "supply-kit",
     prompt: {
-      en: "You finish a Phes job early. Can you bring the Phes vacuum and supplies home to clean your own apartment before returning to the office?",
-      es: "Termina un trabajo de Phes temprano. ¿Puede llevar la aspiradora y los suministros de Phes a casa para limpiar su propio apartamento antes de volver a la oficina?",
+      en: "When can you come to the Phes office to pick up supplies?",
+      es: "¿Cuándo puede venir a la oficina de Phes a recoger suministros?",
     },
     options: [
-      { en: "Yes — since you finished the Phes job early, brief personal use is fine.", es: "Sí — ya que terminó el trabajo de Phes temprano, un uso personal breve está bien." },
-      { en: "No — Phes supplies and equipment are for Phes work use only, not personal.", es: "No — los suministros y el equipo de Phes son solo para trabajo de Phes, no personales." },
-      { en: "Yes, but only the cleaning chemicals, not the vacuum or other major equipment.", es: "Sí, pero solo los productos químicos, no la aspiradora ni otro equipo mayor." },
-      { en: "Only if your apartment happens to be located along your assigned daily route.", es: "Solo si su apartamento queda ubicado a lo largo de su ruta diaria asignada." },
+      { en: "Only during my scheduled workday between assigned jobs.", es: "Solo durante mi jornada laboral, entre trabajos asignados." },
+      { en: "Any time during office hours, including before my workday, after my workday, or on my days off.", es: "En cualquier momento del horario de oficina, incluyendo antes y después de mi jornada o en mis días libres." },
+      { en: "Only on my scheduled days off, never during the workweek.", es: "Solo en mis días libres programados, nunca durante la semana laboral." },
+      { en: "I must come to the office every morning before my first job.", es: "Debo venir a la oficina cada mañana antes de mi primer trabajo." },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sk-08-no-modifications",
+    id: "q-sk-08-supply-pickup-not-compensated",
     moduleId: "supply-kit",
     prompt: {
-      en: "You think you could improve the cleaning chemistry by mixing your own substitute. Can you swap the Phes-issued chemicals for products you buy yourself?",
-      es: "Cree que podría mejorar la química de limpieza mezclando su propio sustituto. ¿Puede cambiar los productos químicos emitidos por Phes por productos que usted mismo compre?",
+      en: "When you travel to the office to pick up supplies, are you compensated for the time and mileage?",
+      es: "Cuando viaja a la oficina a recoger suministros, ¿se le compensa el tiempo y el millaje?",
     },
     options: [
-      { en: "Yes, as long as the personal substitute appears to clean noticeably better.", es: "Sí, siempre que el sustituto personal aparente limpiar notablemente mejor." },
-      { en: "No — Phes uses specific products for safety and consistency standards.", es: "No — Phes usa productos específicos por estándares de seguridad y consistencia." },
-      { en: "Yes, but only if the substitute product is from the exact same brand name.", es: "Sí, pero solo si el producto sustituto es de la misma marca exacta." },
-      { en: "Yes, but only with prior written approval from the client of the home.", es: "Sí, pero solo con aprobación escrita previa del cliente del hogar." },
+      { en: "Yes, time and mileage are both fully compensated when picking up supplies.", es: "Sí, tanto el tiempo como el millaje se compensan totalmente al recoger suministros." },
+      { en: "No. Supply pickup is preparatory. Travel time is not compensated and mileage is not reimbursed.", es: "No. Recoger suministros es preparatorio. El tiempo de viaje no se compensa y el millaje no se reembolsa." },
+      { en: "Only the mileage is reimbursed at the standard rate, but not the time.", es: "Solo el millaje se reembolsa a la tarifa estándar, pero no el tiempo." },
+      { en: "Only the time is compensated as part of my scheduled workday, but not the mileage.", es: "Solo el tiempo se compensa como parte de mi jornada laboral, pero no el millaje." },
     ],
     correctIndex: 1,
   },
   {
-    id: "q-sk-09-uniform-care",
+    id: "q-sk-09-supply-pickup-planning",
     moduleId: "supply-kit",
     prompt: {
-      en: "You want to add an embroidered name patch to your Phes apron because it looks nicer. Can you do that?",
-      es: "Quiere agregar un parche bordado con su nombre al delantal de Phes porque se ve mejor. ¿Puede hacerlo?",
+      en: "You finish a job that is 2 miles from the Phes office. Your supply kit is running low. What is the best practice?",
+      es: "Termina un trabajo a 2 millas de la oficina de Phes. Su kit de suministros está bajo. ¿Cuál es la mejor práctica?",
     },
     options: [
-      { en: "Yes — uniform personalization is encouraged as a way to build a sense of pride.", es: "Sí — la personalización del uniforme se anima como forma de construir orgullo." },
-      { en: "No — do not alter the uniform with paint, embroidery, or unofficial patches.", es: "No — no altere el uniforme con pintura, bordado ni parches no oficiales." },
-      { en: "Yes, but only if the embroidered name patch is small and discreet on the apron.", es: "Sí, pero solo si el parche bordado con nombre es pequeño y discreto en el delantal." },
-      { en: "Yes, but only on the apron itself, not anywhere on the Phes-branded shirt.", es: "Sí, pero solo en el delantal mismo, no en ninguna parte de la camisa con marca de Phes." },
+      { en: "Continue to my next destination and come back to the office tomorrow during my scheduled workday.", es: "Continuar a mi próximo destino y volver a la oficina mañana durante mi jornada laboral." },
+      { en: "Stop at the office to restock supplies, since I am already in the area. Plan pickups around existing travel patterns.", es: "Pasar a la oficina a reabastecer, ya que estoy en el área. Planifico recogidas según mis patrones de viaje." },
+      { en: "Wait until I run out of supplies and then come to the office for an emergency pickup.", es: "Esperar a que se me acaben los suministros y luego ir a la oficina por una recogida de emergencia." },
+      { en: "Ask the office to deliver supplies to my next location since I am close by.", es: "Pedir a la oficina que entregue suministros en mi próxima ubicación ya que estoy cerca." },
     ],
     correctIndex: 1,
   },

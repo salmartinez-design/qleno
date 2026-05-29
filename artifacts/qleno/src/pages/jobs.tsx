@@ -17,6 +17,7 @@ import {
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
 import LegendPopover from "@/components/legend-popover";
+import MobileDateSheet from "@/components/mobile-date-sheet";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -1090,6 +1091,91 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [officeNotesSaving, setOfficeNotesSaving] = useState(false);
   const [officeNotesSaved, setOfficeNotesSaved] = useState(false);
 
+  // Rate mods state — per-job time and fee adjustments. Owner/admin/office
+  // can manage. The backend recomputes billed_amount = base_fee + SUM(mods)
+  // after every write; we reload the drawer through onUpdate() to pull the
+  // fresh number.
+  type RateMod = {
+    id: number; mod_type: "time" | "flat"; minutes: number | null;
+    amount: string; reason: string; created_by: number | null;
+    created_at: string; created_by_name?: string | null;
+  };
+  const canManageMods = (userRole === "owner" || userRole === "admin" || userRole === "office");
+  const [rateMods, setRateMods] = useState<RateMod[]>([]);
+  const [rateModsLoaded, setRateModsLoaded] = useState(false);
+  const [modAddOpen, setModAddOpen] = useState(false);
+  const [modType, setModType] = useState<"time" | "flat">("time");
+  const [modMinutes, setModMinutes] = useState("");
+  const [modAmount, setModAmount] = useState("");
+  const [modReason, setModReason] = useState("");
+  const [modBusy, setModBusy] = useState(false);
+  const [modError, setModError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;
+        const d = await r.json();
+        if (alive) {
+          setRateMods((d.mods || []) as RateMod[]);
+          setRateModsLoaded(true);
+        }
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [job.id, token]);
+
+  async function addRateMod() {
+    setModError("");
+    if (!modReason.trim()) { setModError("Reason is required"); return; }
+    const amt = Number(modAmount);
+    if (Number.isNaN(amt) || modAmount.trim() === "") { setModError("Amount must be numeric"); return; }
+    if (modType === "time") {
+      const mins = Number(modMinutes);
+      if (Number.isNaN(mins) || modMinutes.trim() === "") { setModError("Minutes required for time adjustments"); return; }
+    }
+    setModBusy(true);
+    try {
+      const body: any = { mod_type: modType, amount: amt, reason: modReason.trim() };
+      if (modType === "time") body.minutes = Number(modMinutes);
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Failed");
+      setRateMods(prev => [...prev, d.mod as RateMod]);
+      setModType("time"); setModMinutes(""); setModAmount(""); setModReason("");
+      setModAddOpen(false);
+      toast({ title: "Adjustment added" });
+      onUpdate();
+    } catch (err: any) {
+      setModError(err.message || "Failed to add adjustment");
+    } finally {
+      setModBusy(false);
+    }
+  }
+
+  async function deleteRateMod(modId: number) {
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods/${modId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("Delete failed");
+      setRateMods(prev => prev.filter(m => m.id !== modId));
+      toast({ title: "Adjustment removed" });
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: "Failed to remove", description: err.message || "", variant: "destructive" as any });
+    }
+  }
+
   // Debounced auto-save for office notes
   useEffect(() => {
     const delay = setTimeout(async () => {
@@ -1615,6 +1701,89 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
                 <Plus size={12} /> Add Team Member
               </button>
+            </PS>
+          )}
+
+          {/* Time & Fee Adjustments — per-job mods stacked on top of base_fee */}
+          {canManageMods && (
+            <PS label="Time & Fee Adjustments">
+              {rateMods.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
+                  {rateModsLoaded ? "No adjustments" : "Loading…"}
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {rateMods.map(m => {
+                    const amt = parseFloat(m.amount);
+                    const sign = amt >= 0 ? "+" : "−";
+                    const abs = Math.abs(amt).toFixed(2);
+                    const detail = m.mod_type === "time"
+                      ? `${(m.minutes ?? 0) >= 0 ? "+" : ""}${m.minutes} min`
+                      : "Flat fee";
+                    return (
+                      <div key={m.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF" }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
+                            {detail} · {sign}${abs}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, wordBreak: "break-word" }}>
+                            {m.reason}
+                          </div>
+                        </div>
+                        {!isLocked && (
+                          <button onClick={() => deleteRateMod(m.id)}
+                            style={{ marginLeft: 8, padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
+                            title="Remove adjustment">
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {!modAddOpen ? (
+                <button onClick={() => !isLocked && setModAddOpen(true)}
+                  disabled={isLocked}
+                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+                  <Plus size={12} /> Add Adjustment
+                </button>
+              ) : (
+                <div style={{ padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF7" }}>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                    <button onClick={() => setModType("time")}
+                      style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "time" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "time" ? "#2D9B83" : "#FFFFFF", color: modType === "time" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      Time
+                    </button>
+                    <button onClick={() => setModType("flat")}
+                      style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "flat" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "flat" ? "#2D9B83" : "#FFFFFF", color: modType === "flat" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      Flat Fee
+                    </button>
+                  </div>
+                  {modType === "time" && (
+                    <input type="number" placeholder="Minutes (e.g. 30 or -15)"
+                      value={modMinutes} onChange={e => setModMinutes(e.target.value)}
+                      style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
+                  )}
+                  <input type="number" step="0.01" placeholder="Amount (e.g. 30 or -50)"
+                    value={modAmount} onChange={e => setModAmount(e.target.value)}
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
+                  <input type="text" placeholder="Reason"
+                    value={modReason} onChange={e => setModReason(e.target.value)}
+                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" }} />
+                  {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={addRateMod} disabled={modBusy}
+                      style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
+                      {modBusy ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => { setModAddOpen(false); setModError(""); }} disabled={modBusy}
+                      style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </PS>
           )}
 
@@ -3321,7 +3490,26 @@ export default function JobsPage() {
   const [legendOpen, setLegendOpen] = useState(false);
   const legendBtnRef = useRef<HTMLButtonElement | null>(null);
   const [legendAnchor, setLegendAnchor] = useState<DOMRect | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
+  // Mobile date picker — opened by tapping the date header.
+  const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  // Read ?date=YYYY-MM-DD on mount so quote-builder's convert-to-job navigation
+  // (which targets the scheduled day) actually lands on that day instead of today.
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const param = new URLSearchParams(window.location.search).get("date");
+    const m = param && /^\d{4}-\d{2}-\d{2}$/.test(param) ? param.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+    if (m) { const d = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])); d.setHours(0, 0, 0, 0); return d; }
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d;
+  });
+  // Keep ?date= in sync as the user navigates days — refresh + back-button preserve the view.
+  useEffect(() => {
+    const next = dateKey(selectedDate);
+    const cur = new URLSearchParams(window.location.search).get("date");
+    if (cur !== next) {
+      const url = new URL(window.location.href);
+      url.searchParams.set("date", next);
+      window.history.replaceState(null, "", url.toString());
+    }
+  }, [selectedDate]);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
@@ -3698,12 +3886,18 @@ export default function JobsPage() {
             {/* Date navigation */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
-              <div style={{ textAlign: "center" }}>
+              {/* Tap the date label to open the month picker — saves
+                  chevron-stepping a day at a time. */}
+              <button
+                onClick={() => setDateSheetOpen(true)}
+                aria-label="Pick a date"
+                style={{ textAlign: "center", border: "none", background: "transparent", padding: "4px 8px", borderRadius: 8, cursor: "pointer", fontFamily: FF }}
+              >
                 <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>
                   {isToday ? "Today" : selectedDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                 </div>
                 {isToday && <div style={{ fontSize: 11, color: "#9E9B94" }}>{selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>}
-              </div>
+              </button>
               <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
             </div>
           </div>
@@ -4057,6 +4251,7 @@ export default function JobsPage() {
         )}
         <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
+        <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>
     );
   }
@@ -4183,8 +4378,8 @@ export default function JobsPage() {
 
               {/* View toggle */}
               <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-                <button onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex" }}><LayoutGrid size={14} /></button>
-                <button onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex" }}><List size={14} /></button>
+                <button title="Timeline view — techs as rows, time across the top" onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><Calendar size={14} /> Timeline</button>
+                <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
               </div>
             </div>
           </div>

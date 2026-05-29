@@ -26,6 +26,7 @@ import jobSmsRouter from "./job-sms.js";
 import quotesRouter from "./quotes.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
+import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
 import billingRouter from "./billing.js";
@@ -59,6 +60,12 @@ import mileageRequestsRouter from "./mileage-requests.js";
 import pricingRouter from "./pricing.js";
 import commercialServiceTypesRouter from "./commercial-service-types.js";
 import serviceTypesRouter from "./service-types.js";
+import coreRouter from "./core.js";
+import techRouter from "./tech.js";
+import techClockRouter from "./tech-clock.js";
+import officeClockRouter from "./office-clock.js";
+import payRouter from "./pay.js";
+import opsIntegrityRouter from "./ops-integrity.js";
 import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
@@ -81,6 +88,7 @@ import lmsAnnualAckRouter from "./lms-annual-ack.js";
 import lmsSettingsRouter from "./lms-settings.js";
 import lmsAdminAuditRouter from "./lms-admin-audit.js";
 import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
+import translateRouter from "./translate.js";
 
 const router: IRouter = Router();
 
@@ -109,6 +117,13 @@ router.use("/notifications", notificationsRouter);
 router.use("/quotes", quotesRouter);
 router.use("/payments", paymentsRouter);
 router.use("/attachments", attachmentsRouter);
+// [translate-job-notes 2026-05-27] Office-only translation endpoint —
+// Claude API. POST /api/translate {text, target} → {translated}.
+router.use("/translate", translateRouter);
+// [quote-attachments] The routers define full paths internally
+// (`:id/attachments`), so mount them at the resource root.
+router.use("/quotes", quoteAttachmentsRouter);
+router.use("/jobs", jobAttachmentsRouter);
 router.use("/property-groups", propertyGroupsRouter);
 router.use("/agreement-templates", agreementTemplatesRouter);
 router.use("/billing", billingRouter);
@@ -143,6 +158,18 @@ router.use("/mileage-requests", mileageRequestsRouter);
 router.use("/pricing", pricingRouter);
 router.use("/commercial-service-types", commercialServiceTypesRouter);
 router.use("/service-types", serviceTypesRouter);
+router.use("/core", coreRouter);
+// Cutover 1B — tech day view (read-only timeline at /api/tech/today)
+// Cutover 1C — execution engine at /api/tech/jobs/:jobId/* and office
+// correction/exception review at /api/office/*. Mount the more
+// specific /tech/jobs path BEFORE /tech so Express dispatches correctly.
+router.use("/tech/jobs", techClockRouter);
+router.use("/tech", techRouter);
+router.use("/office", officeClockRouter);
+// Cutover 1E — pay periods, summaries, adjustments, rates, generic CSV export
+router.use("/pay", payRouter);
+// Cutover 1E — on-demand re-run of the startup clock-integrity self-check
+router.use("/ops", opsIntegrityRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);

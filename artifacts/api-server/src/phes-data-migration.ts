@@ -393,6 +393,27 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "recurring_schedules.custom_frequency_weeks",
       stmt: `ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS custom_frequency_weeks INTEGER` },
 
+    // [quote-attachments 2026-05-26] Files attached to a quote's Call
+    // Notes panel — photos clients send, screenshots the office takes,
+    // PDFs. Office-only on the quote screen. After convert-to-job,
+    // assigned techs read them via GET /api/jobs/:id/attachments which
+    // resolves back through quotes.booked_job_id.
+    { label: "CREATE quote_attachments", stmt: `
+      CREATE TABLE IF NOT EXISTS quote_attachments (
+        id           SERIAL PRIMARY KEY,
+        company_id   INTEGER NOT NULL REFERENCES companies(id),
+        quote_id     INTEGER NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+        name         TEXT NOT NULL,
+        file_url     TEXT NOT NULL,
+        file_type    TEXT,
+        file_size    INTEGER,
+        uploaded_by  INTEGER REFERENCES users(id),
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_quote_attachments_quote",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_quote_attachments_quote ON quote_attachments(quote_id)` },
+
     // Recurring add-ons junction — parent template for what spawns onto
     // each child job.
     { label: "CREATE recurring_schedule_add_ons", stmt: `
@@ -1021,6 +1042,27 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged BOOLEAN NOT NULL DEFAULT FALSE` },
     { label: "lms_onboarding_intake.vehicle_protocol_acknowledged_at",
       stmt: `ALTER TABLE lms_onboarding_intake ADD COLUMN IF NOT EXISTS vehicle_protocol_acknowledged_at TIMESTAMPTZ` },
+
+    // ── Job rate mods (per-job time and fee adjustments) ──────────────────
+    // Layered onto the flat jobs.amount/base_fee: each mod is either a
+    // 'time' adjustment (minutes + computed amount) or a 'flat' fee adjustment.
+    // The route handler recomputes jobs.amount = base_fee + SUM(mods.amount)
+    // on every write.
+    { label: "CREATE job_rate_mods", stmt: `
+      CREATE TABLE IF NOT EXISTS job_rate_mods (
+        id          SERIAL PRIMARY KEY,
+        company_id  INT NOT NULL REFERENCES companies(id),
+        job_id      INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        mod_type    TEXT NOT NULL CHECK (mod_type IN ('time', 'flat')),
+        minutes     INT,
+        amount      NUMERIC(10,2) NOT NULL,
+        reason      TEXT NOT NULL,
+        created_by  INT REFERENCES users(id),
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_job_rate_mods_job",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_job_rate_mods_job ON job_rate_mods(company_id, job_id)` },
   ];
 
   for (const { label, stmt } of guards) {
@@ -3148,12 +3190,19 @@ export async function runPhesDataMigration(): Promise<void> {
           is_itemized: false, show_office: true, show_online: false, show_portal: true, sort_order: 31,
         },
         {
+          // [baseboards-mc-parity 2026-05-26] Baseboards is now an office-only
+          // add-on available on every scope ($30 flat / 45 min). MC's
+          // production data has it on Deep Clean + Move In/Out + One-Time
+          // Standard; Sal confirmed it should appear on ALL scopes including
+          // Hourly + Commercial + PPM Turnover, and stay hidden from the
+          // online widget + customer portal (office can still add it on a
+          // quote or job).
           name: "Baseboards",
           addon_type: "cleaning_extras",
-          scope_ids: [S].filter(Boolean),
+          scope_ids: [D, MIO, S, R, HD, HS, C, P].filter(Boolean),
           price_type: "flat", price_value: 30,
           time_minutes: 45, time_unit: "each",
-          is_itemized: true, show_office: true, show_online: false, show_portal: true, sort_order: 40,
+          is_itemized: true, show_office: true, show_online: false, show_portal: false, sort_order: 40,
         },
         {
           name: "Baseboards — Deep Clean (Sq Ft %)",
@@ -3173,10 +3222,14 @@ export async function runPhesDataMigration(): Promise<void> {
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 50,
         },
         {
+          // [windows-mc-parity 2026-05-26] Windows now uses 15% across every
+          // flat-rate scope (was 12% on Standard/Recurring while Deep Clean
+          // was already 15%). MC's source-of-truth screen showed both 12 and
+          // 15 in different views; Sal called 15 as the canonical rate.
           name: "Windows (inside panes) — Standard / Recurring",
           addon_type: "cleaning_extras",
           scope_ids: [S, R].filter(Boolean),
-          price_type: "percentage", price_value: 12,
+          price_type: "percentage", price_value: 15,
           time_minutes: 45, time_unit: "each",
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 51,
         },
@@ -3339,6 +3392,24 @@ export async function runPhesDataMigration(): Promise<void> {
     console.error("[phes-migration] Migration error (non-fatal):", err);
   }
 
+  // [baseboards-windows-mc-parity 2026-05-26] Idempotent fix for
+  // already-seeded Phes data (the addon block above is one-shot — it
+  // only fires when pricing_addons is empty, so existing tenants need
+  // an explicit UPDATE pass).
+  await runBaseboardsWindowsParityMigration();
+
+  // [top10-addons 2026-05-27] Seed the top-10 tenant-add-on catalog +
+  // the Oven+Refrigerator bundle for Phes. Idempotent — checks by name
+  // before insert, safe to re-run.
+  await runTop10AddonsAndBundleMigration();
+
+  // [hourly-addon-cleanup 2026-05-27] After the audit, Hourly scopes
+  // should expose exactly 6 add-ons (Oven/Refrigerator/Cabinets/
+  // Windows/Basement/Parking) with ZERO time impact (clients are
+  // already billed by clock-time). Removes Baseboards + the +15%
+  // markup from Hourly, renames the "Time Add" suffix, zeros time.
+  await runHourlyAddonCleanupMigration();
+
   // Run employee-specific migrations
   await runAleCuervoMigration();
 
@@ -3353,6 +3424,304 @@ export async function runPhesDataMigration(): Promise<void> {
 }
 
 // ── MaidCentral Discount Migration (2026-04-16) ─────────────────────────────
+// [baseboards-windows-mc-parity 2026-05-26] Bring already-seeded Phes
+// pricing_addons in line with the corrected seed values above.
+//   1. Baseboards becomes office-only ($30 / 45 min) on ALL active scopes.
+//   2. Windows (inside panes) — Standard / Recurring goes 12% → 15%.
+// Idempotent — UPDATEs converge to the same row regardless of starting
+// state, so safe to re-run on every cold start.
+// [top10-addons 2026-05-27] Seed 10 common tenant-add-on options as
+// INACTIVE for Phes so the office can flip them on per-job from the
+// Pricing & Scopes settings page. Also seeds the Oven+Refrigerator
+// combo bundle as ACTIVE (per Sal — most-requested combo).
+//
+// Idempotent: checks pricing_addons.name uniqueness per company before
+// inserting. Existing rows are not touched (no UPDATE pass — operators
+// may have already customized the price/time after first seed).
+// [hourly-addon-cleanup 2026-05-27] Bring Hourly scopes (Hourly Deep
+// Clean + Hourly Standard Cleaning) in line with Sal's post-audit
+// spec: exactly 6 add-ons (Oven, Refrigerator, Kitchen Cabinets,
+// Windows, Basement, Parking Fee) with ZERO time impact — clients are
+// already paying for clock-time, so a time-add would double-count.
+// Also strips Baseboards (added in MC parity PR) and the +15% Second
+// Appointment markup which don't belong on the Hourly add-on list.
+// Idempotent — UPDATEs converge to the same end-state regardless of
+// starting state.
+async function runHourlyAddonCleanupMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const HD = scopeMap["Hourly Deep Clean"];
+    const HS = scopeMap["Hourly Standard Cleaning"];
+    if (!HD && !HS) {
+      console.log("[hourly-addon-cleanup] No active hourly scopes — skipping.");
+      return;
+    }
+
+    // 1) Zero out time_add_minutes on every Hourly variant, drop the
+    //    "— Time Add" suffix from the name, mirror price = 0 / time = 0.
+    //    Match on the "(Hourly" substring to catch both naming styles.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET time_add_minutes = 0,
+          price_value = 0,
+          price_type = 'time_only',
+          name = regexp_replace(name, '\\s*[—-]\\s*Time Add', '', 'gi')
+      WHERE company_id = ${PHES}
+        AND (name ILIKE '%(Hourly%' OR name ILIKE '%Hourly — Time Add%')
+    `);
+
+    // 2) Strip Baseboards from Hourly scope_ids. The MC parity migration
+    //    put Baseboards on all 8 scopes; Hourly drops it per audit.
+    const flatScopes = [
+      scopeMap["Deep Clean"],
+      scopeMap["Move In / Move Out"],
+      scopeMap["One-Time Standard Clean"],
+      scopeMap["Recurring Cleaning"],
+      scopeMap["Commercial Cleaning"],
+      scopeMap["PPM Turnover"],
+    ].filter(Boolean);
+    if (flatScopes.length > 0) {
+      const flatScopesJson = JSON.stringify(flatScopes);
+      const flatFirst = flatScopes[0];
+      await db.execute(sql`
+        UPDATE pricing_addons
+        SET scope_ids = ${flatScopesJson},
+            scope_id = ${flatFirst}
+        WHERE company_id = ${PHES}
+          AND name = 'Baseboards'
+      `);
+    }
+
+    // 3) Deactivate the "+15% markup" Second Appointment row on HS.
+    //    The discount version (-15%) stays — only the markup is wrong
+    //    for the new Hourly add-on layout.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET is_active = false
+      WHERE company_id = ${PHES}
+        AND name = 'Second Appointment — +15% (markup)'
+    `);
+
+    console.log("[hourly-addon-cleanup] Hourly add-on list aligned (6 items, zero-time).");
+  } catch (err) {
+    console.error("[hourly-addon-cleanup] Migration error (non-fatal):", err);
+  }
+}
+
+async function runTop10AddonsAndBundleMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const D = scopeMap["Deep Clean"];
+    const MIO = scopeMap["Move In / Move Out"];
+    const S = scopeMap["One-Time Standard Clean"];
+    const R = scopeMap["Recurring Cleaning"];
+    const HD = scopeMap["Hourly Deep Clean"];
+    const HS = scopeMap["Hourly Standard Cleaning"];
+
+    const flatScopes = [D, MIO, S, R].filter(Boolean);
+    const hourlyScopes = [HD, HS].filter(Boolean);
+
+    if (flatScopes.length === 0) {
+      console.log("[top10-addons] No active residential scopes — skipping.");
+      return;
+    }
+
+    // Top-10 catalog. Sort orders 200+ to keep them after existing
+    // add-ons. show_office=true so they appear in Pricing & Scopes
+    // settings; is_active=false so they DON'T appear on quote screens
+    // until Sal flips them on per add-on.
+    const top10: Array<{
+      name: string;
+      price_type: string; price_value: number;
+      time_minutes: number;
+      sort_order: number;
+    }> = [
+      { name: "Laundry (wash + dry + fold)", price_type: "flat", price_value: 30, time_minutes: 60, sort_order: 200 },
+      { name: "Make Beds",                   price_type: "flat", price_value: 10, time_minutes: 10, sort_order: 210 },
+      { name: "Inside Window Tracks",        price_type: "flat", price_value: 20, time_minutes: 30, sort_order: 220 },
+      { name: "Pet Hair / Pet Cleanup",      price_type: "flat", price_value: 25, time_minutes: 30, sort_order: 230 },
+      { name: "Wash Dishes",                 price_type: "flat", price_value: 20, time_minutes: 30, sort_order: 240 },
+      { name: "Patio / Balcony Sweep",       price_type: "flat", price_value: 25, time_minutes: 30, sort_order: 250 },
+      { name: "Inside Microwave",            price_type: "flat", price_value: 15, time_minutes: 15, sort_order: 260 },
+      { name: "Ceiling Fan Dusting",         price_type: "flat", price_value:  5, time_minutes: 15, sort_order: 270 },
+      { name: "Blinds Detail Clean",         price_type: "flat", price_value:  5, time_minutes:  5, sort_order: 280 },
+      { name: "Garage Sweep",                price_type: "flat", price_value: 40, time_minutes: 60, sort_order: 290 },
+    ];
+
+    for (const a of top10) {
+      // Idempotency: skip if a row with this name already exists for Phes.
+      const existing = await db.execute(sql`
+        SELECT id FROM pricing_addons
+         WHERE company_id = ${PHES} AND lower(name) = lower(${a.name}) LIMIT 1
+      `);
+      if (((existing as any).rows ?? []).length > 0) continue;
+
+      const scopeIdsJson = JSON.stringify(flatScopes);
+      const firstScopeId = flatScopes[0];
+      await db.execute(sql`
+        INSERT INTO pricing_addons
+          (company_id, scope_id, name, addon_type, scope_ids,
+           price_type, price_value, time_add_minutes, time_unit,
+           is_itemized, show_office, show_online, show_portal,
+           is_active, sort_order)
+        VALUES
+          (${PHES}, ${firstScopeId}, ${a.name}, 'cleaning_extras', ${scopeIdsJson},
+           ${a.price_type}, ${a.price_value}, ${a.time_minutes}, 'each',
+           true, true, false, false,
+           false, ${a.sort_order})
+      `);
+
+      // Hourly variants — $0 time-only mirror, also inactive by default.
+      if (hourlyScopes.length > 0) {
+        const hourlyName = `${a.name} (Hourly — Time Add)`;
+        const hourlyExists = await db.execute(sql`
+          SELECT id FROM pricing_addons
+           WHERE company_id = ${PHES} AND lower(name) = lower(${hourlyName}) LIMIT 1
+        `);
+        if (((hourlyExists as any).rows ?? []).length === 0) {
+          const hourlyScopeJson = JSON.stringify(hourlyScopes);
+          await db.execute(sql`
+            INSERT INTO pricing_addons
+              (company_id, scope_id, name, addon_type, scope_ids,
+               price_type, price_value, time_add_minutes, time_unit,
+               is_itemized, show_office, show_online, show_portal,
+               is_active, sort_order)
+            VALUES
+              (${PHES}, ${hourlyScopes[0]}, ${hourlyName}, 'cleaning_extras', ${hourlyScopeJson},
+               'time_only', 0, ${a.time_minutes}, 'each',
+               false, true, false, false,
+               false, ${a.sort_order + 1})
+          `);
+        }
+      }
+    }
+    console.log("[top10-addons] Catalog seeded (inactive).");
+
+    // ── Oven + Refrigerator combo bundle (ACTIVE) ─────────────────────
+    // Pulls the canonical Oven Cleaning + Refrigerator Cleaning add-ons
+    // by name. $15 off when both are on the quote. Bundle stays disabled
+    // automatically if either constituent add-on is inactive.
+    const bundleName = "Oven + Refrigerator Combo";
+    const bundleExists = await db.execute(sql`
+      SELECT id FROM addon_bundles
+       WHERE company_id = ${PHES} AND lower(name) = lower(${bundleName}) LIMIT 1
+    `);
+    if (((bundleExists as any).rows ?? []).length > 0) {
+      console.log("[top10-addons] Bundle already present — skipping.");
+      return;
+    }
+
+    const ovenRow = await db.execute(sql`
+      SELECT id FROM pricing_addons
+       WHERE company_id = ${PHES} AND name = 'Oven Cleaning' LIMIT 1
+    `);
+    const fridgeRow = await db.execute(sql`
+      SELECT id FROM pricing_addons
+       WHERE company_id = ${PHES} AND name = 'Refrigerator Cleaning' LIMIT 1
+    `);
+    const ovenId = ((ovenRow as any).rows ?? [])[0]?.id;
+    const fridgeId = ((fridgeRow as any).rows ?? [])[0]?.id;
+    if (!ovenId || !fridgeId) {
+      console.warn("[top10-addons] Oven or Refrigerator add-on missing — bundle skipped.");
+      return;
+    }
+
+    const bundleInsert = await db.execute(sql`
+      INSERT INTO addon_bundles (company_id, name, description, discount_type, discount_value, active)
+      VALUES (${PHES}, ${bundleName}, 'Save $15 when both Oven and Refrigerator cleaning are added.',
+              'flat_total', 15, true)
+      RETURNING id
+    `);
+    const bundleId = ((bundleInsert as any).rows ?? [])[0]?.id;
+    if (!bundleId) {
+      console.warn("[top10-addons] Bundle insert returned no id — items not linked.");
+      return;
+    }
+    await db.execute(sql`
+      INSERT INTO addon_bundle_items (bundle_id, addon_id) VALUES (${bundleId}, ${ovenId})
+    `);
+    await db.execute(sql`
+      INSERT INTO addon_bundle_items (bundle_id, addon_id) VALUES (${bundleId}, ${fridgeId})
+    `);
+    console.log("[top10-addons] Oven + Refrigerator Combo bundle seeded (active).");
+  } catch (err) {
+    console.error("[top10-addons] Migration error (non-fatal):", err);
+  }
+}
+
+async function runBaseboardsWindowsParityMigration() {
+  try {
+    const scopeResult = await db.execute(sql`
+      SELECT id, name FROM pricing_scopes WHERE company_id = ${PHES} AND is_active = true
+    `);
+    const scopeMap: Record<string, number> = {};
+    for (const row of (scopeResult as any).rows ?? []) {
+      scopeMap[row.name] = parseInt(row.id);
+    }
+    const allScopeIds = [
+      scopeMap["Deep Clean"],
+      scopeMap["Move In / Move Out"],
+      scopeMap["One-Time Standard Clean"],
+      scopeMap["Recurring Cleaning"],
+      scopeMap["Hourly Deep Clean"],
+      scopeMap["Hourly Standard Cleaning"],
+      scopeMap["Commercial Cleaning"],
+      scopeMap["PPM Turnover"],
+    ].filter(Boolean);
+
+    if (allScopeIds.length === 0) {
+      console.log("[baseboards-windows-parity] No active scopes — skipping.");
+      return;
+    }
+
+    const scopeIdsJson = JSON.stringify(allScopeIds);
+    const firstScopeId = allScopeIds[0];
+
+    // Baseboards: scope_ids → all 8 scopes, show_portal → false, price/time stable.
+    // Match on name = 'Baseboards' (NOT the sqft% variant which has a longer name).
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET scope_ids = ${scopeIdsJson},
+          scope_id = ${firstScopeId},
+          show_portal = false,
+          show_online = false,
+          show_office = true,
+          price_type = 'flat',
+          price_value = 30,
+          time_add_minutes = 45,
+          time_unit = 'each',
+          is_active = true
+      WHERE company_id = ${PHES}
+        AND name = 'Baseboards'
+    `);
+
+    // Windows Standard/Recurring: 12 → 15. Other Windows variants untouched.
+    await db.execute(sql`
+      UPDATE pricing_addons
+      SET price_value = 15
+      WHERE company_id = ${PHES}
+        AND name = 'Windows (inside panes) — Standard / Recurring'
+        AND price_value <> 15
+    `);
+
+    console.log("[baseboards-windows-parity] Baseboards + Windows brought to MC parity.");
+  } catch (err) {
+    console.error("[baseboards-windows-parity] Migration error (non-fatal):", err);
+  }
+}
+
 async function runDiscountMigration() {
   try {
     const scopeResult = await db.execute(sql`

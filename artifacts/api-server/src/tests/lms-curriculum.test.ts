@@ -91,16 +91,16 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 30);
   });
 
-  it("phes-policies has 41 questions (40 baseline + parking policy 2026-05-22)", () => {
+  it("phes-policies has 42 questions (40 baseline + parking 2026-05-22 + supply-pickup 2026-05-24)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      41,
-      `phes-policies should have 41 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      42,
+      `phes-policies should have 42 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
   it("each non-policies module has its specified question count", () => {
-    // phes-policies: 41 (40 baseline + parking 2026-05-22)
+    // phes-policies: 42 (40 baseline + parking 2026-05-22 + supply-pickup 2026-05-24)
     // compensation: 18 (17 + fix-it-mileage 2026-05-22)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
@@ -108,10 +108,11 @@ describe("LMS curriculum — constants & catalog shape", () => {
     // non-solicitation: 13 (Phase 6 + 6.5 amendment)
     // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // phes-401k: 10 (Phase 8 spec, 401(k) plan-features comprehension)
-    // supply-kit: 10 (Phase 9 spec, IL Wage Payment + responsibility)
+    // supply-kit: 10 (Phase 9 spec — 2026-05-24 swapped 5 lower-value
+    //   property-care questions for supply-pickup; total still 10)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
-      "phes-policies": 41,
+      "phes-policies": 42,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
@@ -134,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 191 total (41 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 191);
+  it("ALL_QUESTION_IDS is 192 total (42 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 192);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

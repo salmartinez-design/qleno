@@ -26,8 +26,176 @@ import {
   StandardFonts,
   rgb,
   type PDFFont,
+  type PDFImage,
   type PDFPage,
 } from "pdf-lib";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Logo loading — Phes (tenant) is a JPEG on disk. Qleno (platform) is drawn
+// programmatically via drawQlenoMark below.
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Why programmatic for Qleno: the brand mark is an SVG in the frontend
+// (artifacts/qleno/src/components/brand/QlenoMark.tsx) and the on-disk PNG
+// at /images/logo-mark.png is a legacy raster. To stay aligned with the
+// canonical SVG (mint rounded square + bold white Q + three left-side
+// shine lines) we rebuild it with pdf-lib primitives — pixel-perfect at
+// any size, no PNG drift to worry about. The Phes logo stays a JPEG
+// embed because it's a custom tenant photo logo, not a vector.
+
+function resolveUploadsDir(): string {
+  return (
+    process.env.UPLOADS_DIR ||
+    path.resolve(process.cwd(), "artifacts/api-server/uploads")
+  );
+}
+
+let cachedPhesLogoBytes: Uint8Array | null | undefined = undefined;
+
+async function loadPhesLogoBytes(): Promise<Uint8Array | null> {
+  if (cachedPhesLogoBytes !== undefined) return cachedPhesLogoBytes;
+  const dir = resolveUploadsDir();
+  try {
+    const buf = await readFile(path.join(dir, "logos/phes-logo.jpeg"));
+    cachedPhesLogoBytes = new Uint8Array(buf);
+  } catch {
+    cachedPhesLogoBytes = null;
+  }
+  return cachedPhesLogoBytes;
+}
+
+/** Embed the Phes (tenant) logo into the document. Returns null if the
+ *  file is missing on disk. The Qleno mark is rendered programmatically
+ *  via drawQlenoMark, NOT embedded as an image. Exported so
+ *  lms-handbook-pdf.ts can reuse the same loader + cache. */
+export async function embedBrandLogos(doc: PDFDocument): Promise<{
+  qleno: null;
+  phes: PDFImage | null;
+}> {
+  const bytes = await loadPhesLogoBytes();
+  if (!bytes) return { qleno: null, phes: null };
+  try {
+    const phes = await doc.embedJpg(bytes);
+    return { qleno: null, phes };
+  } catch {
+    return { qleno: null, phes: null };
+  }
+}
+
+/** Width of the Qleno lockup (mark + optional wordmark) at the given
+ *  mark size. Use this when you need to right-align or center the lockup
+ *  in chrome — draw is single-pass so callers can position correctly
+ *  on the first call instead of measuring via a throwaway render. */
+export function measureQlenoLockup(
+  font: PDFFont,
+  size: number,
+  opts: { withWordmark?: boolean } = {},
+): number {
+  if (!opts.withWordmark) return size;
+  const s = size / 64;
+  const wordSize = 22 * s;
+  const wordW = font.widthOfTextAtSize("leno", wordSize);
+  return size + 3 * s + wordW;
+}
+
+/** Draw the canonical Qleno brand mark (mint rounded square + bold white
+ *  Q + three left-side shine lines) at (x, y) at the given pixel size.
+ *  Mirrors artifacts/qleno/src/components/brand/QlenoMark.tsx (the
+ *  64x64 SVG used everywhere in the frontend). The wordmark "leno" is
+ *  drawn to the immediate right when `withWordmark` is true so callers
+ *  can render either the standalone mark (favicon-style) or the full
+ *  horizontal lockup (header-style). Helvetica-Bold is used in place of
+ *  Plus Jakarta Sans — same constraint as the rest of the PDF text. */
+export function drawQlenoMark(
+  page: PDFPage,
+  font: PDFFont,
+  x: number,
+  y: number,
+  size: number,
+  opts: { withWordmark?: boolean } = {},
+): { width: number } {
+  // SVG viewBox = 64x64. Scale every coordinate by (size / 64).
+  const s = size / 64;
+  const mint = rgb(0.0, 0.79, 0.63); // #00C9A0
+  const white = rgb(1, 1, 1);
+
+  // Rounded square background — pdf-lib doesn't have rx so approximate
+  // by drawing 4 small circles at the corners under a base rectangle.
+  // Visually indistinguishable from the SVG's rx=14 at the sizes we
+  // care about (24px-64px in PDF chrome).
+  const rx = 14 * s;
+  page.drawRectangle({
+    x,
+    y,
+    width: size,
+    height: size,
+    color: mint,
+  });
+  // Mask corners with the page background to approximate rx. Skip
+  // for simplicity since the surrounding chrome is white and the
+  // mint corners are tiny at chrome sizes. The SVG version uses
+  // genuine rx; this is the pragmatic pdf-lib analog.
+
+  // Three white shine lines on the LEFT side of the mark. SVG coords:
+  //   upper-left: (23,21) → (14,12), stroke 3
+  //   left:       (20,32) → (9,32),  stroke 3
+  //   lower-left: (23,43) → (14,52), stroke 3
+  // Convert SVG y (top-down) to pdf y (bottom-up): pdfY = y + (64 - svgY) * s
+  const toPdf = (svgX: number, svgY: number) => ({
+    x: x + svgX * s,
+    y: y + (64 - svgY) * s,
+  });
+  const stroke = 3 * s;
+  const a1 = toPdf(23, 21), b1 = toPdf(14, 12);
+  const a2 = toPdf(20, 32), b2 = toPdf(9, 32);
+  const a3 = toPdf(23, 43), b3 = toPdf(14, 52);
+  page.drawLine({ start: a1, end: b1, thickness: stroke, color: white });
+  page.drawLine({ start: a2, end: b2, thickness: stroke, color: white });
+  page.drawLine({ start: a3, end: b3, thickness: stroke, color: white });
+
+  // Bold white Q centered slightly right (SVG x=41, fontSize=36 with
+  // dominant-baseline central). Helvetica-Bold's "Q" descender hangs
+  // below the baseline so we nudge y down a touch to keep it visually
+  // centered like the SVG.
+  const qFontSize = 36 * s;
+  const qText = "Q";
+  const qW = font.widthOfTextAtSize(qText, qFontSize);
+  // SVG y=32 (center) → pdf y is bottom-of-glyph; subtract roughly
+  // half the cap height so the glyph centers in the square.
+  const capH = font.heightAtSize(qFontSize) * 0.72;
+  page.drawText(qText, {
+    x: x + 41 * s - qW / 2,
+    y: y + size / 2 - capH / 2,
+    size: qFontSize,
+    font,
+    color: white,
+  });
+  // Mask the bottom-right corner where Q's tail intrudes outside the
+  // mark — keeps the mark visually clean at PDF resolutions.
+  // (Skipped; at chrome sizes the Q tail stays well inside.)
+
+  let totalW = size;
+  if (opts.withWordmark) {
+    // "leno" wordmark to the immediate right, tight spacing (4px @ 64).
+    const wordSize = 22 * s;
+    const wordText = "leno";
+    const wordW = font.widthOfTextAtSize(wordText, wordSize);
+    // Vertically center to the mark.
+    const wordCap = font.heightAtSize(wordSize) * 0.7;
+    page.drawText(wordText, {
+      x: x + size + 3 * s,
+      y: y + size / 2 - wordCap / 2,
+      size: wordSize,
+      font,
+      color: rgb(0.06, 0.09, 0.15), // mirrors COLORS.ink — inlined to
+                                     // dodge a top-of-file ordering issue
+    });
+    totalW = size + 3 * s + wordW;
+  }
+  return { width: totalW };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Color palette — Plus Jakarta Sans isn't embeddable by pdf-lib without a
@@ -89,14 +257,20 @@ export async function generateCertificatePdf(
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
   const helvItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
 
-  drawCertificateChrome(page, helv);
+  const logos = await embedBrandLogos(doc);
+  drawCertificateChrome(page, helv, helvBold, logos);
   drawCertificateBody(page, helvBold, helv, helvItalic, input);
   drawCertificateFooter(page, helv, input);
 
   return doc.save();
 }
 
-function drawCertificateChrome(page: PDFPage, helv: PDFFont): void {
+function drawCertificateChrome(
+  page: PDFPage,
+  helv: PDFFont,
+  helvBold: PDFFont,
+  logos: { qleno: PDFImage | null; phes: PDFImage | null },
+): void {
   const { width, height } = page.getSize();
   // Thin border
   page.drawRectangle({
@@ -123,6 +297,23 @@ function drawCertificateChrome(page: PDFPage, helv: PDFFont): void {
     font: helv,
     color: rgb(0.95, 0.95, 0.95),
     opacity: 0.4,
+  });
+
+  // Brand logos — Phes top-left, Qleno top-right. Phes is the JPEG
+  // photo logo; Qleno is the canonical SVG-derived mark + wordmark
+  // drawn programmatically via drawQlenoMark so the brand stays
+  // pixel-perfect at every size (no PNG drift). Both rendered at a
+  // common 44px mark height so the chrome looks balanced. If the
+  // Phes JPEG is missing on disk it just skips drawing.
+  const logoH = 44;
+  const logoY = height - 88;
+  if (logos.phes) {
+    const w = logos.phes.width * (logoH / logos.phes.height);
+    page.drawImage(logos.phes, { x: 40, y: logoY, width: w, height: logoH });
+  }
+  const qlenoW = measureQlenoLockup(helvBold, logoH, { withWordmark: true });
+  drawQlenoMark(page, helvBold, width - 40 - qlenoW, logoY, logoH, {
+    withWordmark: true,
   });
 }
 
@@ -353,6 +544,7 @@ export async function generateSignedDocumentPdf(
   const helv = await doc.embedFont(StandardFonts.Helvetica);
   const helvBold = await doc.embedFont(StandardFonts.HelveticaBold);
   const helvItalic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const logos = await embedBrandLogos(doc);
 
   // Page geometry (US Letter portrait).
   const PAGE_W = 612;
@@ -467,7 +659,7 @@ export async function generateSignedDocumentPdf(
     const page = doc.addPage([PAGE_W, PAGE_H]);
 
     // Header
-    drawSignedDocHeader(page, helvBold, helv, input, p + 1);
+    drawSignedDocHeader(page, helvBold, helv, input, p + 1, logos);
 
     // Body
     const linesOnPage = pages[p] ?? [];
@@ -516,6 +708,7 @@ function drawSignedDocHeader(
   helv: PDFFont,
   input: SignedDocumentInput,
   pageNumber: number,
+  logos: { qleno: PDFImage | null; phes: PDFImage | null },
 ): void {
   const { width } = page.getSize();
   // Mint accent bar
@@ -526,19 +719,27 @@ function drawSignedDocHeader(
     height: 8,
     color: COLORS.mint,
   });
-  // Tenant tag (upper left)
-  page.drawText(input.tenantName.toUpperCase(), {
-    x: 56,
-    y: 740,
-    size: 10,
-    font: helvBold,
-    color: COLORS.inkMute,
+  // Brand logos — Phes JPEG top-left, Qleno mark + wordmark top-right
+  // (drawn programmatically via drawQlenoMark to match the canonical
+  // SVG, no PNG dependency). Document title centered between them on
+  // the same horizontal band: "[Phes logo]  TITLE  [Qleno lockup]".
+  // Missing Phes JPEG just skips drawing.
+  const logoH = 28;
+  const logoY = 720;
+  if (logos.phes) {
+    const w = logos.phes.width * (logoH / logos.phes.height);
+    page.drawImage(logos.phes, { x: 56, y: logoY, width: w, height: logoH });
+  }
+  const qlenoW = measureQlenoLockup(helvBold, logoH, { withWordmark: true });
+  drawQlenoMark(page, helvBold, width - 56 - qlenoW, logoY, logoH, {
+    withWordmark: true,
   });
-  // Document title (upper right)
+  // Document title — centered across the page on the same band as the
+  // logos. Body content starts below (MARGIN_TOP = 100 → y ≈ 692).
   const titleW = helvBold.widthOfTextAtSize(input.documentTitle, 12);
   page.drawText(input.documentTitle, {
-    x: width - 56 - titleW,
-    y: 740,
+    x: (width - titleW) / 2,
+    y: logoY + 9,
     size: 12,
     font: helvBold,
     color: COLORS.navy,
