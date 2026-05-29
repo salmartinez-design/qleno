@@ -172,10 +172,22 @@ async function seedMileageRatesFromCompaniesScalar(): Promise<void> {
  * lands in the schema without its own migration.
  */
 const USERS_RECONCILE_COLUMNS: string[] = [
+  // Cutover 1A (#195) — the confirmed regression cause.
   "home_lat numeric(10,7)",
   "home_lng numeric(10,7)",
   "default_team text",
   "default_position text",
+  // Earlier additive columns that also shipped without a runtime
+  // migration. Almost certainly already present in prod (added in the
+  // project's drizzle-push era), but included defensively: every
+  // statement is IF NOT EXISTS, so a present column is a no-op and a
+  // missing one is healed. This guarantees the INSERT ... RETURNING in
+  // POST /api/users/lms-add can name every users column.
+  "home_branch_id integer",
+  "crew_id integer",
+  "benefit_year_start date",
+  'leave_balance_hours numeric(8,2) DEFAULT \'0\'',
+  "leave_balance_activated boolean DEFAULT false",
 ];
 
 async function reconcileUsersSchemaColumns(): Promise<void> {
