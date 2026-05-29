@@ -19,14 +19,24 @@ const QB_CLIENT_ID = process.env.QB_CLIENT_ID!;
 const QB_CLIENT_SECRET = process.env.QB_CLIENT_SECRET!;
 const JWT_SECRET = process.env.JWT_SECRET || "qleno-secret";
 
+function getPublicBase(req: any): string {
+  // Prefer the proxied / forwarded host (Railway sets x-forwarded-host),
+  // then req.host, then the Replit fallback. The proto follows the same chain.
+  const host =
+    (req.headers["x-forwarded-host"] as string) ||
+    (req.headers.host as string) ||
+    process.env.REPLIT_DEV_DOMAIN ||
+    "localhost";
+  const proto =
+    (req.headers["x-forwarded-proto"] as string) ||
+    (process.env.NODE_ENV === "production" ? "https" : "http");
+  return `${proto}://${host}`;
+}
+
 function getRedirectUri(req: any): string {
   // Prefer env-configured value for production
   if (process.env.QB_REDIRECT_URI) return process.env.QB_REDIRECT_URI;
-
-  // Construct from Replit domain
-  const domain = process.env.REPLIT_DEV_DOMAIN || req.headers["x-forwarded-host"] || req.headers.host || "localhost";
-  const proto = process.env.NODE_ENV === "production" ? "https" : "https";
-  return `${proto}://${domain}/qleno/api/integrations/quickbooks/callback`;
+  return `${getPublicBase(req)}/qleno/api/integrations/quickbooks/callback`;
 }
 
 // ── GET /api/integrations/quickbooks/connect ───────────────────────────────
@@ -54,9 +64,11 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
 
 // ── GET /api/integrations/quickbooks/callback ─────────────────────────────
 router.get("/callback", async (req, res) => {
-  const baseFrontend = process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}/qleno`
-    : "";
+  // Derive the frontend base from the request (Railway-safe) instead of the
+  // legacy REPLIT_DEV_DOMAIN — an empty REPLIT_DEV_DOMAIN used to produce a
+  // relative redirect to `/company?...` that resolved under `/api/integrations/
+  // quickbooks/`, giving a broken success URL.
+  const baseFrontend = `${getPublicBase(req)}/qleno`;
 
   try {
     const { code, state, realmId } = req.query as Record<string, string>;
