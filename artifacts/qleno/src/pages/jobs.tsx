@@ -3478,6 +3478,591 @@ function LocationPill({ loc }: { loc?: string | null }) {
 // UnassignedGanttRow above. Removing the legacy stub so future
 // contributors don't accidentally edit the wrong component.
 
+// ─── ATTENDANCE OVERLAY DRAWER (Cutover 3B) ─────────────────────────────────
+//
+// Right-side drawer the dispatch board's Attendance button opens. Lists
+// pending proposals (late / short / no_show / missing_clockout) for the
+// selected date. Per-row Confirm + Dismiss flows POST to the backend
+// which writes through to employee_attendance_log + the unexcused
+// hours ladder.
+type AttendanceProposalRow = {
+  id: number;
+  user_id: number;
+  job_id: number;
+  scheduled_date: string;
+  scheduled_time_minutes: number | null;
+  estimated_hours: string | null;
+  kind: "late" | "short" | "no_show" | "missing_clockout";
+  status: "pending" | "confirmed" | "dismissed";
+  minutes_late: number | null;
+  minutes_short: number | null;
+  leave_request_id: number | null;
+  user_first_name: string | null;
+  user_last_name: string | null;
+  client_first_name: string | null;
+  client_last_name: string | null;
+  client_address: string | null;
+  leave_start_date: string | null;
+  leave_end_date: string | null;
+  leave_type_display_name: string | null;
+  proposed_attendance_type_default: "absent";
+  proposed_unexcused_hours_default: number | null;
+  display_label: string;
+};
+
+const ATTENDANCE_KIND_VISUALS: Record<
+  AttendanceProposalRow["kind"],
+  { swatch: string; border: string; label: string }
+> = {
+  late: { swatch: STATUS_VISUALS.late_clockin.borderOverride ?? "#DC2626", border: "#DC2626", label: "Late" },
+  short: { swatch: "#F59E0B", border: "#F59E0B", label: "Short" },
+  no_show: { swatch: STATUS_VISUALS.no_show.swatch, border: STATUS_VISUALS.no_show.borderOverride ?? "#991B1B", label: "No-show" },
+  missing_clockout: { swatch: "#BA7517", border: "#BA7517", label: "Missing clock-out" },
+};
+
+function AttendanceOverlayDrawer({
+  token,
+  selectedDate,
+  onClose,
+}: {
+  token: string;
+  selectedDate: string;
+  onClose: () => void;
+}) {
+  const _API_AOD = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { toast } = useToast();
+  const [proposals, setProposals] = useState<AttendanceProposalRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [activePanel, setActivePanel] = useState<{ id: number; kind: "confirm" | "dismiss" } | null>(null);
+  const [filterKind, setFilterKind] = useState<AttendanceProposalRow["kind"] | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch(
+        `${_API_AOD}/api/attendance-overlay/proposals?status=pending&from_date=${selectedDate}&to_date=${selectedDate}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!r.ok) {
+        toast({ title: "Could not load proposals", variant: "destructive" });
+        setProposals([]);
+        return;
+      }
+      const json = await r.json();
+      setProposals((json?.data ?? []) as AttendanceProposalRow[]);
+    } catch {
+      toast({ title: "Could not load proposals", variant: "destructive" });
+      setProposals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [_API_AOD, selectedDate, token, toast]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  async function runScan() {
+    setScanning(true);
+    try {
+      const r = await fetch(`${_API_AOD}/api/attendance-overlay/scan`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ from_date: selectedDate, to_date: selectedDate }),
+      });
+      if (!r.ok) {
+        toast({ title: "Scan failed", variant: "destructive" });
+        return;
+      }
+      const j = await r.json();
+      toast({
+        title: `Scan complete — ${j?.data?.new_proposals ?? 0} new proposal(s)`,
+      });
+      await load();
+    } catch {
+      toast({ title: "Scan failed", variant: "destructive" });
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  const visible = filterKind ? proposals.filter((p) => p.kind === filterKind) : proposals;
+  const counts: Record<AttendanceProposalRow["kind"], number> = {
+    late: 0,
+    short: 0,
+    no_show: 0,
+    missing_clockout: 0,
+  };
+  for (const p of proposals) counts[p.kind] += 1;
+
+  return (
+    <>
+      {/* Click-off overlay */}
+      <div
+        onClick={onClose}
+        style={{
+          position: "fixed",
+          inset: 0,
+          backgroundColor: "rgba(10, 14, 26, 0.25)",
+          zIndex: 49,
+        }}
+      />
+      <aside
+        role="dialog"
+        aria-label="Attendance overlay drawer"
+        style={{
+          position: "fixed",
+          right: 0,
+          top: 0,
+          bottom: 0,
+          width: "min(560px, 100vw)",
+          backgroundColor: "#FFFFFF",
+          borderLeft: "1px solid #E5E2DC",
+          zIndex: 50,
+          display: "flex",
+          flexDirection: "column",
+          fontFamily: FF,
+          color: "#1A1917",
+        }}
+      >
+        {/* Header */}
+        <header
+          style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid #E5E2DC",
+            backgroundColor: "#F7F6F3",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>Attendance — {selectedDate}</div>
+            <button
+              onClick={onClose}
+              style={{
+                background: "transparent",
+                border: "none",
+                color: "#6B6860",
+                fontSize: 18,
+                cursor: "pointer",
+                padding: "4px 8px",
+                fontFamily: FF,
+              }}
+              aria-label="Close attendance drawer"
+            >
+              ×
+            </button>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              onClick={runScan}
+              disabled={scanning}
+              style={{
+                padding: "6px 12px",
+                border: "1.5px solid #00C9A0",
+                backgroundColor: scanning ? "#E5E2DC" : "#00C9A0",
+                color: scanning ? "#6B6860" : "#0A0E1A",
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: scanning ? "not-allowed" : "pointer",
+                fontFamily: FF,
+              }}
+            >
+              {scanning ? "Scanning..." : "Run scan"}
+            </button>
+            <button
+              onClick={load}
+              style={{
+                padding: "6px 12px",
+                border: "1.5px solid #E5E2DC",
+                backgroundColor: "#FAFAF9",
+                color: "#1A1917",
+                borderRadius: 7,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                fontFamily: FF,
+              }}
+            >
+              Refresh
+            </button>
+          </div>
+        </header>
+
+        {/* Summary strip */}
+        <div
+          style={{
+            padding: "10px 20px",
+            borderBottom: "1px solid #E5E2DC",
+            display: "flex",
+            gap: 12,
+            flexWrap: "wrap",
+            fontSize: 12,
+          }}
+        >
+          {(["late", "short", "no_show", "missing_clockout"] as const).map((k) => {
+            const v = ATTENDANCE_KIND_VISUALS[k];
+            const active = filterKind === k;
+            return (
+              <button
+                key={k}
+                onClick={() => setFilterKind(active ? null : k)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 10px",
+                  borderRadius: 12,
+                  border: `1px solid ${active ? v.border : "#E5E2DC"}`,
+                  backgroundColor: active ? "#F7F6F3" : "#FFFFFF",
+                  cursor: "pointer",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "#1A1917",
+                  fontFamily: FF,
+                }}
+              >
+                <span style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: v.swatch }} />
+                {counts[k]} {v.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* List */}
+        <div style={{ flex: 1, overflow: "auto", padding: "12px 20px" }}>
+          {loading ? (
+            <div style={{ padding: 30, color: "#6B6860", fontSize: 13 }}>Loading...</div>
+          ) : visible.length === 0 ? (
+            <div style={{ padding: 30, color: "#6B6860", fontSize: 13 }}>
+              No pending proposals for this date. Try Run scan above.
+            </div>
+          ) : (
+            visible.map((p) => (
+              <AttendanceProposalCard
+                key={p.id}
+                proposal={p}
+                isPanelOpen={activePanel?.id === p.id ? activePanel.kind : null}
+                onOpenPanel={(kind) => setActivePanel({ id: p.id, kind })}
+                onClosePanel={() => setActivePanel(null)}
+                onConfirmed={() => {
+                  setActivePanel(null);
+                  setProposals((prev) => prev.filter((x) => x.id !== p.id));
+                  toast({ title: "Confirmed — attendance log updated" });
+                }}
+                onDismissed={() => {
+                  setActivePanel(null);
+                  setProposals((prev) => prev.filter((x) => x.id !== p.id));
+                  toast({ title: "Dismissed" });
+                }}
+                token={token}
+              />
+            ))
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
+
+function AttendanceProposalCard({
+  proposal,
+  isPanelOpen,
+  onOpenPanel,
+  onClosePanel,
+  onConfirmed,
+  onDismissed,
+  token,
+}: {
+  proposal: AttendanceProposalRow;
+  isPanelOpen: "confirm" | "dismiss" | null;
+  onOpenPanel: (kind: "confirm" | "dismiss") => void;
+  onClosePanel: () => void;
+  onConfirmed: () => void;
+  onDismissed: () => void;
+  token: string;
+}) {
+  const _API_AC = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { toast } = useToast();
+  const v = ATTENDANCE_KIND_VISUALS[proposal.kind];
+  const techName = [proposal.user_first_name, proposal.user_last_name].filter(Boolean).join(" ") || `User #${proposal.user_id}`;
+  const clientName = [proposal.client_first_name, proposal.client_last_name].filter(Boolean).join(" ") || `Job #${proposal.job_id}`;
+  const requiresOverride = proposal.kind === "missing_clockout";
+
+  const [overrideType, setOverrideType] = useState<"absent" | "tardy" | "ncns">(
+    proposal.proposed_attendance_type_default,
+  );
+  const [overrideHours, setOverrideHours] = useState<string>(
+    proposal.proposed_unexcused_hours_default != null
+      ? String(proposal.proposed_unexcused_hours_default.toFixed(2))
+      : "",
+  );
+  const [note, setNote] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+
+  async function postConfirm() {
+    if (requiresOverride && overrideHours.trim() === "") {
+      toast({ title: "Missing clock-out requires hours override", variant: "destructive" });
+      return;
+    }
+    const hoursNum = overrideHours.trim() === "" ? undefined : Number(overrideHours);
+    setBusy(true);
+    try {
+      const r = await fetch(`${_API_AC}/api/attendance-overlay/proposals/${proposal.id}/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          override_attendance_type: overrideType,
+          override_hours: hoursNum,
+          decision_note: note || undefined,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast({ title: j?.message ?? "Confirm failed", variant: "destructive" });
+        return;
+      }
+      onConfirmed();
+    } catch {
+      toast({ title: "Confirm failed", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function postDismiss() {
+    setBusy(true);
+    try {
+      const r = await fetch(`${_API_AC}/api/attendance-overlay/proposals/${proposal.id}/dismiss`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ decision_note: note || undefined }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast({ title: j?.message ?? "Dismiss failed", variant: "destructive" });
+        return;
+      }
+      onDismissed();
+    } catch {
+      toast({ title: "Dismiss failed", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        marginBottom: 12,
+        padding: "12px 14px",
+        backgroundColor: "#FFFFFF",
+        border: `1px solid #E5E2DC`,
+        borderLeft: `4px solid ${v.border}`,
+        borderRadius: 8,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
+            {techName}
+          </div>
+          <div style={{ fontSize: 12, color: "#6B6860" }}>
+            {clientName}
+            {proposal.client_address ? ` · ${proposal.client_address}` : ""}
+          </div>
+          <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+            <span
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "2px 8px",
+                backgroundColor: "#F7F6F3",
+                border: `1px solid ${v.border}`,
+                borderRadius: 10,
+                fontSize: 11,
+                fontWeight: 600,
+                color: v.border,
+              }}
+            >
+              {v.label}
+            </span>
+            <span style={{ fontSize: 12, color: "#1A1917" }}>{proposal.display_label}</span>
+          </div>
+          {proposal.leave_request_id != null && (
+            <div style={{ marginTop: 6, fontSize: 11, color: "#6B6860" }}>
+              Approved leave: {proposal.leave_type_display_name ?? "leave"}{" "}
+              {proposal.leave_start_date}→{proposal.leave_end_date}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+          <button
+            onClick={() => (isPanelOpen === "confirm" ? onClosePanel() : onOpenPanel("confirm"))}
+            style={{
+              padding: "5px 10px",
+              border: "1.5px solid #00C9A0",
+              backgroundColor: isPanelOpen === "confirm" ? "#00C9A0" : "#FFFFFF",
+              color: isPanelOpen === "confirm" ? "#0A0E1A" : "#1A1917",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontFamily: FF,
+            }}
+          >
+            Confirm
+          </button>
+          <button
+            onClick={() => (isPanelOpen === "dismiss" ? onClosePanel() : onOpenPanel("dismiss"))}
+            style={{
+              padding: "5px 10px",
+              border: "1.5px solid #E5E2DC",
+              backgroundColor: "#FFFFFF",
+              color: "#6B6860",
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: FF,
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+
+      {isPanelOpen === "confirm" && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E5E2DC" }}>
+          {requiresOverride && (
+            <div style={{ marginBottom: 8, fontSize: 11, color: "#BA7517" }}>
+              Resolve via 1C clock correction or set hours manually below.
+            </div>
+          )}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <label style={{ fontSize: 11, color: "#6B6860" }}>
+              Type
+              <select
+                value={overrideType}
+                onChange={(e) => setOverrideType(e.target.value as "absent" | "tardy" | "ncns")}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 2,
+                  padding: "6px 8px",
+                  border: "1px solid #E5E2DC",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontFamily: FF,
+                }}
+              >
+                <option value="absent">Absent</option>
+                <option value="tardy">Tardy</option>
+                <option value="ncns">NCNS</option>
+              </select>
+            </label>
+            <label style={{ fontSize: 11, color: "#6B6860" }}>
+              Hours{requiresOverride ? " (required)" : ""}
+              <input
+                type="number"
+                step="0.25"
+                min="0"
+                value={overrideHours}
+                onChange={(e) => setOverrideHours(e.target.value)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  marginTop: 2,
+                  padding: "6px 8px",
+                  border: "1px solid #E5E2DC",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontFamily: FF,
+                }}
+              />
+            </label>
+          </div>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Decision note (optional)"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              border: "1px solid #E5E2DC",
+              borderRadius: 6,
+              fontSize: 12,
+              fontFamily: FF,
+              resize: "vertical",
+              marginBottom: 8,
+            }}
+          />
+          <button
+            onClick={postConfirm}
+            disabled={busy}
+            style={{
+              padding: "6px 12px",
+              border: "none",
+              backgroundColor: busy ? "#E5E2DC" : "#00C9A0",
+              color: busy ? "#6B6860" : "#0A0E1A",
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: busy ? "not-allowed" : "pointer",
+              fontFamily: FF,
+            }}
+          >
+            {busy ? "Working..." : "Confirm & write"}
+          </button>
+        </div>
+      )}
+
+      {isPanelOpen === "dismiss" && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #E5E2DC" }}>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Dismiss note (optional)"
+            rows={2}
+            style={{
+              width: "100%",
+              padding: "6px 8px",
+              border: "1px solid #E5E2DC",
+              borderRadius: 6,
+              fontSize: 12,
+              fontFamily: FF,
+              resize: "vertical",
+              marginBottom: 8,
+            }}
+          />
+          <button
+            onClick={postDismiss}
+            disabled={busy}
+            style={{
+              padding: "6px 12px",
+              border: "1.5px solid #E5E2DC",
+              backgroundColor: busy ? "#E5E2DC" : "#FAFAF9",
+              color: "#1A1917",
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: busy ? "not-allowed" : "pointer",
+              fontFamily: FF,
+            }}
+          >
+            {busy ? "Working..." : "Confirm dismiss"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function JobsPage() {
   const isMobile = useIsMobile();
@@ -3516,6 +4101,23 @@ export default function JobsPage() {
   const [showWizard, setShowWizard] = useState(false);
   const [draggingJob, setDraggingJob] = useState<DispatchJob | null>(null);
   const [desktopView, setDesktopView] = useState<"timeline" | "list">("timeline");
+  // Cutover 3B — Attendance overlay drawer state. Drawer surfaces
+  // dispatch-tier proposals (late / short / no_show / missing_clockout)
+  // for the selected date so the office can confirm or dismiss without
+  // leaving the board. Office tier only — backend 403s tech, but we
+  // also hide the button below for defensive UX.
+  const [attendanceDrawerOpen, setAttendanceDrawerOpen] = useState(false);
+  // Local userRole probe — same atob pattern used elsewhere in this
+  // file (see JobPanel ~line 1009). Used to hide the Attendance
+  // button for tech-tier users.
+  const jobsPageUserRole: string = (() => {
+    try {
+      return JSON.parse(atob(token.split(".")[1])).role || "office";
+    } catch {
+      return "office";
+    }
+  })();
+  const showAttendanceButton = jobsPageUserRole !== "technician";
   const [jobDates, setJobDates] = useState<Set<string>>(new Set());
   const refreshRef = useRef(0);
   const [zones, setZones] = useState<{ id: number; name: string; color: string }[]>([]);
@@ -4381,6 +4983,33 @@ export default function JobsPage() {
                 <button title="Timeline view — techs as rows, time across the top" onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><Calendar size={14} /> Timeline</button>
                 <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
               </div>
+
+              {/* Cutover 3B — Attendance overlay drawer trigger. Sibling
+                  of the Timeline/List toggle group, not inside it. Hidden
+                  for tech-role; backend also 403s. */}
+              {showAttendanceButton && (
+                <button
+                  title="Review attendance discrepancies for this date — late, short, no-show, missing clock-out"
+                  onClick={() => setAttendanceDrawerOpen(true)}
+                  style={{
+                    padding: "5px 10px",
+                    border: "1.5px solid #E5E2DC",
+                    borderRadius: 7,
+                    cursor: "pointer",
+                    backgroundColor: "#FAFAF9",
+                    color: "#1A1917",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fontFamily: FF,
+                    flexShrink: 0,
+                  }}
+                >
+                  Attendance
+                </button>
+              )}
             </div>
           </div>
 
@@ -4543,6 +5172,18 @@ export default function JobsPage() {
         <JobPanel job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
       )}
       <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
+
+      {/* Cutover 3B — Attendance overlay drawer. Mounted at the same
+          level as JobPanel so it can sit on top of dispatch without
+          fighting layout. selectedDate is the dispatch date; the
+          drawer fetches proposals for [selectedDate, selectedDate]. */}
+      {attendanceDrawerOpen && (
+        <AttendanceOverlayDrawer
+          token={token}
+          selectedDate={dateKey(selectedDate)}
+          onClose={() => setAttendanceDrawerOpen(false)}
+        />
+      )}
     </DashboardLayout>
   );
 }

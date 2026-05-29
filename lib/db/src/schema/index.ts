@@ -137,3 +137,9 @@ export * from "./leave";
 
 // Multi-tenant company switcher — per-user company membership.
 export * from "./user_companies";
+
+// Cutover 3B — attendance overlay proposals. Staging table for
+// office-confirmed attendance discrepancies (late / short / no_show /
+// missing_clockout). Pending rows become employee_attendance_log rows
+// via the confirm flow (which drives the 3A unexcused-hours ladder).
+export * from "./attendance_proposals";

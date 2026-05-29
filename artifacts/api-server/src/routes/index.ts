@@ -53,6 +53,7 @@ import hrAttendanceRouter from "./hr-attendance.js";
 import hrDisciplineRouter from "./hr-discipline.js";
 import hrLeaveRouter from "./hr-leave.js";
 import leaveRouter from "./leave.js";
+import attendanceOverlayRouter from "./attendance-overlay.js";
 import hrQualityRouter from "./hr-quality.js";
 import accountsRouter from "./accounts.js";
 import documentTemplatesRouter from "./document-templates.js";
@@ -152,6 +153,9 @@ router.use("/hr-attendance", hrAttendanceRouter);
 router.use("/hr-discipline", hrDisciplineRouter);
 router.use("/hr-leave", hrLeaveRouter);
 router.use("/leave", leaveRouter);
+// Cutover 3B — attendance overlay (office-only dispatch surface for
+// late / short / no_show / missing_clockout proposals)
+router.use("/attendance-overlay", attendanceOverlayRouter);
 router.use("/hr-quality", hrQualityRouter);
 router.use("/accounts", accountsRouter);
 router.use("/branches", branchesRouter);
