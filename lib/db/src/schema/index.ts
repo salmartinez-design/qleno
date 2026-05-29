@@ -134,3 +134,9 @@ export * from "./mileage";
 // hr_policies (balance_ceiling_hours, use_it_or_lose_it_alert_lead_days,
 // unexcused_hours_steps).
 export * from "./leave";
+
+// Cutover 3B — attendance overlay proposals. Staging table for
+// office-confirmed attendance discrepancies (late / short / no_show /
+// missing_clockout). Pending rows become employee_attendance_log rows
+// via the confirm flow (which drives the 3A unexcused-hours ladder).
+export * from "./attendance_proposals";

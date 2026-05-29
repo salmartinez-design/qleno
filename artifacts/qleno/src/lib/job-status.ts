@@ -100,7 +100,11 @@ export interface JobStatusInput {
 
 // [phes-lifecycle 2026-04-29] Phes-specific thresholds. Multi-tenant
 // later → tenant_settings.late_threshold_minutes / .no_show_wait_minutes.
-const LATE_THRESHOLD_MINUTES = 20;
+// [3B 2026-05-29] Exported so attendance overlay surfaces can match
+// the same threshold the dispatch chip uses without re-defining it.
+// SHORT threshold lives SERVER-side in lib/attendance-discrepancy.ts —
+// it has no frontend consumer.
+export const LATE_THRESHOLD_MINUTES = 20;
 // Kept for documentation parity with the no-show button's wait period;
 // the derived `no_show` state itself doesn't read this constant
 // because it's now a manual flag. The field app reads this when it
