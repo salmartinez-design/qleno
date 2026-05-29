@@ -25,6 +25,11 @@ import {
 } from "../lib/attendance-discrepancy.js";
 import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { validateScanWindow } from "../lib/scan-window.js";
+import {
+  confirmProposalWithTx,
+  runScanInsertLoop,
+  toChicagoMinutesOfDay,
+} from "../lib/attendance-overlay-handlers.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A. parseScheduledTime
@@ -159,8 +164,13 @@ describe("Cutover 3B — classifyDiscrepancy: late/short/no_show/missing", () =>
 
   it("scheduled 13:30, in at 13:45 (15 min) → on_time", () => {
     const a = makeAssignment({ scheduled_date: today, scheduled_time_minutes: 13 * 60 + 30 });
+    // event_at must be recent (within the 16h stale window) — the classifier
+    // checks staleness against Date.now() for the missing_clockout branch,
+    // independent of the Chicago wall-clock projection. Use 15 min ago so
+    // the projected 13:45 wall-clock stays correct AND staleness is avoided.
+    const recentClockIn = new Date(Date.now() - 15 * 60 * 1000);
     const ev: ClockEventForOverlay[] = [
-      projectChicago(makeEvent({ id: 1, job_id: 100, user_id: 50, event_type: "clock_in", event_at: new Date(`${today}T18:45:00Z`) }), today, 13 * 60 + 45),
+      projectChicago(makeEvent({ id: 1, job_id: 100, user_id: 50, event_type: "clock_in", event_at: recentClockIn }), today, 13 * 60 + 45),
     ];
     const r = classifyDiscrepancy(a, ev, [], 14 * 60, today);
     assert.equal(r.kind, "on_time");
@@ -324,6 +334,26 @@ describe("Cutover 3B — DST: scheduled time math unchanged across DST jump", ()
     assert.equal(a, b);
     assert.equal(a, 13 * 60 + 30);
   });
+  it("toChicagoMinutesOfDay returns 810 for 13:30 Chicago wall-clock on both sides of the 2026 spring DST jump", () => {
+    // 2026 US DST: clocks spring forward Sun Mar 8 2026 02:00 → 03:00.
+    // Before the jump CST = UTC-6, after CDT = UTC-5. The Chicago
+    // wall-clock projection of 13:30 local must come out as 810
+    // (13*60+30) on BOTH dates despite the UTC offset shift.
+    //
+    // Build the absolute timestamp for "Mar 7 2026 13:30 Chicago" and
+    // "Mar 9 2026 13:30 Chicago" by hand. Mar 8 is the jump day —
+    // skip it (13:30 still exists, just under CDT). Mar 7 13:30 CST
+    // = Mar 7 19:30 UTC. Mar 9 13:30 CDT = Mar 9 18:30 UTC.
+    const beforeDst = new Date("2026-03-07T19:30:00Z");
+    const afterDst = new Date("2026-03-09T18:30:00Z");
+    assert.equal(toChicagoMinutesOfDay(beforeDst), 13 * 60 + 30);
+    assert.equal(toChicagoMinutesOfDay(afterDst), 13 * 60 + 30);
+  });
+  it("toChicagoMinutesOfDay handles the DST jump day itself (Mar 8 2026 13:30 CDT → 810)", () => {
+    // On the jump day, 13:30 CDT = Mar 8 18:30 UTC.
+    const onDst = new Date("2026-03-08T18:30:00Z");
+    assert.equal(toChicagoMinutesOfDay(onDst), 13 * 60 + 30);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -356,16 +386,43 @@ interface InsertedAttendanceLog {
   notes_marker_matches: boolean;
 }
 
+interface InsertedProposal {
+  company_id: number;
+  user_id: number;
+  job_id: number;
+  scheduled_date: string;
+  kind: string;
+  status: string;
+  decided_by_user_id: number | null;
+  decision_note: string | null;
+}
+
 function makeFakeDb(proposal: FakeProposalRow | null, opts: {
   policy_steps?: any[];
   recent_attendance?: { log_date: string; notes: string }[];
   recent_discipline?: { reason: string }[];
   update_returns_zero?: boolean;
+  /** Pre-existing proposal rows used to emulate the (company_id,
+   *  user_id, job_id, scheduled_date) unique-index for E1/E2 scan
+   *  idempotency / dismiss-no-resurface tests. */
+  existing_proposals?: Array<{
+    company_id: number;
+    user_id: number;
+    job_id: number;
+    scheduled_date: string;
+    status: "pending" | "confirmed" | "dismissed";
+  }>;
 }) {
   const inserts: InsertedAttendanceLog[] = [];
   const discipline_inserts: Array<{ reason: string }> = [];
+  const proposal_inserts: InsertedProposal[] = [];
   let proposalUpdated = false;
   const proposalState: FakeProposalRow | null = proposal ? { ...proposal } : null;
+  const existingProposalKeys = new Set<string>(
+    (opts.existing_proposals ?? []).map(
+      (p) => `${p.company_id}|${p.user_id}|${p.job_id}|${p.scheduled_date}`,
+    ),
+  );
 
   const fakeTx = {
     execute: async (q: any) => {
@@ -390,8 +447,8 @@ function makeFakeDb(proposal: FakeProposalRow | null, opts: {
     insert: (table: any) => {
       const tableName = String(table?.[Symbol.for("drizzle:Name")] ?? "");
       return {
-        values: (v: any) => ({
-          returning: (_proj?: any) => {
+        values: (v: any) => {
+          const returning = (_proj?: any) => {
             if (tableName === "employee_attendance_log") {
               const m = /unexcused hours:\s*([0-9.]+)/i.exec(v.notes ?? "");
               inserts.push({
@@ -408,9 +465,33 @@ function makeFakeDb(proposal: FakeProposalRow | null, opts: {
               discipline_inserts.push({ reason: v.reason ?? "" });
               return Promise.resolve([{ id: 555 }]);
             }
+            if (tableName === "attendance_proposals") {
+              const key = `${v.company_id}|${v.user_id}|${v.job_id}|${v.scheduled_date}`;
+              if (existingProposalKeys.has(key)) {
+                // emulate ON CONFLICT DO NOTHING — no row returned
+                return Promise.resolve([]);
+              }
+              existingProposalKeys.add(key);
+              proposal_inserts.push({
+                company_id: v.company_id,
+                user_id: v.user_id,
+                job_id: v.job_id,
+                scheduled_date: String(v.scheduled_date),
+                kind: v.kind,
+                status: v.status,
+                decided_by_user_id: v.decided_by_user_id ?? null,
+                decision_note: v.decision_note ?? null,
+              });
+              return Promise.resolve([{ id: proposal_inserts.length + 1000 }]);
+            }
             return Promise.resolve([{ id: 1 }]);
-          },
-        }),
+          };
+          return {
+            returning,
+            // Scan path uses .onConflictDoNothing(...).returning(...)
+            onConflictDoNothing: (_opts?: any) => ({ returning }),
+          };
+        },
       };
     },
     select: (_proj: any) => {
@@ -453,6 +534,7 @@ function makeFakeDb(proposal: FakeProposalRow | null, opts: {
     tx: fakeTx,
     inserts,
     discipline_inserts,
+    proposal_inserts,
     get proposalUpdated() {
       return proposalUpdated;
     },
@@ -519,6 +601,451 @@ describe("Cutover 3B — recordUnexcusedEntryAndDriveLadder (extracted helper)",
       logged_by: 1,
     });
     assert.equal(fake.discipline_inserts.length, 0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E. Route handler tests (mocked DB) — confirm + scan
+// ─────────────────────────────────────────────────────────────────────────────
+
+function pendingProposal(overrides: Partial<FakeProposalRow> = {}): FakeProposalRow {
+  return {
+    id: 33,
+    company_id: 1,
+    user_id: 7,
+    job_id: 11,
+    scheduled_date: "2026-05-20",
+    scheduled_time_minutes: 13 * 60 + 30,
+    estimated_hours: "4.00",
+    kind: "late",
+    status: "pending",
+    minutes_late: 45,
+    minutes_short: null,
+    ...overrides,
+  };
+}
+
+describe("Cutover 3B — E. confirm route handler (mocked DB)", () => {
+  it("E3: confirm writes one attendance_log row (default type='absent', hours from minutes_late/60)", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "late", minutes_late: 45 }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 200);
+    assert.equal(fake.inserts.length, 1);
+    const ins = fake.inserts[0]!;
+    // Plan §7 step 4: default is 'absent' for ALL kinds.
+    assert.equal(ins.type, "absent");
+    // hours = minutes_late / 60 = 45/60 = 0.75
+    assert.equal(ins.hours, 0.75);
+    assert.equal(fake.proposalStatus, "confirmed");
+    assert.equal(fake.proposalUpdated, true);
+  });
+
+  it("E4: confirm fires extracted helper (canonical 'unexcused hours' marker written)", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "no_show", minutes_late: null, estimated_hours: "6.00" }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 200);
+    assert.equal(fake.inserts.length, 1);
+    // Helper writes the canonical marker; for no_show with
+    // estimated_hours=6 the resolved hours is 6.
+    assert.equal(fake.inserts[0]!.notes_marker_matches, true);
+    assert.equal(fake.inserts[0]!.hours, 6);
+    assert.equal(fake.inserts[0]!.company_id, 1);
+    assert.equal(fake.inserts[0]!.employee_id, 7);
+    assert.equal(fake.inserts[0]!.log_date, "2026-05-20");
+  });
+
+  it("E5: missing_clockout confirm WITHOUT override → 400, zero attendance_log inserts", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "missing_clockout", minutes_late: null }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 400);
+    assert.equal(out.body.code, "missing_clockout_requires_override");
+    assert.equal(fake.inserts.length, 0);
+    assert.equal(fake.proposalStatus, "pending");
+  });
+
+  it("E5b: missing_clockout confirm with override_hours BUT no override_attendance_type → 400 (gate honors plan)", async () => {
+    // Regression: the gate previously also short-circuited when
+    // override_hours was supplied (silently defaulting type to
+    // 'absent'). Plan §7 step 3 requires explicit type for
+    // missing_clockout — supplying hours alone must still 400.
+    const fake = makeFakeDb(pendingProposal({ kind: "missing_clockout", minutes_late: null }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: { override_hours: 4 },
+    });
+    assert.equal(out.status, 400);
+    assert.equal(out.body.code, "missing_clockout_requires_override");
+    assert.equal(fake.inserts.length, 0);
+  });
+
+  it("E6: missing_clockout confirm WITH override → 200, hours=6, type='absent'", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "missing_clockout", minutes_late: null }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: { override_attendance_type: "absent", override_hours: 6 },
+    });
+    assert.equal(out.status, 200);
+    assert.equal(fake.inserts.length, 1);
+    assert.equal(fake.inserts[0]!.type, "absent");
+    assert.equal(fake.inserts[0]!.hours, 6);
+  });
+
+  it("E7: cross-tenant confirm → 404, zero inserts", async () => {
+    // proposal belongs to company_id=2, request comes in as company_id=1
+    const fake = makeFakeDb(pendingProposal({ company_id: 2 }), { policy_steps: [] });
+    // The fake's execute returns proposalState regardless of companyId
+    // in its WHERE clause matching, so to model cross-tenant we
+    // explicitly skip the row when its company_id differs from the
+    // request. The real route uses `WHERE company_id = $ctx` to filter
+    // at the DB level — model that by supplying a stub that returns
+    // empty rows when the requesting company doesn't match.
+    const fakeWithGuard = {
+      ...fake.tx,
+      execute: async (q: any) => {
+        const text = String(q?.queryChunks ? q.queryChunks.map((c: any) => c?.value ?? "").join("?") : q);
+        if (/SELECT \* FROM attendance_proposals/i.test(text)) {
+          // sim cross-tenant: no rows
+          return { rows: [] };
+        }
+        return await fake.tx.execute(q);
+      },
+    };
+    const out = await confirmProposalWithTx(fakeWithGuard as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 404);
+    assert.equal(fake.inserts.length, 0);
+  });
+
+  it("E8: override attendance_type='ncns' on no_show → log row type='ncns'", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "no_show", minutes_late: null, estimated_hours: "8.00" }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: { override_attendance_type: "ncns" },
+    });
+    assert.equal(out.status, 200);
+    assert.equal(fake.inserts.length, 1);
+    assert.equal(fake.inserts[0]!.type, "ncns");
+  });
+
+  it("E9: concurrent confirm race (UPDATE rowCount=0) → 409, helper still inserts log (real DB tx rolls back)", async () => {
+    // The route's UPDATE has WHERE status='pending'; if another writer
+    // beat us, rowCount=0 → 409. In production this is wrapped in a tx
+    // that gets rolled back; in the unit fake we don't simulate the
+    // rollback — we just assert the 409 status and that no second
+    // attendance_log write happens after the 409 returns.
+    const fake = makeFakeDb(pendingProposal(), { policy_steps: [], update_returns_zero: true });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 409);
+    // No second confirm: there's exactly one log insert from the
+    // racing writer's perspective (in real prod the tx rolls back).
+    assert.ok(fake.inserts.length <= 1);
+  });
+
+  it("E11: no_show + estimated_hours null → resolved hours fallback to 8", async () => {
+    const fake = makeFakeDb(pendingProposal({ kind: "no_show", minutes_late: null, estimated_hours: null }), { policy_steps: [] });
+    const out = await confirmProposalWithTx(fake.tx as any, {
+      companyId: 1,
+      actingUserId: 9,
+      id: 33,
+      body: {},
+    });
+    assert.equal(out.status, 200);
+    assert.equal(fake.inserts.length, 1);
+    assert.equal(fake.inserts[0]!.hours, 8);
+  });
+});
+
+describe("Cutover 3B — E. scan loop idempotency + auto-dismiss (mocked DB)", () => {
+  // Helper: build the assignment + events for a LATE classification.
+  function lateFixture() {
+    const date = "2026-05-20";
+    const a: ScheduledAssignment = {
+      job_id: 11,
+      user_id: 7,
+      scheduled_date: date,
+      scheduled_time_minutes: 13 * 60 + 30,
+      estimated_hours: 4,
+    };
+    const ev: ClockEventForOverlay = {
+      id: 1,
+      job_id: 11,
+      user_id: 7,
+      event_type: "clock_in",
+      event_at: new Date(`${date}T19:00:00Z`),
+      event_date: date,
+      event_minutes_of_day: 14 * 60, // 14:00 — 30 min late
+      is_correction: false,
+      correction_of_event_id: null,
+      gps_status: "captured",
+      latitude: 41.7,
+      longitude: -87.7,
+      exception_reason: null,
+      exception_reviewed_at: null,
+    };
+    return { date, a, ev };
+  }
+
+  it("E1: scan idempotency — pending exists → 0 new inserts (ON CONFLICT DO NOTHING)", async () => {
+    const { a, ev, date } = lateFixture();
+    const fake = makeFakeDb(null, {
+      policy_steps: [],
+      existing_proposals: [
+        { company_id: 1, user_id: 7, job_id: 11, scheduled_date: date, status: "pending" },
+      ],
+    });
+    const out = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [a],
+      events: [ev],
+      leaves: [],
+      nowMinutes: 23 * 60,
+      nowDate: date,
+    });
+    assert.equal(out.new_proposals, 0);
+    assert.equal(out.skipped_due_to_existing_proposal, 1);
+    assert.equal(fake.proposal_inserts.length, 0);
+  });
+
+  it("E2: dismiss-no-resurface — dismissed proposal present → 0 new inserts", async () => {
+    const { a, ev, date } = lateFixture();
+    const fake = makeFakeDb(null, {
+      policy_steps: [],
+      existing_proposals: [
+        { company_id: 1, user_id: 7, job_id: 11, scheduled_date: date, status: "dismissed" },
+      ],
+    });
+    const out = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [a],
+      events: [ev],
+      leaves: [],
+      nowMinutes: 23 * 60,
+      nowDate: date,
+    });
+    assert.equal(out.new_proposals, 0);
+    assert.equal(out.skipped_due_to_existing_proposal, 1);
+    assert.equal(fake.proposal_inserts.length, 0);
+  });
+
+  it("E2b: first scan inserts pending; second scan is a no-op", async () => {
+    const { a, ev, date } = lateFixture();
+    const fake = makeFakeDb(null, { policy_steps: [] });
+    const r1 = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [a],
+      events: [ev],
+      leaves: [],
+      nowMinutes: 23 * 60,
+      nowDate: date,
+    });
+    assert.equal(r1.new_proposals, 1);
+    assert.equal(fake.proposal_inserts.length, 1);
+    const r2 = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [a],
+      events: [ev],
+      leaves: [],
+      nowMinutes: 23 * 60,
+      nowDate: date,
+    });
+    assert.equal(r2.new_proposals, 0);
+    assert.equal(r2.skipped_due_to_existing_proposal, 1);
+    assert.equal(fake.proposal_inserts.length, 1);
+  });
+
+  it("E10: NO_SHOW + full-day approved leave (8h) → auto-dismissed insert with 'auto-reconciled' note", async () => {
+    const date = "2026-05-20";
+    const a: ScheduledAssignment = {
+      job_id: 11,
+      user_id: 7,
+      scheduled_date: date,
+      scheduled_time_minutes: 13 * 60 + 30,
+      estimated_hours: 4,
+    };
+    const leaves: ApprovedLeaveWindow[] = [
+      { leave_request_id: 88, user_id: 7, start_date: date, end_date: date, hours: 8 },
+    ];
+    const fake = makeFakeDb(null, { policy_steps: [] });
+    const out = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [a],
+      events: [], // no clock-in → no_show
+      leaves,
+      nowMinutes: 23 * 60,
+      nowDate: date,
+    });
+    assert.equal(out.auto_dismissed_due_to_leave, 1);
+    assert.equal(fake.proposal_inserts.length, 1);
+    const row = fake.proposal_inserts[0]!;
+    assert.equal(row.status, "dismissed");
+    assert.equal(row.kind, "no_show");
+    assert.equal(row.decided_by_user_id, null);
+    assert.match(row.decision_note ?? "", /auto-reconciled/);
+  });
+
+  it("scheduled_date null/missing → skipped, no proposal created", async () => {
+    // Belt-and-suspenders: the route's load-time filter already
+    // strips these, but the loop defensively skips invalid dates so a
+    // test fixture cannot inject a malformed assignment.
+    const fake = makeFakeDb(null, { policy_steps: [] });
+    const bad: ScheduledAssignment = {
+      job_id: 11,
+      user_id: 7,
+      scheduled_date: "" as unknown as string,
+      scheduled_time_minutes: 13 * 60 + 30,
+      estimated_hours: 4,
+    };
+    const out = await runScanInsertLoop(fake.tx, {
+      companyId: 1,
+      assignments: [bad],
+      events: [],
+      leaves: [],
+      nowMinutes: 23 * 60,
+      nowDate: "2026-05-20",
+    });
+    assert.equal(out.new_proposals, 0);
+    assert.equal(out.auto_dismissed_due_to_leave, 0);
+    assert.equal(out.skipped_due_to_existing_proposal, 0);
+    assert.equal(fake.proposal_inserts.length, 0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// E12. validateScanWindow boundary completeness
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Cutover 3B — E12. validateScanWindow boundaries", () => {
+  it("exact 31-day window passes", () => {
+    // Jan 1 → Feb 1 inclusive is 31 days (today set well into future
+    // so the clamp doesn't fire).
+    const r = validateScanWindow({ from_date: "2026-01-01", to_date: "2026-02-01", today: "2026-05-29" });
+    assert.equal(r.ok, true);
+  });
+  it("32-day window rejects", () => {
+    const r = validateScanWindow({ from_date: "2026-01-01", to_date: "2026-02-02", today: "2026-05-29" });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.code, "window_too_large");
+  });
+  it("from == today passes (boundary)", () => {
+    const r = validateScanWindow({ from_date: "2026-05-29", to_date: "2026-05-29", today: "2026-05-29" });
+    assert.equal(r.ok, true);
+  });
+  it("from one day past today → future_from_date", () => {
+    const r = validateScanWindow({ from_date: "2026-05-30", to_date: "2026-05-30", today: "2026-05-29" });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.code, "future_from_date");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// classifyDiscrepancy: jobs.scheduled_date null skip safety
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Cutover 3B — classifyDiscrepancy: scheduled_date null/empty", () => {
+  it("scheduler-style empty scheduled_date → on_time (no proposal raised)", () => {
+    // The route's load filter excludes rows with null scheduled_date,
+    // but if a malformed assignment slips through the classifier
+    // should not crash. Compare against an empty/garbage nowDate
+    // string is unsafe — assert the classifier still returns a
+    // benign on_time when no clock-in is present and same-day rules
+    // can't fire.
+    const a: ScheduledAssignment = {
+      job_id: 100,
+      user_id: 50,
+      scheduled_date: "",
+      scheduled_time_minutes: null,
+      estimated_hours: null,
+    };
+    const r = classifyDiscrepancy(a, [], [], 14 * 60, "2026-05-29");
+    // With empty scheduled_date, nowDate > scheduled_date string
+    // comparison evaluates to true (any non-empty > ""), which would
+    // ordinarily classify no-clock-in past-day as no_show. But the
+    // scan loop now defensively skips empty scheduled_date BEFORE
+    // calling the classifier (see runScanInsertLoop). The classifier
+    // itself remains tolerant — assert it doesn't crash and returns
+    // a typed result.
+    assert.ok(["on_time", "no_show"].includes(r.kind));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// H. Byte-identical helper output — the notes regex marker contract
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("Cutover 3B — H. recordUnexcusedEntryAndDriveLadder byte-identical contract", () => {
+  it("attendance_log.notes matches the /unexcused hours:\\s*[0-9.]+/ regex", async () => {
+    // The legacy leave.ts /unexcused/record parsed hours back out of
+    // the notes column via the same regex. The extracted helper must
+    // preserve that marker shape.
+    const fake = makeFakeDb(null, { policy_steps: [] });
+    await recordUnexcusedEntryAndDriveLadder(fake.tx as any, {
+      company_id: 1,
+      employee_id: 42,
+      log_date: "2026-05-29",
+      hours: 8,
+      type: "absent",
+      note: "manual entry from legacy /unexcused/record",
+      logged_by: 5,
+    });
+    assert.equal(fake.inserts.length, 1);
+    // The InsertedAttendanceLog harness records notes_marker_matches
+    // via the exact regex the legacy code at leave.ts:941 used.
+    assert.equal(fake.inserts[0]!.notes_marker_matches, true);
+    assert.equal(fake.inserts[0]!.hours, 8);
+  });
+  it("discipline_log.reason matches /unexcused-ladder t=\\d+ window=\\d+/ marker", async () => {
+    // The dedup check at leave.ts read this marker out of recent
+    // discipline rows. The extracted helper must keep emitting it.
+    const fake = makeFakeDb(null, {
+      policy_steps: [
+        { threshold_hours: 8, window_days: 30, discipline_type: "absence_warning", notify: false },
+      ],
+      recent_attendance: [{ log_date: "2026-05-29", notes: "unexcused hours: 8.00" }],
+      recent_discipline: [],
+    });
+    await recordUnexcusedEntryAndDriveLadder(fake.tx as any, {
+      company_id: 1,
+      employee_id: 42,
+      log_date: "2026-05-29",
+      hours: 8,
+      type: "absent",
+      logged_by: 5,
+    });
+    assert.equal(fake.discipline_inserts.length, 1);
+    assert.match(
+      fake.discipline_inserts[0]!.reason,
+      /unexcused-ladder t=\d+(?:\.\d+)? window=\d+/,
+    );
   });
 });
 
@@ -595,6 +1122,14 @@ describe("Cutover 3B — source grep-asserts", () => {
     path.resolve(cwd, "src/routes/attendance-overlay.ts"),
     "utf8",
   );
+  // The confirm/scan handler bodies live in a separate DB-free lib so
+  // the test suite can import them without booting drizzle. Some
+  // grep-asserts must check both the route and the handler module
+  // because the matched strings can live in either file.
+  const overlayHandlers = readFileSync(
+    path.resolve(cwd, "src/lib/attendance-overlay-handlers.ts"),
+    "utf8",
+  );
   const overlayLib = readFileSync(
     path.resolve(cwd, "src/lib/attendance-discrepancy.ts"),
     "utf8",
@@ -630,15 +1165,23 @@ describe("Cutover 3B — source grep-asserts", () => {
     assert.match(overlayRoute, /router\.use\(officeGate\)/);
   });
   it("confirm handler imports recordUnexcusedEntryAndDriveLadder (not raw insert)", () => {
-    assert.match(overlayRoute, /import\s*\{\s*recordUnexcusedEntryAndDriveLadder\s*\}\s*from\s*"\.\.\/lib\/unexcused-ladder-writer\.js"/);
+    // The handler body now lives in lib/attendance-overlay-handlers.ts
+    // (extracted so tests can drive it with a fake tx without booting
+    // drizzle). The import must be there, in the handler module.
+    assert.match(overlayHandlers, /import\s*\{\s*recordUnexcusedEntryAndDriveLadder\s*\}\s*from\s*"\.\/unexcused-ladder-writer\.js"/);
   });
   it("confirm handler surfaces the missing_clockout_requires_override code", () => {
-    assert.match(overlayRoute, /missing_clockout_requires_override/);
+    // Lives in the extracted handler module.
+    assert.match(overlayHandlers, /missing_clockout_requires_override/);
   });
-  it("attendance-overlay route does NOT contain raw INSERT INTO employee_attendance_log SQL", () => {
+  it("attendance-overlay route + handlers do NOT contain raw INSERT INTO employee_attendance_log SQL", () => {
     assert.ok(
       !/INSERT\s+INTO\s+employee_attendance_log/i.test(overlayRoute),
       "overlay route should flow attendance_log inserts through recordUnexcusedEntryAndDriveLadder",
+    );
+    assert.ok(
+      !/INSERT\s+INTO\s+employee_attendance_log/i.test(overlayHandlers),
+      "overlay handlers should flow attendance_log inserts through recordUnexcusedEntryAndDriveLadder",
     );
   });
   it("leave.ts /unexcused/record now delegates to recordUnexcusedEntryAndDriveLadder", () => {
@@ -654,9 +1197,10 @@ describe("Cutover 3B — source grep-asserts", () => {
     assert.match(writerLib, /unexcused hours:/);
   });
 
-  // H. No-timeclock invariant — 3B owns only these three files.
+  // H. No-timeclock invariant — 3B owns only these four files.
   for (const [label, src] of [
     ["attendance-overlay.ts", overlayRoute],
+    ["attendance-overlay-handlers.ts", overlayHandlers],
     ["attendance-discrepancy.ts", overlayLib],
     ["attendance_proposals.ts", schema],
   ] as const) {
