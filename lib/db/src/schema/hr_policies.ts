@@ -78,6 +78,14 @@ export const companyAttendancePolicyTable = pgTable("company_attendance_policy",
 
   tardy_steps: jsonb("tardy_steps").$type<any[]>().default([]),
   absence_steps: jsonb("absence_steps").$type<any[]>().default([]),
+  // ── Cutover 3A — cumulative unexcused-hours threshold ladder ──
+  // DISTINCT from tardy_steps / absence_steps (those are per-event
+  // ladders: "after the 3rd tardy, written warning"). This one is
+  // cumulative-hours over a window: "once unexcused hours in the last
+  // 90 days cross 8, fire a written warning". Each step is
+  // { threshold_hours, window_days, discipline_type, label, notify }.
+  // Empty array = ladder disabled.
+  unexcused_hours_steps: jsonb("unexcused_hours_steps").$type<any[]>().default([]),
 
   ncns_policy_enabled: boolean("ncns_policy_enabled").default(false),
   ncns_may_terminate_immediately: boolean("ncns_may_terminate_immediately").default(false),
@@ -100,6 +108,18 @@ export const companyLeavePolicyTable = pgTable("company_leave_policy", {
   leave_reset_basis: leaveResetBasisEnum("leave_reset_basis").default("calendar_year"),
   carryover_enabled: boolean("carryover_enabled").default(false),
   carryover_max_hours: numeric("carryover_max_hours", { precision: 8, scale: 2 }).default("0"),
+  // ── Cutover 3A — hard balance ceiling, distinct from carryover_max_hours ──
+  // carryover_max_hours = "how much UNUSED balance can roll into the next
+  // year" (allowance model). balance_ceiling_hours = "after the grant, the
+  // total balance can never exceed this" (hard cap model). Phes uses the
+  // ceiling: 40 grant + carryover, total never above 80, excess forfeited.
+  // Tenants that want the allowance model leave this null (or at a very
+  // high number) and configure carryover_max_hours instead.
+  balance_ceiling_hours: numeric("balance_ceiling_hours", { precision: 8, scale: 2 }).default("80"),
+  // Days before each employee's reset to surface "use it or lose it" alerts.
+  // Anniversary (per leave_reset_basis='work_anniversary') = N days before
+  // their anniversary; calendar year = N days before Dec 31.
+  use_it_or_lose_it_alert_lead_days: integer("use_it_or_lose_it_alert_lead_days").default(60),
   payout_on_separation: boolean("payout_on_separation").default(false),
   documentation_required_after_days: integer("documentation_required_after_days").default(3),
   notice_required_foreseeable_days: integer("notice_required_foreseeable_days").default(7),

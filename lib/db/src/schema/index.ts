@@ -128,3 +128,9 @@ export * from "./pay";
 //                    leg DOES NOT roll up into pay_period_summaries.
 //   - distance_cache: per-tenant cache of mapping-API measurements.
 export * from "./mileage";
+
+// Cutover 3A — availability + tenant-configurable leave catalog +
+// request lifecycle + blackouts. Companion column adds on
+// hr_policies (balance_ceiling_hours, use_it_or_lose_it_alert_lead_days,
+// unexcused_hours_steps).
+export * from "./leave";

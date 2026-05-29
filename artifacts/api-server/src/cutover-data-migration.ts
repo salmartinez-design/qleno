@@ -43,6 +43,158 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await seedLeaveTypesPerTenant();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] leave_types seed failed (non-fatal):",
+      err,
+    );
+  }
+  try {
+    await seedPhesLeavePolicy3A();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] Phes 3A leave policy seed failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Cutover 3A — seed leave_types for tenants. Default new-tenant
+ * shape is PTO (paid, flat_grant, NOT exempt from blackout) + Sick
+ * (paid, accrue_per_hours placeholder, exempt). Phes (company_id 1)
+ * gets the four-bucket shape:
+ *   - PLAWA (paid, accrue_per_hours, 1/40, 40 cap, 90-day wait, carryover, exempt)
+ *   - PTO   (paid, flat_grant, 40 cap, 365-day wait, NOT exempt)
+ *   - Unpaid Leave (unpaid, flat_grant, 40 cap, 0-day wait, NOT exempt)
+ *   - Unexcused (unpaid, office_recorded, 40 cap, requestable=false)
+ *
+ * Idempotent on each (company_id, slug) — uses ON CONFLICT DO NOTHING
+ * against the unique index leave_types_company_slug_uq.
+ */
+async function seedLeaveTypesPerTenant(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_types'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_types not present yet, skipping seed';
+        RETURN;
+      END IF;
+
+      -- Default new-tenant shape: PTO + Sick. No PLAWA in the default
+      -- so multi-state platform tenants are not silently given an
+      -- Illinois-specific bucket.
+      INSERT INTO leave_types (
+        company_id, slug, display_name, is_paid, annual_cap_hours,
+        accrual_mode, accrual_rate, waiting_period_days,
+        carryover_allowed, documentation_required, requestable,
+        exempt_from_blackout
+      )
+      SELECT c.id, 'pto', 'PTO', true, 40,
+             'flat_grant', 0, 365,
+             false, false, true,
+             false
+      FROM companies c
+      WHERE NOT EXISTS (
+        SELECT 1 FROM leave_types lt
+        WHERE lt.company_id = c.id AND lt.slug = 'pto'
+      )
+      ON CONFLICT DO NOTHING;
+
+      INSERT INTO leave_types (
+        company_id, slug, display_name, is_paid, annual_cap_hours,
+        accrual_mode, accrual_rate, waiting_period_days,
+        carryover_allowed, documentation_required, requestable,
+        exempt_from_blackout
+      )
+      SELECT c.id, 'sick', 'Sick Time', true, 40,
+             'flat_grant', 0, 0,
+             false, false, true,
+             true
+      FROM companies c
+      WHERE NOT EXISTS (
+        SELECT 1 FROM leave_types lt
+        WHERE lt.company_id = c.id AND lt.slug = 'sick'
+      )
+      ON CONFLICT DO NOTHING;
+
+      -- Phes-specific buckets. Only seeded for company_id=1.
+      INSERT INTO leave_types (
+        company_id, slug, display_name, is_paid, annual_cap_hours,
+        accrual_mode, accrual_rate, waiting_period_days,
+        carryover_allowed, documentation_required, requestable,
+        exempt_from_blackout
+      )
+      VALUES
+        (1, 'plawa', 'PLAWA', true, 40,
+         'accrue_per_hours', 0.025, 90,
+         true, false, true, true),
+        (1, 'pto_phes', 'PTO', true, 40,
+         'flat_grant', 0, 365,
+         true, false, true, false),
+        (1, 'unpaid_leave', 'Unpaid Leave', false, 40,
+         'flat_grant', 0, 0,
+         false, false, true, false),
+        (1, 'unexcused', 'Unexcused', false, 40,
+         'office_recorded', 0, 0,
+         false, false, false, false)
+      ON CONFLICT DO NOTHING;
+
+      -- The default-seeded "pto" row for company_id=1 collides with
+      -- the Phes-specific PTO (slug 'pto_phes' is intentional to keep
+      -- both rows distinguishable). If the default 'pto' row was
+      -- already seeded for Phes from a prior deploy, deactivate it
+      -- so the Phes-specific row is the only one shown.
+      UPDATE leave_types
+      SET active = false
+      WHERE company_id = 1
+        AND slug = 'pto';
+
+      RAISE NOTICE 'cutover-migration: seeded leave_types per tenant';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * Cutover 3A — seed the Phes company_leave_policy with the
+ * anniversary-based reset + ceiling + lead-days. Idempotent: only
+ * writes when the column has the schema default (NULL/zero) and the
+ * tenant hasn't customized.
+ */
+async function seedPhesLeavePolicy3A(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'company_leave_policy'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: company_leave_policy not present yet, skipping 3A seed';
+        RETURN;
+      END IF;
+      INSERT INTO company_leave_policy (
+        company_id, leave_reset_basis,
+        use_it_or_lose_it_alert_lead_days, balance_ceiling_hours
+      )
+      VALUES (1, 'work_anniversary', 60, 80)
+      ON CONFLICT (company_id) DO UPDATE SET
+        leave_reset_basis = COALESCE(EXCLUDED.leave_reset_basis, company_leave_policy.leave_reset_basis),
+        use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
+        balance_ceiling_hours = COALESCE(EXCLUDED.balance_ceiling_hours, company_leave_policy.balance_ceiling_hours);
+      RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy';
+    END
+    $$;
+  `),
+  );
 }
 
 /**
