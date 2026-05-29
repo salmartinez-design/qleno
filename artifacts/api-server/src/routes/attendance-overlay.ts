@@ -58,13 +58,39 @@ import {
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseScheduledTime } from "../lib/parse-scheduled-time.js";
 import {
-  classifyDiscrepancy,
   type ApprovedLeaveWindow,
   type ClockEventForOverlay,
   type ScheduledAssignment,
 } from "../lib/attendance-discrepancy.js";
-import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
+// Re-export DB-free helpers so existing route consumers (and the test
+// suite) continue to import from this module. The handler bodies
+// themselves live in `lib/attendance-overlay-handlers.ts` so tests
+// can drive them with a fake tx without booting drizzle.
+import {
+  addDaysIso,
+  confirmProposalWithTx,
+  runScanInsertLoop,
+  toChicagoDate,
+  toChicagoMinutesOfDay,
+  type ConfirmProposalInput,
+  type ConfirmProposalOutput,
+  type RunScanInsertLoopInput,
+  type RunScanInsertLoopOutput,
+} from "../lib/attendance-overlay-handlers.js";
 import { validateScanWindow } from "../lib/scan-window.js";
+
+export {
+  confirmProposalWithTx,
+  runScanInsertLoop,
+  toChicagoDate,
+  toChicagoMinutesOfDay,
+};
+export type {
+  ConfirmProposalInput,
+  ConfirmProposalOutput,
+  RunScanInsertLoopInput,
+  RunScanInsertLoopOutput,
+};
 
 const router = Router();
 
@@ -80,53 +106,6 @@ function bad(res: Response, message: string, code?: string) {
 }
 function notFound(res: Response, message: string) {
   return res.status(404).json({ error: "Not Found", message });
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Chicago wall-clock helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-const chicagoDateFormatter = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "America/Chicago",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
-const chicagoTimeFormatter = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",
-  hour12: false,
-  hour: "2-digit",
-  minute: "2-digit",
-});
-
-export function toChicagoDate(d: Date): string {
-  // en-CA + 2-digit gives YYYY-MM-DD.
-  return chicagoDateFormatter.format(d);
-}
-
-export function toChicagoMinutesOfDay(d: Date): number {
-  // en-US 24h "HH:MM". Chrome ICU sometimes emits "24:MM" at the day
-  // boundary — normalize.
-  const s = chicagoTimeFormatter.format(d);
-  const [hStr, mStr] = s.split(":");
-  let h = parseInt(hStr, 10);
-  const m = parseInt(mStr, 10);
-  if (!Number.isFinite(h)) h = 0;
-  if (h === 24) h = 0;
-  return h * 60 + m;
-}
-
-function addDaysIso(iso: string, days: number): string {
-  const y = Number(iso.slice(0, 4));
-  const m = Number(iso.slice(5, 7));
-  const d = Number(iso.slice(8, 10));
-  const t = Date.UTC(y, m - 1, d) + days * 24 * 60 * 60 * 1000;
-  const dt = new Date(t);
-  const yy = dt.getUTCFullYear();
-  const mm = String(dt.getUTCMonth() + 1).padStart(2, "0");
-  const dd = String(dt.getUTCDate()).padStart(2, "0");
-  return `${yy}-${mm}-${dd}`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -308,60 +287,19 @@ router.post("/scan", async (req, res) => {
   const nowDate = toChicagoDate(now);
   const nowMinutes = toChicagoMinutesOfDay(now);
 
-  let new_proposals = 0;
-  let auto_dismissed_due_to_leave = 0;
-  let skipped_due_to_existing_proposal = 0;
-  for (const a of assignments) {
-    const r = classifyDiscrepancy(a, events, leaves, nowMinutes, nowDate);
-    if (r.kind === "on_time") continue;
-    const isAutoDismiss = r.suppressed_by_leave;
-    const inserted = await db
-      .insert(attendanceProposalsTable)
-      .values({
-        company_id: companyId,
-        user_id: a.user_id,
-        job_id: a.job_id,
-        scheduled_date: a.scheduled_date,
-        scheduled_time_minutes: a.scheduled_time_minutes,
-        estimated_hours:
-          a.estimated_hours != null ? a.estimated_hours.toFixed(2) : null,
-        kind: r.kind,
-        status: isAutoDismiss ? "dismissed" : "pending",
-        minutes_late: r.minutes_late,
-        minutes_short: r.minutes_short,
-        clock_in_event_id: r.clock_in_event_id,
-        clock_out_event_id: r.clock_out_event_id,
-        leave_request_id: r.leave_request_id,
-        decided_at: isAutoDismiss ? new Date() : null,
-        decided_by_user_id: null,
-        decision_note: isAutoDismiss
-          ? `auto-reconciled: approved leave #${r.leave_request_id}`
-          : null,
-      })
-      .onConflictDoNothing({
-        target: [
-          attendanceProposalsTable.company_id,
-          attendanceProposalsTable.user_id,
-          attendanceProposalsTable.job_id,
-          attendanceProposalsTable.scheduled_date,
-        ],
-      })
-      .returning({ id: attendanceProposalsTable.id });
-    if (inserted.length === 0) {
-      skipped_due_to_existing_proposal += 1;
-    } else if (isAutoDismiss) {
-      auto_dismissed_due_to_leave += 1;
-    } else {
-      new_proposals += 1;
-    }
-  }
+  const counts = await runScanInsertLoop(db, {
+    companyId,
+    assignments,
+    events,
+    leaves,
+    nowMinutes,
+    nowDate,
+  });
 
   return res.json({
     data: {
       scanned_assignments: assignments.length,
-      new_proposals,
-      auto_dismissed_due_to_leave,
-      skipped_due_to_existing_proposal,
+      ...counts,
       from_date: v.from_date,
       to_date: v.to_date,
     },
@@ -477,140 +415,6 @@ router.get("/proposals", async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /proposals/:id/confirm
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Test-visible inner handler. Exported for the mocked-DB E-series so
- * tests can inject a fake tx without booting Express + Postgres. The
- * router wrapper below pulls companyId/userId off req.auth, runs the
- * real db.transaction, and delegates here.
- */
-export interface ConfirmProposalInput {
-  companyId: number;
-  actingUserId: number;
-  id: number;
-  body: {
-    override_attendance_type?: "absent" | "tardy" | "ncns";
-    override_hours?: number;
-    decision_note?: string;
-    protected?: boolean;
-  };
-}
-
-export interface ConfirmProposalOutput {
-  status: number;
-  body: any;
-}
-
-export async function confirmProposalWithTx(
-  tx: any,
-  input: ConfirmProposalInput,
-): Promise<ConfirmProposalOutput> {
-  const { companyId, actingUserId, id, body } = input;
-  const proposalRows = await tx.execute(
-    sql`SELECT * FROM attendance_proposals
-        WHERE id = ${id} AND company_id = ${companyId}
-        FOR UPDATE`,
-  );
-  const row = (proposalRows as { rows?: any[] }).rows?.[0];
-  if (!row) {
-    return { status: 404, body: { error: "Not Found", message: "Proposal not found" } };
-  }
-  if (row.status !== "pending") {
-    return {
-      status: 409,
-      body: { error: "Conflict", message: `Proposal is already ${row.status}` },
-    };
-  }
-  if (row.kind === "missing_clockout" && body?.override_attendance_type == null) {
-    return {
-      status: 400,
-      body: {
-        error: "Bad Request",
-        message: "missing_clockout proposals require override_attendance_type",
-        code: "missing_clockout_requires_override",
-      },
-    };
-  }
-  const resolvedType: "absent" | "tardy" | "ncns" =
-    body?.override_attendance_type === "tardy" ||
-    body?.override_attendance_type === "ncns" ||
-    body?.override_attendance_type === "absent"
-      ? body.override_attendance_type
-      : "absent";
-
-  let resolvedHours: number | null = null;
-  if (
-    typeof body?.override_hours === "number" &&
-    Number.isFinite(body.override_hours) &&
-    body.override_hours > 0
-  ) {
-    resolvedHours = body.override_hours;
-  } else if (row.kind === "late" && row.minutes_late != null) {
-    resolvedHours = Number(row.minutes_late) / 60;
-  } else if (row.kind === "short" && row.minutes_short != null) {
-    resolvedHours = Number(row.minutes_short) / 60;
-  } else if (row.kind === "no_show") {
-    resolvedHours = row.estimated_hours != null ? Number(row.estimated_hours) : 8;
-  }
-  if (resolvedHours == null || !(resolvedHours > 0)) {
-    return {
-      status: 400,
-      body: {
-        error: "Bad Request",
-        message: "Could not resolve hours; supply override_hours",
-        code: "hours_required",
-      },
-    };
-  }
-
-  const ladder = await recordUnexcusedEntryAndDriveLadder(tx, {
-    company_id: companyId,
-    employee_id: Number(row.user_id),
-    log_date: String(row.scheduled_date),
-    hours: resolvedHours,
-    type: resolvedType,
-    protected: body?.protected ?? false,
-    note: body?.decision_note ?? undefined,
-    logged_by: actingUserId,
-  });
-
-  const updated = await tx.execute(
-    sql`UPDATE attendance_proposals
-        SET status = 'confirmed',
-            decided_at = now(),
-            decided_by_user_id = ${actingUserId},
-            decision_note = ${body?.decision_note ?? null},
-            created_attendance_log_id = ${ladder.attendance_log_id}
-        WHERE id = ${id}
-          AND company_id = ${companyId}
-          AND status = 'pending'`,
-  );
-  const rowCount = (updated as { rowCount?: number }).rowCount ?? 0;
-  if (rowCount !== 1) {
-    return {
-      status: 409,
-      body: { error: "Conflict", message: "Proposal status changed during confirm" },
-    };
-  }
-
-  return {
-    status: 200,
-    body: {
-      data: {
-        proposal: {
-          id,
-          status: "confirmed",
-          decided_at: new Date().toISOString(),
-          decided_by_user_id: actingUserId,
-        },
-        attendance_log_id: ladder.attendance_log_id,
-        ladder_eval: ladder.ladder_eval,
-        discipline_log_id: ladder.discipline_log_id,
-        notification_sent: ladder.notification_sent,
-      },
-    },
-  };
-}
 
 router.post("/proposals/:id/confirm", async (req, res) => {
   const companyId = req.auth!.companyId!;
