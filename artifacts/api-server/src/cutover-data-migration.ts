@@ -23,6 +23,14 @@ import {
 
 export async function runCutoverDataMigration(): Promise<void> {
   try {
+    await reconcileUsersSchemaColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] users column reconcile failed (non-fatal):",
+      err,
+    );
+  }
+  try {
     await runClockEventsIntegrityConstraint();
   } catch (err) {
     console.error("[cutover-migration] failed (non-fatal):", err);
@@ -139,6 +147,58 @@ async function seedMileageRatesFromCompaniesScalar(): Promise<void> {
     $$;
   `),
   );
+}
+
+/**
+ * Reconcile additive `users` columns that exist in the Drizzle schema
+ * but were never given a runtime `ALTER TABLE ... ADD COLUMN` migration.
+ *
+ * Background: production deploys do NOT run `drizzle-kit push` (the
+ * Dockerfile boots `node dist/index.mjs` directly), so a column only
+ * reaches the live database if an explicit `ADD COLUMN IF NOT EXISTS`
+ * runs at startup. Cutover 1A (#195) added home_lat / home_lng /
+ * default_team / default_position to the `users` schema for the
+ * geofence + day-view work but shipped no such migration. The columns
+ * are nullable and unused by the live read paths, so the gap stayed
+ * invisible — until any `INSERT INTO users ... RETURNING *` ran.
+ * Drizzle's `.returning()` names every schema column in the RETURNING
+ * clause, so the LMS "Add Employee" insert (POST /api/users/lms-add)
+ * threw `column "home_lat" does not exist` and surfaced as a 500
+ * "Failed to add employee".
+ *
+ * Each statement is `IF NOT EXISTS`, so this is idempotent and safe to
+ * run on every cold start and on tenants that already have the columns.
+ * Keep this list in sync with any future additive `users` column that
+ * lands in the schema without its own migration.
+ */
+const USERS_RECONCILE_COLUMNS: string[] = [
+  "home_lat numeric(10,7)",
+  "home_lng numeric(10,7)",
+  "default_team text",
+  "default_position text",
+];
+
+async function reconcileUsersSchemaColumns(): Promise<void> {
+  const tables = await db.execute(
+    sql.raw(`
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'users'
+  `),
+  );
+  // Drizzle returns { rows } for db.execute; bail if users isn't there
+  // yet (first deploy before drizzle-kit push has ever run).
+  const rowCount = (tables as { rows?: unknown[] }).rows?.length ?? 0;
+  if (rowCount === 0) {
+    console.log(
+      "[cutover-migration] users table not present yet, skipping column reconcile",
+    );
+    return;
+  }
+  for (const col of USERS_RECONCILE_COLUMNS) {
+    await db.execute(
+      sql.raw(`ALTER TABLE users ADD COLUMN IF NOT EXISTS ${col};`),
+    );
+  }
 }
 
 /**
