@@ -27,7 +27,62 @@ export async function runCutoverDataMigration(): Promise<void> {
   } catch (err) {
     console.error("[cutover-migration] failed (non-fatal):", err);
   }
+  try {
+    await runMileageAdjustmentUniqueIndex();
+  } catch (err) {
+    console.error("[cutover-migration] mileage idx failed (non-fatal):", err);
+  }
 }
+
+/**
+ * Cutover 2A — partial unique index on
+ * (company_id, source_on_my_way_event_id) WHERE
+ * adjustment_type = 'mileage' AND source_on_my_way_event_id IS NOT NULL.
+ *
+ * Stops a recompute from double-writing the same leg as two mileage
+ * adjustment rows. Drizzle-kit cannot express partial uniqueness
+ * directly, so we install it via runtime SQL with the same idempotent
+ * pattern as the CHECK constraint above.
+ */
+const MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME =
+  "pay_adjustments_mileage_source_uq";
+
+async function runMileageAdjustmentUniqueIndex(): Promise<void> {
+  await db.execute(sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'pay_adjustments'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: pay_adjustments not present yet, skipping mileage idx';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'pay_adjustments'
+          AND column_name = 'source_on_my_way_event_id'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: source_on_my_way_event_id column not present yet, skipping mileage idx';
+        RETURN;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND indexname = '${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME}'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: mileage idx already present';
+        RETURN;
+      END IF;
+      EXECUTE 'CREATE UNIQUE INDEX ${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME} ON pay_adjustments (company_id, source_on_my_way_event_id) WHERE adjustment_type = ''mileage'' AND source_on_my_way_event_id IS NOT NULL';
+      RAISE NOTICE 'cutover-migration: installed ${MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME}';
+    END
+    $$;
+  `));
+}
+
+export { MILEAGE_ADJUSTMENT_UNIQUE_INDEX_NAME };
 
 /**
  * Install the CHECK constraint on job_clock_events. Idempotent:
