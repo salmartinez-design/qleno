@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { usersTable, userCompaniesTable, companiesTable } from "@workspace/db/schema";
+import { eq, sql, and } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 import { requireAuth, signToken } from "../lib/auth.js";
@@ -65,6 +65,19 @@ router.post("/login", async (req, res) => {
 
     await logAudit(req, "login_success", "user", user[0].id, null, { email });
 
+    // Fetch all companies this user can access via user_companies join table
+    let availableCompanies: { id: number; name: string }[] = [];
+    try {
+      const companyRows = await db
+        .select({ id: companiesTable.id, name: companiesTable.name })
+        .from(userCompaniesTable)
+        .innerJoin(companiesTable, eq(userCompaniesTable.company_id, companiesTable.id))
+        .where(eq(userCompaniesTable.user_id, user[0].id));
+      availableCompanies = companyRows;
+    } catch {
+      // user_companies table may not exist yet (first deploy before migration runs)
+    }
+
     return res.json({
       token,
       user: {
@@ -77,6 +90,7 @@ router.post("/login", async (req, res) => {
         avatar_url: user[0].avatar_url,
         is_super_admin: isSuperAdminFlag,
       },
+      available_companies: availableCompanies,
     });
   } catch (err) {
     console.error("Login error:", err);
@@ -202,6 +216,89 @@ router.post("/reset-password", async (req, res) => {
   } catch (err) {
     console.error("Reset password error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to reset password" });
+  }
+});
+
+// ── SWITCH COMPANY ────────────────────────────────────────────────────────────
+router.post("/switch-company", requireAuth, async (req, res) => {
+  try {
+    const { company_id } = req.body;
+    if (!company_id || typeof company_id !== "number") {
+      return res.status(400).json({ error: "Bad Request", message: "company_id (number) required" });
+    }
+
+    // Verify the requesting user has access to this company
+    const membership = await db
+      .select({ role: userCompaniesTable.role })
+      .from(userCompaniesTable)
+      .where(
+        and(
+          eq(userCompaniesTable.user_id, req.auth!.userId),
+          eq(userCompaniesTable.company_id, company_id)
+        )
+      )
+      .limit(1);
+
+    if (!membership[0]) {
+      return res.status(403).json({ error: "Forbidden", message: "No access to that company" });
+    }
+
+    // Look up the user's full record so we preserve role/name in the new token
+    const user = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.id, req.auth!.userId))
+      .limit(1);
+
+    if (!user[0]) {
+      return res.status(404).json({ error: "Not Found", message: "User not found" });
+    }
+
+    const isSuperAdminFlag = user[0].is_super_admin === true || (user[0] as any).is_super_admin === 't';
+
+    const newToken = signToken({
+      userId: user[0].id,
+      companyId: company_id,
+      role: user[0].role,
+      email: user[0].email,
+      first_name: user[0].first_name ?? undefined,
+      isSuperAdmin: isSuperAdminFlag,
+    });
+
+    // Fetch company details for the response
+    const company = await db
+      .select({ id: companiesTable.id, name: companiesTable.name })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, company_id))
+      .limit(1);
+
+    // Fetch all available companies for convenience
+    const availableCompanies = await db
+      .select({ id: companiesTable.id, name: companiesTable.name })
+      .from(userCompaniesTable)
+      .innerJoin(companiesTable, eq(userCompaniesTable.company_id, companiesTable.id))
+      .where(eq(userCompaniesTable.user_id, req.auth!.userId));
+
+    await logAudit(req, "company_switch", "company", company_id, null, { from: req.auth!.companyId, to: company_id });
+
+    return res.json({
+      token: newToken,
+      user: {
+        id: user[0].id,
+        email: user[0].email,
+        first_name: user[0].first_name,
+        last_name: user[0].last_name,
+        role: user[0].role,
+        company_id,
+        avatar_url: user[0].avatar_url,
+        is_super_admin: isSuperAdminFlag,
+      },
+      company: company[0] ?? null,
+      available_companies: availableCompanies,
+    });
+  } catch (err) {
+    console.error("Switch company error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to switch company" });
   }
 });
 

@@ -1,8 +1,26 @@
 import { create } from 'zustand';
 
+export interface AvailableCompany {
+  id: number;
+  name: string;
+}
+
+function loadAvailableCompanies(): AvailableCompany[] {
+  try {
+    const raw = localStorage.getItem('qleno_companies');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
 interface AuthState {
   token: string | null;
+  availableCompanies: AvailableCompany[];
+  isSwitchingCompany: boolean;
   setToken: (token: string | null) => void;
+  setAvailableCompanies: (companies: AvailableCompany[]) => void;
+  switchCompany: (companyId: number) => Promise<void>;
   logout: () => void;
   impersonate: (impersonationToken: string) => void;
   exitImpersonation: () => void;
@@ -11,6 +29,8 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set, get) => ({
   token: localStorage.getItem('qleno_token'),
+  availableCompanies: loadAvailableCompanies(),
+  isSwitchingCompany: false,
   setToken: (token) => {
     if (token) {
       localStorage.setItem('qleno_token', token);
@@ -18,6 +38,43 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.removeItem('qleno_token');
     }
     set({ token });
+  },
+  setAvailableCompanies: (companies) => {
+    localStorage.setItem('qleno_companies', JSON.stringify(companies));
+    set({ availableCompanies: companies });
+  },
+  switchCompany: async (companyId: number) => {
+    const token = get().token;
+    if (!token) return;
+    set({ isSwitchingCompany: true });
+    try {
+      const res = await fetch('/api/auth/switch-company', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ company_id: companyId }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || 'Failed to switch company');
+      }
+      const data = await res.json();
+      // Store new token
+      localStorage.setItem('qleno_token', data.token);
+      if (data.available_companies) {
+        localStorage.setItem('qleno_companies', JSON.stringify(data.available_companies));
+      }
+      set({
+        token: data.token,
+        availableCompanies: data.available_companies ?? get().availableCompanies,
+        isSwitchingCompany: false,
+      });
+    } catch (err) {
+      set({ isSwitchingCompany: false });
+      throw err;
+    }
   },
   logout: () => {
     const token = get().token;
@@ -29,7 +86,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
     localStorage.removeItem('qleno_token');
     localStorage.removeItem('qleno_admin_token');
-    set({ token: null });
+    localStorage.removeItem('qleno_companies');
+    set({ token: null, availableCompanies: [] });
     window.location.href = '/login';
   },
   impersonate: (impersonationToken: string) => {

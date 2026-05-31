@@ -4,6 +4,7 @@ import { startRecurringJobCron } from "./lib/recurring-jobs";
 import { runPhesDataMigration } from "./phes-data-migration";
 import { runCutoverDataMigration } from "./cutover-data-migration";
 import { verifyClockIntegrityConstraint } from "./lib/clock-integrity-self-check";
+import { runUserCompaniesMigration } from "./user-companies-migration.js";
 import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
@@ -153,6 +154,11 @@ async function startup() {
     await runPhesDataMigration();
   } catch (err: any) {
     console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+  }
+  try {
+    await runUserCompaniesMigration();
+  } catch (err: any) {
+    console.error("[startup] runUserCompaniesMigration — non-fatal:", err?.message ?? err);
   }
   try {
     await runCutoverDataMigration();

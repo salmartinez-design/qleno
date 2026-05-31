@@ -134,3 +134,6 @@ export * from "./mileage";
 // hr_policies (balance_ceiling_hours, use_it_or_lose_it_alert_lead_days,
 // unexcused_hours_steps).
 export * from "./leave";
+
+// Multi-tenant company switcher — per-user company membership.
+export * from "./user_companies";

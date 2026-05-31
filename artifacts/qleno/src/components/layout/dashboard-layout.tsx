@@ -19,6 +19,7 @@ import {
   ChevronDown, Eye, LogOut, CircleHelp, Lock, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
+  Building2,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -369,6 +370,114 @@ function BranchSwitcher({ role, compact = false }: { role?: string; compact?: bo
   );
 }
 
+function CompanySwitcher({ compact = false }: { compact?: boolean }) {
+  const availableCompanies = useAuthStore(state => state.availableCompanies);
+  const isSwitching = useAuthStore(state => state.isSwitchingCompany);
+  const switchCompany = useAuthStore(state => state.switchCompany);
+  const token = useAuthStore(state => state.token);
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Derive current company from the JWT claim
+  let currentCompanyId: number | null = null;
+  if (token) {
+    try {
+      const p = JSON.parse(atob(token.split('.')[1]));
+      currentCompanyId = p.companyId ?? null;
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  if (!availableCompanies || availableCompanies.length < 2) return null;
+
+  const currentCompany = availableCompanies.find(c => c.id === currentCompanyId);
+  const label = currentCompany?.name ?? 'Switch Company';
+
+  const handleSwitch = async (companyId: number) => {
+    if (companyId === currentCompanyId || isSwitching) return;
+    setOpen(false);
+    try {
+      await switchCompany(companyId);
+      // Invalidate all queries so data refreshes for the new company
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      console.error('Company switch failed:', err?.message);
+    }
+  };
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(p => !p)}
+        disabled={isSwitching}
+        title="Switch company"
+        style={{
+          display: 'flex', alignItems: 'center', gap: compact ? 4 : 6,
+          padding: compact ? '4px 10px' : '5px 12px',
+          background: 'var(--brand-dim)',
+          border: '1px solid var(--brand)',
+          borderRadius: 20, cursor: isSwitching ? 'wait' : 'pointer',
+          color: 'var(--brand)',
+          fontSize: compact ? 11 : 12,
+          fontWeight: 600,
+          fontFamily: "'Plus Jakarta Sans', sans-serif",
+          whiteSpace: 'nowrap',
+          opacity: isSwitching ? 0.6 : 1,
+        }}
+      >
+        <Building2 size={compact ? 11 : 13} />
+        {isSwitching ? 'Switching…' : label}
+        <ChevronDown size={compact ? 10 : 12} />
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+          background: '#FFFFFF', border: '1px solid #E5E2DC',
+          borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+          zIndex: 200, minWidth: 180, overflow: 'hidden',
+        }}>
+          <div style={{ padding: '8px 12px 6px', borderBottom: '1px solid #F0EDEA' }}>
+            <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              Switch Company
+            </p>
+          </div>
+          {availableCompanies.map(c => {
+            const isActive = c.id === currentCompanyId;
+            return (
+              <button
+                key={c.id}
+                onClick={() => handleSwitch(c.id)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  width: '100%', padding: '9px 14px',
+                  background: isActive ? 'var(--brand-dim)' : 'transparent',
+                  border: 'none', cursor: isActive ? 'default' : 'pointer', textAlign: 'left',
+                  fontSize: 13, fontWeight: isActive ? 600 : 400,
+                  color: isActive ? 'var(--brand)' : '#1A1917',
+                  fontFamily: "'Plus Jakarta Sans', sans-serif",
+                }}
+              >
+                {c.name}
+                {isActive && <div style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'var(--brand)', flexShrink: 0 }} />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useUnreadCount(userId: number | undefined) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -568,6 +677,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: 'var(--brand)', flexShrink: 0 }} />
             <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pageTitle}</span>
             <BranchSwitcher role={user?.role} compact />
+            <CompanySwitcher compact />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', display: 'flex', alignItems: 'center' }}>
@@ -722,6 +832,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               {pageTitle}
             </h1>
             <BranchSwitcher role={user?.role} />
+            <CompanySwitcher />
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
