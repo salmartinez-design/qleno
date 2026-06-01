@@ -23,7 +23,7 @@ interface BranchContextValue {
 
 const BranchContext = createContext<BranchContextValue>({
   branches: [],
-  activeBranchId: "all",
+  activeBranchId: 1,
   activeBranch: null,
   setActiveBranchId: () => {},
   isLoading: false,
@@ -38,9 +38,9 @@ export function BranchProvider({ children }: { children: ReactNode }) {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [activeBranchId, setActiveBranchIdState] = useState<number | "all">(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (!stored || stored === "all") return "all";
+    if (!stored || stored === "all") return 1;  // default to Oak Lawn
     const n = parseInt(stored);
-    return isNaN(n) ? "all" : n;
+    return isNaN(n) ? 1 : n;
   });
   const [isLoading, setIsLoading] = useState(false);
 
