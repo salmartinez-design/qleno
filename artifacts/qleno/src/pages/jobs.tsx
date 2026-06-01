@@ -1062,6 +1062,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   //   step 2 → review computed charge + optional override + notes → confirm
   const [cancelAction, setCancelAction] = useState<null | "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service">(null);
   const [chargeOverride, setChargeOverride] = useState<string>("");
+  // Reschedule date/time for move/bump actions. Move = customer-initiated
+  // reschedule; Bump = office-initiated. Both leave the job as scheduled
+  // and update its scheduled_date/time. Defaults to the job's current
+  // date as the convenient starting point; operator picks new values.
+  const [cancelNewDate, setCancelNewDate] = useState<string>("");
+  const [cancelNewTime, setCancelNewTime] = useState<string>("");
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -1366,6 +1372,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
   async function cancelJob() {
     if (!cancelAction) return; // shouldn't happen — confirm button only enabled when action picked
+    // Move + Bump require a new date. Confirm button is gated, but a
+    // belt-and-suspenders check here too. Time is optional (the route
+    // keeps the existing time when missing) so we only block on date.
+    if ((cancelAction === "move" || cancelAction === "bump") && !cancelNewDate) {
+      toast({ title: "Pick a new date for the reschedule", variant: "destructive" });
+      return;
+    }
     setBusy(true);
     const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
     try {
@@ -1410,6 +1423,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           action: cancelAction,
           notes: cancelNote || undefined,
           charge_amount_override: Number.isFinite(overrideNum) ? overrideNum : undefined,
+          // Move + Bump reschedule the job rather than cancelling it.
+          // The backend updates jobs.scheduled_date/time and keeps
+          // status='scheduled', writing the cancellation_log row for
+          // audit. Other actions ignore these fields.
+          new_date: (cancelAction === "move" || cancelAction === "bump") ? cancelNewDate : undefined,
+          new_time: (cancelAction === "move" || cancelAction === "bump") && cancelNewTime ? cancelNewTime : undefined,
         }),
       });
       if (!res.ok) {
@@ -1418,8 +1437,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       }
       const body = await res.json();
       const charge = Number(body.charge_amount || 0);
+      const moveDateLabel = cancelNewDate
+        ? new Date(cancelNewDate + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+        : "";
       const labelByAction: Record<string, string> = {
-        move: "Job marked as moved", bump: "Job marked as bumped",
+        move: `Customer rescheduled to ${moveDateLabel}`,
+        bump: `Rescheduled to ${moveDateLabel}`,
         skip: "Job skipped", cancel: "Job cancelled with full fee",
         lockout: "Lockout recorded with full fee",
         cancel_service: `Service cancelled (${body.future_cancelled_count} future jobs ended)`,
@@ -1432,6 +1455,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       setCancelAction(null);
       setChargeOverride("");
       setCancelNote("");
+      setCancelNewDate("");
+      setCancelNewTime("");
       await onUpdate();
 
       // [cancel-ghost-job-diagnostics] AFTER snapshot. Wait one tick so the
@@ -2305,108 +2330,198 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       })()}
 
       {/* Cancel / cancellation-action modal — MC-style action picker.
-          Step 1: 6 action cards. Step 2: review charge + notes + confirm.
-          Picking an action populates cancelAction; "Back" clears it. */}
+          Step 1: 7 action cards. Step 2: review (varies by action — date
+          picker for move/bump, charge breakdown for cancel/lockout,
+          warning for cancel_service, plain confirm for skip).
+          Visual approach: white cards with a 5px left stripe + 1px
+          border in the accent color, calm pastel hover fill, consistent
+          typography. Replaces the saturated palette Sal flagged on
+          2026-06-01. */}
       {cancelOpen && (() => {
-        // Action picker. "modify" is the escape hatch that routes the
-        // operator into the edit-job modal instead of recording a
-        // cancellation — when the right answer is "change the time/tech/
-        // scope" rather than cancel or reschedule. It's a UI-only action
-        // (no server call, no log row) so it's not in the CANCEL_ACTIONS
-        // union the backend knows about.
         const ACTIONS: Array<{
           key: "modify" | "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service";
-          label: string; sub: string; bg: string; color: string; charges: boolean; ends_service?: boolean; ui_only?: boolean;
+          label: string; sub: string; accent: string; tint: string; charges: boolean; ends_service?: boolean; ui_only?: boolean; reschedules?: boolean;
         }> = [
-          { key: "modify", label: "Modify", sub: "Change time, tech, or scope", bg: "#DBEAFE", color: "#1E40AF", charges: false, ui_only: true },
-          { key: "move",   label: "Move",   sub: "Customer changes the date",   bg: "#F3E8FF", color: "#7E22CE", charges: false },
-          { key: "bump",   label: "Bump",   sub: "We change the date",          bg: "#FCE7F3", color: "#BE185D", charges: false },
-          { key: "skip",   label: "Skip",   sub: "Customer skips this visit",   bg: "#FEE2E2", color: "#B91C1C", charges: false },
-          { key: "cancel", label: "Cancel", sub: "Customer cancels (full fee)", bg: "#FCA5A5", color: "#7F1D1D", charges: true },
-          { key: "lockout",label: "Lockout",sub: "Couldn't get in (full fee)",  bg: "#1E293B", color: "#FFFFFF", charges: true },
-          { key: "cancel_service", label: "Cancel Service", sub: "End all future jobs", bg: "#DC2626", color: "#FFFFFF", charges: false, ends_service: true },
+          { key: "modify",         label: "Modify",         sub: "Change time, tech, or scope",  accent: "#2563EB", tint: "#EFF6FF", charges: false, ui_only: true },
+          { key: "move",           label: "Move",           sub: "Customer picks a new date",    accent: "#7C3AED", tint: "#F5F3FF", charges: false, reschedules: true },
+          { key: "bump",           label: "Bump",           sub: "We pick a new date",           accent: "#DB2777", tint: "#FDF2F8", charges: false, reschedules: true },
+          { key: "skip",           label: "Skip",           sub: "Customer skips this visit",    accent: "#D97706", tint: "#FFFBEB", charges: false },
+          { key: "cancel",         label: "Cancel",         sub: "Customer cancels (full fee)",  accent: "#DC2626", tint: "#FEF2F2", charges: true },
+          { key: "lockout",        label: "Lockout",        sub: "Couldn't get in (full fee)",   accent: "#475569", tint: "#F1F5F9", charges: true },
+          { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#991B1B", tint: "#FEF2F2", charges: false, ends_service: true },
         ];
-        const jobAmount = (job.billed_amount as number | undefined) ?? job.base_fee ?? 0;
+        // Fall through 0 to base_fee with `||` (the previous `??` only
+        // skipped null/undefined and reported $0 when billed_amount was
+        // a literal 0). job.amount is the dispatch's normalized total
+        // and is the last resort.
+        const jobAmount = Number(job.billed_amount) || Number((job as any).base_fee) || Number((job as any).amount) || 0;
         const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); };
+        const overrideCharge = chargeOverride.trim() !== "" ? Number(chargeOverride) : previewCharge(selected ?? ACTIONS[0]);
+        const needsDate = selected?.reschedules === true;
+        const confirmDisabled = busy || (needsDate && !cancelNewDate);
         return (
-          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF }}>
-            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 14, padding: 24, width: 540, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
-                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(10,14,26,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF, padding: 16 }}>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: "22px 24px 20px", width: 560, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(10,14,26,0.28)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#0A0E1A", letterSpacing: "-0.01em" }}>
                   {selected ? selected.label : "What do you want to do?"}
                 </h3>
-                <button onClick={() => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); }}
+                <button onClick={resetModal}
                   aria-label="Close"
-                  style={{ background: "transparent", border: 0, fontSize: 22, color: "#9E9B94", cursor: "pointer" }}>×</button>
+                  style={{ background: "transparent", border: 0, fontSize: 22, color: "#9E9B94", cursor: "pointer", lineHeight: 1, padding: "0 0 0 12px" }}>×</button>
               </div>
-              <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B7280" }}>
-                {job.display_name ?? job.client_name} on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B6860" }}>
+                {job.display_name ?? job.client_name} · {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </p>
 
-              {/* STEP 1 — action picker */}
+              {/* STEP 1 — action picker. White cards with a slim left
+                  stripe in the accent color. Hover swaps the background
+                  to the tint so the card "lights up". Cancel Service
+                  spans the full row at the bottom because it's the
+                  final-and-most-destructive option. */}
               {!selected && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {ACTIONS.map(a => (
-                    <button key={a.key} onClick={() => {
-                      // Modify short-circuits the cancellation flow and
-                      // opens the edit-job modal instead. No server call,
-                      // no cancellation_log row.
-                      if (a.ui_only) {
-                        setCancelOpen(false);
-                        setCancelAction(null);
+                  {ACTIONS.map((a, idx) => {
+                    const isFullRow = a.ends_service;
+                    return (
+                      <button key={a.key} onClick={() => {
+                        if (a.ui_only) {
+                          resetModal();
+                          setEditOpen(true);
+                          return;
+                        }
+                        setCancelAction(a.key as "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service");
                         setChargeOverride("");
-                        setCancelNote("");
-                        setEditOpen(true);
-                        return;
-                      }
-                      setCancelAction(a.key as "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service");
-                      setChargeOverride("");
-                    }}
-                      style={{
-                        background: a.bg, color: a.color, border: 0, borderRadius: 12,
-                        padding: "14px 14px", textAlign: "left", cursor: "pointer",
-                        fontFamily: FF, transition: "transform 0.08s",
+                        // Seed the reschedule date to the job's current
+                        // date so the date picker isn't empty when shown.
+                        if (a.reschedules) {
+                          setCancelNewDate(job.scheduled_date || "");
+                          setCancelNewTime(job.scheduled_time ? job.scheduled_time.slice(0, 5) : "");
+                        }
                       }}
-                      onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.98)")}
-                      onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
-                      onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
-                    >
-                      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{a.label}</div>
-                      <div style={{ fontSize: 11, opacity: 0.85, lineHeight: 1.35 }}>{a.sub}</div>
-                      {a.charges && (
-                        <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, opacity: 0.9 }}>
-                          Charges ${jobAmount.toFixed(2)}
+                        style={{
+                          gridColumn: isFullRow ? "1 / -1" : "auto",
+                          background: "#FFFFFF",
+                          border: `1px solid ${a.accent}33`,
+                          borderLeft: `5px solid ${a.accent}`,
+                          borderRadius: 10,
+                          padding: "13px 14px 13px 14px",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          fontFamily: FF,
+                          transition: "background 0.12s, border-color 0.12s, transform 0.08s",
+                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = a.tint; e.currentTarget.style.borderColor = `${a.accent}66`; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "#FFFFFF"; e.currentTarget.style.borderColor = `${a.accent}33`; }}
+                        onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.99)")}
+                        onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                      >
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: a.accent, marginBottom: 2 }}>{a.label}</div>
+                          <div style={{ fontSize: 12, color: "#6B6860", lineHeight: 1.35 }}>{a.sub}</div>
                         </div>
-                      )}
-                    </button>
-                  ))}
+                        {a.charges && (
+                          <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap" }}>
+                            ${jobAmount.toFixed(0)}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
 
-              {/* STEP 2 — review + confirm */}
+              {/* STEP 2 — action-specific review. The summary chip at the
+                  top tells the operator what's about to happen. Each
+                  branch (reschedule / cancel / lockout / skip / service-
+                  end) gets its own controls below. */}
               {selected && (
                 <>
                   <div style={{
-                    padding: 14, borderRadius: 10, marginBottom: 14,
-                    background: selected.charges ? "#FEF2F2" : "#F0FDF4",
-                    border: `1px solid ${selected.charges ? "#FECACA" : "#BBF7D0"}`,
+                    padding: "12px 14px", borderRadius: 10, marginBottom: 14,
+                    background: selected.tint,
+                    border: `1px solid ${selected.accent}33`,
+                    borderLeft: `4px solid ${selected.accent}`,
                   }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: selected.charges ? "#991B1B" : "#166534", marginBottom: 4 }}>
-                      {selected.charges ? "Customer will be charged" : "No charge"}
-                    </div>
-                    {selected.charges && (
-                      <div style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>
-                        ${(chargeOverride.trim() === "" ? previewCharge(selected) : Number(chargeOverride)).toFixed(2)}
-                      </div>
+                    {/* Reschedule actions */}
+                    {selected.reschedules && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Reschedule · No charge
+                        </div>
+                        <div style={{ fontSize: 13, color: "#1A1917" }}>
+                          Pick the new date{cancelNewTime ? " and time" : ""}. The job stays scheduled and just moves.
+                        </div>
+                      </>
                     )}
+                    {/* Charging actions */}
+                    {selected.charges && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          Customer will be charged
+                        </div>
+                        <div style={{ fontSize: 24, fontWeight: 800, color: "#0A0E1A", lineHeight: 1.1 }}>
+                          ${overrideCharge.toFixed(2)}
+                        </div>
+                      </>
+                    )}
+                    {/* Skip */}
+                    {!selected.reschedules && !selected.charges && !selected.ends_service && (
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          No charge
+                        </div>
+                        <div style={{ fontSize: 13, color: "#1A1917" }}>
+                          This visit is skipped. The recurring schedule continues normally.
+                        </div>
+                      </>
+                    )}
+                    {/* Cancel Service */}
                     {selected.ends_service && (
-                      <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginTop: 6 }}>
-                        All future jobs on this recurring schedule will be cancelled.
-                      </div>
+                      <>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          End service · No charge
+                        </div>
+                        <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
+                          All future scheduled visits will be cancelled and the recurring schedule deactivated.
+                        </div>
+                      </>
                     )}
                   </div>
 
+                  {/* Date + time pickers for move/bump */}
+                  {selected.reschedules && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 140px", gap: 10, marginBottom: 14 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+                          New date
+                        </label>
+                        <input
+                          type="date"
+                          value={cancelNewDate}
+                          min={new Date().toISOString().slice(0, 10)}
+                          onChange={e => setCancelNewDate(e.target.value)}
+                          style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+                          Time (optional)
+                        </label>
+                        <input
+                          type="time"
+                          value={cancelNewTime}
+                          onChange={e => setCancelNewTime(e.target.value)}
+                          style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Charge override for cancel/lockout */}
                   {selected.charges && (
                     <div style={{ marginBottom: 14 }}>
                       <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
@@ -2415,21 +2530,29 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       <input type="number" min="0" step="0.01" value={chargeOverride}
                         placeholder={previewCharge(selected).toFixed(2)}
                         onChange={e => setChargeOverride(e.target.value)}
-                        style={{ width: "100%", height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
+                        style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
                     </div>
                   )}
 
+                  {/* Notes — shared across all branches */}
                   <div style={{ marginBottom: 18 }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
                     <textarea value={cancelNote} onChange={e => setCancelNote(e.target.value)} rows={2}
+                      placeholder="Why? Anything the next person needs to know?"
                       style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
                   </div>
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <button onClick={() => setCancelAction(null)} disabled={busy}
-                      style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Back</button>
-                    <button onClick={cancelJob} disabled={busy}
-                      style={{ padding: "8px 22px", background: selected.charges ? "#DC2626" : "#1A1917", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer", fontFamily: FF, opacity: busy ? 0.6 : 1 }}>
+                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); }} disabled={busy}
+                      style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>← Back</button>
+                    <button onClick={cancelJob} disabled={confirmDisabled}
+                      style={{
+                        padding: "9px 24px",
+                        background: confirmDisabled ? "#E5E2DC" : selected.accent,
+                        color: confirmDisabled ? "#9E9B94" : "#FFFFFF",
+                        border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700,
+                        cursor: confirmDisabled ? "not-allowed" : "pointer", fontFamily: FF,
+                      }}>
                       {busy ? "Saving..." : `Confirm ${selected.label}`}
                     </button>
                   </div>
