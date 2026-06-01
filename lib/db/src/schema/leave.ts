@@ -256,6 +256,14 @@ export const leaveRequestsTable = pgTable(
       () => usersTable.id,
     ),
     decision_note: text("decision_note"),
+    // Cascade fall-through: when a leave request spans multiple buckets
+    // (PTO → PLAWA → Unpaid Leave), each allocation row shares the same
+    // cascade_group_id and carries a per-bucket cascade_order index. Both
+    // NULL on single-bucket requests for back-compat with everything 3A
+    // shipped — those rows are still the source of truth for the
+    // single-bucket flow and the unexcused ladder.
+    cascade_group_id: text("cascade_group_id"),
+    cascade_order: integer("cascade_order"),
     created_at: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -273,6 +281,7 @@ export const leaveRequestsTable = pgTable(
       t.user_id,
       t.start_date,
     ),
+    by_cascade: index("leave_requests_cascade_group_idx").on(t.cascade_group_id),
   }),
 );
 

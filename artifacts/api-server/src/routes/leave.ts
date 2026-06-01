@@ -70,6 +70,11 @@ import {
 } from "../lib/leave-request-rules.js";
 import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { evaluateUseItOrLoseItAlert } from "../lib/leave-alerts.js";
+import {
+  resolveCascadeAllocation,
+  type CascadeBucketInput,
+} from "../lib/leave-cascade.js";
+import { randomUUID } from "node:crypto";
 
 const router = Router();
 
@@ -534,6 +539,189 @@ router.post("/requests", async (req, res) => {
   void notifyOfficeOfRequestSilent(inserted[0]!.id, companyId);
 
   return res.json({ data: inserted[0] });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /requests/cascade — leave bucket cascade (PTO → PLAWA → Unpaid Leave)
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Employee asks for N hours off without choosing a bucket. Server orders the
+// tenant's cascade-eligible buckets (default: PTO → PLAWA → Unpaid Leave),
+// allocates greedily across them, and creates one leave_requests row per
+// bucket that gets >0 hours. All rows share a cascade_group_id so they can be
+// approved / denied / shown as a group.
+//
+// What this endpoint inherits from the single-bucket flow:
+//   - Waiting period check, per bucket
+//   - Blackout overlap check, per bucket (PLAWA-class exempt rows bypass)
+//   - COMMS_ENABLED-gated office notification (one per row)
+//
+// What it does NOT do:
+//   - Override `requestable=false` buckets (Unexcused). The cascade ordering
+//     filters those out so they can't accidentally absorb the spill.
+//   - Insert anything if the resolver fails — atomic at the route layer.
+router.post("/requests/cascade", async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const body = req.body as {
+    start_date?: string;
+    end_date?: string;
+    hours?: number | string;
+    note?: string | null;
+    /** Optional override of the default PTO → PLAWA → Unpaid order. */
+    cascade_order?: string[];
+  };
+  if (!body?.start_date || !ISO_DATE_RE.test(body.start_date))
+    return bad(res, "start_date YYYY-MM-DD required");
+  if (!body?.end_date || !ISO_DATE_RE.test(body.end_date))
+    return bad(res, "end_date YYYY-MM-DD required");
+  if (body.end_date < body.start_date)
+    return bad(res, "end_date must be >= start_date");
+  const hours = Number(body.hours);
+  if (!Number.isFinite(hours) || hours <= 0) return bad(res, "hours must be positive");
+
+  // 1. Pull all active leave_types for the tenant. The resolver filters by
+  //    slug + requestable, so unrelated buckets (Sick, Unexcused) are dropped
+  //    even when they share the tenant.
+  const allTypes = await db
+    .select()
+    .from(leaveTypesTable)
+    .where(and(eq(leaveTypesTable.company_id, companyId), eq(leaveTypesTable.active, true)));
+
+  if (allTypes.length === 0) return notFound(res, "Tenant has no active leave types");
+
+  // 2. Compute each bucket's available balance (same math as the single
+  //    endpoint). Pre-create balance rows so the cascade insert never has
+  //    to retry on a missing-row race.
+  const bucketsForResolver: CascadeBucketInput[] = [];
+  const validationByLeaveTypeId = new Map<number, BucketForValidation>();
+  for (const bucket of allTypes) {
+    const validation = await buildBucketForValidation(bucket);
+    validationByLeaveTypeId.set(bucket.id, validation);
+    const balanceRow = await ensureBalanceRow(companyId, userId, bucket.id);
+    const balance = computeCurrentBalance({
+      accrual_mode: validation.accrual_mode,
+      granted_hours: Number(balanceRow.granted_hours),
+      used_hours: Number(balanceRow.used_hours),
+      annual_cap_hours: Number(bucket.annual_cap_hours),
+    });
+    bucketsForResolver.push({
+      leave_type_id: bucket.id,
+      slug: bucket.slug,
+      available_hours: balance.available,
+      requestable: validation.requestable,
+    });
+  }
+
+  // 3. Allocate.
+  const allocation = resolveCascadeAllocation({
+    requestedHours: hours,
+    buckets: bucketsForResolver,
+    customOrder: body.cascade_order,
+  });
+  if (!allocation.ok) {
+    return res.status(409).json({ error: "Conflict", code: allocation.code, message: allocation.message });
+  }
+
+  // 4. Per-bucket waiting period + blackout. Anything that fails the waiting
+  //    period kills the whole cascade (we don't half-insert). Blackouts mark
+  //    individual rows as denied without aborting the group — the office can
+  //    still approve a PLAWA fragment even if a PTO fragment was auto-denied.
+  const userRows = await db
+    .select({ hire_date: usersTable.hire_date })
+    .from(usersTable)
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+  const hireDate = userRows[0]?.hire_date ? String(userRows[0].hire_date) : null;
+  const today = new Date().toISOString().slice(0, 10);
+
+  for (const alloc of allocation.allocations) {
+    const validation = validationByLeaveTypeId.get(alloc.leave_type_id)!;
+    const waitingCheck = checkWaitingPeriod(validation, hireDate, today);
+    if (!waitingCheck.ok) {
+      return res.status(409).json({
+        error: "Conflict",
+        code: waitingCheck.code,
+        message: `${validation.display_name}: ${waitingCheck.message}`,
+        bucket_slug: alloc.slug,
+      });
+    }
+  }
+
+  const blackouts = await db
+    .select({
+      start_date: leaveBlackoutsTable.start_date,
+      end_date: leaveBlackoutsTable.end_date,
+      label: leaveBlackoutsTable.label,
+    })
+    .from(leaveBlackoutsTable)
+    .where(eq(leaveBlackoutsTable.company_id, companyId));
+  const blackoutWindows: BlackoutWindow[] = blackouts.map((b) => ({
+    start_date: String(b.start_date),
+    end_date: String(b.end_date),
+    label: b.label,
+  }));
+
+  // 5. Insert all rows in one transaction sharing a cascade_group_id.
+  const cascadeGroupId = randomUUID();
+  const inserted = await db.transaction(async (tx) => {
+    const out: Array<typeof leaveRequestsTable.$inferSelect> = [];
+    for (const alloc of allocation.allocations) {
+      const validation = validationByLeaveTypeId.get(alloc.leave_type_id)!;
+      let blackoutConflict = false;
+      let blackoutLabel: string | null = null;
+      let initialStatus: "pending" | "denied" = "pending";
+      if (!validation.exempt_from_blackout) {
+        const outcome = detectBlackoutOverlap(
+          body.start_date!,
+          body.end_date!,
+          blackoutWindows,
+        );
+        if (outcome.overlaps) {
+          blackoutConflict = true;
+          blackoutLabel = outcome.blackout.label;
+          initialStatus = "denied";
+        }
+      }
+      const [row] = await tx
+        .insert(leaveRequestsTable)
+        .values({
+          company_id: companyId,
+          user_id: userId,
+          leave_type_id: alloc.leave_type_id,
+          start_date: body.start_date!,
+          end_date: body.end_date!,
+          hours: alloc.hours.toFixed(2),
+          note: body.note ?? null,
+          status: initialStatus,
+          blackout_conflict: blackoutConflict,
+          blackout_label: blackoutLabel,
+          cascade_group_id: cascadeGroupId,
+          cascade_order: alloc.cascade_order,
+          decided_at: initialStatus === "denied" ? new Date() : null,
+          decision_note:
+            initialStatus === "denied" && blackoutLabel
+              ? `Auto-denied: overlaps blackout "${blackoutLabel}". Office may override.`
+              : null,
+        })
+        .returning();
+      out.push(row);
+    }
+    return out;
+  });
+
+  // 6. Office notification per row. Quietly best-effort.
+  for (const row of inserted) {
+    void notifyOfficeOfRequestSilent(row.id, companyId);
+  }
+
+  return res.json({
+    data: {
+      cascade_group_id: cascadeGroupId,
+      requests: inserted,
+      spill_hours: allocation.spill_hours,
+    },
+  });
 });
 
 router.get("/requests", officeReadGate, async (req, res) => {
