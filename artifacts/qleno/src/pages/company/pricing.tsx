@@ -423,6 +423,9 @@ export function PricingTab() {
       {/* ── Fee Rules ───────────────────────────────────────────────────── */}
       <FeesSection fees={fees} />
 
+      {/* ── Cancellation Policy (action-picker defaults + tech pay) ─────── */}
+      <CancellationPolicySection />
+
       {/* ── Bundles & Promotions ────────────────────────────────────────── */}
       <BundlesSection />
 
@@ -912,6 +915,198 @@ function FeesSection({ fees }: { fees: FeeRule[] }) {
       </div>
     </div>
   );
+}
+
+// ── Cancellation Policy Section ────────────────────────────────────────────────
+//
+// Tenant-wide defaults consumed by the dispatch cancel modal (PR #216):
+//   - default_cancel_fee_pct  — % charged when a customer cancels late
+//   - default_lockout_fee_pct — % charged when the crew can't get in
+//   - cancellation_tech_pay_mode ('flat' | 'percent')
+//   - cancellation_tech_pay_amount — $ when flat, % when percent
+//
+// Per-client overrides on cancel/lockout % live on the customer profile
+// (clients.cancel_fee_pct / .lockout_fee_pct). When set there, those win.
+
+interface CancellationPolicy {
+  default_cancel_fee_pct: number;
+  default_lockout_fee_pct: number;
+  cancellation_tech_pay_mode: "flat" | "percent";
+  cancellation_tech_pay_amount: number;
+}
+
+function CancellationPolicySection() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<CancellationPolicy>({
+    queryKey: ["cancellation-policy"],
+    queryFn: () => apiFetch("/api/companies/cancellation-policy"),
+  });
+
+  // Local edit buffer so the input never feels laggy (default values seed
+  // from server on first load, then user edits drive state).
+  const [form, setForm] = useState<CancellationPolicy | null>(null);
+  useEffect(() => { if (data && !form) setForm(data); }, [data]);
+
+  const save = useMutation({
+    mutationFn: (body: CancellationPolicy) => apiFetch("/api/companies/cancellation-policy", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cancellation-policy"] });
+      toast({ title: "Cancellation policy saved" });
+    },
+    onError: () => toast({ title: "Failed to save policy", variant: "destructive" }),
+  });
+
+  if (isLoading || !form) {
+    return (
+      <div style={card}>
+        <div style={sectionHead}>Cancellation Policy</div>
+        <div style={{ ...sectionSub, marginBottom: 0 }}>Loading…</div>
+      </div>
+    );
+  }
+
+  // Preview the dollar implication of the current tech-pay setting against
+  // a representative $200 visit fee. Helps the operator gut-check %-mode.
+  const previewJob = 200;
+  const techPreview = form.cancellation_tech_pay_mode === "percent"
+    ? Math.round(previewJob * (form.cancellation_tech_pay_amount / 100) * 100) / 100
+    : form.cancellation_tech_pay_amount;
+
+  const dirty = !!data && JSON.stringify(form) !== JSON.stringify(data);
+
+  return (
+    <div style={card}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <div>
+          <div style={sectionHead}>Cancellation Policy</div>
+          <div style={sectionSub}>
+            Defaults the dispatch Cancel button applies for this tenant. Per-customer
+            overrides live on the client profile.
+          </div>
+        </div>
+        <button
+          style={btn("primary")}
+          onClick={() => save.mutate(form)}
+          disabled={!dirty || save.isPending}
+        >
+          <Save size={13} />Save
+        </button>
+      </div>
+
+      {/* Customer-side fee defaults */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Late Cancel Fee
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              style={{ ...inp, maxWidth: 100 }}
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={form.default_cancel_fee_pct}
+              onChange={e => setForm(p => p && ({ ...p, default_cancel_fee_pct: Number(e.target.value) }))}
+            />
+            <span style={{ fontSize: 13, color: "#6B6860" }}>% of visit fee</span>
+          </div>
+          <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 6 }}>
+            Charged when a customer cancels late. Phes default: 100%.
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Lockout Fee
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              style={{ ...inp, maxWidth: 100 }}
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={form.default_lockout_fee_pct}
+              onChange={e => setForm(p => p && ({ ...p, default_lockout_fee_pct: Number(e.target.value) }))}
+            />
+            <span style={{ fontSize: 13, color: "#6B6860" }}>% of visit fee</span>
+          </div>
+          <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 6 }}>
+            Charged when the crew can't get in. Phes default: 100%.
+          </div>
+        </div>
+      </div>
+
+      {/* Tech-pay side */}
+      <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>
+          Tech pay on cancel / lockout
+        </div>
+        <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 12 }}>
+          What each assigned tech earns for a charged cancellation — they were on the
+          schedule. Split equally across assigned techs.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "180px 1fr 1fr", gap: 16, alignItems: "end" }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Pay Mode
+            </div>
+            <select
+              style={inp}
+              value={form.cancellation_tech_pay_mode}
+              onChange={e => setForm(p => p && ({ ...p, cancellation_tech_pay_mode: e.target.value as "flat" | "percent" }))}
+            >
+              <option value="flat">Flat dollars</option>
+              <option value="percent">% of customer charge</option>
+            </select>
+          </div>
+
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              {form.cancellation_tech_pay_mode === "flat" ? "Amount ($)" : "Percent (%)"}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 13, color: "#6B6860", minWidth: 10 }}>
+                {form.cancellation_tech_pay_mode === "flat" ? "$" : ""}
+              </span>
+              <input
+                style={{ ...inp, maxWidth: 140 }}
+                type="number"
+                min={0}
+                step={form.cancellation_tech_pay_mode === "flat" ? 1 : 0.5}
+                value={form.cancellation_tech_pay_amount}
+                onChange={e => setForm(p => p && ({ ...p, cancellation_tech_pay_amount: Number(e.target.value) }))}
+              />
+              <span style={{ fontSize: 13, color: "#6B6860" }}>
+                {form.cancellation_tech_pay_mode === "flat" ? "per cancel" : "%"}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 12, color: "#6B6860" }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Preview
+            </div>
+            On a {currency(previewJob)} visit, the assigned tech earns{" "}
+            <strong style={{ color: "#1A1917" }}>{currency(techPreview)}</strong>
+            {form.cancellation_tech_pay_mode === "percent" ? " (varies with charge)" : " (fixed)"}.
+            <br />
+            <span style={{ color: "#9E9B94" }}>2 techs → {currency(techPreview / 2)} each.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function currency(n: number): string {
+  return n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
 // ── Bundles & Promotions Section ───────────────────────────────────────────────

@@ -84,6 +84,14 @@ export async function runCutoverDataMigration(): Promise<void> {
     );
   }
   try {
+    await addCancellationTechPayColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] cancellation tech-pay columns failed (non-fatal):",
+      err,
+    );
+  }
+  try {
     await addLeaveCascadeColumns();
   } catch (err) {
     console.error(
@@ -274,6 +282,37 @@ async function addCancellationPolicyColumns(): Promise<void> {
         WHERE table_schema='public' AND table_name='cancellation_log' AND column_name='affects_future_jobs'
       ) THEN
         ALTER TABLE cancellation_log ADD COLUMN affects_future_jobs boolean NOT NULL DEFAULT false;
+      END IF;
+    END $$;
+  `),
+  );
+}
+
+/**
+ * Cancellation tech-pay policy columns. Adds:
+ *   companies.cancellation_tech_pay_mode  ('flat' | 'percent', default 'flat')
+ *   companies.cancellation_tech_pay_amount (numeric(10,4), default 60.0000)
+ *
+ * Phes default: $60 flat per cancel/lockout, matching the cleanup-trip
+ * fee techs were historically paid. Tenants flip to 'percent' to share
+ * the customer charge instead.
+ */
+async function addCancellationTechPayColumns(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='cancellation_tech_pay_mode'
+      ) THEN
+        ALTER TABLE companies ADD COLUMN cancellation_tech_pay_mode text NOT NULL DEFAULT 'flat';
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='cancellation_tech_pay_amount'
+      ) THEN
+        ALTER TABLE companies ADD COLUMN cancellation_tech_pay_amount numeric(10,4) NOT NULL DEFAULT 60.0000;
       END IF;
     END $$;
   `),

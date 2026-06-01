@@ -8,6 +8,10 @@ import {
   CANCEL_ACTIONS,
   type CancelAction,
 } from "../lib/cancellation-policy.js";
+import {
+  resolveCancellationTechPay,
+  type CancellationTechPayMode,
+} from "../lib/cancellation-tech-pay.js";
 
 const router = Router();
 
@@ -172,12 +176,15 @@ router.post("/action", requireAuth, async (req, res) => {
     });
   }
 
-  // Load job + client + company defaults in one round trip.
+  // Load job + client + company defaults in one round trip. Tech-pay
+  // policy fields piggyback here so we don't need a second query.
   const ctx = await db.execute(sql`
     SELECT j.id, j.client_id, j.status::text AS status, j.billed_amount, j.base_fee,
            j.notes AS job_notes, j.recurring_schedule_id,
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
-           co.default_cancel_fee_pct, co.default_lockout_fee_pct
+           c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
+           co.default_cancel_fee_pct, co.default_lockout_fee_pct,
+           co.cancellation_tech_pay_mode, co.cancellation_tech_pay_amount
       FROM jobs j
       JOIN clients c ON c.id = j.client_id
       JOIN companies co ON co.id = j.company_id
@@ -216,6 +223,7 @@ router.post("/action", requireAuth, async (req, res) => {
   const appendedNotes = `${row.job_notes ?? ""}${row.job_notes ? "\n" : ""}${actionNote}${operatorNote}`.trim();
 
   let futureCancelled = 0;
+  let techPayWritten: Array<{ user_id: number; amount: number }> = [];
   const logRow = await db.transaction(async (tx) => {
     // Update the job row itself.
     if (policy.next_job_status === "complete") {
@@ -281,6 +289,42 @@ router.post("/action", requireAuth, async (req, res) => {
         notes: body.notes ?? null,
       })
       .returning();
+
+    // Tech pay — charging actions still owe the assigned tech(s)
+    // something (they were on the schedule, may have driven out, may
+    // have shown up to a locked door). Resolve via tenant policy +
+    // split across assigned techs.
+    if (policy.charges_customer) {
+      const techRows = await tx.execute(sql`
+        SELECT user_id FROM job_technicians WHERE job_id = ${body.job_id}
+      `);
+      const techIds = (techRows.rows as Array<{ user_id: number }>).map(r => r.user_id);
+      if (techIds.length > 0) {
+        const techPay = resolveCancellationTechPay({
+          action,
+          customerChargeAmount: finalCharge,
+          numTechs: techIds.length,
+          policy: {
+            mode: (row.cancellation_tech_pay_mode ?? "flat") as CancellationTechPayMode,
+            amount: parseFloat(String(row.cancellation_tech_pay_amount ?? 60)),
+          },
+        });
+        if (techPay.pays_tech) {
+          const noteLabel = `${action === "lockout" ? "Lockout" : "Cancel"} pay — ${row.client_name ?? "Customer"} (job #${body.job_id})`;
+          for (const tid of techIds) {
+            await tx.execute(sql`
+              INSERT INTO additional_pay
+                (company_id, user_id, amount, type, notes, job_id, status)
+              VALUES
+                (${companyId}, ${tid}, ${techPay.pay_per_tech.toFixed(2)},
+                 'cancellation_pay', ${noteLabel}, ${body.job_id}, 'pending')
+            `);
+            techPayWritten.push({ user_id: tid, amount: techPay.pay_per_tech });
+          }
+        }
+      }
+    }
+
     return logged;
   });
 
@@ -291,6 +335,7 @@ router.post("/action", requireAuth, async (req, res) => {
     fee_pct_applied: policy.fee_pct_applied,
     next_status: policy.next_job_status,
     future_cancelled_count: futureCancelled,
+    tech_pay: techPayWritten,
   });
 });
 
