@@ -2241,10 +2241,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           Step 1: 6 action cards. Step 2: review charge + notes + confirm.
           Picking an action populates cancelAction; "Back" clears it. */}
       {cancelOpen && (() => {
+        // Action picker. "modify" is the escape hatch that routes the
+        // operator into the edit-job modal instead of recording a
+        // cancellation — when the right answer is "change the time/tech/
+        // scope" rather than cancel or reschedule. It's a UI-only action
+        // (no server call, no log row) so it's not in the CANCEL_ACTIONS
+        // union the backend knows about.
         const ACTIONS: Array<{
-          key: "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service";
-          label: string; sub: string; bg: string; color: string; charges: boolean; ends_service?: boolean;
+          key: "modify" | "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service";
+          label: string; sub: string; bg: string; color: string; charges: boolean; ends_service?: boolean; ui_only?: boolean;
         }> = [
+          { key: "modify", label: "Modify", sub: "Change time, tech, or scope", bg: "#DBEAFE", color: "#1E40AF", charges: false, ui_only: true },
           { key: "move",   label: "Move",   sub: "Customer changes the date",   bg: "#F3E8FF", color: "#7E22CE", charges: false },
           { key: "bump",   label: "Bump",   sub: "We change the date",          bg: "#FCE7F3", color: "#BE185D", charges: false },
           { key: "skip",   label: "Skip",   sub: "Customer skips this visit",   bg: "#FEE2E2", color: "#B91C1C", charges: false },
@@ -2274,7 +2281,21 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               {!selected && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   {ACTIONS.map(a => (
-                    <button key={a.key} onClick={() => { setCancelAction(a.key); setChargeOverride(""); }}
+                    <button key={a.key} onClick={() => {
+                      // Modify short-circuits the cancellation flow and
+                      // opens the edit-job modal instead. No server call,
+                      // no cancellation_log row.
+                      if (a.ui_only) {
+                        setCancelOpen(false);
+                        setCancelAction(null);
+                        setChargeOverride("");
+                        setCancelNote("");
+                        setEditOpen(true);
+                        return;
+                      }
+                      setCancelAction(a.key as "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service");
+                      setChargeOverride("");
+                    }}
                       style={{
                         background: a.bg, color: a.color, border: 0, borderRadius: 12,
                         padding: "14px 14px", textAlign: "left", cursor: "pointer",
