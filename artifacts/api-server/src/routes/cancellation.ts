@@ -164,6 +164,10 @@ router.post("/action", requireAuth, async (req, res) => {
     action?: string;
     notes?: string;
     charge_amount_override?: number;
+    // Reschedule fields. Required for move/bump (we surface a 400 if
+    // missing); ignored for skip/cancel/lockout/cancel_service.
+    new_date?: string; // 'YYYY-MM-DD'
+    new_time?: string; // 'HH:MM' or 'HH:MM:SS'
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -174,6 +178,24 @@ router.post("/action", requireAuth, async (req, res) => {
       error: "Bad Request",
       message: `action must be one of: ${CANCEL_ACTIONS.join(", ")}`,
     });
+  }
+
+  // Reschedule actions REQUIRE a new_date. Validate before we run the
+  // policy resolver so the UI gets a clear error.
+  const isReschedule = action === "move" || action === "bump";
+  if (isReschedule) {
+    if (!body.new_date || !/^\d{4}-\d{2}-\d{2}$/.test(body.new_date)) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: "new_date (YYYY-MM-DD) is required for move/bump actions",
+      });
+    }
+    if (body.new_time != null && !/^\d{2}:\d{2}(:\d{2})?$/.test(body.new_time)) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: "new_time must be HH:MM or HH:MM:SS when provided",
+      });
+    }
   }
 
   // Load job + client + company defaults in one round trip. Tech-pay
@@ -218,15 +240,41 @@ router.post("/action", requireAuth, async (req, res) => {
 
   const actionNote = policy.charges_customer
     ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${policy.fee_pct_applied}%)]`
-    : `[${action}]`;
+    : isReschedule
+      ? `[${action} to ${body.new_date}${body.new_time ? ` ${body.new_time}` : ""}]`
+      : `[${action}]`;
   const operatorNote = body.notes?.trim() ? ` ${body.notes.trim()}` : "";
   const appendedNotes = `${row.job_notes ?? ""}${row.job_notes ? "\n" : ""}${actionNote}${operatorNote}`.trim();
 
   let futureCancelled = 0;
   let techPayWritten: Array<{ user_id: number; amount: number }> = [];
   const logRow = await db.transaction(async (tx) => {
-    // Update the job row itself.
-    if (policy.next_job_status === "complete") {
+    // Update the job row itself. Three flavors:
+    //   reschedule → keep status='scheduled', UPDATE scheduled_date (+ time)
+    //   complete   → charged cancel/lockout, billed_amount = fee, locked_at = NOW()
+    //   cancelled  → free skip / cancel_service, billed_amount = 0
+    if (isReschedule) {
+      // Move/Bump: just shift the job. status stays 'scheduled' (or
+      // 'in_progress' if a tech already clocked in — preserve it).
+      // billed_amount stays untouched. The audit log row records the
+      // reschedule for reporting; the job itself continues to live.
+      if (body.new_time != null) {
+        await tx.execute(sql`
+          UPDATE jobs
+             SET scheduled_date = ${body.new_date}::date,
+                 scheduled_time = ${body.new_time}::time,
+                 notes = ${appendedNotes}
+           WHERE id = ${body.job_id} AND company_id = ${companyId}
+        `);
+      } else {
+        await tx.execute(sql`
+          UPDATE jobs
+             SET scheduled_date = ${body.new_date}::date,
+                 notes = ${appendedNotes}
+           WHERE id = ${body.job_id} AND company_id = ${companyId}
+        `);
+      }
+    } else if (policy.next_job_status === "complete") {
       // Charged cancellation — billed_amount becomes the cancellation fee
       // (so revenue reports pick it up cleanly).
       await tx.execute(sql`
@@ -333,9 +381,16 @@ router.post("/action", requireAuth, async (req, res) => {
     log: logRow,
     charge_amount: finalCharge,
     fee_pct_applied: policy.fee_pct_applied,
-    next_status: policy.next_job_status,
+    // For reschedule actions, the job stays 'scheduled' regardless of
+    // what the policy said (the policy is cancellation-centric and
+    // defaults to 'cancelled' for free actions). Surface 'scheduled' so
+    // the dispatch refetch knows to keep the chip visible.
+    next_status: isReschedule ? "scheduled" : policy.next_job_status,
     future_cancelled_count: futureCancelled,
     tech_pay: techPayWritten,
+    // Echo back the reschedule target so the frontend can confirm in
+    // the toast / log it for debugging.
+    rescheduled_to: isReschedule ? { date: body.new_date, time: body.new_time ?? null } : undefined,
   });
 });
 
