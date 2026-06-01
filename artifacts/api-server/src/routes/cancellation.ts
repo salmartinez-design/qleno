@@ -1,8 +1,13 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { cancellationLogTable, jobsTable, clientsTable, usersTable } from "@workspace/db/schema";
+import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import {
+  resolveCancellationPolicy,
+  CANCEL_ACTIONS,
+  type CancelAction,
+} from "../lib/cancellation-policy.js";
 
 const router = Router();
 
@@ -18,12 +23,26 @@ const REASON_MAP: Record<string, "customer_request" | "no_show" | "weather" | "e
   other: "other",
 };
 
+/**
+ * Map an MC-style cancel_action to the legacy cancel_reason enum so the
+ * existing pre-action-picker reports keep working. The action is the
+ * source of truth going forward; cancel_reason is for back-compat.
+ */
+const ACTION_TO_LEGACY_REASON: Record<CancelAction, "customer_request" | "no_show" | "weather" | "emergency" | "other"> = {
+  move: "customer_request",
+  bump: "other",
+  skip: "customer_request",
+  cancel: "customer_request",
+  lockout: "no_show",
+  cancel_service: "customer_request",
+};
+
 // GET /api/cancellations/reschedule-count — count reschedule records for a client in last N days
 router.get("/reschedule-count", requireAuth, async (req, res) => {
   try {
     const { client_id, days = "90" } = req.query;
     if (!client_id) return res.status(400).json({ error: "client_id required" });
-    const companyId = req.auth!.companyId;
+    const companyId = req.auth!.companyId!;
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - parseInt(days as string));
     const cutoffStr = cutoff.toISOString();
@@ -49,7 +68,7 @@ router.get("/reschedule-count", requireAuth, async (req, res) => {
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { date_from, date_to, customer_id, employee_id } = req.query;
-    const conditions: any[] = [eq(cancellationLogTable.company_id, req.auth!.companyId)];
+    const conditions: any[] = [eq(cancellationLogTable.company_id, req.auth!.companyId!)];
     if (date_from) conditions.push(sql`${cancellationLogTable.cancelled_at} >= ${date_from as string}`);
     if (date_to) conditions.push(sql`${cancellationLogTable.cancelled_at} <= ${date_to as string}`);
     if (customer_id) conditions.push(eq(cancellationLogTable.customer_id, parseInt(customer_id as string)));
@@ -86,7 +105,7 @@ router.post("/", requireAuth, async (req, res) => {
     if (!job_id || !customer_id || !cancel_reason) {
       return res.status(400).json({ error: "job_id, customer_id, and cancel_reason required" });
     }
-    const companyId = req.auth!.companyId;
+    const companyId = req.auth!.companyId!;
     const mappedReason = REASON_MAP[cancel_reason as string] ?? "other";
 
     const [row] = await db.insert(cancellationLogTable).values({
@@ -103,6 +122,176 @@ router.post("/", requireAuth, async (req, res) => {
     console.error("[cancellations POST]", err);
     return res.status(500).json({ error: "Server error" });
   }
+});
+
+/**
+ * POST /api/cancellations/action — MC-style cancellation action.
+ *
+ * Body:
+ *   {
+ *     job_id: number,
+ *     action: 'move'|'bump'|'skip'|'cancel'|'lockout'|'cancel_service',
+ *     notes?: string,
+ *     // Optional override of the resolved charge. Operator can dial it
+ *     // down or up at the modal (e.g. partial-fee gesture).
+ *     charge_amount_override?: number,
+ *   }
+ *
+ * Behavior:
+ *   1. Resolves the customer charge via cancellation-policy.ts (action +
+ *      per-client fee % + company default + job amount).
+ *   2. Flips the job to the right status:
+ *        - 'cancel' / 'lockout' → status='complete', billed_amount untouched,
+ *          notes appended with the action + fee marker.
+ *        - free actions → status='cancelled', billed_amount cleared to 0.
+ *   3. If action='cancel_service', sets the recurring schedule's cancelled_at
+ *      and cancels future not-yet-completed jobs on the same schedule.
+ *   4. Writes the cancellation_log row with cancel_action +
+ *      customer_charge_amount + affects_future_jobs.
+ *
+ * All in one transaction. Returns { ok, log_row, charge_amount,
+ * next_status, future_cancelled_count }.
+ */
+router.post("/action", requireAuth, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = req.auth!.userId!;
+  const body = req.body as {
+    job_id?: number;
+    action?: string;
+    notes?: string;
+    charge_amount_override?: number;
+  };
+  if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
+    return res.status(400).json({ error: "job_id required" });
+  }
+  const action = body.action as CancelAction | undefined;
+  if (!action || !CANCEL_ACTIONS.includes(action)) {
+    return res.status(400).json({
+      error: "Bad Request",
+      message: `action must be one of: ${CANCEL_ACTIONS.join(", ")}`,
+    });
+  }
+
+  // Load job + client + company defaults in one round trip.
+  const ctx = await db.execute(sql`
+    SELECT j.id, j.client_id, j.status::text AS status, j.billed_amount, j.base_fee,
+           j.notes AS job_notes, j.recurring_schedule_id,
+           c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
+           co.default_cancel_fee_pct, co.default_lockout_fee_pct
+      FROM jobs j
+      JOIN clients c ON c.id = j.client_id
+      JOIN companies co ON co.id = j.company_id
+     WHERE j.id = ${body.job_id} AND j.company_id = ${companyId}
+     LIMIT 1
+  `);
+  const row = ctx.rows[0] as any;
+  if (!row) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+  if (row.status === "complete" || row.status === "cancelled") {
+    return res.status(409).json({
+      error: "Conflict",
+      message: `Job already ${row.status}. Cancellation actions only apply to active jobs.`,
+    });
+  }
+
+  const jobAmount = parseFloat(String(row.billed_amount ?? row.base_fee ?? 0));
+  const policy = resolveCancellationPolicy({
+    action,
+    jobAmount,
+    companyDefaultCancelFeePct: parseFloat(String(row.default_cancel_fee_pct ?? 100)),
+    companyDefaultLockoutFeePct: parseFloat(String(row.default_lockout_fee_pct ?? 100)),
+    clientCancelFeePct: row.client_cancel_pct != null ? parseFloat(String(row.client_cancel_pct)) : null,
+    clientLockoutFeePct: row.client_lockout_pct != null ? parseFloat(String(row.client_lockout_pct)) : null,
+  });
+
+  // Operator override on the modal — clamp to >= 0, allow setting to 0
+  // (waive the fee).
+  const finalCharge = body.charge_amount_override != null && Number.isFinite(Number(body.charge_amount_override))
+    ? Math.max(0, Number(body.charge_amount_override))
+    : policy.charge_amount;
+
+  const actionNote = policy.charges_customer
+    ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${policy.fee_pct_applied}%)]`
+    : `[${action}]`;
+  const operatorNote = body.notes?.trim() ? ` ${body.notes.trim()}` : "";
+  const appendedNotes = `${row.job_notes ?? ""}${row.job_notes ? "\n" : ""}${actionNote}${operatorNote}`.trim();
+
+  let futureCancelled = 0;
+  const logRow = await db.transaction(async (tx) => {
+    // Update the job row itself.
+    if (policy.next_job_status === "complete") {
+      // Charged cancellation — billed_amount becomes the cancellation fee
+      // (so revenue reports pick it up cleanly).
+      await tx.execute(sql`
+        UPDATE jobs
+           SET status = 'complete'::job_status,
+               billed_amount = ${finalCharge.toFixed(2)},
+               notes = ${appendedNotes},
+               locked_at = NOW()
+         WHERE id = ${body.job_id} AND company_id = ${companyId}
+      `);
+    } else {
+      // Free action — job is cancelled, billed_amount zeroed.
+      await tx.execute(sql`
+        UPDATE jobs
+           SET status = 'cancelled'::job_status,
+               billed_amount = 0,
+               notes = ${appendedNotes}
+         WHERE id = ${body.job_id} AND company_id = ${companyId}
+      `);
+    }
+
+    // Cancel Service — terminate future occurrences of the same schedule.
+    if (policy.affects_future_jobs && row.recurring_schedule_id != null) {
+      const futureCancel = await tx.execute(sql`
+        UPDATE jobs
+           SET status = 'cancelled'::job_status,
+               billed_amount = 0,
+               notes = COALESCE(notes, '') ||
+                       (CASE WHEN notes IS NULL OR notes = '' THEN '' ELSE E'\n' END) ||
+                       '[cancel_service_propagated from job ' || ${body.job_id} || ']'
+         WHERE recurring_schedule_id = ${row.recurring_schedule_id}
+           AND company_id = ${companyId}
+           AND status::text IN ('scheduled','in_progress')
+           AND id != ${body.job_id}
+        RETURNING id
+      `);
+      futureCancelled = (futureCancel.rows as any[]).length;
+      // Also flag the recurring schedule itself.
+      await tx.execute(sql`
+        UPDATE recurring_schedules
+           SET active = false
+         WHERE id = ${row.recurring_schedule_id} AND company_id = ${companyId}
+      `);
+    }
+
+    // Cancellation log row — the audit trail. cancel_reason stays for
+    // back-compat with existing /reports/cancellations; cancel_action is
+    // the new source of truth.
+    const [logged] = await tx
+      .insert(cancellationLogTable)
+      .values({
+        company_id: companyId,
+        job_id: body.job_id!,
+        customer_id: row.client_id,
+        cancelled_by: userId,
+        cancel_reason: ACTION_TO_LEGACY_REASON[action],
+        cancel_action: action,
+        customer_charge_amount: finalCharge.toFixed(2),
+        affects_future_jobs: policy.affects_future_jobs,
+        notes: body.notes ?? null,
+      })
+      .returning();
+    return logged;
+  });
+
+  return res.status(201).json({
+    ok: true,
+    log: logRow,
+    charge_amount: finalCharge,
+    fee_pct_applied: policy.fee_pct_applied,
+    next_status: policy.next_job_status,
+    future_cancelled_count: futureCancelled,
+  });
 });
 
 export default router;

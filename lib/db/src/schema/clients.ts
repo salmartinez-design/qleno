@@ -97,6 +97,12 @@ export const clientsTable = pgTable("clients", {
   // the heads-up); office flips false when a specific client asks not
   // to receive them.
   wants_on_my_way_notifications: boolean("wants_on_my_way_notifications").notNull().default(true),
+  // Cancellation policy overrides — NULL means "use the tenant default
+  // from companies.default_{cancel,lockout}_fee_pct". Office can set per
+  // client when negotiating exceptions (e.g. anchor commercial accounts
+  // with a 0% no-fault clause).
+  cancel_fee_pct: numeric("cancel_fee_pct", { precision: 5, scale: 2 }),
+  lockout_fee_pct: numeric("lockout_fee_pct", { precision: 5, scale: 2 }),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

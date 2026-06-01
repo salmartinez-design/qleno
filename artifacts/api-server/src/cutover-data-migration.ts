@@ -76,6 +76,14 @@ export async function runCutoverDataMigration(): Promise<void> {
     );
   }
   try {
+    await addCancellationPolicyColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] cancellation policy columns failed (non-fatal):",
+      err,
+    );
+  }
+  try {
     await addLeaveCascadeColumns();
   } catch (err) {
     console.error(
@@ -195,6 +203,77 @@ async function addLeaveCascadeColumns(): Promise<void> {
       ) THEN
         CREATE INDEX leave_requests_cascade_group_idx
           ON leave_requests (cascade_group_id);
+      END IF;
+    END $$;
+  `),
+  );
+}
+
+/**
+ * Cancellation policy + action picker columns.
+ *
+ * Three migrations bundled because they shape one feature:
+ *   1. companies.default_cancel_fee_pct + default_lockout_fee_pct
+ *      (per-tenant defaults; 100% for Phes per stated policy).
+ *   2. clients.cancel_fee_pct + lockout_fee_pct
+ *      (nullable per-client overrides).
+ *   3. cancellation_log.cancel_action + customer_charge_amount +
+ *      affects_future_jobs (the per-event audit + reporting hooks).
+ *
+ * Idempotent guards on every ADD. Defaults match the schema definition
+ * so the row default and the migration default never drift.
+ */
+async function addCancellationPolicyColumns(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      -- companies: per-tenant defaults
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='default_cancel_fee_pct'
+      ) THEN
+        ALTER TABLE companies ADD COLUMN default_cancel_fee_pct numeric(5,2) NOT NULL DEFAULT 100.00;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='default_lockout_fee_pct'
+      ) THEN
+        ALTER TABLE companies ADD COLUMN default_lockout_fee_pct numeric(5,2) NOT NULL DEFAULT 100.00;
+      END IF;
+
+      -- clients: per-record overrides (nullable on purpose)
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='clients' AND column_name='cancel_fee_pct'
+      ) THEN
+        ALTER TABLE clients ADD COLUMN cancel_fee_pct numeric(5,2);
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='clients' AND column_name='lockout_fee_pct'
+      ) THEN
+        ALTER TABLE clients ADD COLUMN lockout_fee_pct numeric(5,2);
+      END IF;
+
+      -- cancellation_log: action picker + charged amount + future-jobs flag
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='cancellation_log' AND column_name='cancel_action'
+      ) THEN
+        ALTER TABLE cancellation_log ADD COLUMN cancel_action text;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='cancellation_log' AND column_name='customer_charge_amount'
+      ) THEN
+        ALTER TABLE cancellation_log ADD COLUMN customer_charge_amount numeric(10,2) NOT NULL DEFAULT 0;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='cancellation_log' AND column_name='affects_future_jobs'
+      ) THEN
+        ALTER TABLE cancellation_log ADD COLUMN affects_future_jobs boolean NOT NULL DEFAULT false;
       END IF;
     END $$;
   `),

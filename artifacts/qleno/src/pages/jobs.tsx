@@ -1057,6 +1057,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");
   const [cancelNote, setCancelNote] = useState("");
+  // MC-style cancel action picker. Two-step modal:
+  //   step 1 → pick action (move/bump/skip/cancel/lockout/cancel_service)
+  //   step 2 → review computed charge + optional override + notes → confirm
+  const [cancelAction, setCancelAction] = useState<null | "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service">(null);
+  const [chargeOverride, setChargeOverride] = useState<string>("");
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -1360,21 +1365,51 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   }
 
   async function cancelJob() {
+    if (!cancelAction) return; // shouldn't happen — confirm button only enabled when action picked
     setBusy(true);
     const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
     try {
-      await patchJob(job.id, { status: "cancelled" }, token);
-      await fetch(`${API2}/api/cancellations`, {
-        method: "POST", // Note: cancellations is read-only GET; the cancel log gets created by a trigger in production
+      // POST /api/cancellations/action handles the full transaction:
+      //   - resolves the customer charge from company + per-client policy
+      //   - flips job status (complete for charged, cancelled for free)
+      //   - marks recurring schedule cancelled when action='cancel_service'
+      //   - writes the cancellation_log row
+      const overrideNum = chargeOverride.trim() !== "" ? Number(chargeOverride) : undefined;
+      const res = await fetch(`${API2}/api/cancellations/action`, {
+        method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ job_id: job.id, customer_id: job.client_id, cancel_reason: cancelReason, notes: cancelNote || null }),
-      }).catch(() => {});
-      toast({ title: "Job cancelled" });
+        body: JSON.stringify({
+          job_id: job.id,
+          action: cancelAction,
+          notes: cancelNote || undefined,
+          charge_amount_override: Number.isFinite(overrideNum) ? overrideNum : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Cancellation failed");
+      }
+      const body = await res.json();
+      const charge = Number(body.charge_amount || 0);
+      const labelByAction: Record<string, string> = {
+        move: "Job marked as moved", bump: "Job marked as bumped",
+        skip: "Job skipped", cancel: "Job cancelled with full fee",
+        lockout: "Lockout recorded with full fee",
+        cancel_service: `Service cancelled (${body.future_cancelled_count} future jobs ended)`,
+      };
+      toast({
+        title: labelByAction[cancelAction] ?? "Cancellation recorded",
+        description: charge > 0 ? `Customer charged $${charge.toFixed(2)}` : undefined,
+      });
       setCancelOpen(false);
+      setCancelAction(null);
+      setChargeOverride("");
+      setCancelNote("");
       onUpdate();
       onClose();
-    } catch { toast({ title: "Error", variant: "destructive" }); }
-    finally { setBusy(false); }
+    } catch (e) {
+      toast({ title: (e as Error).message || "Error", variant: "destructive" });
+    } finally { setBusy(false); }
   }
 
   const panelStyle: React.CSSProperties = mobile ? {
@@ -2202,40 +2237,120 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         );
       })()}
 
-      {/* Cancel modal */}
-      {cancelOpen && (
-        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF }}>
-          <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
-            <h3 style={{ margin: "0 0 16px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Cancel Job</h3>
-            <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B7280" }}>
-              Job for <strong>{job.display_name ?? job.client_name}</strong> on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-            </p>
-            <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Reason</label>
-              <select value={cancelReason} onChange={e => setCancelReason(e.target.value)}
-                style={{ width: "100%", height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF" }}>
-                <option value="customer_request">Customer Request</option>
-                <option value="no_show">No Show</option>
-                <option value="weather">Weather</option>
-                <option value="emergency">Emergency</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div style={{ marginBottom: 20 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
-              <textarea value={cancelNote} onChange={e => setCancelNote(e.target.value)} rows={2}
-                style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setCancelOpen(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Keep Job</button>
-              <button onClick={cancelJob} disabled={busy}
-                style={{ padding: "8px 20px", background: "#EF4444", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                {busy ? "Cancelling..." : "Confirm Cancel"}
-              </button>
+      {/* Cancel / cancellation-action modal — MC-style action picker.
+          Step 1: 6 action cards. Step 2: review charge + notes + confirm.
+          Picking an action populates cancelAction; "Back" clears it. */}
+      {cancelOpen && (() => {
+        const ACTIONS: Array<{
+          key: "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service";
+          label: string; sub: string; bg: string; color: string; charges: boolean; ends_service?: boolean;
+        }> = [
+          { key: "move",   label: "Move",   sub: "Customer changes the date",   bg: "#F3E8FF", color: "#7E22CE", charges: false },
+          { key: "bump",   label: "Bump",   sub: "We change the date",          bg: "#FCE7F3", color: "#BE185D", charges: false },
+          { key: "skip",   label: "Skip",   sub: "Customer skips this visit",   bg: "#FEE2E2", color: "#B91C1C", charges: false },
+          { key: "cancel", label: "Cancel", sub: "Customer cancels (full fee)", bg: "#FCA5A5", color: "#7F1D1D", charges: true },
+          { key: "lockout",label: "Lockout",sub: "Couldn't get in (full fee)",  bg: "#1E293B", color: "#FFFFFF", charges: true },
+          { key: "cancel_service", label: "Cancel Service", sub: "End all future jobs", bg: "#DC2626", color: "#FFFFFF", charges: false, ends_service: true },
+        ];
+        const jobAmount = (job.billed_amount as number | undefined) ?? job.base_fee ?? 0;
+        const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
+        const selected = ACTIONS.find(a => a.key === cancelAction);
+        return (
+          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF }}>
+            <div style={{ backgroundColor: "#FFFFFF", borderRadius: 14, padding: 24, width: 540, maxWidth: "92vw", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+                <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+                  {selected ? selected.label : "What do you want to do?"}
+                </h3>
+                <button onClick={() => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); }}
+                  aria-label="Close"
+                  style={{ background: "transparent", border: 0, fontSize: 22, color: "#9E9B94", cursor: "pointer" }}>×</button>
+              </div>
+              <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B7280" }}>
+                {job.display_name ?? job.client_name} on {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </p>
+
+              {/* STEP 1 — action picker */}
+              {!selected && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                  {ACTIONS.map(a => (
+                    <button key={a.key} onClick={() => { setCancelAction(a.key); setChargeOverride(""); }}
+                      style={{
+                        background: a.bg, color: a.color, border: 0, borderRadius: 12,
+                        padding: "14px 14px", textAlign: "left", cursor: "pointer",
+                        fontFamily: FF, transition: "transform 0.08s",
+                      }}
+                      onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.98)")}
+                      onMouseUp={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                    >
+                      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{a.label}</div>
+                      <div style={{ fontSize: 11, opacity: 0.85, lineHeight: 1.35 }}>{a.sub}</div>
+                      {a.charges && (
+                        <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, opacity: 0.9 }}>
+                          Charges ${jobAmount.toFixed(2)}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* STEP 2 — review + confirm */}
+              {selected && (
+                <>
+                  <div style={{
+                    padding: 14, borderRadius: 10, marginBottom: 14,
+                    background: selected.charges ? "#FEF2F2" : "#F0FDF4",
+                    border: `1px solid ${selected.charges ? "#FECACA" : "#BBF7D0"}`,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: selected.charges ? "#991B1B" : "#166534", marginBottom: 4 }}>
+                      {selected.charges ? "Customer will be charged" : "No charge"}
+                    </div>
+                    {selected.charges && (
+                      <div style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>
+                        ${(chargeOverride.trim() === "" ? previewCharge(selected) : Number(chargeOverride)).toFixed(2)}
+                      </div>
+                    )}
+                    {selected.ends_service && (
+                      <div style={{ fontSize: 12, fontWeight: 700, color: "#991B1B", marginTop: 6 }}>
+                        All future jobs on this recurring schedule will be cancelled.
+                      </div>
+                    )}
+                  </div>
+
+                  {selected.charges && (
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
+                        Override charge (optional)
+                      </label>
+                      <input type="number" min="0" step="0.01" value={chargeOverride}
+                        placeholder={previewCharge(selected).toFixed(2)}
+                        onChange={e => setChargeOverride(e.target.value)}
+                        style={{ width: "100%", height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: 18 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
+                    <textarea value={cancelNote} onChange={e => setCancelNote(e.target.value)} rows={2}
+                      style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
+                    <button onClick={() => setCancelAction(null)} disabled={busy}
+                      style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>Back</button>
+                    <button onClick={cancelJob} disabled={busy}
+                      style={{ padding: "8px 22px", background: selected.charges ? "#DC2626" : "#1A1917", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: busy ? "not-allowed" : "pointer", fontFamily: FF, opacity: busy ? 0.6 : 1 }}>
+                      {busy ? "Saving..." : `Confirm ${selected.label}`}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* [AG] Edit Job modal */}
       {editOpen && (
