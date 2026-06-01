@@ -312,10 +312,12 @@ router.post("/action", requireAuth, async (req, res) => {
         RETURNING id
       `);
       futureCancelled = (futureCancel.rows as any[]).length;
-      // Also flag the recurring schedule itself.
+      // Also flag the recurring schedule itself. The column is
+      // `is_active` (Drizzle naming) — referencing `active` here
+      // would 500 the whole transaction.
       await tx.execute(sql`
         UPDATE recurring_schedules
-           SET active = false
+           SET is_active = false
          WHERE id = ${row.recurring_schedule_id} AND company_id = ${companyId}
       `);
     }
