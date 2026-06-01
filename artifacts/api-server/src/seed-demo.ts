@@ -206,6 +206,7 @@ export async function seedDemoData(companyId: number, ownerId: number) {
       company_id: companyId,
       user_id: employeeIds[tc.empIdx],
       job_id: jobIds[tc.jobIdx],
+      branch_id: 1, // Demo seed: all jobs run from default branch
       clock_in_at: inTime,
       clock_out_at: outTime,
       flagged: tc.flagged,
