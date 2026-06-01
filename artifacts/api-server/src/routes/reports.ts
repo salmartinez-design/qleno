@@ -208,12 +208,61 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         AND scheduled_date BETWEEN ${monthStart} AND ${monthEnd}
     `);
 
+    // [cancellation-reporting 2026-06-01] Break down the window's total
+    // revenue into visit revenue (real cleanings delivered) vs
+    // cancellation-fee revenue (lockouts + cancel-with-charge). Sourced
+    // from cancellation_log so we pick up exactly what was charged on
+    // each event — not derived from job status which can blur the
+    // two streams (charged cancellations live as status='complete').
+    // Reschedule counts (move/bump) and cancel_service counts surface
+    // so operators can see the full picture even though those events
+    // don't produce revenue rows.
+    const cancelBreakdown = await db.execute(sql`
+      SELECT
+        coalesce(sum(case when cl.cancel_action in ('cancel','lockout') then cl.customer_charge_amount else 0 end), 0) AS cancellation_fee_revenue,
+        coalesce(sum(case when cl.cancel_action = 'lockout' then cl.customer_charge_amount else 0 end), 0) AS lockout_fee_revenue,
+        coalesce(sum(case when cl.cancel_action = 'cancel' then cl.customer_charge_amount else 0 end), 0) AS cancel_fee_revenue,
+        sum(case when cl.cancel_action = 'move' then 1 else 0 end)::int AS move_count,
+        sum(case when cl.cancel_action = 'bump' then 1 else 0 end)::int AS bump_count,
+        sum(case when cl.cancel_action = 'skip' then 1 else 0 end)::int AS skip_count,
+        sum(case when cl.cancel_action = 'cancel' then 1 else 0 end)::int AS cancel_count,
+        sum(case when cl.cancel_action = 'lockout' then 1 else 0 end)::int AS lockout_count,
+        sum(case when cl.cancel_action = 'cancel_service' then 1 else 0 end)::int AS cancel_service_count
+      FROM cancellation_log cl
+      JOIN jobs j ON j.id = cl.job_id
+      WHERE cl.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
+        AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+    `);
+    const cb = (cancelBreakdown.rows[0] as any) ?? {};
+
     const s = summary.rows[0] as any;
+    const totalRev = parseF(s?.total_revenue);
+    const cancelFeeRev = parseF(cb.cancellation_fee_revenue);
     return res.json({
       from: fromStr, to: toStr, group_by: groupBy,
       summary: {
-        total_revenue: parseF(s?.total_revenue), avg_job_value: parseF(s?.avg_job_value),
-        job_count: parseN(s?.job_count), projected_month_end: parseF((projected.rows[0] as any)?.projected),
+        total_revenue: totalRev,
+        avg_job_value: parseF(s?.avg_job_value),
+        job_count: parseN(s?.job_count),
+        projected_month_end: parseF((projected.rows[0] as any)?.projected),
+        // [cancellation-reporting 2026-06-01] Cancellation revenue
+        // breakdown. visit_revenue = total minus the cancellation-fee
+        // portion (so consumers can show "real visit revenue" without
+        // the lockout/cancel fees folded in). cancellation_fee_revenue
+        // is the sum of charged actions; lockout_fee + cancel_fee are
+        // the further breakdown.
+        cancellation_fee_revenue: cancelFeeRev,
+        visit_revenue: Math.round((totalRev - cancelFeeRev) * 100) / 100,
+        lockout_fee_revenue: parseF(cb.lockout_fee_revenue),
+        cancel_fee_revenue: parseF(cb.cancel_fee_revenue),
+        // Counts for awareness — reschedules + skips + service cancellations.
+        move_count: cb.move_count ?? 0,
+        bump_count: cb.bump_count ?? 0,
+        skip_count: cb.skip_count ?? 0,
+        cancel_count: cb.cancel_count ?? 0,
+        lockout_count: cb.lockout_count ?? 0,
+        cancel_service_count: cb.cancel_service_count ?? 0,
       },
       trend: (trend.rows as any[]).map(r => ({
         period: r.period, job_count: parseN(r.job_count), revenue: parseF(r.revenue),

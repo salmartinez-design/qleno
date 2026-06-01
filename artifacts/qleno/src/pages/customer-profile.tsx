@@ -2499,6 +2499,139 @@ function RecurringTab({ clientId }: { clientId: number }) {
   );
 }
 
+// ─── Cancellations + Reschedules Section ──────────────────────────────────────
+// Lists every cancellation_log row for the client with a color-coded
+// action chip, the original job date, the operator who recorded it,
+// the charge amount (zero for free actions), and any operator note.
+// Header chip summarises moves/bumps/skips/cancels/lockouts/services
+// ended + total charged in one glance.
+interface CancellationHistoryEntry {
+  id: number;
+  action: string;
+  label: string;
+  is_reschedule: boolean;
+  charges_customer: boolean;
+  ends_service: boolean;
+  customer_charge_amount: number;
+  affects_future_jobs: boolean;
+  notes: string | null;
+  cancelled_at: string;
+  cancelled_by_name: string | null;
+  job_id: number;
+  original_date: string;
+  original_amount: number | null;
+}
+interface CancellationHistoryResponse {
+  data: CancellationHistoryEntry[];
+  summary: {
+    moves: number; bumps: number; skips: number;
+    cancels: number; lockouts: number; services_ended: number;
+    total_charged: number;
+  };
+}
+
+// Match the cancel modal palette so vocabulary stays consistent across
+// the dispatch picker and the client-history feed.
+const ACTIVITY_META: Record<string, { color: string; tint: string }> = {
+  move:           { color: "#7C3AED", tint: "#F5F3FF" },
+  bump:           { color: "#DB2777", tint: "#FDF2F8" },
+  skip:           { color: "#D97706", tint: "#FFFBEB" },
+  cancel:         { color: "#DC2626", tint: "#FEF2F2" },
+  lockout:        { color: "#475569", tint: "#F1F5F9" },
+  cancel_service: { color: "#991B1B", tint: "#FEF2F2" },
+  legacy:         { color: "#6B6860", tint: "#F7F6F3" },
+};
+
+function CancellationsActivitySection({ clientId }: { clientId: number }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const { data, isLoading } = useQuery<CancellationHistoryResponse>({
+    queryKey: ["client-cancellation-history", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/cancellation-history`),
+  });
+  const entries = data?.data ?? [];
+  const summary = data?.summary;
+  const fmtDateShort = (d: string) => new Date(d + (d.length === 10 ? "T12:00" : "")).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const fmtTime = (d: string) => new Date(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const fmtCash = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  return (
+    <div style={{ fontFamily: FF }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#0A0E1A" }}>Cancellations & Reschedules</div>
+        {summary && (
+          <div style={{ fontSize: 11, color: "#6B6860" }}>
+            {summary.moves + summary.bumps > 0 && <span style={{ marginRight: 10 }}><strong>{summary.moves + summary.bumps}</strong> reschedule{summary.moves + summary.bumps === 1 ? "" : "s"}</span>}
+            {summary.cancels + summary.lockouts > 0 && <span style={{ marginRight: 10 }}><strong>{summary.cancels + summary.lockouts}</strong> charged · {fmtCash(summary.total_charged)}</span>}
+            {summary.services_ended > 0 && <span style={{ color: "#991B1B", fontWeight: 700 }}>SERVICE ENDED</span>}
+          </div>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div style={{ fontSize: 12, color: "#9E9B94", padding: "16px 0" }}>Loading…</div>
+      ) : entries.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#9E9B94", padding: "16px 0", textAlign: "center" as const, border: "1px dashed #E5E2DC", borderRadius: 8 }}>
+          No cancellations or reschedules on file for this client.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {entries.map(e => {
+            const meta = ACTIVITY_META[e.action] ?? ACTIVITY_META.legacy;
+            return (
+              <div key={e.id} style={{
+                display: "grid",
+                gridTemplateColumns: "auto 1fr auto",
+                gap: 12, alignItems: "center",
+                padding: "10px 12px",
+                background: "#FFFFFF",
+                border: `1px solid ${meta.color}26`,
+                borderLeft: `4px solid ${meta.color}`,
+                borderRadius: 8,
+              }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700, color: meta.color,
+                    textTransform: "uppercase" as const, letterSpacing: "0.04em",
+                    background: meta.tint,
+                    padding: "3px 8px", borderRadius: 4, whiteSpace: "nowrap" as const,
+                  }}>
+                    {e.label}
+                  </span>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#0A0E1A" }}>
+                    Original visit · {fmtDateShort(e.original_date)}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>
+                    Recorded {fmtDateShort(e.cancelled_at.slice(0, 10))} at {fmtTime(e.cancelled_at)}
+                    {e.cancelled_by_name ? ` · by ${e.cancelled_by_name}` : ""}
+                    {e.affects_future_jobs ? ` · all future jobs ended` : ""}
+                  </div>
+                  {e.notes && (
+                    <div style={{ fontSize: 12, color: "#374151", marginTop: 4, fontStyle: "italic" as const }}>
+                      "{e.notes}"
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: "right" as const, whiteSpace: "nowrap" as const }}>
+                  {e.charges_customer ? (
+                    <>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: meta.color }}>{fmtCash(e.customer_charge_amount)}</div>
+                      <div style={{ fontSize: 10, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.04em" }}>Charged</div>
+                    </>
+                  ) : (
+                    <div style={{ fontSize: 11, color: "#9E9B94" }}>No charge</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Revenue Trend Tab ─────────────────────────────────────────────────────────
 function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) {
 
@@ -5543,6 +5676,16 @@ export default function CustomerProfilePage() {
           <div style={CS}>
             <SectionHead title="Inspections" />
             <InspectionsSection />
+          </div>
+
+          {/* [cancellation-reporting 2026-06-01] Cancellations + Reschedules
+              feed. Lists every cancellation_log row for this client with
+              friendly labels per action (Move / Bump / Skip / Cancel /
+              Lockout / Service cancelled). Operators can see at a glance
+              how often this customer reschedules, when fees were
+              charged, and whether the service was ever fully cancelled. */}
+          <div style={CS}>
+            <CancellationsActivitySection clientId={clientId} />
           </div>
 
         </div>
