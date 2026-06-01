@@ -814,13 +814,50 @@ router.get("/cancellations", requireAuth, ROLE, async (req, res) => {
       };
     });
 
+    // By-action breakdown — sourced from cancellation_log so we pick up
+    // the charging actions (status='complete') that the legacy
+    // `WHERE status='cancelled'` query above misses. Groups by
+    // cancel_action so the UI can render "Lockout fees" / "Cancel fees"
+    // as separate KPIs.
+    const byActionRows = await db.execute(sql`
+      SELECT COALESCE(cl.cancel_action, 'legacy') AS action,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(cl.customer_charge_amount), 0)::text AS total_charged
+        FROM cancellation_log cl
+        JOIN jobs j ON j.id = cl.job_id
+       WHERE cl.company_id = ${companyId}
+         ${branchFilter(req, "j.branch_id")}
+         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+       GROUP BY cl.cancel_action
+       ORDER BY action
+    `);
+    const by_action = (byActionRows.rows as any[]).map(r => ({
+      action: r.action,
+      count: r.count,
+      total_charged: parseF(r.total_charged),
+    }));
+    const lockout_total = by_action.find(a => a.action === "lockout")?.total_charged ?? 0;
+    const lockout_count = by_action.find(a => a.action === "lockout")?.count ?? 0;
+    const cancel_total = by_action.find(a => a.action === "cancel")?.total_charged ?? 0;
+    const cancel_count = by_action.find(a => a.action === "cancel")?.count ?? 0;
+    const cancellation_revenue = by_action.reduce((s, a) => s + a.total_charged, 0);
+
     return res.json({
       from: fromStr, to: toStr, data,
       summary: {
         total: data.length,
         avg_tenure_days: data.length > 0 ? data.reduce((s, r) => s + r.tenure_days, 0) / data.length : 0,
         revenue_lost: data.reduce((s, r) => s + r.bill_rate, 0),
+        // Cancellation-fee revenue (the money we DID collect from charging
+        // cancellations) — sits alongside revenue_lost (the money we'd
+        // have collected if the visits had happened).
+        cancellation_revenue,
+        lockout_total,
+        lockout_count,
+        cancel_total,
+        cancel_count,
       },
+      by_action,
     });
   } catch (err) {
     console.error("Cancellations error:", err);
