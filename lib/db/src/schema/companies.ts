@@ -84,6 +84,20 @@ export const companiesTable = pgTable("companies", {
   // clients.cancel_fee_pct / clients.lockout_fee_pct.
   default_cancel_fee_pct: numeric("default_cancel_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
   default_lockout_fee_pct: numeric("default_lockout_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
+  // Tech-pay-on-cancellation policy. When a charging action (cancel /
+  // lockout) fires we still owe the assigned tech(s) something — they
+  // showed up. Two modes:
+  //   'flat'    — fixed dollar amount per cancellation, regardless of job
+  //               size. Phes default $60 (matches the cleanup-trip fee
+  //               techs were historically paid in the old MC system).
+  //   'percent' — percentage of the customer charge_amount. Lets a tenant
+  //               say "tech keeps 40% of whatever we collected".
+  // The amount field is interpreted by the mode: dollars when 'flat',
+  // percentage (0-100) when 'percent'. Total pay is split equally across
+  // the assigned tech(s); proportional-by-clock-in doesn't apply because
+  // nobody worked.
+  cancellation_tech_pay_mode: text("cancellation_tech_pay_mode").notNull().default("flat"),
+  cancellation_tech_pay_amount: numeric("cancellation_tech_pay_amount", { precision: 10, scale: 4 }).notNull().default("60.0000"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

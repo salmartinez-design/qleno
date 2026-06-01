@@ -284,4 +284,80 @@ router.put("/booking-settings", requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/companies/cancellation-policy ───────────────────────────────────
+// Tenant-level cancellation policy: customer fee % defaults + tech-pay mode.
+// Per-client overrides live on clients.cancel_fee_pct / .lockout_fee_pct.
+router.get("/cancellation-policy", requireAuth, async (req, res) => {
+  try {
+    const { sql: drSql } = await import("drizzle-orm");
+    const companyId = req.auth!.companyId;
+    const r = await db.execute(drSql`
+      SELECT default_cancel_fee_pct, default_lockout_fee_pct,
+             cancellation_tech_pay_mode, cancellation_tech_pay_amount
+        FROM companies
+       WHERE id = ${companyId}
+       LIMIT 1
+    `);
+    const row = r.rows[0] as any;
+    if (!row) return res.status(404).json({ error: "Company not found" });
+    return res.json({
+      default_cancel_fee_pct: parseFloat(String(row.default_cancel_fee_pct ?? 100)),
+      default_lockout_fee_pct: parseFloat(String(row.default_lockout_fee_pct ?? 100)),
+      cancellation_tech_pay_mode: row.cancellation_tech_pay_mode ?? "flat",
+      cancellation_tech_pay_amount: parseFloat(String(row.cancellation_tech_pay_amount ?? 60)),
+    });
+  } catch (err) {
+    console.error("GET cancellation-policy:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PUT /api/companies/cancellation-policy ───────────────────────────────────
+router.put("/cancellation-policy", requireAuth, async (req, res) => {
+  try {
+    const { sql: drSql } = await import("drizzle-orm");
+    const companyId = req.auth!.companyId;
+    const {
+      default_cancel_fee_pct,
+      default_lockout_fee_pct,
+      cancellation_tech_pay_mode,
+      cancellation_tech_pay_amount,
+    } = req.body ?? {};
+
+    // Validate ranges. Pct fields are 0-100, mode is enum, amount must be
+    // non-negative. Clamp rather than reject so the UI can't get stuck.
+    const cancelPct = clampPct(default_cancel_fee_pct, 100);
+    const lockoutPct = clampPct(default_lockout_fee_pct, 100);
+    const mode = cancellation_tech_pay_mode === "percent" ? "percent" : "flat";
+    const amount = Number.isFinite(Number(cancellation_tech_pay_amount))
+      ? Math.max(0, Number(cancellation_tech_pay_amount))
+      : 60;
+
+    await db.execute(drSql`
+      UPDATE companies
+         SET default_cancel_fee_pct = ${cancelPct.toFixed(2)},
+             default_lockout_fee_pct = ${lockoutPct.toFixed(2)},
+             cancellation_tech_pay_mode = ${mode},
+             cancellation_tech_pay_amount = ${amount.toFixed(4)}
+       WHERE id = ${companyId}
+    `);
+
+    return res.json({
+      default_cancel_fee_pct: cancelPct,
+      default_lockout_fee_pct: lockoutPct,
+      cancellation_tech_pay_mode: mode,
+      cancellation_tech_pay_amount: amount,
+    });
+  } catch (err) {
+    console.error("PUT cancellation-policy:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+function clampPct(v: unknown, fallback: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(100, n));
+}
+
 export default router;
