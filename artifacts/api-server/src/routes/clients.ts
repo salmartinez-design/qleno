@@ -561,6 +561,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       commercial_hourly_rate,    // [AH] Per-client commercial hourly rate (commission engine)
       hourly_rate,               // [PR #60] Per-client hourly rate (Schedule Rate auto-calc)
       parking_fee_enabled, parking_fee_amount,
+      cancel_fee_pct, lockout_fee_pct,  // Cancellation policy overrides (null = use tenant default)
     } = req.body;
 
     // [AH] Snapshot the previous commercial_hourly_rate so we can write a
@@ -628,6 +629,19 @@ router.put("/:id", requireAuth, async (req, res) => {
         parking_fee_amount: parking_fee_amount === null || parking_fee_amount === ""
           ? null
           : String(parking_fee_amount),
+      }),
+      // Cancellation policy overrides — null/empty means "use tenant
+      // default" (the dispatch cancel modal reads companies.default_*
+      // when these are null). Clamp 0-100 so the UI can't push bad data.
+      ...(cancel_fee_pct !== undefined && {
+        cancel_fee_pct: cancel_fee_pct === null || cancel_fee_pct === ""
+          ? null
+          : String(Math.max(0, Math.min(100, Number(cancel_fee_pct)))),
+      }),
+      ...(lockout_fee_pct !== undefined && {
+        lockout_fee_pct: lockout_fee_pct === null || lockout_fee_pct === ""
+          ? null
+          : String(Math.max(0, Math.min(100, Number(lockout_fee_pct)))),
       }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });
