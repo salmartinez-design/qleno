@@ -67,6 +67,7 @@ import techClockRouter from "./tech-clock.js";
 import officeClockRouter from "./office-clock.js";
 import payRouter from "./pay.js";
 import opsIntegrityRouter from "./ops-integrity.js";
+import opsRouter from "./ops.js";
 import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
@@ -171,7 +172,11 @@ router.use("/office", officeClockRouter);
 // Cutover 1E — pay periods, summaries, adjustments, rates, generic CSV export
 router.use("/pay", payRouter);
 // Cutover 1E — on-demand re-run of the startup clock-integrity self-check
+// (mounts /api/ops/integrity-check). Express dispatches by sub-path so
+// stacking opsRouter below on the same prefix is safe.
 router.use("/ops", opsIntegrityRouter);
+// Cutover 1D — office live view (/api/ops/today/* + /api/ops/jobs/:id/detail)
+router.use("/ops", opsRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);
