@@ -12,7 +12,22 @@ function useIsMobile() {
 
 interface RevData {
   from: string; to: string; group_by: string;
-  summary: { total_revenue: number; avg_job_value: number; job_count: number; projected_month_end: number };
+  summary: {
+    total_revenue: number; avg_job_value: number; job_count: number; projected_month_end: number;
+    // [cancellation-reporting 2026-06-01] Breakdown that splits real
+    // visit revenue from cancellation-fee revenue. Both flow into the
+    // top-line total, but operators want to see them separately.
+    cancellation_fee_revenue?: number;
+    visit_revenue?: number;
+    lockout_fee_revenue?: number;
+    cancel_fee_revenue?: number;
+    move_count?: number;
+    bump_count?: number;
+    skip_count?: number;
+    cancel_count?: number;
+    lockout_count?: number;
+    cancel_service_count?: number;
+  };
   trend: { period: string; job_count: number; revenue: number; avg_per_job: number; allowed_hours: number }[];
 }
 
@@ -62,12 +77,46 @@ export default function RevenueReportPage() {
           }
         />
 
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-          <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)} />
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+          <KpiCard label="Total Revenue" value={fmt$(s?.total_revenue ?? 0)} sub="Visits + cancellation fees" />
           <KpiCard label="Avg Job Value" value={fmt$(s?.avg_job_value ?? 0)} color={clr.green} />
           <KpiCard label="Jobs Completed" value={String(s?.job_count ?? 0)} color={clr.secondary} />
           <KpiCard label="Month Projected" value={fmt$(s?.projected_month_end ?? 0)} color={clr.amber} sub="All scheduled + completed this month" />
         </div>
+
+        {/* [cancellation-reporting 2026-06-01] Cancellation revenue breakdown.
+            Visit revenue = total minus cancellation fees, so the operator
+            can answer "how much did we earn from actual cleanings this
+            window?" without doing mental math. The two fee cards split
+            lockouts from cancels for fine-grained tracking. */}
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+          <KpiCard
+            label="Visit Revenue"
+            value={fmt$(s?.visit_revenue ?? s?.total_revenue ?? 0)}
+            color={clr.green}
+            sub="Cleanings actually delivered"
+          />
+          <KpiCard
+            label="Cancellation Fees"
+            value={fmt$(s?.cancellation_fee_revenue ?? 0)}
+            color={clr.red}
+            sub={`Cancel: ${fmt$(s?.cancel_fee_revenue ?? 0)} · Lockout: ${fmt$(s?.lockout_fee_revenue ?? 0)}`}
+          />
+          <KpiCard
+            label="Reschedules"
+            value={String((s?.move_count ?? 0) + (s?.bump_count ?? 0))}
+            color={clr.secondary}
+            sub={`Move: ${s?.move_count ?? 0} · Bump: ${s?.bump_count ?? 0}`}
+          />
+          <KpiCard
+            label="Service Cancellations"
+            value={String(s?.cancel_service_count ?? 0)}
+            color={clr.red}
+            sub={`${s?.skip_count ?? 0} skip${(s?.skip_count ?? 0) === 1 ? "" : "s"} in window`}
+          />
+        </div>
+
+        <div style={{ height: 10 }} />
 
         {/* Bar chart */}
         {trend.length > 0 && (

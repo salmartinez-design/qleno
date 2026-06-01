@@ -1645,6 +1645,98 @@ router.get("/:id/job-photos", requireAuth, async (req, res) => {
   }
 });
 
+// [cancellation-reporting 2026-06-01] Per-client cancellation +
+// reschedule activity feed. Returns every cancellation_log row for
+// the client with a friendly label per action, the job's original
+// date, the charge amount (zero for free actions), and any operator
+// note. Powers the "Cancellations & Reschedules" section on the
+// client profile so office can see at a glance how often this
+// customer reschedules / cancels / locks the crew out.
+router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    if (!Number.isFinite(clientId)) {
+      return res.status(400).json({ error: "Invalid client id" });
+    }
+    const rows = await db.execute(sql`
+      SELECT
+        cl.id,
+        cl.cancel_action,
+        cl.customer_charge_amount,
+        cl.affects_future_jobs,
+        cl.notes,
+        cl.cancelled_at,
+        cl.job_id,
+        j.scheduled_date AS original_date,
+        j.base_fee AS original_amount,
+        u.first_name || ' ' || COALESCE(u.last_name, '') AS cancelled_by_name
+      FROM cancellation_log cl
+      JOIN jobs j ON j.id = cl.job_id
+      LEFT JOIN users u ON u.id = cl.cancelled_by
+      WHERE cl.company_id = ${companyId} AND cl.customer_id = ${clientId}
+      ORDER BY cl.cancelled_at DESC
+      LIMIT 200
+    `);
+    const data = (rows.rows as Array<{
+      id: number;
+      cancel_action: string | null;
+      customer_charge_amount: string;
+      affects_future_jobs: boolean;
+      notes: string | null;
+      cancelled_at: Date;
+      job_id: number;
+      original_date: string;
+      original_amount: string | null;
+      cancelled_by_name: string | null;
+    }>).map(r => {
+      const action = r.cancel_action ?? "legacy";
+      const labels: Record<string, string> = {
+        move: "Moved (customer)",
+        bump: "Bumped (office)",
+        skip: "Skipped",
+        cancel: "Cancelled (fee)",
+        lockout: "Lockout (fee)",
+        cancel_service: "Service cancelled",
+        legacy: "Cancellation",
+      };
+      return {
+        id: r.id,
+        action,
+        label: labels[action] ?? action,
+        is_reschedule: action === "move" || action === "bump",
+        charges_customer: action === "cancel" || action === "lockout",
+        ends_service: action === "cancel_service",
+        customer_charge_amount: parseFloat(String(r.customer_charge_amount ?? 0)),
+        affects_future_jobs: r.affects_future_jobs,
+        notes: r.notes,
+        cancelled_at: r.cancelled_at,
+        cancelled_by_name: r.cancelled_by_name?.trim() || null,
+        job_id: r.job_id,
+        original_date: r.original_date,
+        original_amount: r.original_amount != null ? parseFloat(String(r.original_amount)) : null,
+      };
+    });
+    // Summary chip at the top of the section.
+    const summary = data.reduce(
+      (acc, e) => {
+        if (e.action === "move") acc.moves += 1;
+        if (e.action === "bump") acc.bumps += 1;
+        if (e.action === "skip") acc.skips += 1;
+        if (e.action === "cancel") { acc.cancels += 1; acc.total_charged += e.customer_charge_amount; }
+        if (e.action === "lockout") { acc.lockouts += 1; acc.total_charged += e.customer_charge_amount; }
+        if (e.action === "cancel_service") acc.services_ended += 1;
+        return acc;
+      },
+      { moves: 0, bumps: 0, skips: 0, cancels: 0, lockouts: 0, services_ended: 0, total_charged: 0 }
+    );
+    return res.json({ data, summary });
+  } catch (err) {
+    console.error("[clients/cancellation-history]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);
