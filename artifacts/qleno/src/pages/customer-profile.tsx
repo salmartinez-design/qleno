@@ -446,6 +446,11 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
     home_access_notes: client.home_access_notes || "", alarm_code: client.alarm_code || "",
     pets: client.pets || "", referral_source: client.referral_source || "", notes: client.notes || "",
     client_since: client.client_since ? String(client.client_since).slice(0, 10) : "",
+    // Cancellation policy overrides — empty string in the form means
+    // "use the tenant default". The save handler converts "" back to
+    // null before sending.
+    cancel_fee_pct: client.cancel_fee_pct != null ? String(client.cancel_fee_pct) : "",
+    lockout_fee_pct: client.lockout_fee_pct != null ? String(client.lockout_fee_pct) : "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -594,7 +599,13 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
   const save = async () => {
     setSaving(true);
     try {
-      await onSave(form);
+      // Cancellation overrides go to the server as null when the input
+      // is blank — that's the signal to fall back to the tenant default.
+      await onSave({
+        ...form,
+        cancel_fee_pct: form.cancel_fee_pct === "" ? null : Number(form.cancel_fee_pct),
+        lockout_fee_pct: form.lockout_fee_pct === "" ? null : Number(form.lockout_fee_pct),
+      });
       onToast("Profile updated");
       onClose();
     } catch { onToast("Failed to save profile", "error"); }
@@ -735,6 +746,50 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
               </div>
               <div>{lbl("Client Since")}<input value={form.client_since} onChange={upd("client_since")} type="date" style={inp} /></div>
               <div>{lbl("Internal Notes")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
+            </div>
+          </div>
+          {/* Cancellation policy overrides — both blank means "use the
+              tenant default". Set when an anchor client negotiated a
+              non-standard fee (e.g. 0% no-fault clause). The dispatch
+              cancel modal reads these via /api/cancellations/action. */}
+          <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>
+              Cancellation Policy Override
+            </div>
+            <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 12 }}>
+              Leave blank to use the tenant default. Set 0–100 % to override for this client only.
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div>
+                {lbl("Late Cancel %")}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    value={form.cancel_fee_pct}
+                    onChange={upd("cancel_fee_pct")}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    placeholder="default"
+                    style={inp}
+                  />
+                </div>
+              </div>
+              <div>
+                {lbl("Lockout %")}
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <input
+                    value={form.lockout_fee_pct}
+                    onChange={upd("lockout_fee_pct")}
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    placeholder="default"
+                    style={inp}
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
