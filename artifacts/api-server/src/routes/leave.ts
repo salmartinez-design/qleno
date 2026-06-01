@@ -50,10 +50,7 @@ import {
   leaveBlackoutsTable,
   employeeAvailabilityTable,
   employeeLeaveUsageTable,
-  employeeAttendanceLogTable,
-  employeeDisciplineLogTable,
   companyLeavePolicyTable,
-  companyAttendancePolicyTable,
   usersTable,
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
@@ -71,11 +68,7 @@ import {
   type BucketForValidation,
   type BlackoutWindow,
 } from "../lib/leave-request-rules.js";
-import {
-  evaluateLadder,
-  type UnexcusedStep,
-  type UnexcusedEntry,
-} from "../lib/unexcused-ladder.js";
+import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { evaluateUseItOrLoseItAlert } from "../lib/leave-alerts.js";
 
 const router = Router();
@@ -888,115 +881,33 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
   const hours = Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0)
     return bad(res, "hours must be positive");
-  // Insert attendance log entry.
-  await db.insert(employeeAttendanceLogTable).values({
+  // Honor the legacy `notes` field: prior callers passed a full notes
+  // string (e.g. "unexcused hours: 8.00") rather than a short context
+  // suffix. The extracted helper composes its own canonical marker
+  // `unexcused hours: X.XX (<note>)` — passing the legacy notes as the
+  // `note` arg keeps the regex on read working (`hours` is still
+  // parsed from the leading marker) while preserving caller intent.
+  const result = await recordUnexcusedEntryAndDriveLadder(db, {
     company_id: companyId,
     employee_id: Number(body.employee_id),
     log_date: body.log_date,
-    type: "absent", // unexcused = unauthorized absent in the existing enum
+    hours,
+    type: "absent",
     protected: false,
-    notes: body.notes ?? `unexcused hours: ${hours.toFixed(2)}`,
+    note: body.notes,
     logged_by: actingUserId,
   });
-  // Drive the ladder. Pull the policy ladder + entries for the
-  // window-extent we need (max window_days across steps).
-  const policyRow = await db
-    .select({
-      unexcused_hours_steps: companyAttendancePolicyTable.unexcused_hours_steps,
-    })
-    .from(companyAttendancePolicyTable)
-    .where(eq(companyAttendancePolicyTable.company_id, companyId))
-    .limit(1);
-  const steps =
-    ((policyRow[0]?.unexcused_hours_steps as UnexcusedStep[] | null) ?? []) as UnexcusedStep[];
-  if (steps.length === 0) {
+  if (!result.ladder_eval.triggered_step) {
     return res.json({ data: { recorded: true, triggered_step: null } });
   }
-  const maxWindow = Math.max(...steps.map((s) => s.window_days), 0);
-  const windowStart = (() => {
-    const d = new Date(`${body.log_date}T00:00:00Z`);
-    d.setUTCDate(d.getUTCDate() - maxWindow);
-    return d.toISOString().slice(0, 10);
-  })();
-  const entries = await db
-    .select({
-      log_date: employeeAttendanceLogTable.log_date,
-      notes: employeeAttendanceLogTable.notes,
-    })
-    .from(employeeAttendanceLogTable)
-    .where(
-      and(
-        eq(employeeAttendanceLogTable.company_id, companyId),
-        eq(employeeAttendanceLogTable.employee_id, Number(body.employee_id)),
-        eq(employeeAttendanceLogTable.type, "absent"),
-        gte(employeeAttendanceLogTable.log_date, windowStart),
-        lte(employeeAttendanceLogTable.log_date, body.log_date),
-      ),
-    );
-  // Parse hours back out of the notes field (we stored
-  // "unexcused hours: 8.00" — this is a stopgap until a dedicated
-  // hours column exists on attendance_log). Fall back to 8h
-  // per absence row if the notes don't match.
-  const parsed: UnexcusedEntry[] = entries.map((e) => {
-    const m = /unexcused hours:\s*([0-9.]+)/i.exec(e.notes ?? "");
-    return {
-      date: String(e.log_date),
-      hours: m ? Number(m[1]) : 8,
-    };
-  });
-  // Which thresholds already fired? Pull recent discipline log rows
-  // tagged with the unexcused-ladder marker.
-  const recentDiscipline = await db
-    .select({
-      reason: employeeDisciplineLogTable.reason,
-    })
-    .from(employeeDisciplineLogTable)
-    .where(
-      and(
-        eq(employeeDisciplineLogTable.company_id, companyId),
-        eq(employeeDisciplineLogTable.employee_id, Number(body.employee_id)),
-      ),
-    );
-  const alreadyFired = new Set<number>();
-  for (const d of recentDiscipline) {
-    const m = /\bunexcused-ladder\s+t=(\d+(?:\.\d+)?)/i.exec(d.reason ?? "");
-    if (m) alreadyFired.add(Number(m[1]));
-  }
-  const evalResult = evaluateLadder(
-    steps,
-    parsed,
-    body.log_date,
-    alreadyFired,
-  );
-  if (!evalResult.triggered_step) {
-    return res.json({ data: { recorded: true, triggered_step: null } });
-  }
-  const step = evalResult.triggered_step;
-  await db.insert(employeeDisciplineLogTable).values({
-    company_id: companyId,
-    employee_id: Number(body.employee_id),
-    discipline_type: step.discipline_type,
-    custom_label: step.label ?? null,
-    reason: `unexcused-ladder t=${step.threshold_hours} window=${step.window_days}d cum=${evalResult.cumulative_hours.toFixed(2)}h`,
-    effective_date: body.log_date,
-    issued_by: actingUserId,
-    pending_review: true,
-  });
-  if (step.notify) {
-    void notifyOfficeOfDisciplineSilent(
-      companyId,
-      Number(body.employee_id),
-      step,
-      evalResult.cumulative_hours,
-    );
-  }
+  const step = result.ladder_eval.triggered_step;
   return res.json({
     data: {
       recorded: true,
       triggered_step: {
         threshold_hours: step.threshold_hours,
         discipline_type: step.discipline_type,
-        cumulative_hours: evalResult.cumulative_hours,
+        cumulative_hours: result.ladder_eval.cumulative_hours,
       },
     },
   });
@@ -1039,20 +950,8 @@ async function notifyEmployeeOfDecisionSilent(
   }
 }
 
-async function notifyOfficeOfDisciplineSilent(
-  companyId: number,
-  employeeId: number,
-  step: UnexcusedStep,
-  cumulativeHours: number,
-): Promise<void> {
-  try {
-    if (process.env.COMMS_ENABLED !== "true") return;
-    console.log(
-      `[unexcused-ladder] company ${companyId} employee ${employeeId} crossed ${step.threshold_hours}h (cum=${cumulativeHours.toFixed(2)}h) → ${step.discipline_type}`,
-    );
-  } catch (err) {
-    console.warn("[unexcused-ladder] notify failed (non-fatal):", err);
-  }
-}
+// notifyOfficeOfDisciplineSilent moved to lib/unexcused-ladder-writer.ts
+// in cutover 3B and re-exported (imported above) so the new
+// attendance-overlay confirm path can use the same notifier.
 
 export default router;

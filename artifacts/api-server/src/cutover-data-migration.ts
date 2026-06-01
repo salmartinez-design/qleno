@@ -67,6 +67,76 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await runAttendanceProposalsMigration();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] 3B attendance_proposals migration failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Cutover 3B — install the attendance_proposals table + its two
+ * pgEnums (kind, status) + indexes (status, user, job) + the unique
+ * index that guarantees scan idempotency on
+ * (company_id, user_id, job_id, scheduled_date).
+ *
+ * Idempotent: every CREATE is IF NOT EXISTS / pg_type guarded. Safe
+ * to run on every cold start.
+ */
+async function runAttendanceProposalsMigration(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_proposal_kind') THEN
+        CREATE TYPE attendance_proposal_kind AS ENUM
+          ('late', 'short', 'no_show', 'missing_clockout');
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attendance_proposal_status') THEN
+        CREATE TYPE attendance_proposal_status AS ENUM
+          ('pending', 'confirmed', 'dismissed');
+      END IF;
+
+      CREATE TABLE IF NOT EXISTS attendance_proposals (
+        id                          serial PRIMARY KEY,
+        company_id                  integer NOT NULL REFERENCES companies(id),
+        user_id                     integer NOT NULL REFERENCES users(id),
+        job_id                      integer NOT NULL REFERENCES jobs(id),
+        scheduled_date              date    NOT NULL,
+        scheduled_time_minutes      integer,
+        estimated_hours             numeric(5,2),
+        kind                        attendance_proposal_kind   NOT NULL,
+        status                      attendance_proposal_status NOT NULL DEFAULT 'pending',
+        minutes_late                integer,
+        minutes_short               integer,
+        clock_in_event_id           integer REFERENCES job_clock_events(id),
+        clock_out_event_id          integer REFERENCES job_clock_events(id),
+        leave_request_id            integer REFERENCES leave_requests(id),
+        created_at                  timestamptz NOT NULL DEFAULT now(),
+        decided_at                  timestamptz,
+        decided_by_user_id          integer REFERENCES users(id),
+        decision_note               text,
+        created_attendance_log_id   integer REFERENCES employee_attendance_log(id)
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS attendance_proposals_unique_per_assignment_uq
+        ON attendance_proposals (company_id, user_id, job_id, scheduled_date);
+
+      CREATE INDEX IF NOT EXISTS attendance_proposals_company_status_idx
+        ON attendance_proposals (company_id, status, scheduled_date);
+      CREATE INDEX IF NOT EXISTS attendance_proposals_company_user_idx
+        ON attendance_proposals (company_id, user_id, scheduled_date);
+      CREATE INDEX IF NOT EXISTS attendance_proposals_company_job_idx
+        ON attendance_proposals (company_id, job_id);
+
+      RAISE NOTICE 'cutover-migration: ensured attendance_proposals table + indexes';
+    END
+    $$;
+  `),
+  );
 }
 
 /**
