@@ -1106,7 +1106,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
     type FieldName =
       | "service_type" | "frequency" | "scheduled_date" | "scheduled_time"
       | "allowed_hours" | "base_fee" | "hourly_rate" | "manual_rate_override"
-      | "instructions" | "add_ons" | "team_user_ids";
+      | "instructions" | "add_ons" | "team_user_ids" | "status";
     const changes: Array<{ field: FieldName; old: unknown; next: unknown }> = [];
     const pushChange = (field: FieldName, next: unknown, prev: unknown) => {
       const norm = (v: unknown) => v === null || v === undefined ? null : v;
@@ -1124,6 +1124,24 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (hourly_rate !== undefined) pushChange("hourly_rate", String(hourly_rate), String(before.hourly_rate ?? ""));
     if (manual_rate_override !== undefined) pushChange("manual_rate_override", !!manual_rate_override, !!before.manual_rate_override);
     if (instructions !== undefined) pushChange("instructions", instructions, before.notes);
+    // Status transitions via PATCH are scoped to cancellation only — the
+    // 'complete' path goes through POST /:id/complete (which writes the
+    // completion artifacts: actual_end_time, locked_at, etc.). Allowing
+    // status='cancelled' here unblocks the cancel modal in the dispatch
+    // drawer; before this, the modal called PATCH { status:'cancelled' }
+    // which silently dropped because status wasn't in the whitelist —
+    // the row never changed, the UI optimistically removed the job, and
+    // on the next refresh the job reappeared ("cancel makes a new one
+    // pop in"). Now the status sticks.
+    if (status !== undefined && status !== before.status) {
+      if (status !== "cancelled") {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "PATCH /:id only accepts status='cancelled'. Use POST /:id/complete for completions.",
+        });
+      }
+      pushChange("status", status, before.status);
+    }
 
     // For add_ons + team_user_ids we always emit an audit row when payload is present,
     // since per-row diff is verbose; the JSON payload carries the full new value.
@@ -1191,6 +1209,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
+      // Status: pushChange validated above that status==='cancelled' only.
+      // Writing it here lets the cancel modal's PATCH actually take effect.
+      if (status !== undefined && status !== before.status) setParts.status = status;
 
       // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
       // When the anchor is a completed job AND the operator picked a
