@@ -1,6 +1,3 @@
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
-
 export interface BranchConfig {
   branch: string;
   officeEmail: string;
@@ -43,18 +40,3 @@ export function getBranchByZip(zip: string): BranchConfig {
   };
 }
 
-export async function getCompanyIdByBranch(branch: string): Promise<number | null> {
-  try {
-    let rows: any;
-    if (branch === "schaumburg") {
-      rows = await db.execute(sql`SELECT id FROM companies WHERE name ILIKE '%schaumburg%' LIMIT 1`);
-    } else {
-      rows = await db.execute(sql`SELECT id FROM companies WHERE name ILIKE '%oak lawn%' OR name ILIKE '%phes%' ORDER BY id ASC LIMIT 1`);
-    }
-    const result = (rows as any).rows ?? rows;
-    return result[0]?.id ?? null;
-  } catch (err) {
-    console.error("[branchRouter] getCompanyIdByBranch error:", err);
-    return null;
-  }
-}
