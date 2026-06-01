@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -232,10 +232,26 @@ router.post("/", requireAuth, async (req, res) => {
 router.get("/my-jobs", requireAuth, async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
-    const companyId = req.auth!.companyId;
     let userId = req.auth!.userId;
     if (req.auth!.role === "owner" && req.query.employee_id) {
       userId = parseInt(req.query.employee_id as string);
+    }
+
+    // Cross-tenant my-jobs. The tech's mobile view should include jobs from
+    // EVERY tenant they have user_companies membership in (plus their home
+    // tenant). One login, one list of jobs, regardless of which business
+    // owns each job. The branch chip on the card (set further down) tells
+    // the tech which business is which.
+    const tenantIdsRow = await db.execute(sql`
+      SELECT company_id FROM user_companies WHERE user_id = ${userId}
+      UNION
+      SELECT company_id FROM users WHERE id = ${userId} AND company_id IS NOT NULL
+    `);
+    const tenantIds = (tenantIdsRow.rows as any[]).map(r => Number(r.company_id)).filter(Number.isFinite);
+    if (tenantIds.length === 0) {
+      // No tenant membership — return empty rather than 500. Possible for
+      // users with NULL company_id and no user_companies rows.
+      return res.json({ data: [] });
     }
 
     const jobs = await db
@@ -267,9 +283,12 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         property_name: accountPropertiesTable.property_name,
         access_notes: accountPropertiesTable.access_notes,
         estimated_hours: jobsTable.estimated_hours,
-        // Model A: surface branch on every tech-facing job so the chip can render
-        // without an extra round-trip. branch_id may be null on a handful of
-        // pre-cutover jobs; the UI hides the chip in that case.
+        // Surface BOTH the tenant (the business that owns the job) and the
+        // branch (Phes-internal location, if set). For cross-tenant techs
+        // the company_name distinguishes "Phes Oak Lawn" from "PHES
+        // Schaumburg"; the branch is intra-tenant.
+        company_id: jobsTable.company_id,
+        company_name: companiesTable.name,
         branch_id: jobsTable.branch_id,
         branch_name: branchesTable.name,
       })
@@ -278,8 +297,9 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
       .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
       .leftJoin(branchesTable, eq(jobsTable.branch_id, branchesTable.id))
+      .leftJoin(companiesTable, eq(jobsTable.company_id, companiesTable.id))
       .where(and(
-        eq(jobsTable.company_id, companyId),
+        inArray(jobsTable.company_id, tenantIds),
         eq(jobsTable.assigned_user_id, userId),
         eq(jobsTable.scheduled_date, today),
       ))
@@ -295,12 +315,15 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       .where(sql`${jobPhotosTable.job_id} = ANY(${sql.raw(`ARRAY[${jobIds.join(",")}]`)})`)
       .groupBy(jobPhotosTable.job_id, jobPhotosTable.photo_type);
 
+    // Clock entries can live under ANY tenant the user is a member of —
+    // dropping the company_id constraint here keeps a tech who clocks
+    // into a cross-tenant job from getting a "no clock found" state.
     const clockEntries = await db
       .select()
       .from(timeclockTable)
       .where(and(
         eq(timeclockTable.user_id, userId),
-        eq(timeclockTable.company_id, companyId),
+        inArray(timeclockTable.company_id, tenantIds),
         sql`${timeclockTable.job_id} = ANY(${sql.raw(`ARRAY[${jobIds.join(",")}]`)})`
       ));
 

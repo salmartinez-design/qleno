@@ -97,6 +97,11 @@ type Job = {
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
+  // company_* identifies the BUSINESS that owns the job (Phes Oak Lawn vs
+  // PHES Schaumburg). For cross-tenant techs this is the load-bearing chip.
+  // branch_* is intra-tenant — used by Phes when it carries a branch.
+  company_id: number | null;
+  company_name: string | null;
   branch_id: number | null;
   branch_name: string | null;
 };
@@ -438,7 +443,18 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
             Commercial
           </span>
         )}
-        {job.branch_name && (
+        {/* For cross-tenant techs the BUSINESS chip is the important one
+            (Phes vs PHES Schaumburg). Branch is intra-tenant and only
+            shows when there's no company chip to avoid double-tagging. */}
+        {job.company_name ? (
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
+            textTransform: "uppercase",
+          }}>
+            {job.company_name}
+          </span>
+        ) : job.branch_name ? (
           <span style={{
             fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
             background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
@@ -446,7 +462,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
           }}>
             {job.branch_name}
           </span>
-        )}
+        ) : null}
       </div>
       <p style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 4px" }}>
         {formatServiceType(job.service_type)}
@@ -870,12 +886,12 @@ export default function MyJobsPage() {
                     <div key={job.id} style={{ opacity: 0.55, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand)", borderRadius: 12, padding: 18, marginBottom: 10 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                         <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
-                        {job.branch_name && (
+                        {(job.company_name || job.branch_name) && (
                           <span style={{
                             fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
                             background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
                             textTransform: "uppercase",
-                          }}>{job.branch_name}</span>
+                          }}>{job.company_name ?? job.branch_name}</span>
                         )}
                       </div>
                       <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
