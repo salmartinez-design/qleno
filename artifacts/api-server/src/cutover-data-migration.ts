@@ -75,6 +75,14 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await addLeaveCascadeColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] leave cascade columns failed (non-fatal):",
+      err,
+    );
+  }
 }
 
 /**
@@ -135,6 +143,60 @@ async function runAttendanceProposalsMigration(): Promise<void> {
       RAISE NOTICE 'cutover-migration: ensured attendance_proposals table + indexes';
     END
     $$;
+  `),
+  );
+}
+
+/**
+ * Leave bucket cascade — add the two columns that let multi-bucket
+ * fall-through requests (PTO → PLAWA → Unpaid Leave) be created as N
+ * linked leave_requests rows sharing one group id. Both NULL on the
+ * 3A single-bucket flow so nothing existing changes.
+ *
+ *   cascade_group_id  text     shared id for one cascade
+ *   cascade_order     integer  per-bucket index within the cascade
+ *
+ * Plus a btree index on cascade_group_id so "show me the whole
+ * cascade" lookups stay O(group-size). Idempotent: skips when columns
+ * + index already present, no-ops cleanly if leave_requests itself
+ * isn't there yet (table comes from 3A, runs above this block).
+ */
+async function addLeaveCascadeColumns(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_requests'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_requests not present yet, skipping cascade column add';
+        RETURN;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='leave_requests' AND column_name='cascade_group_id'
+      ) THEN
+        ALTER TABLE leave_requests ADD COLUMN cascade_group_id text;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='leave_requests' AND column_name='cascade_order'
+      ) THEN
+        ALTER TABLE leave_requests ADD COLUMN cascade_order integer;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE schemaname='public' AND tablename='leave_requests'
+          AND indexname='leave_requests_cascade_group_idx'
+      ) THEN
+        CREATE INDEX leave_requests_cascade_group_idx
+          ON leave_requests (cascade_group_id);
+      END IF;
+    END $$;
   `),
   );
 }
