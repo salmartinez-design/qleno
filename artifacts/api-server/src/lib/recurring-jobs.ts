@@ -1,6 +1,13 @@
 import { db } from "@workspace/db";
 import { recurringSchedulesTable, jobsTable, clientsTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql, inArray, gte, lte } from "drizzle-orm";
+// Pure cadence math extracted into its own module so unit tests can
+// import without triggering the Drizzle connection init. See
+// recurring-engine-cadences.test.ts for the test surface.
+import {
+  generateCadenceDates,
+  addDays,
+} from "./recurring-cadences.js";
 
 // [scheduling-engine 2026-04-29] Rolling generation window — extended
 // from 60 to 90 days so dispatchers can see roughly a quarter ahead.
@@ -8,11 +15,6 @@ import { eq, and, sql, inArray, gte, lte } from "drizzle-orm";
 // generateJobsFromSchedule prevents duplicate inserts when the window
 // overlaps existing rows.
 export const DAYS_AHEAD = 90;
-
-const DAY_NAME_TO_NUM: Record<string, number> = {
-  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
-  thursday: 4, friday: 5, saturday: 6,
-};
 
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
@@ -204,18 +206,9 @@ export async function insertJobFromSchedule(
   return Number(row.id);
 }
 
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-function addMonths(date: Date, months: number): Date {
-  const d = new Date(date);
-  d.setMonth(d.getMonth() + months);
-  return d;
-}
-
+// addDays + cadence math live in recurring-cadences.ts now. toDateStr
+// stays here because it's an engine concern (ISO formatting for the
+// scheduled_date column inserts), not part of the cadence math.
 function toDateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
@@ -223,61 +216,14 @@ function toDateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function parseDate(str: string): Date {
-  const [y, m, d] = str.split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function getFirstOccurrence(start: Date, targetDow: number, fromDate: Date): Date {
-  let d = new Date(fromDate);
-  const diff = (targetDow - d.getDay() + 7) % 7;
-  return addDays(d, diff);
-}
-
-// Resolve the multi-day pattern from a schedule's frequency + days_of_week.
-// Returns an array of weekday integers (0=Sunday..6=Saturday) or null when
-// the schedule is single-day (handled by the legacy day_of_week branch).
+// generateOccurrences delegates to the pure generateCadenceDates module
+// so the cadence logic has exactly one definition. Test coverage lives
+// in recurring-engine-cadences.test.ts (imports from the pure module
+// directly, no DB needed).
 //
-// [AI] daily      → [0,1,2,3,4,5,6] regardless of days_of_week column
-// [AI] weekdays   → [1,2,3,4,5]     regardless of days_of_week column
-// [AI] custom_days → days_of_week  (validated at write-time; ≥1 entry)
-function resolveMultiDayPattern(
-  freq: string,
-  daysOfWeek: number[] | null,
-): number[] | null {
-  if (freq === "daily") return [0, 1, 2, 3, 4, 5, 6];
-  if (freq === "weekdays") return [1, 2, 3, 4, 5];
-  if (freq === "custom_days") {
-    const arr = (daysOfWeek ?? []).filter(n => Number.isInteger(n) && n >= 0 && n <= 6);
-    return arr.length > 0 ? Array.from(new Set(arr)).sort() : null;
-  }
-  return null;
-}
-
-// [PR #58] Snap a date forward to the next business day (Mon–Fri) when it
-// falls on a Saturday or Sunday. Used for semi_monthly + monthly anchors —
-// matches the user's "Q1: A — snap forward" design decision. Holidays are
-// not snapped (operator can manually reschedule one-off observed dates).
-function snapToBusinessDay(d: Date): Date {
-  const dow = d.getDay(); // 0=Sun..6=Sat
-  if (dow === 6) return addDays(d, 2); // Saturday -> Monday
-  if (dow === 0) return addDays(d, 1); // Sunday -> Monday
-  return d;
-}
-
-// [PR #58] Resolve the actual day-of-month for a given month, supporting
-// the sentinel 0 = "last day of month". For Feb 30, e.g., returns Feb 28
-// (or 29 in a leap year). For [15, 30] in February, the second anchor
-// resolves to the last day of February. Day-of-month values 29/30/31 in
-// short months also clamp to the month's length.
-function resolveDayOfMonth(year: number, month: number, day: number): number {
-  // Last day of month (month is 0-indexed, +1 then day=0 returns last day).
-  const lastDay = new Date(year, month + 1, 0).getDate();
-  if (day === 0 || day > lastDay) return lastDay;
-  return day;
-}
-
-function generateOccurrences(
+// Kept as a named export here for backward compat — multiple internal
+// callsites import { generateOccurrences } from this file.
+export function generateOccurrences(
   schedule: {
     frequency: string;
     day_of_week: string | null;
@@ -290,115 +236,7 @@ function generateOccurrences(
   fromDate: Date,
   toDate: Date
 ): Date[] {
-  const start = parseDate(schedule.start_date);
-  const endLimit = schedule.end_date ? parseDate(schedule.end_date) : toDate;
-  const effectiveEnd = endLimit < toDate ? endLimit : toDate;
-
-  const freq = schedule.frequency;
-  const dates: Date[] = [];
-
-  // [AI] If both day_of_week and days_of_week are populated, prefer the
-  // multi-day path and warn. PATCH endpoint enforces exclusivity but defend
-  // against bad data (manual SQL, future code paths, etc.).
-  if (schedule.day_of_week && (schedule.days_of_week?.length ?? 0) > 0) {
-    console.warn(
-      `[recurring-engine] schedule has BOTH day_of_week and days_of_week populated — preferring days_of_week`,
-    );
-  }
-
-  // ── Multi-day path: daily / weekdays / custom_days ──────────────────────
-  // Walk every date from fromDate to effectiveEnd, emit when DOW matches.
-  // No interval math — every matching weekday in the window produces a job.
-  const multiDay = resolveMultiDayPattern(freq, schedule.days_of_week ?? null);
-  if (multiDay) {
-    const targetSet = new Set(multiDay);
-    let current = new Date(fromDate);
-    while (current <= effectiveEnd) {
-      if (current >= start && targetSet.has(current.getDay())) {
-        dates.push(new Date(current));
-      }
-      current = addDays(current, 1);
-    }
-    return dates;
-  }
-
-  // ── Single-day path: weekly / biweekly / every_3_weeks / monthly ────────
-  const targetDow = schedule.day_of_week
-    ? (DAY_NAME_TO_NUM[schedule.day_of_week.toLowerCase()] ?? start.getDay())
-    : start.getDay();
-
-  // [PR #58] Semi-monthly path. Anchors stored in days_of_month (e.g.,
-  // [1, 15] or [15, 30]). For each month in the window, emit one
-  // occurrence per anchor, snapping weekend dates forward to Monday.
-  // Sentinel 0 in days_of_month = "last day of month" — handles short
-  // months (Feb 28/29) without operator intervention.
-  if (freq === "semi_monthly") {
-    const anchors = schedule.days_of_month && schedule.days_of_month.length > 0
-      ? schedule.days_of_month
-      : [1, 15]; // safe default if column wasn't populated
-    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
-    while (cursor <= effectiveEnd) {
-      const y = cursor.getFullYear();
-      const m = cursor.getMonth();
-      for (const a of anchors) {
-        const day = resolveDayOfMonth(y, m, a);
-        const raw = new Date(y, m, day);
-        const snapped = snapToBusinessDay(raw);
-        if (snapped >= start && snapped >= fromDate && snapped <= effectiveEnd) {
-          dates.push(snapped);
-        }
-      }
-      cursor = addMonths(cursor, 1);
-    }
-    // Sort because anchors[0] for month N+1 may land before anchors[1]
-    // for month N once snap-forward kicks in (e.g., 30th of Jan snaps to
-    // Feb 1, then Feb 1 anchor lands the same day).
-    dates.sort((a, b) => a.getTime() - b.getTime());
-    return dates;
-  }
-
-  if (freq === "monthly") {
-    // [PR #58] Prefer days_of_month[0] when set (sentence-builder UI
-    // writes it), fall back to start_date's day for legacy schedules.
-    const dayOfMonth = schedule.days_of_month && schedule.days_of_month.length > 0
-      ? schedule.days_of_month[0]
-      : start.getDate();
-    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
-    while (cursor <= effectiveEnd) {
-      const day = resolveDayOfMonth(cursor.getFullYear(), cursor.getMonth(), dayOfMonth);
-      const raw = new Date(cursor.getFullYear(), cursor.getMonth(), day);
-      const snapped = snapToBusinessDay(raw);
-      if (snapped >= start && snapped >= fromDate && snapped <= effectiveEnd) {
-        dates.push(snapped);
-      }
-      cursor = addMonths(cursor, 1);
-    }
-  } else {
-    // Interval picker. Order matters — explicit checks before the legacy
-    // fallback. [AI] every_3_weeks honored; AG's custom_frequency_weeks
-    // honored as a fallback when frequency='custom' on recurring_schedules.
-    let intervalDays: number;
-    if (freq === "weekly") {
-      intervalDays = 7;
-    } else if (freq === "biweekly") {
-      intervalDays = 14;
-    } else if (freq === "every_3_weeks") {
-      intervalDays = 21;
-    } else if (freq === "custom" && schedule.custom_frequency_weeks != null) {
-      intervalDays = schedule.custom_frequency_weeks * 7;
-    } else {
-      // Conservative fallback for any unrecognized frequency string. Keeps
-      // historical behavior for rows without custom_frequency_weeks.
-      intervalDays = 14;
-    }
-    let current = getFirstOccurrence(start, targetDow, fromDate);
-    while (current <= effectiveEnd) {
-      if (current >= fromDate) dates.push(new Date(current));
-      current = addDays(current, intervalDays);
-    }
-  }
-
-  return dates;
+  return generateCadenceDates(schedule, fromDate, toDate);
 }
 
 type ScheduleInput = {
