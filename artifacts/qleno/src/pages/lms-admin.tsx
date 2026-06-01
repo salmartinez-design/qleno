@@ -3321,32 +3321,8 @@ function AddEmployeeDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"technician" | "admin">("technician");
   const [hireDate, setHireDate] = useState(today);
-  const [homeBranchId, setHomeBranchId] = useState<number | "">("");
-  const [branchOptions, setBranchOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-
-  // [Model A — Step 6] Load branches for this tenant so the operator picks a
-  // home branch for the new hire. Default to the tenant's default branch once
-  // the list comes back, so the most common path (Oak Lawn at Phes) is zero-
-  // click. Home branch is preference-only; cross-branch assignment is still
-  // allowed.
-  useEffect(() => {
-    if (!token) return;
-    fetch(`${API_BASE}/branches`, { headers: { authorization: `Bearer ${token}` } })
-      .then(r => r.ok ? r.json() : [])
-      .then((rows: any[]) => {
-        const active = (Array.isArray(rows) ? rows : []).filter(b => b.is_active);
-        setBranchOptions(active);
-        if (homeBranchId === "") {
-          const def = active.find(b => b.is_default) ?? active[0];
-          if (def) setHomeBranchId(def.id);
-        }
-      })
-      .catch(() => {});
-  // homeBranchId intentionally excluded — we only pre-fill once on load.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
   const [result, setResult] = useState<{
     user: { id: number; email: string; first_name: string; last_name: string };
     temp_password: string;
@@ -3366,8 +3342,6 @@ function AddEmployeeDialog({
         roleTech: "Técnico",
         roleAdmin: "Administrador de grupo",
         hireDate: "Fecha de contratación",
-        homeBranch: "Sucursal principal",
-        homeBranchHint: "Sucursal por defecto. Puede asignarse a otra cuando sea necesario.",
         cancel: "Cancelar",
         submit: "Crear empleado",
         submitting: "Creando…",
@@ -3392,8 +3366,6 @@ function AddEmployeeDialog({
         roleTech: "Technician",
         roleAdmin: "Group Administrator",
         hireDate: "Hire date",
-        homeBranch: "Home branch",
-        homeBranchHint: "Default branch. Can still be assigned to jobs at other branches when needed.",
         cancel: "Cancel",
         submit: "Create employee",
         submitting: "Creating…",
@@ -3412,8 +3384,7 @@ function AddEmployeeDialog({
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
-    /^\d{4}-\d{2}-\d{2}$/.test(hireDate) &&
-    typeof homeBranchId === "number";
+    /^\d{4}-\d{2}-\d{2}$/.test(hireDate);
 
   async function onSubmit() {
     if (!valid || busy) return;
@@ -3432,7 +3403,6 @@ function AddEmployeeDialog({
           email: email.trim().toLowerCase(),
           role,
           hire_date: hireDate,
-          home_branch_id: homeBranchId,
         }),
       });
       if (!res.ok) {
@@ -3711,27 +3681,6 @@ function AddEmployeeDialog({
               </Field>
             </div>
 
-            {/* [Model A — Step 6] Home branch is required on Add Employee. */}
-            <div style={{ marginTop: 12 }}>
-              <Field label={T.homeBranch}>
-                <select
-                  value={homeBranchId}
-                  onChange={(e) => setHomeBranchId(e.target.value === "" ? "" : Number(e.target.value))}
-                  disabled={busy || branchOptions.length === 0}
-                  style={inputStyle}
-                  required
-                >
-                  {branchOptions.length === 0 && <option value="">…</option>}
-                  {branchOptions.map((b) => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
-                <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 4, lineHeight: 1.4 }}>
-                  {T.homeBranchHint}
-                </div>
-              </Field>
-            </div>
-
             {err && (
               <div
                 style={{
@@ -3843,6 +3792,16 @@ function EditEmployeeDialog({
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [lang, setLang] = useState<"en" | "es">("en");
 
+  // Per-employee tenant membership. memberships[] lists what the target user
+  // is currently schedulable at; homeCompanyId is the anchor row that can't
+  // be revoked. availableCompanies is the set of tenants the logged-in
+  // admin can grant (sourced from their own user_companies via auth store).
+  const availableCompanies = useAuthStore((s) => s.availableCompanies);
+  const [memberships, setMemberships] = useState<Array<{ company_id: number; company_name: string; role: string }>>([]);
+  const [homeCompanyId, setHomeCompanyId] = useState<number | null>(null);
+  const [membershipBusy, setMembershipBusy] = useState<number | null>(null); // company_id mid-toggle
+  const [membershipErr, setMembershipErr] = useState<string | null>(null);
+
   const T = lang === "es"
     ? {
         title: "Editar empleado",
@@ -3867,6 +3826,12 @@ function EditEmployeeDialog({
         notice:
           "Cambios al correo notificarán al nuevo correo. Cambios al rol se registran como evento de seguridad.",
         loading: "Cargando…",
+        memberships: "Puede ser programado en",
+        membershipsHint:
+          "Selecciona en qué empresas este empleado puede trabajar. Su empresa principal no se puede quitar.",
+        homeBadge: "Principal",
+        addingTenant: "Agregando…",
+        removingTenant: "Quitando…",
       }
     : {
         title: "Edit Employee",
@@ -3891,7 +3856,57 @@ function EditEmployeeDialog({
         notice:
           "Email changes send a heads-up to the new address. Role changes are logged as a security event.",
         loading: "Loading…",
+        memberships: "Can be scheduled at",
+        membershipsHint:
+          "Pick which businesses this employee can be scheduled at. Their home business can't be removed.",
+        homeBadge: "Home",
+        addingTenant: "Adding…",
+        removingTenant: "Removing…",
       };
+
+  async function loadMemberships() {
+    try {
+      const res = await fetch(`${API_BASE}/users/${row.user_id}/companies`, {
+        headers: { ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setMemberships(Array.isArray(data?.data) ? data.data : []);
+      setHomeCompanyId(typeof data?.home_company_id === "number" ? data.home_company_id : null);
+    } catch {
+      // non-fatal; the section just won't render until a refresh
+    }
+  }
+
+  async function toggleMembership(companyId: number, isMember: boolean) {
+    setMembershipBusy(companyId);
+    setMembershipErr(null);
+    try {
+      const url = `${API_BASE}/users/${row.user_id}/companies${isMember ? `/${companyId}` : ""}`;
+      const res = await fetch(url, {
+        method: isMember ? "DELETE" : "POST",
+        headers: {
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+          "content-type": "application/json",
+        },
+        body: isMember ? undefined : JSON.stringify({ company_id: companyId, role: "member" }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        try {
+          const parsed = JSON.parse(text);
+          throw new Error(parsed.message || parsed.error || `HTTP ${res.status}`);
+        } catch {
+          throw new Error(text || `HTTP ${res.status}`);
+        }
+      }
+      await loadMemberships();
+    } catch (e) {
+      setMembershipErr(String((e as Error).message));
+    } finally {
+      setMembershipBusy(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -3923,6 +3938,9 @@ function EditEmployeeDialog({
         setEmail(seed.email);
         setRole(seed.role);
         setHireDate(seed.hire_date || "");
+        // Fire off membership load in parallel — failure is non-fatal and
+        // the section just hides until the next dialog open.
+        loadMemberships();
       } catch (e) {
         if (!cancelled) setErr(String((e as Error).message));
       } finally {
@@ -3932,6 +3950,8 @@ function EditEmployeeDialog({
     return () => {
       cancelled = true;
     };
+  // loadMemberships intentionally not in deps — stable for this dialog's lifetime.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row.user_id, token]);
 
   const dirty =
@@ -4146,6 +4166,76 @@ function EditEmployeeDialog({
                 />
               </Field>
             </div>
+
+            {/* Per-employee tenant membership. Only shows tenants the
+                logged-in admin can administer. Toggling sends POST/DELETE
+                to /api/users/:id/companies. Home tenant cannot be revoked. */}
+            {availableCompanies.length > 0 && (
+              <div style={{ marginTop: 4 }}>
+                <div style={{
+                  fontSize: 12, fontWeight: 700, color: INK,
+                  textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6,
+                }}>
+                  {T.memberships}
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {availableCompanies.map((co) => {
+                    const isMember = memberships.some((m) => m.company_id === co.id);
+                    const isHome = homeCompanyId === co.id;
+                    const isBusy = membershipBusy === co.id;
+                    const disabled = busy || isBusy || isHome;
+                    return (
+                      <label
+                        key={co.id}
+                        style={{
+                          display: "flex", alignItems: "center", gap: 10,
+                          padding: "8px 10px",
+                          background: isMember ? "#ECFDF5" : "#FFFFFF",
+                          border: `1px solid ${isMember ? "#A7F3D0" : LINE}`,
+                          borderRadius: 8,
+                          cursor: disabled ? "default" : "pointer",
+                          opacity: disabled && !isHome ? 0.6 : 1,
+                          fontSize: 13,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isMember}
+                          disabled={disabled}
+                          onChange={() => toggleMembership(co.id, isMember)}
+                          style={{ cursor: disabled ? "default" : "pointer" }}
+                        />
+                        <span style={{ fontWeight: 600, color: INK, flex: 1 }}>{co.name}</span>
+                        {isHome && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                            background: "#F4F3F0", color: INK_MUTE, letterSpacing: "0.04em",
+                            textTransform: "uppercase",
+                          }}>{T.homeBadge}</span>
+                        )}
+                        {isBusy && (
+                          <span style={{ fontSize: 11, color: INK_MUTE }}>
+                            {isMember ? T.removingTenant : T.addingTenant}
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 6, lineHeight: 1.4 }}>
+                  {T.membershipsHint}
+                </div>
+                {membershipErr && (
+                  <div style={{
+                    marginTop: 6, padding: "6px 10px",
+                    background: "#FEF2F2", border: `1px solid #FECACA`,
+                    borderRadius: 6, fontSize: 11, color: DANGER, fontWeight: 600,
+                  }}>
+                    {membershipErr}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div
               style={{

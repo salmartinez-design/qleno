@@ -1,3 +1,6 @@
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+
 export interface BranchConfig {
   branch: string;
   officeEmail: string;
@@ -40,3 +43,29 @@ export function getBranchByZip(zip: string): BranchConfig {
   };
 }
 
+/**
+ * Resolve a branch identifier ("schaumburg" / "oak_lawn") to the canonical
+ * tenant id. Used by the inbound booking router to decide which tenant a
+ * new customer/job should be created under.
+ *
+ * Restored after the Model A push briefly removed it — the partnership
+ * split between Sal (Phes Oak Lawn) and Sal+Ivan (PHES Schaumburg) means
+ * these are SEPARATE businesses, not branches of one company. ZIP-driven
+ * tenant routing is the load-bearing piece that makes the inbound flow
+ * land work in the right entity's books.
+ */
+export async function getCompanyIdByBranch(branch: string): Promise<number | null> {
+  try {
+    let rows: any;
+    if (branch === "schaumburg") {
+      rows = await db.execute(sql`SELECT id FROM companies WHERE name ILIKE '%schaumburg%' LIMIT 1`);
+    } else {
+      rows = await db.execute(sql`SELECT id FROM companies WHERE name ILIKE '%oak lawn%' OR name ILIKE '%phes%' ORDER BY id ASC LIMIT 1`);
+    }
+    const result = (rows as any).rows ?? rows;
+    return result[0]?.id ?? null;
+  } catch (err) {
+    console.error("[branchRouter] getCompanyIdByBranch error:", err);
+    return null;
+  }
+}

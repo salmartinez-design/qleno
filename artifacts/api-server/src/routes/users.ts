@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable, lmsSettingsTable, lmsEnrollmentsTable } from "@workspace/db/schema";
-import { eq, and, sql, avg, count, desc, isNull } from "drizzle-orm";
+import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable, lmsSettingsTable, lmsEnrollmentsTable, userCompaniesTable, companiesTable } from "@workspace/db/schema";
+import { eq, and, sql, avg, count, desc, isNull, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -19,38 +19,50 @@ router.get("/", requireAuth, async (req, res) => {
   try {
     const { role, is_active, page = "1", limit = "25", branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+    const companyId = req.auth!.companyId;
 
-    const conditions: any[] = [eq(usersTable.company_id, req.auth!.companyId)];
-    if (role) conditions.push(eq(usersTable.role, role as any));
-    if (is_active !== undefined) conditions.push(eq(usersTable.is_active, is_active === "true"));
-    if (branch_id && branch_id !== "all") conditions.push(eq(usersTable.branch_id, parseInt(branch_id as string)));
+    // Tenant scope UNION of home + user_companies — a cross-tenant tech
+    // shows up in BOTH businesses' employee lists, so each office can see
+    // who's eligible to be scheduled.
+    const conditions: any[] = [
+      sql`(u.company_id = ${companyId}
+            OR EXISTS (SELECT 1 FROM user_companies uc
+                        WHERE uc.user_id = u.id AND uc.company_id = ${companyId}))`,
+    ];
+    if (role) conditions.push(sql`u.role = ${role}::user_role`);
+    if (is_active !== undefined) conditions.push(sql`u.is_active = ${is_active === "true"}`);
+    // home_branch_id (not branch_id — the column was renamed under cutover 1A).
+    // Pass-through when present so the employees list can still filter by
+    // home branch within a tenant if one's selected.
+    if (branch_id && branch_id !== "all") {
+      const branchIdNum = parseInt(branch_id as string, 10);
+      if (Number.isFinite(branchIdNum)) {
+        conditions.push(sql`u.home_branch_id = ${branchIdNum}`);
+      }
+    }
 
-    const users = await db
-      .select({
-        id: usersTable.id,
-        email: usersTable.email,
-        first_name: usersTable.first_name,
-        last_name: usersTable.last_name,
-        role: usersTable.role,
-        pay_rate: usersTable.pay_rate,
-        pay_type: usersTable.pay_type,
-        is_active: usersTable.is_active,
-        hire_date: usersTable.hire_date,
-        avatar_url: usersTable.avatar_url,
-      })
-      .from(usersTable)
-      .where(and(...conditions))
-      .limit(parseInt(limit as string))
-      .offset(offset);
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    const totalResult = await db
-      .select({ count: count() })
-      .from(usersTable)
-      .where(and(...conditions));
+    const usersRows = await db.execute(sql`
+      SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
+             u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
+             u.hire_date, u.avatar_url
+        FROM users u
+       WHERE ${whereClause}
+       ORDER BY u.first_name, u.last_name
+       LIMIT ${parseInt(limit as string)}
+       OFFSET ${offset}
+    `);
+
+    const totalRow = await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM users u
+       WHERE ${whereClause}
+    `);
 
     return res.json({
-      data: users.map(u => ({ ...u, productivity_pct: null })),
-      total: totalResult[0].count,
+      data: (usersRows.rows as any[]).map(u => ({ ...u, productivity_pct: null })),
+      total: (totalRow.rows[0] as any)?.n ?? 0,
       page: parseInt(page as string),
       limit: parseInt(limit as string),
     });
@@ -78,30 +90,32 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
 
     // Optional branch isolation. The dispatch drawer's inline tech editor
     // passes the job's branch_id so the dropdown only lists techs assignable
-    // to that branch. Omit (or pass "all") to get the unfiltered list (the
-    // legacy "Add Team Member" picker behavior).
+    // to that branch. Omit (or pass "all") to get the unfiltered list.
     const branchIdRaw = req.query.branch_id;
     const branchIdNum = (typeof branchIdRaw === "string" && branchIdRaw !== "all" && branchIdRaw !== "")
       ? parseInt(branchIdRaw, 10) : null;
 
-    // Roles are a pg enum, so filter the list after fetch rather than build a
-    // complex or() chain. Small set (tens of rows) — no perf concern.
+    // Tenant scope is UNION of home + user_companies. A tech whose home is
+    // Phes but has a user_companies row in PHES Schaumburg must appear when
+    // Schaumburg's office is dispatching. The home_branch_id filter applies
+    // only when both sides actually carry it (NULL home_branch is fine —
+    // those techs are dispatchable to any branch).
     const rows = await db.execute(sql`
-      SELECT u.id, u.first_name, u.last_name, u.role, u.branch_id,
-             -- Active clock-in for this user = any timeclock row with NULL
-             -- clock_out_at. Today-only filter by clock_in_at::date = CURRENT_DATE
-             -- (America/Chicago is handled at ingest; we just compare UTC dates
-             -- for the "free/working RIGHT NOW" display).
+      SELECT u.id, u.first_name, u.last_name, u.role, u.home_branch_id AS branch_id,
              (SELECT tc.job_id FROM timeclock tc
                WHERE tc.user_id = u.id
                  AND tc.clock_out_at IS NULL
                ORDER BY tc.clock_in_at DESC LIMIT 1) AS active_job_id
         FROM users u
-       WHERE u.company_id = ${companyId}
-         AND u.is_active = true
+       WHERE u.is_active = true
          AND u.role IN ('technician','team_lead')
+         AND (
+              u.company_id = ${companyId}
+           OR EXISTS (SELECT 1 FROM user_companies uc
+                       WHERE uc.user_id = u.id AND uc.company_id = ${companyId})
+         )
          ${branchIdNum != null && Number.isFinite(branchIdNum)
-           ? sql`AND (u.branch_id = ${branchIdNum} OR u.branch_id IS NULL)`
+           ? sql`AND (u.home_branch_id = ${branchIdNum} OR u.home_branch_id IS NULL)`
            : sql``}
        ORDER BY u.first_name, u.last_name
     `);
@@ -615,6 +629,223 @@ router.get("/:id/payroll-history", requireAuth, requireRole("owner", "admin", "o
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Per-employee tenant membership: read / grant / revoke
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Under the tenant-separated model (Phes Oak Lawn / PHES Schaumburg as
+// distinct companies), an employee is "schedulable at" a tenant iff there's
+// a user_companies row linking them. user.company_id remains the employee's
+// "home tenant" (where their record was created); cross-tenant access is
+// granted additively through these endpoints.
+//
+// Auth model:
+//   - Read: any signed-in user can read their own memberships; owner/admin
+//     of the CURRENT tenant can read any user's memberships (so they can
+//     see what tenants their workforce is already scheduled in).
+//   - Grant/Revoke: the caller must be owner/admin of the TARGET company.
+//     Sal can grant Phes membership; Ivan (when added) can grant Schaumburg
+//     membership. Neither can grant access to the other's tenant.
+//
+// We always force the target user's "home" company_id membership to exist
+// (an employee MUST be a member of their home tenant); revoke refuses to
+// remove that anchor row.
+
+function asMembership(row: any) {
+  return {
+    company_id: row.company_id,
+    company_name: row.company_name,
+    role: row.role,
+    created_at: row.created_at,
+  };
+}
+
+router.get(
+  "/:id/companies",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const isSelf = req.auth!.userId === targetId;
+      const isPrivileged = req.auth!.role === "owner" || req.auth!.role === "admin";
+      if (!isSelf && !isPrivileged) {
+        return res.status(403).json({ error: "Forbidden", message: "Cannot view other users' tenant memberships" });
+      }
+
+      // Confirm the target user exists. We don't require them to share the
+      // caller's tenant — an owner viewing a cross-tenant employee needs to
+      // see all memberships including the ones they don't control.
+      const target = await db
+        .select({ id: usersTable.id, home_company_id: usersTable.company_id })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0]) {
+        return res.status(404).json({ error: "Not Found", message: "User not found" });
+      }
+
+      const rows = await db
+        .select({
+          company_id: userCompaniesTable.company_id,
+          role: userCompaniesTable.role,
+          created_at: userCompaniesTable.created_at,
+          company_name: companiesTable.name,
+        })
+        .from(userCompaniesTable)
+        .innerJoin(companiesTable, eq(userCompaniesTable.company_id, companiesTable.id))
+        .where(eq(userCompaniesTable.user_id, targetId))
+        .orderBy(userCompaniesTable.company_id);
+
+      return res.json({
+        data: rows.map(asMembership),
+        home_company_id: target[0].home_company_id,
+      });
+    } catch (err) {
+      console.error("Get user companies error:", err);
+      return res.status(500).json({ error: "Internal Server Error", message: "Failed to load tenant memberships" });
+    }
+  },
+);
+
+router.post(
+  "/:id/companies",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const targetUserId = Number(req.params.id);
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+      }
+      const companyId = Number(req.body?.company_id);
+      if (!Number.isFinite(companyId) || companyId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "company_id (number) required" });
+      }
+      const memberRole = typeof req.body?.role === "string" && req.body.role.length > 0
+        ? req.body.role : "member";
+
+      // Caller must be an owner/admin OF THE TARGET TENANT. Verified via
+      // user_companies — the per-tenant access table is the source of truth.
+      const callerMembership = await db
+        .select({ role: userCompaniesTable.role })
+        .from(userCompaniesTable)
+        .where(and(
+          eq(userCompaniesTable.user_id, req.auth!.userId),
+          eq(userCompaniesTable.company_id, companyId),
+        ))
+        .limit(1);
+      const callerRoleInTarget = callerMembership[0]?.role ?? "";
+      const callerCanGrantThere =
+        callerRoleInTarget === "owner" || callerRoleInTarget === "admin";
+      if (!callerCanGrantThere) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "You can only grant access to tenants you administer",
+        });
+      }
+
+      // Target user must exist.
+      const target = await db
+        .select({ id: usersTable.id })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetUserId))
+        .limit(1);
+      if (!target[0]) {
+        return res.status(404).json({ error: "Not Found", message: "User not found" });
+      }
+
+      // Idempotent insert. The (user_id, company_id) unique constraint
+      // turns a duplicate into a no-op.
+      await db.execute(sql`
+        INSERT INTO user_companies (user_id, company_id, role)
+        VALUES (${targetUserId}, ${companyId}, ${memberRole})
+        ON CONFLICT (user_id, company_id) DO NOTHING
+      `);
+
+      await logAudit(req, "user_companies_grant", "user", targetUserId, null, {
+        company_id: companyId,
+        role: memberRole,
+      });
+
+      return res.status(201).json({ ok: true, user_id: targetUserId, company_id: companyId, role: memberRole });
+    } catch (err) {
+      console.error("Grant user company error:", err);
+      return res.status(500).json({ error: "Internal Server Error", message: "Failed to grant tenant access" });
+    }
+  },
+);
+
+router.delete(
+  "/:id/companies/:companyId",
+  requireAuth,
+  requireRole("owner", "admin"),
+  async (req, res) => {
+    try {
+      const targetUserId = Number(req.params.id);
+      const companyId = Number(req.params.companyId);
+      if (!Number.isFinite(targetUserId) || targetUserId <= 0 || !Number.isFinite(companyId) || companyId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid ids" });
+      }
+
+      // Caller must administer the target tenant.
+      const callerMembership = await db
+        .select({ role: userCompaniesTable.role })
+        .from(userCompaniesTable)
+        .where(and(
+          eq(userCompaniesTable.user_id, req.auth!.userId),
+          eq(userCompaniesTable.company_id, companyId),
+        ))
+        .limit(1);
+      const callerRoleInTarget = callerMembership[0]?.role ?? "";
+      if (callerRoleInTarget !== "owner" && callerRoleInTarget !== "admin") {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "You can only revoke access to tenants you administer",
+        });
+      }
+
+      // Refuse to remove the anchor — every employee must be a member of
+      // their home tenant. Without this, the employee record orphans from
+      // any tenant they can log into and reports break.
+      const target = await db
+        .select({ home_company_id: usersTable.company_id })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetUserId))
+        .limit(1);
+      if (!target[0]) {
+        return res.status(404).json({ error: "Not Found", message: "User not found" });
+      }
+      if (target[0].home_company_id === companyId) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "Cannot revoke the employee's home tenant. Change users.company_id first or delete the employee.",
+        });
+      }
+
+      const deleted = await db
+        .delete(userCompaniesTable)
+        .where(and(
+          eq(userCompaniesTable.user_id, targetUserId),
+          eq(userCompaniesTable.company_id, companyId),
+        ))
+        .returning({ id: userCompaniesTable.user_id });
+
+      await logAudit(req, "user_companies_revoke", "user", targetUserId, null, {
+        company_id: companyId,
+      });
+
+      return res.json({ ok: true, removed: deleted.length });
+    } catch (err) {
+      console.error("Revoke user company error:", err);
+      return res.status(500).json({ error: "Internal Server Error", message: "Failed to revoke tenant access" });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // POST /:id/lms-archive — Owner only (Item 3, P0 sprint 2026-05-14)
 // ─────────────────────────────────────────────────────────────────────────────
 //
@@ -785,12 +1016,13 @@ router.post(
         ? req.body.email.trim().toLowerCase() : "";
       const role = typeof req.body?.role === "string" ? req.body.role : "technician";
       const hire_date = req.body?.hire_date;
-      // [Model A — Step 6] home_branch_id is now required on Add Employee.
-      // It's a default/preference, not a constraint: a Schaumburg tech can
-      // still be assigned to Oak Lawn jobs. Branch-vs-tenant membership stays
-      // separate.
+      // home_branch_id is OPTIONAL. Under the tenant-separated model (Phes
+      // Oak Lawn / PHES Schaumburg as distinct companies), "where can this
+      // employee work" is answered by user_companies membership, not by a
+      // branch field inside one tenant. The column still exists for any
+      // future intra-tenant use and is accepted on input when sent.
       const home_branch_raw = req.body?.home_branch_id;
-      const home_branch_id = typeof home_branch_raw === "number"
+      const home_branch_id: number | null = typeof home_branch_raw === "number"
         ? home_branch_raw
         : typeof home_branch_raw === "string" && home_branch_raw.length > 0
           ? parseInt(home_branch_raw, 10)
@@ -817,22 +1049,18 @@ router.post(
           message: "hire_date must be YYYY-MM-DD",
         });
       }
-      if (!Number.isFinite(home_branch_id)) {
-        return res.status(400).json({
-          error: "Bad Request",
-          message: "home_branch_id is required",
-        });
-      }
-      // Validate the branch belongs to this tenant — a defense-in-depth check
-      // so a client can't pass an id that points at another company's branch.
-      const branchRow = await db.execute(
-        sql`SELECT id FROM branches WHERE id = ${home_branch_id} AND company_id = ${companyId} LIMIT 1`,
-      );
-      if ((branchRow.rows as any[]).length === 0) {
-        return res.status(400).json({
-          error: "Bad Request",
-          message: "home_branch_id does not belong to this tenant",
-        });
+      // If a home_branch_id was passed in, validate it belongs to this tenant.
+      // No value is fine; we don't require it.
+      if (home_branch_id !== null && Number.isFinite(home_branch_id)) {
+        const branchRow = await db.execute(
+          sql`SELECT id FROM branches WHERE id = ${home_branch_id} AND company_id = ${companyId} LIMIT 1`,
+        );
+        if ((branchRow.rows as any[]).length === 0) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "home_branch_id does not belong to this tenant",
+          });
+        }
       }
 
       // Duplicate-email check is GLOBAL (the email column has a UNIQUE
@@ -864,7 +1092,7 @@ router.post(
           last_name,
           role: role as any,
           hire_date: hire_date ?? null,
-          home_branch_id: home_branch_id as number,
+          home_branch_id: home_branch_id ?? null,
           is_active: true,
         })
         .returning();
