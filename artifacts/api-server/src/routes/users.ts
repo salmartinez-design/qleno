@@ -34,10 +34,20 @@ router.get("/", requireAuth, async (req, res) => {
     // home_branch_id (not branch_id — the column was renamed under cutover 1A).
     // Pass-through when present so the employees list can still filter by
     // home branch within a tenant if one's selected.
+    //
+    // **NULL fall-through.** Cutover 1A's home_branch_id backfill was
+    // reverted, so the column is nullable and most existing Phes techs
+    // are NULL. Strict `home_branch_id = X` would hide every untagged
+    // tech the moment an operator picks a branch — Sal hit this on
+    // 2026-06-01 with all 20 active Phes techs invisible under
+    // Oak Lawn. Treat NULL as "shows under any branch" so the filter
+    // narrows the explicitly-tagged subset without dropping the
+    // unassigned default population. Once techs are individually
+    // tagged to a branch they'll start filtering normally.
     if (branch_id && branch_id !== "all") {
       const branchIdNum = parseInt(branch_id as string, 10);
       if (Number.isFinite(branchIdNum)) {
-        conditions.push(sql`u.home_branch_id = ${branchIdNum}`);
+        conditions.push(sql`(u.home_branch_id = ${branchIdNum} OR u.home_branch_id IS NULL)`);
       }
     }
 
