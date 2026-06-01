@@ -15,6 +15,31 @@ function dateStr(d: Date) { return d.toISOString().split("T")[0]; }
 function parseF(v: any) { return parseFloat(v || "0"); }
 function parseN(v: any) { return Number(v || 0); }
 
+// Model A branch filter. Pass `col` to qualify when the query aliases the
+// source table (e.g. "j.branch_id"). Returns an empty SQL fragment when the
+// caller wants "all branches" (default), so it composes cleanly into any
+// AND-chained WHERE clause: `WHERE company_id = X ${branchFilter(req)} ...`.
+//
+// Convention: callers pass `?branch_id=N` (integer) or `?branch_id=all` (or
+// omit entirely) — anything non-numeric is treated as "all" defensively.
+function branchFilter(req: any, col: string = "branch_id") {
+  const raw = req.query.branch_id as string | undefined;
+  if (!raw || raw === "all") return sql``;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return sql``;
+  return sql`AND ${sql.raw(col)} = ${n}`;
+}
+
+// Drizzle query-builder variant. Returns a condition for `and(...)`, or
+// undefined when no filter applies — Drizzle's `and()` skips undefined.
+function branchCond(req: any, column: any) {
+  const raw = req.query.branch_id as string | undefined;
+  if (!raw || raw === "all") return undefined;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return undefined;
+  return eq(column, n);
+}
+
 // ─── INSIGHTS (existing) ──────────────────────────────────────────────────────
 router.get("/insights", requireAuth, ROLE, async (req, res) => {
   try {
@@ -28,18 +53,21 @@ router.get("/insights", requireAuth, ROLE, async (req, res) => {
     const dateStr45 = dateStr(fortyFiveDaysAgo);
     const todayStr = dateStr(now);
 
+    const branchCondJob   = branchCond(req, jobsTable.branch_id);
+    const branchCondClock = branchCond(req, timeclockTable.branch_id);
+
     const topPerformers = await db.select({
       id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name,
       avatar_url: usersTable.avatar_url, jobs_completed: count(jobsTable.id), avg_score: avg(scorecardsTable.score),
     }).from(usersTable)
-      .leftJoin(jobsTable, and(eq(jobsTable.assigned_user_id, usersTable.id), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr7)))
+      .leftJoin(jobsTable, and(eq(jobsTable.assigned_user_id, usersTable.id), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr7), branchCondJob))
       .leftJoin(scorecardsTable, and(eq(scorecardsTable.user_id, usersTable.id), gte(scorecardsTable.created_at, sevenDaysAgo), eq(scorecardsTable.excluded, false)))
       .where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true)))
       .groupBy(usersTable.id).orderBy(desc(count(jobsTable.id))).limit(5);
 
     const lateClockins = await db.select({ user_id: timeclockTable.user_id, late_count: count(timeclockTable.id) })
       .from(timeclockTable)
-      .where(and(eq(timeclockTable.company_id, companyId), eq(timeclockTable.flagged, true), gte(timeclockTable.clock_in_at, thirtyDaysAgo)))
+      .where(and(eq(timeclockTable.company_id, companyId), eq(timeclockTable.flagged, true), gte(timeclockTable.clock_in_at, thirtyDaysAgo), branchCondClock))
       .groupBy(timeclockTable.user_id);
 
     const lowScorecards = await db.select({ user_id: scorecardsTable.user_id, avg_score: avg(scorecardsTable.score) })
@@ -64,7 +92,7 @@ router.get("/insights", requireAuth, ROLE, async (req, res) => {
     });
 
     const lastJobPerClient = await db.select({ client_id: jobsTable.client_id, last_date: sql<string>`max(${jobsTable.scheduled_date})` })
-      .from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete")))
+      .from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), branchCondJob))
       .groupBy(jobsTable.client_id);
 
     const atRiskClients = lastJobPerClient.filter(j => j.last_date < dateStr45).slice(0, 5);
@@ -82,14 +110,14 @@ router.get("/insights", requireAuth, ROLE, async (req, res) => {
 
     const revenueByService = await db.select({
       service_type: jobsTable.service_type, total_revenue: sum(jobsTable.base_fee), job_count: count(jobsTable.id),
-    }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30)))
+    }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30), branchCondJob))
       .groupBy(jobsTable.service_type).orderBy(desc(sum(jobsTable.base_fee)));
 
     const avgJobValue = await db.select({ avg: avg(jobsTable.base_fee) }).from(jobsTable)
-      .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30)));
+      .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "complete"), gte(jobsTable.scheduled_date, dateStr30), branchCondJob));
 
     const projectedRevenue = await db.select({ projected: sum(jobsTable.base_fee) }).from(jobsTable)
-      .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), gte(jobsTable.scheduled_date, todayStr)));
+      .where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), gte(jobsTable.scheduled_date, todayStr), branchCondJob));
 
     return res.json({
       top_performers: topPerformers.map(p => ({ ...p, avg_score: p.avg_score ? parseF(p.avg_score) : null, jobs_completed: parseN(p.jobs_completed) })),
@@ -138,6 +166,8 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
       ? sql`true`
       : sql`status = ${statusFilter}`;
 
+    const branchFrag = branchFilter(req);
+
     const trend = await db.execute(sql`
       SELECT
         ${groupExpr} AS period,
@@ -147,6 +177,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         coalesce(sum(allowed_hours), 0) AS allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
+        ${branchFrag}
         AND ${statusCond}
         AND scheduled_date BETWEEN ${fromStr} AND ${toStr}
       GROUP BY 1
@@ -161,6 +192,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
         coalesce(sum(allowed_hours), 0) AS total_allowed_hours
       FROM jobs
       WHERE company_id = ${companyId}
+        ${branchFrag}
         AND ${statusCond}
         AND scheduled_date BETWEEN ${fromStr} AND ${toStr}
     `);
@@ -172,6 +204,7 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
       SELECT coalesce(sum(${effectiveAmount}), 0) AS projected
       FROM jobs
       WHERE company_id = ${companyId} AND status IN ('scheduled','in_progress','complete')
+        ${branchFrag}
         AND scheduled_date BETWEEN ${monthStart} AND ${monthEnd}
     `);
 
@@ -208,6 +241,7 @@ router.get("/receivables", requireAuth, ROLE, async (req, res) => {
       FROM invoices i
       JOIN clients c ON c.id = i.client_id
       WHERE i.company_id = ${companyId}
+        ${branchFilter(req, "i.branch_id")}
         AND i.status IN ('sent','overdue')
       ORDER BY days_overdue DESC
     `);
@@ -274,6 +308,7 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
       JOIN clients c ON c.id = j.client_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
         AND j.status = 'complete'
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       ORDER BY j.scheduled_date DESC
@@ -344,6 +379,7 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
       const revRow = await db.execute(sql`
         SELECT coalesce(sum(base_fee), 0) AS revenue, count(*) AS jobs
         FROM jobs WHERE company_id=${companyId} AND status='complete'
+          ${branchFilter(req)}
           AND scheduled_date BETWEEN ${w.start} AND ${w.end}
       `);
       const payRow = await db.execute(sql`
@@ -357,8 +393,13 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
         ), 0) AS payroll
         FROM jobs j JOIN users u ON u.id = j.assigned_user_id
         WHERE j.company_id=${companyId} AND j.status='complete'
+          ${branchFilter(req, "j.branch_id")}
           AND j.scheduled_date BETWEEN ${w.start} AND ${w.end}
       `);
+      // additional_pay has no branch_id today (per Step 4 punch list). It's
+      // tied to user_id + date, and adding a branch column would need its own
+      // backfill — out of scope for this pass. So per-branch payroll % excludes
+      // tips/bonuses for now; non-branch view is unchanged.
       const addPayRow = await db.execute(sql`
         SELECT coalesce(sum(amount), 0) AS add_pay FROM additional_pay
         WHERE company_id=${companyId} AND created_at::date BETWEEN ${w.start} AND ${w.end}
@@ -392,8 +433,12 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     sunday.setDate(monday.getDate() + 6);
     const toStr = (req.query.to as string) || dateStr(sunday);
 
+    // Filter the employee list by home_branch_id when a specific branch is
+    // requested. Techs without a home_branch (legacy NULLs) are still surfaced
+    // when "all" is selected; the per-employee job query below also branch-
+    // filters so an Oak Lawn tech who did Schaumburg jobs won't double-count.
     const employees = await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name, pay_rate: usersTable.pay_rate, pay_type: usersTable.pay_type, fee_split_pct: usersTable.fee_split_pct })
-      .from(usersTable).where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true), ne(usersTable.role, "owner")));
+      .from(usersTable).where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true), ne(usersTable.role, "owner"), branchCond(req, usersTable.home_branch_id)));
 
     const rows = await Promise.all(employees.map(async emp => {
       const jobsRes = await db.execute(sql`
@@ -406,6 +451,7 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
               ELSE 0
             END, 0) AS base_pay
         FROM jobs j WHERE j.company_id=${companyId} AND j.assigned_user_id=${emp.id}
+          ${branchFilter(req, "j.branch_id")}
           AND j.status='complete' AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       `);
 
@@ -415,6 +461,7 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
           COUNT(DISTINCT scheduled_date::date) AS days_worked
         FROM timeclock t JOIN jobs j ON j.id = t.job_id
         WHERE t.company_id=${companyId} AND t.user_id=${emp.id}
+          ${branchFilter(req, "t.branch_id")}
           AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       `);
 
@@ -449,11 +496,13 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
       FROM jobs j JOIN clients c ON c.id=j.client_id
       LEFT JOIN timeclock t ON t.job_id=j.id
       WHERE j.company_id=${companyId} AND j.status='complete'
+        ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr} AND t.id IS NULL LIMIT 20
     `);
     const unclockedOut = await db.execute(sql`
       SELECT u.first_name, u.last_name, t.clock_in_at FROM timeclock t JOIN users u ON u.id=t.user_id
       WHERE t.company_id=${companyId} AND t.clock_out_at IS NULL
+        ${branchFilter(req, "t.branch_id")}
         AND t.clock_in_at::date BETWEEN ${fromStr} AND ${toStr} LIMIT 20
     `);
 
@@ -494,6 +543,7 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
       FROM jobs j
       LEFT JOIN timeclock t ON t.job_id=j.id AND t.user_id=j.assigned_user_id
       WHERE j.company_id=${companyId} AND j.status='complete'
+        ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       GROUP BY j.scheduled_date ORDER BY j.scheduled_date
     `);
@@ -508,6 +558,7 @@ router.get("/efficiency", requireAuth, ROLE, async (req, res) => {
       JOIN users u ON u.id=j.assigned_user_id
       LEFT JOIN timeclock t ON t.job_id=j.id AND t.user_id=j.assigned_user_id
       WHERE j.company_id=${companyId} AND j.status='complete'
+        ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       GROUP BY u.id, u.first_name, u.last_name ORDER BY clock_hours DESC
     `);
@@ -564,6 +615,7 @@ router.get("/employee-stats", requireAuth, ROLE, async (req, res) => {
       FROM users u
       LEFT JOIN jobs j ON j.assigned_user_id=u.id AND j.status='complete'
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+        ${branchFilter(req, "j.branch_id")}
       LEFT JOIN timeclock t ON t.job_id=j.id AND t.user_id=u.id
       LEFT JOIN scorecards sc ON sc.user_id=u.id AND sc.created_at::date BETWEEN ${fromStr} AND ${toStr}
       LEFT JOIN additional_pay ap ON ap.user_id=u.id AND ap.created_at::date BETWEEN ${fromStr} AND ${toStr}
@@ -620,6 +672,7 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
       LEFT JOIN clients c ON c.id=j.client_id
       WHERE ap.company_id=${companyId} AND ap.type='tips'
         AND ap.created_at::date BETWEEN ${fromStr} AND ${toStr}
+        ${branchFilter(req, "j.branch_id")}
         ${userFilter}
       ORDER BY ap.created_at DESC LIMIT 500
     `);
@@ -653,7 +706,7 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
     const prevEnd   = dateStr(new Date(new Date(thisStart).getTime() - 86400000));
 
     async function weekMetrics(start: string, end: string) {
-      const rev = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, count(*) AS jobs, coalesce(avg(base_fee),0) AS avg_bill FROM jobs WHERE company_id=${companyId} AND status='complete' AND scheduled_date BETWEEN ${start} AND ${end}`);
+      const rev = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, count(*) AS jobs, coalesce(avg(base_fee),0) AS avg_bill FROM jobs WHERE company_id=${companyId} AND status='complete' ${branchFilter(req)} AND scheduled_date BETWEEN ${start} AND ${end}`);
       const qual = await db.execute(sql`SELECT coalesce(avg(score),0) AS avg FROM scorecards WHERE company_id=${companyId} AND excluded=false AND created_at::date BETWEEN ${start} AND ${end}`);
       const newC = await db.execute(sql`SELECT count(*) AS cnt FROM clients WHERE company_id=${companyId} AND created_at::date BETWEEN ${start} AND ${end}`);
       const staff = await db.execute(sql`SELECT count(*) AS cnt FROM users WHERE company_id=${companyId} AND is_active=true`);
@@ -673,7 +726,7 @@ router.get("/week-review", requireAuth, ROLE, async (req, res) => {
     for (let i = 7; i >= 0; i--) {
       const wStart = dateStr(new Date(new Date(thisStart).getTime() - i * 7 * 86400000));
       const wEnd   = dateStr(new Date(new Date(wStart).getTime() + 6 * 86400000));
-      const r = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, coalesce(avg(sc.score),0) AS quality FROM jobs j LEFT JOIN scorecards sc ON sc.job_id=j.id AND sc.excluded=false WHERE j.company_id=${companyId} AND j.status='complete' AND j.scheduled_date BETWEEN ${wStart} AND ${wEnd}`);
+      const r = await db.execute(sql`SELECT coalesce(sum(base_fee),0) AS revenue, coalesce(avg(sc.score),0) AS quality FROM jobs j LEFT JOIN scorecards sc ON sc.job_id=j.id AND sc.excluded=false WHERE j.company_id=${companyId} AND j.status='complete' ${branchFilter(req, "j.branch_id")} AND j.scheduled_date BETWEEN ${wStart} AND ${wEnd}`);
       trend.push({ week: wStart, revenue: parseF((r.rows[0] as any)?.revenue), quality: parseF((r.rows[0] as any)?.quality) });
     }
 
@@ -707,6 +760,7 @@ router.get("/scorecards", requireAuth, ROLE, async (req, res) => {
       JOIN users u ON u.id=sc.user_id
       JOIN jobs j ON j.id=sc.job_id
       WHERE sc.company_id=${companyId}
+        ${branchFilter(req, "j.branch_id")}
         AND sc.created_at::date BETWEEN ${fromStr} AND ${toStr}
       ORDER BY sc.created_at DESC LIMIT 200
     `);
@@ -746,6 +800,7 @@ router.get("/cancellations", requireAuth, ROLE, async (req, res) => {
       JOIN clients c ON c.id=j.client_id
       LEFT JOIN scorecards sc ON sc.client_id=c.id AND sc.id=(SELECT id FROM scorecards WHERE client_id=c.id ORDER BY created_at DESC LIMIT 1)
       WHERE j.company_id=${companyId} AND j.status='cancelled'
+        ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
       ORDER BY j.client_id, j.scheduled_date DESC
     `);
@@ -842,6 +897,7 @@ router.get("/hot-sheet", requireAuth, ROLE, async (req, res) => {
         SELECT score FROM scorecards WHERE client_id=c.id ORDER BY created_at DESC LIMIT 1
       ) sc_last ON true
       WHERE j.company_id=${companyId} AND j.scheduled_date=${targetDate}
+        ${branchFilter(req, "j.branch_id")}
         AND j.status IN ('scheduled','in_progress')
       ORDER BY j.scheduled_time NULLS LAST
     `);
@@ -879,6 +935,7 @@ router.get("/first-time", requireAuth, ROLE, async (req, res) => {
       JOIN clients c ON c.id=j.client_id
       LEFT JOIN users u ON u.id=j.assigned_user_id
       WHERE j.company_id=${companyId}
+        ${branchFilter(req, "j.branch_id")}
         AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
         AND j.status IN ('scheduled','complete')
         AND NOT EXISTS (
@@ -919,6 +976,7 @@ router.get("/upsell-conversion", requireAuth, async (req, res) => {
         COUNT(*) FILTER (WHERE upsell_deferred = true AND upsell_accepted = false) AS total_deferred
       FROM jobs
       WHERE company_id = ${companyId}
+        ${branchFilter(req)}
         AND upsell_shown = true
         AND created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
     `);
@@ -933,6 +991,7 @@ router.get("/upsell-conversion", requireAuth, async (req, res) => {
         COUNT(*) FILTER (WHERE upsell_accepted = true) AS accepted
       FROM jobs
       WHERE company_id = ${companyId}
+        ${branchFilter(req)}
         AND upsell_shown = true
         AND created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
       GROUP BY DATE_TRUNC('week', created_at)
@@ -952,6 +1011,7 @@ router.get("/upsell-conversion", requireAuth, async (req, res) => {
       JOIN clients c ON c.id = j.client_id
       LEFT JOIN rate_locks rl ON rl.client_id = j.client_id AND rl.active = true
       WHERE j.company_id = ${companyId}
+        ${branchFilter(req, "j.branch_id")}
         AND j.upsell_shown = true
         AND j.created_at::date BETWEEN ${fromStr}::date AND ${toStr}::date
       ORDER BY j.created_at DESC

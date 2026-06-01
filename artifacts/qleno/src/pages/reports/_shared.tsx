@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, Printer } from "lucide-react";
 import { Link } from "wouter";
+import { useBranch } from "@/contexts/branch-context";
 
 export const fmt$ = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
 export const fmt$c = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
@@ -154,15 +155,24 @@ export function useReportData<T>(path: string): { data: T | null; loading: boole
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { activeBranchId } = useBranch();
+
+  // Append the navbar branch toggle as a query param on every reports fetch.
+  // Server treats "all" / missing identically, so we only send a value when a
+  // specific branch is selected. Reload fires whenever the toggle changes.
+  const branchQs = activeBranchId !== "all"
+    ? `${path.includes("?") ? "&" : "?"}branch_id=${activeBranchId}`
+    : "";
+  const fullPath = `${path}${branchQs}`;
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    fetch(`${API_BASE}/api${path}`, { headers: { Authorization: `Bearer ${getToken()}` } })
+    fetch(`${API_BASE}/api${fullPath}`, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e?.error || r.status)))
       .then(d => { setData(d); setLoading(false); })
       .catch(e => { setError(String(e)); setLoading(false); });
-  }, [path]);
+  }, [fullPath]);
 
   useEffect(() => { load(); }, [load]);
 
