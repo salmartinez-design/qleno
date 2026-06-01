@@ -3321,8 +3321,32 @@ function AddEmployeeDialog({
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"technician" | "admin">("technician");
   const [hireDate, setHireDate] = useState(today);
+  const [homeBranchId, setHomeBranchId] = useState<number | "">("");
+  const [branchOptions, setBranchOptions] = useState<Array<{ id: number; name: string }>>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // [Model A — Step 6] Load branches for this tenant so the operator picks a
+  // home branch for the new hire. Default to the tenant's default branch once
+  // the list comes back, so the most common path (Oak Lawn at Phes) is zero-
+  // click. Home branch is preference-only; cross-branch assignment is still
+  // allowed.
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_BASE}/branches`, { headers: { authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: any[]) => {
+        const active = (Array.isArray(rows) ? rows : []).filter(b => b.is_active);
+        setBranchOptions(active);
+        if (homeBranchId === "") {
+          const def = active.find(b => b.is_default) ?? active[0];
+          if (def) setHomeBranchId(def.id);
+        }
+      })
+      .catch(() => {});
+  // homeBranchId intentionally excluded — we only pre-fill once on load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
   const [result, setResult] = useState<{
     user: { id: number; email: string; first_name: string; last_name: string };
     temp_password: string;
@@ -3342,6 +3366,8 @@ function AddEmployeeDialog({
         roleTech: "Técnico",
         roleAdmin: "Administrador de grupo",
         hireDate: "Fecha de contratación",
+        homeBranch: "Sucursal principal",
+        homeBranchHint: "Sucursal por defecto. Puede asignarse a otra cuando sea necesario.",
         cancel: "Cancelar",
         submit: "Crear empleado",
         submitting: "Creando…",
@@ -3366,6 +3392,8 @@ function AddEmployeeDialog({
         roleTech: "Technician",
         roleAdmin: "Group Administrator",
         hireDate: "Hire date",
+        homeBranch: "Home branch",
+        homeBranchHint: "Default branch. Can still be assigned to jobs at other branches when needed.",
         cancel: "Cancel",
         submit: "Create employee",
         submitting: "Creating…",
@@ -3384,7 +3412,8 @@ function AddEmployeeDialog({
     firstName.trim().length > 0 &&
     lastName.trim().length > 0 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) &&
-    /^\d{4}-\d{2}-\d{2}$/.test(hireDate);
+    /^\d{4}-\d{2}-\d{2}$/.test(hireDate) &&
+    typeof homeBranchId === "number";
 
   async function onSubmit() {
     if (!valid || busy) return;
@@ -3403,6 +3432,7 @@ function AddEmployeeDialog({
           email: email.trim().toLowerCase(),
           role,
           hire_date: hireDate,
+          home_branch_id: homeBranchId,
         }),
       });
       if (!res.ok) {
@@ -3678,6 +3708,27 @@ function AddEmployeeDialog({
                   disabled={busy}
                   style={inputStyle}
                 />
+              </Field>
+            </div>
+
+            {/* [Model A — Step 6] Home branch is required on Add Employee. */}
+            <div style={{ marginTop: 12 }}>
+              <Field label={T.homeBranch}>
+                <select
+                  value={homeBranchId}
+                  onChange={(e) => setHomeBranchId(e.target.value === "" ? "" : Number(e.target.value))}
+                  disabled={busy || branchOptions.length === 0}
+                  style={inputStyle}
+                  required
+                >
+                  {branchOptions.length === 0 && <option value="">…</option>}
+                  {branchOptions.map((b) => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: INK_LIGHT, marginTop: 4, lineHeight: 1.4 }}>
+                  {T.homeBranchHint}
+                </div>
               </Field>
             </div>
 
