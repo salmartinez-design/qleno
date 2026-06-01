@@ -77,6 +77,13 @@ export const companiesTable = pgTable("companies", {
   qb_company_name: text("qb_company_name"),
   overhead_rate_pct: numeric("overhead_rate_pct", { precision: 5, scale: 2 }).default("10.00"),
   recurring_engine_enabled: boolean("recurring_engine_enabled").notNull().default(true),
+  // Cancellation policy — per-tenant defaults. Both expressed as a
+  // percentage of the cancelled job's effective amount (billed_amount ||
+  // base_fee). Phes default is 100% on both — a true cancellation or
+  // lockout charges the full visit fee. Per-client overrides live on
+  // clients.cancel_fee_pct / clients.lockout_fee_pct.
+  default_cancel_fee_pct: numeric("default_cancel_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
+  default_lockout_fee_pct: numeric("default_lockout_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
