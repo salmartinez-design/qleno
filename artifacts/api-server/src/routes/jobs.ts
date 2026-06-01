@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -267,11 +267,17 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         property_name: accountPropertiesTable.property_name,
         access_notes: accountPropertiesTable.access_notes,
         estimated_hours: jobsTable.estimated_hours,
+        // Model A: surface branch on every tech-facing job so the chip can render
+        // without an extra round-trip. branch_id may be null on a handful of
+        // pre-cutover jobs; the UI hides the chip in that case.
+        branch_id: jobsTable.branch_id,
+        branch_name: branchesTable.name,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
       .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
       .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
+      .leftJoin(branchesTable, eq(jobsTable.branch_id, branchesTable.id))
       .where(and(
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.assigned_user_id, userId),
