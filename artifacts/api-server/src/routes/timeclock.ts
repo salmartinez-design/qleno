@@ -230,12 +230,19 @@ router.post("/clock-in", requireAuth, async (req, res) => {
 
     const attemptResult = isOverride ? "override_approved" : outsideGeofence ? "soft_warned" : "success";
 
+    // Model A: stamp branch_id at clock-in from the job's branch (default Oak
+    // Lawn for the handful of legacy jobs whose branch_id is null). Reports
+    // group hours-by-branch off this column so later dispatch corrections
+    // don't shift historical payroll attribution.
+    const stampedBranchId = jobRow.branch_id ?? 1;
+
     const [entry] = await db
       .insert(timeclockTable)
       .values({
         job_id,
         user_id: req.auth!.userId,
         company_id: req.auth!.companyId,
+        branch_id: stampedBranchId,
         clock_in_lat: empLat !== null ? String(empLat) : null,
         clock_in_lng: empLng !== null ? String(empLng) : null,
         clock_in_distance_ft: distanceFt !== null ? String(distanceFt) : null,

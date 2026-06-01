@@ -128,7 +128,7 @@ function WeeklyDetailView() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14 }}>
                     <thead>
                       <tr>
-                        {['Date', 'Client', 'Scope', 'Job Total', 'Commission', 'Hrs Sched', 'Hrs Worked', 'Eff. Rate'].map(h => (
+                        {['Date', 'Client', 'Scope', 'Branch', 'Job Total', 'Commission', 'Hrs Sched', 'Hrs Worked', 'Eff. Rate'].map(h => (
                           <th key={h} style={th}>{h}</th>
                         ))}
                       </tr>
@@ -139,6 +139,7 @@ function WeeklyDetailView() {
                           <td style={td}>{job.date}</td>
                           <td style={td}>{job.client}</td>
                           <td style={{ ...td, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
+                          <td style={{ ...td, color: '#6B6860', fontSize: 11 }}>{job.branch_name || '—'}</td>
                           <td style={td}>${job.job_total.toFixed(2)}</td>
                           <td style={{ ...td, color: 'var(--brand)', fontWeight: 600 }}>${job.commission.toFixed(2)}</td>
                           <td style={{ ...td, color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
@@ -149,7 +150,7 @@ function WeeklyDetailView() {
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#FAFAF8' }}>
-                        <td style={{ ...td, fontWeight: 700 }} colSpan={3}>Subtotal</td>
+                        <td style={{ ...td, fontWeight: 700 }} colSpan={4}>Subtotal</td>
                         <td style={{ ...td, fontWeight: 700 }}>${emp.totals.job_total.toFixed(2)}</td>
                         <td style={{ ...td, fontWeight: 700, color: 'var(--brand)' }}>${emp.totals.commission.toFixed(2)}</td>
                         <td style={{ ...td, fontWeight: 700 }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
@@ -159,6 +160,28 @@ function WeeklyDetailView() {
                     </tfoot>
                   </table>
                 </div>
+
+                {Array.isArray(emp.commission_by_branch) && emp.commission_by_branch.length > 1 && (
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #F4F3F0' }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
+                      Commission by Branch
+                    </p>
+                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                      {emp.commission_by_branch.map((b: any) => (
+                        <div key={b.branch_id ?? 'none'} style={{
+                          padding: '8px 12px', borderRadius: 8, background: '#F7F6F3',
+                          border: '1px solid #E5E2DC', fontSize: 12,
+                        }}>
+                          <span style={{ color: '#6B6860', fontWeight: 600 }}>{b.branch_name}:</span>{' '}
+                          <span style={{ fontWeight: 700, color: 'var(--brand)' }}>${b.commission.toFixed(2)}</span>
+                          <span style={{ color: '#9E9B94', marginLeft: 6 }}>
+                            ({b.jobs} job{b.jobs !== 1 ? 's' : ''}, {b.hrs_worked.toFixed(1)}h)
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {addlEntries.length > 0 && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #F4F3F0' }}>

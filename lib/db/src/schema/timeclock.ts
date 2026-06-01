@@ -4,12 +4,19 @@ import { z } from "zod/v4";
 import { companiesTable } from "./companies";
 import { jobsTable } from "./jobs";
 import { usersTable } from "./users";
+import { branchesTable } from "./branches";
 
 export const timeclockTable = pgTable("timeclock", {
   id: serial("id").primaryKey(),
   job_id: integer("job_id").references(() => jobsTable.id).notNull(),
   user_id: integer("user_id").references(() => usersTable.id).notNull(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
+  // Model A: branch is stamped at clock-in from jobs.branch_id at the moment
+  // of work. Reports group "hours by branch" off this column directly so a
+  // later dispatch correction to jobs.branch_id doesn't retroactively shift
+  // payroll-history attribution. NULL only for the few legacy jobs whose
+  // branch_id is itself null; backfill fills those with Oak Lawn (default).
+  branch_id: integer("branch_id").references(() => branchesTable.id),
   clock_in_at: timestamp("clock_in_at").notNull().defaultNow(),
   clock_out_at: timestamp("clock_out_at"),
   clock_in_lat: numeric("clock_in_lat", { precision: 10, scale: 7 }),

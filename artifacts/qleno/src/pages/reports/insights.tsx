@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { useBranch } from "@/contexts/branch-context";
 import { TrendingUp, Users, Heart, Star, AlertTriangle, ChevronRight } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -51,14 +52,16 @@ export default function InsightsPage() {
   const [loading, setLoading] = useState(true);
   const [, navigate] = useLocation();
   const isMobile = useIsMobile();
+  const { activeBranchId } = useBranch();
 
   useEffect(() => {
-    fetch(`${API}/api/reports/insights`, { headers: getAuthHeaders() })
+    const branchQs = activeBranchId !== "all" ? `?branch_id=${activeBranchId}` : "";
+    fetch(`${API}/api/reports/insights${branchQs}`, { headers: getAuthHeaders() })
       .then(r => r.json())
       .then(d => setData(d))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [activeBranchId]);
 
   if (loading) {
     return (

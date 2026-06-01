@@ -205,6 +205,9 @@ router.get("/detail", requireAuth, async (req, res) => {
         assigned_user_id: jobsTable.assigned_user_id,
         // [AI.7.4] account_id drives the commercial-vs-residential branch.
         account_id: jobsTable.account_id,
+        // [Model A — Step 5] branch_id surfaces in every job row so the
+        // per-branch commission rollup below can group without a re-fetch.
+        branch_id: jobsTable.branch_id,
         client_first: clientsTable.first_name,
         client_last: clientsTable.last_name,
       })
@@ -212,6 +215,17 @@ router.get("/detail", requireAuth, async (req, res) => {
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
       .where(and(...jobConditions))
       .orderBy(jobsTable.scheduled_date);
+
+    // Look up branch names once so the rollup carries a human label, not just id.
+    const branchNameMap = new Map<number, string>();
+    try {
+      const branchRows = await db.execute(
+        sql`SELECT id, name FROM branches WHERE company_id = ${companyId}`,
+      );
+      for (const r of branchRows.rows as any[]) {
+        branchNameMap.set(r.id, r.name);
+      }
+    } catch { /* branches table not in some seeded tenants; rollup degrades to ids */ }
 
     // Get additional pay for the period (tips, mileage — period level, not per job)
     const addlPayConditions: any[] = [
@@ -289,11 +303,45 @@ router.get("/detail", requireAuth, async (req, res) => {
           commission,
           commission_overridden: jtMap.has(job.id),
           commission_basis: isCommercialJob ? "commercial_hourly" : "residential_pool",
+          // [Model A — Step 5] surfaced so the UI's expanded per-employee
+          // panel can render a "Branch" column and the rollup below stays in
+          // sync with what's shown per job.
+          branch_id: (job as any).branch_id ?? null,
+          branch_name: (job as any).branch_id != null
+            ? (branchNameMap.get((job as any).branch_id) ?? null)
+            : null,
           hrs_scheduled: allowedHrs,
           hrs_worked: workedHrs,
           effective_rate: effectiveRate,
         };
       });
+
+      // [Model A — Step 5] Per-branch commission rollup. Adds a sub-table to
+      // each employee's panel so techs and office immediately see "Oak Lawn
+      // $X / Schaumburg $Y" without scanning individual rows. Branchless
+      // legacy jobs roll up under a synthetic "(no branch)" bucket.
+      const commissionByBranch = new Map<number | "none", { branch_id: number | null; branch_name: string; commission: number; jobs: number; hrs_worked: number }>();
+      for (const r of jobRows) {
+        const key: number | "none" = r.branch_id ?? "none";
+        const cur = commissionByBranch.get(key) ?? {
+          branch_id: r.branch_id,
+          branch_name: r.branch_name ?? "(no branch)",
+          commission: 0,
+          jobs: 0,
+          hrs_worked: 0,
+        };
+        cur.commission += r.commission;
+        cur.jobs += 1;
+        cur.hrs_worked += r.hrs_worked;
+        commissionByBranch.set(key, cur);
+      }
+      const branchRollup = [...commissionByBranch.values()].map(r => ({
+        branch_id: r.branch_id,
+        branch_name: r.branch_name,
+        commission: Math.round(r.commission * 100) / 100,
+        jobs: r.jobs,
+        hrs_worked: Math.round(r.hrs_worked * 100) / 100,
+      })).sort((a, b) => b.commission - a.commission);
 
       // Additional pay by type
       const addlByType: Record<string, number> = {};
@@ -312,6 +360,10 @@ router.get("/detail", requireAuth, async (req, res) => {
         name: `${user.first_name} ${user.last_name}`.trim(),
         jobs: jobRows,
         additional_pay: addlByType,
+        // [Model A — Step 5] commission_by_branch is the "where did your
+        // commission come from" sub-table the UI renders inside each
+        // employee's expanded panel.
+        commission_by_branch: branchRollup,
         totals: {
           job_count: jobRows.length,
           job_total: Math.round(totalJobTotal * 100) / 100,

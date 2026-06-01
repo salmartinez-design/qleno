@@ -97,6 +97,8 @@ type Job = {
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
+  branch_id: number | null;
+  branch_name: string | null;
 };
 
 function ElapsedTimer({ clockInAt }: { clockInAt: string }) {
@@ -429,11 +431,20 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
         <span style={{ fontSize: 20, fontWeight: 700, color: "#1A1917" }}>${job.base_fee.toFixed(2)}</span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4, flexWrap: "wrap" }}>
         <p style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
         {job.account_id && (
           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
             Commercial
+          </span>
+        )}
+        {job.branch_name && (
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
+            textTransform: "uppercase",
+          }}>
+            {job.branch_name}
           </span>
         )}
       </div>
@@ -857,7 +868,16 @@ export default function MyJobsPage() {
                   <p style={{ fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px 4px" }}>Up Next</p>
                   {upcomingJobs.map(job => (
                     <div key={job.id} style={{ opacity: 0.55, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand)", borderRadius: 12, padding: 18, marginBottom: 10 }}>
-                      <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{job.client_name}</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
+                        {job.branch_name && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
+                            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
+                            textTransform: "uppercase",
+                          }}>{job.branch_name}</span>
+                        )}
+                      </div>
                       <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                       {job.scheduled_time && <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{formatTime(job.scheduled_time)}</p>}
                       {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}

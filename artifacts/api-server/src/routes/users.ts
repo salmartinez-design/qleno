@@ -785,6 +785,16 @@ router.post(
         ? req.body.email.trim().toLowerCase() : "";
       const role = typeof req.body?.role === "string" ? req.body.role : "technician";
       const hire_date = req.body?.hire_date;
+      // [Model A — Step 6] home_branch_id is now required on Add Employee.
+      // It's a default/preference, not a constraint: a Schaumburg tech can
+      // still be assigned to Oak Lawn jobs. Branch-vs-tenant membership stays
+      // separate.
+      const home_branch_raw = req.body?.home_branch_id;
+      const home_branch_id = typeof home_branch_raw === "number"
+        ? home_branch_raw
+        : typeof home_branch_raw === "string" && home_branch_raw.length > 0
+          ? parseInt(home_branch_raw, 10)
+          : null;
 
       if (!first_name) {
         return res.status(400).json({ error: "Bad Request", message: "First name is required" });
@@ -805,6 +815,23 @@ router.post(
         return res.status(400).json({
           error: "Bad Request",
           message: "hire_date must be YYYY-MM-DD",
+        });
+      }
+      if (!Number.isFinite(home_branch_id)) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "home_branch_id is required",
+        });
+      }
+      // Validate the branch belongs to this tenant — a defense-in-depth check
+      // so a client can't pass an id that points at another company's branch.
+      const branchRow = await db.execute(
+        sql`SELECT id FROM branches WHERE id = ${home_branch_id} AND company_id = ${companyId} LIMIT 1`,
+      );
+      if ((branchRow.rows as any[]).length === 0) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "home_branch_id does not belong to this tenant",
         });
       }
 
@@ -837,6 +864,7 @@ router.post(
           last_name,
           role: role as any,
           hire_date: hire_date ?? null,
+          home_branch_id: home_branch_id as number,
           is_active: true,
         })
         .returning();
