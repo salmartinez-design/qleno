@@ -1369,6 +1369,33 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     setBusy(true);
     const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
     try {
+      // [cancel-ghost-job-diagnostics 2026-06-01] Snapshot of the dispatch
+      // BEFORE the cancel fires. Set of job IDs visible on the same date.
+      // After onUpdate() refetches the dispatch, we diff against this to
+      // catch any job that "appears out of nowhere" — Sal's bug report.
+      // Logs to console (always) and toasts a warning (only when a ghost
+      // is detected) so it doesn't spam the UI on normal cancellations.
+      const beforeIds = (() => {
+        try {
+          const acc: Array<{id: number; client_id: number | null; client_name: string | null; tech_id: number | null}> = [];
+          // Walk the dispatch dataset attached to the panel via window so we
+          // don't have to thread props through every component. The dispatch
+          // grid exposes the current snapshot for debugging.
+          const snapshot = (window as any).__qlenoDispatchSnapshot;
+          if (snapshot?.employees) {
+            for (const e of snapshot.employees) {
+              for (const j of e.jobs || []) acc.push({ id: j.id, client_id: j.client_id, client_name: j.client_name, tech_id: e.id });
+            }
+          }
+          if (snapshot?.unassigned_jobs) {
+            for (const j of snapshot.unassigned_jobs) acc.push({ id: j.id, client_id: j.client_id, client_name: j.client_name, tech_id: null });
+          }
+          return acc;
+        } catch {
+          return [];
+        }
+      })();
+
       // POST /api/cancellations/action handles the full transaction:
       //   - resolves the customer charge from company + per-client policy
       //   - flips job status (complete for charged, cancelled for free)
@@ -1405,7 +1432,47 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       setCancelAction(null);
       setChargeOverride("");
       setCancelNote("");
-      onUpdate();
+      await onUpdate();
+
+      // [cancel-ghost-job-diagnostics] AFTER snapshot. Wait one tick so the
+      // dispatch refetch from onUpdate() has applied to state, then diff.
+      // Any job ID present after but NOT before is a "ghost" — surfaces in
+      // both the console (with full row) and a destructive toast so Sal
+      // sees it without opening DevTools.
+      setTimeout(() => {
+        try {
+          const snapshot = (window as any).__qlenoDispatchSnapshot;
+          if (!snapshot) return;
+          const afterMap = new Map<number, any>();
+          for (const e of (snapshot.employees || [])) {
+            for (const j of (e.jobs || [])) afterMap.set(j.id, { ...j, tech_name: e.name });
+          }
+          for (const j of (snapshot.unassigned_jobs || [])) afterMap.set(j.id, { ...j, tech_name: "Unassigned" });
+          const beforeIdSet = new Set(beforeIds.map(b => b.id));
+          const ghosts: any[] = [];
+          for (const [id, j] of afterMap.entries()) {
+            if (!beforeIdSet.has(id)) ghosts.push(j);
+          }
+          console.log("[cancel-ghost-diag]", {
+            action: cancelAction,
+            cancelled_job: { id: job.id, client_id: job.client_id, client_name: job.client_name },
+            before_count: beforeIds.length,
+            after_count: afterMap.size,
+            ghosts,
+          });
+          if (ghosts.length > 0) {
+            const g = ghosts[0];
+            toast({
+              title: `Ghost job detected: ${g.client_name ?? "Unknown"} (job #${g.id})`,
+              description: `${ghosts.length} job(s) appeared that weren't there before. Open DevTools console for full trace and send Sal a screenshot.`,
+              variant: "destructive",
+            });
+          }
+        } catch (diagErr) {
+          console.warn("[cancel-ghost-diag] failed:", diagErr);
+        }
+      }, 800);
+
       onClose();
     } catch (e) {
       toast({ title: (e as Error).message || "Error", variant: "destructive" });
@@ -4292,6 +4359,11 @@ export default function JobsPage() {
       const d = await fetchDispatch(dateKey(selectedDate), token, activeBranchId);
       if (id !== refreshRef.current) return;
       setData(d);
+      // [cancel-ghost-job-diagnostics 2026-06-01] Expose the freshest
+      // dispatch payload to window so the JobPanel cancelJob() handler can
+      // snapshot it before+after a cancellation and surface any ghost job
+      // that appears. No-op outside the cancel flow.
+      try { (window as any).__qlenoDispatchSnapshot = d; } catch {}
       // Collect all dates with jobs for the calendar dots
       const allJobs = [...(d.unassigned_jobs || []), ...(d.employees || []).flatMap((e: Employee) => e.jobs)];
       setJobDates(prev => {
