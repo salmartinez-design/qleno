@@ -71,6 +71,13 @@ import {
 import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
 import { getDistanceProvider } from "../lib/distance-provider-factory.js";
 import type { DistanceProvider } from "../lib/distance-provider.js";
+import {
+  computeCommissionRows,
+  reconcileCommissionRows,
+  type CommissionInputJob,
+} from "../lib/commission-compute.js";
+import { parseResRatesRow } from "../lib/commission-rates.js";
+import { additionalPayTable } from "@workspace/db/schema";
 
 const router = Router();
 
@@ -690,8 +697,230 @@ router.post("/periods/:id/lock", async (req, res) => {
         eq(payPeriodsTable.id, periodId),
       ),
     );
+
+  // Cutover 4a — commission auto-compute fires at lock time. Idempotent:
+  // re-locks (after an unapprove → re-lock) reconcile against existing
+  // commission rows in additional_pay rather than duplicating. Failure is
+  // logged but NOT fatal — the period is locked either way; the office
+  // can re-run via /compute-commission if the auto-fire errored.
+  try {
+    const result = await computeAndApplyCommission(companyId, period.start_date, period.end_date, periodId);
+    console.log(
+      `[pay] period ${periodId} (company ${companyId}) auto-commission: ` +
+      `inserted=${result.inserted} updated=${result.updated} voided=${result.voided}`,
+    );
+  } catch (err) {
+    console.error(
+      `[pay] period ${periodId} (company ${companyId}) auto-commission FAILED (non-fatal):`,
+      err,
+    );
+  }
   return res.json({ data: { id: periodId, status: "locked" } });
 });
+
+/**
+ * Cutover 4a — explicit re-run endpoint. Useful when:
+ *   - The auto-fire on lock errored (and got logged)
+ *   - Jobs were retroactively edited (billed_amount, service_type) and
+ *     the period is still locked but not yet approved
+ *   - Office wants a preview before commit (?dry_run=1 returns the plan
+ *     without writing)
+ *
+ * Refuses on approved / exported periods — once approved, commission is
+ * frozen.
+ */
+router.post("/periods/:id/compute-commission", adminWriteGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const periodId = Number(req.params.id);
+  if (!Number.isFinite(periodId)) return badRequest(res, "Invalid id");
+  const period = await loadPeriod(companyId, periodId);
+  if (!period) return notFound(res, "Period not found");
+  if (period.status === "approved" || period.status === "exported") {
+    return refusedDueToPeriodState(res, period.status);
+  }
+  const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true";
+  const result = await computeAndApplyCommission(
+    companyId,
+    period.start_date,
+    period.end_date,
+    periodId,
+    { dryRun },
+  );
+  return res.json({ data: { period_id: periodId, dry_run: dryRun, ...result } });
+});
+
+/**
+ * Pull every job + override for the (company, window), compute commission
+ * rows, reconcile against existing `additional_pay` rows, and apply the
+ * diff (insert / update / void). All in one transaction so the period
+ * never sees a half-written commission state.
+ *
+ * Returns counts for logging + the dry-run response shape.
+ */
+async function computeAndApplyCommission(
+  companyId: number,
+  periodStart: string,
+  periodEnd: string,
+  periodId: number,
+  opts: { dryRun?: boolean } = {},
+): Promise<{ inserted: number; updated: number; voided: number; total_amount: number }> {
+  const dryRun = opts.dryRun === true;
+
+  // Company config — same waterfall as routes/payroll.ts /detail.
+  let compSettings: any = {
+    res_tech_pay_pct: 0.35,
+    deep_clean_pay_pct: 0.32,
+    move_in_out_pay_pct: 0.32,
+    commercial_hourly_rate: 20.0,
+    commercial_comp_mode: "allowed_hours",
+  };
+  try {
+    const rows = await db.execute(
+      sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`,
+    );
+    if (rows.rows[0]) compSettings = rows.rows[0];
+  } catch {
+    // Tiered columns absent on this tenant's DB — keep defaults. Same
+    // fallback /payroll/detail uses.
+  }
+  const resRates = parseResRatesRow(compSettings);
+
+  // All completed jobs in the window, with their assigned tech.
+  const jobs = await db
+    .select({
+      id: jobsTable.id,
+      assigned_user_id: jobsTable.assigned_user_id,
+      service_type: jobsTable.service_type,
+      account_id: jobsTable.account_id,
+      base_fee: jobsTable.base_fee,
+      billed_amount: jobsTable.billed_amount,
+      allowed_hours: jobsTable.allowed_hours,
+      actual_hours: jobsTable.actual_hours,
+      branch_id: jobsTable.branch_id,
+      scheduled_date: jobsTable.scheduled_date,
+    })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.company_id, companyId),
+        eq(jobsTable.status, "complete"),
+        gte(jobsTable.scheduled_date, periodStart),
+        lte(jobsTable.scheduled_date, periodEnd),
+      ),
+    );
+
+  // Per-job final_pay overrides on job_technicians — when set, the office
+  // hand-modified commission via the per-job editor and we honor it.
+  const jobIds = jobs.map((j) => j.id);
+  const overrides = new Map<string, number>();
+  if (jobIds.length > 0) {
+    try {
+      const overrideRows = await db.execute(
+        sql`SELECT job_id, user_id, final_pay FROM job_technicians
+            WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
+              AND final_pay IS NOT NULL`,
+      );
+      for (const r of overrideRows.rows as any[]) {
+        const pay = parseFloat(String(r.final_pay));
+        if (Number.isFinite(pay)) {
+          overrides.set(`${r.user_id}:${r.job_id}`, pay);
+        }
+      }
+    } catch {
+      // job_technicians may be absent on freshly-seeded tenants.
+    }
+  }
+
+  const computed = computeCommissionRows({
+    jobs: jobs as CommissionInputJob[],
+    resRates,
+    commercial: {
+      commercial_hourly_rate: parseFloat(String(compSettings.commercial_hourly_rate ?? 20)),
+      commercial_comp_mode: (compSettings.commercial_comp_mode === "actual_hours"
+        ? "actual_hours"
+        : "allowed_hours"),
+    },
+    overrides,
+  });
+
+  // Existing commission rows in this window — match by job_id IN (...).
+  // type='commission' filter keeps tips/bonuses/mileage out of the diff.
+  const existingRows = jobIds.length > 0
+    ? await db.execute(sql`
+        SELECT id, user_id, job_id, amount, voided_at
+          FROM additional_pay
+         WHERE company_id = ${companyId}
+           AND type = 'commission'
+           AND job_id = ANY(${jobIds}::int[])
+      `)
+    : { rows: [] as any[] };
+  const existing = (existingRows.rows as any[]).map((r) => ({
+    id: r.id,
+    user_id: r.user_id,
+    job_id: r.job_id,
+    amount: r.amount,
+    voided_at: r.voided_at,
+  }));
+
+  const plan = reconcileCommissionRows({ computed, existing });
+  const totalAmount = computed.reduce((s, r) => s + r.amount, 0);
+
+  if (dryRun) {
+    return {
+      inserted: plan.to_insert.length,
+      updated: plan.to_update.length,
+      voided: plan.to_void.length,
+      total_amount: Math.round(totalAmount * 100) / 100,
+    };
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  let voided = 0;
+  await db.transaction(async (tx) => {
+    if (plan.to_insert.length > 0) {
+      const ins = await tx
+        .insert(additionalPayTable)
+        .values(
+          plan.to_insert.map((r) => ({
+            company_id: companyId,
+            user_id: r.user_id,
+            job_id: r.job_id,
+            amount: r.amount.toFixed(2),
+            type: "commission",
+            notes: `[commission_auto] period_id=${periodId} basis=${r.basis}`,
+            status: "pending" as const,
+          })),
+        )
+        .returning({ id: additionalPayTable.id });
+      inserted = ins.length;
+    }
+    for (const u of plan.to_update) {
+      await tx
+        .update(additionalPayTable)
+        .set({
+          amount: u.new_amount.toFixed(2),
+          notes: `[commission_auto] period_id=${periodId} recomputed`,
+        })
+        .where(eq(additionalPayTable.id, u.id));
+      updated++;
+    }
+    for (const v of plan.to_void) {
+      await tx
+        .update(additionalPayTable)
+        .set({ voided_at: new Date(), notes: `[commission_auto] period_id=${periodId} voided (job no longer in compute set)` })
+        .where(eq(additionalPayTable.id, v.id));
+      voided++;
+    }
+  });
+
+  return {
+    inserted,
+    updated,
+    voided,
+    total_amount: Math.round(totalAmount * 100) / 100,
+  };
+}
 
 router.post("/periods/:id/approve", adminWriteGate, async (req, res) => {
   const companyId = req.auth!.companyId!;
