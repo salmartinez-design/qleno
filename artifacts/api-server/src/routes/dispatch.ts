@@ -674,6 +674,11 @@ router.get("/", requireAuth, async (req, res) => {
         estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,
         actual_hours: j.actual_hours ? parseFloat(j.actual_hours) : null,
         billed_hours: j.billed_hours ? parseFloat(j.billed_hours) : null,
+        // [2026-06-02] Surface allowed_hours so the FE can sum the day's
+        // total hours and the drag-and-drop slot resolver can read the
+        // original allowed budget. MC's Schedule view shows 57.3h for
+        // 06-01; without this Qleno couldn't compute the matching total.
+        allowed_hours: j.allowed_hours ? parseFloat(j.allowed_hours) : null,
         billed_amount: j.billed_amount ? parseFloat(j.billed_amount) : null,
         charge_failed_at: j.charge_failed_at ?? null,
         charge_succeeded_at: j.charge_succeeded_at ?? null,
