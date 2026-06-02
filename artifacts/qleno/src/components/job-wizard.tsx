@@ -240,6 +240,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [estimatedHours, setEstimatedHours] = useState("");
   const [manualBillingMethod, setManualBillingMethod] = useState("hourly");
   const [manualRate, setManualRate] = useState("");
+  // Most recent non-cancelled job at the selected property — drives the
+  // "Rebook last service" suggestion on the commercial Service step.
+  const [propertyRecentJob, setPropertyRecentJob] = useState<any>(null);
   const [commercialScheduledDate, setCommercialScheduledDate] = useState(todayStr());
   const [commercialScheduledTime, setCommercialScheduledTime] = useState("09:00");
   const [commercialDuration, setCommercialDuration] = useState(120);
@@ -415,6 +418,54 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       if (!isNaN(n) && n > 0) { setPrice(n); setPriceOverridden(true); }
     }
     if (pastJob.frequency) setFrequency(pastJob.frequency);
+  }
+
+  // Load the most recent job at the selected commercial property. When the
+  // property has history we surface a "Rebook last service" suggestion on
+  // the Service step; when it has none we fall back to the property's
+  // default_service_type so common new bookings still start pre-filled.
+  useEffect(() => {
+    if (clientType !== "commercial" || !selectedAccount || !selectedProperty) {
+      setPropertyRecentJob(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`${API}/api/accounts/${selectedAccount.id}/properties/${selectedProperty.id}/recent-job`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(job => {
+        if (cancelled) return;
+        setPropertyRecentJob(job || null);
+        // No history → pre-select the property's usual service if it maps to
+        // an active commercial type. Don't touch the type when history exists;
+        // the operator picks Rebook explicitly.
+        if (!job && selectedProperty.default_service_type) {
+          const valid = apiServiceTypes.some(
+            s => s.parent_slug === "commercial" && s.is_active && s.slug === selectedProperty.default_service_type
+          );
+          if (valid) {
+            setCommercialServiceType(selectedProperty.default_service_type);
+            setRateLookup(null); setRateLookupDone(false); setRateOverride(false);
+          }
+        }
+      })
+      .catch(() => { if (!cancelled) setPropertyRecentJob(null); });
+    return () => { cancelled = true; };
+  }, [selectedAccount, selectedProperty, clientType, apiServiceTypes]);
+
+  // Re-book: copy service type, hours, and rate from this property's last job.
+  // Setting the service type re-triggers the rate-card lookup, so the CURRENT
+  // contracted rate fills in; the historical hourly_rate is kept only as the
+  // no-rate-card fallback. Date and tech are intentionally left untouched.
+  function rebookFromProperty(job: any) {
+    if (!job) return;
+    if (job.service_type) {
+      setCommercialServiceType(job.service_type);
+      setRateLookup(null); setRateLookupDone(false); setRateOverride(false);
+    }
+    const hours = job.allowed_hours ?? job.estimated_hours ?? null;
+    if (hours != null && parseFloat(String(hours)) > 0) setEstimatedHours(String(parseFloat(String(hours))));
+    if (job.billing_method) setManualBillingMethod(job.billing_method);
+    if (job.hourly_rate != null) setManualRate(String(job.hourly_rate));
   }
 
   // Inline payment_method edit — persists via PUT /api/clients/:id
@@ -1292,6 +1343,30 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   </p>
                 </div>
               )}
+
+              {propertyRecentJob && (() => {
+                const rj = propertyRecentJob;
+                const rjHours = rj.allowed_hours ?? rj.estimated_hours ?? null;
+                const alreadyApplied = commercialServiceType === rj.service_type;
+                return (
+                  <div style={{ background: "#F0FDFB", border: "1px solid #99E6D5", borderRadius: 10, padding: "12px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                    <RefreshCw size={16} style={{ color: "var(--brand, #00C9A0)", flexShrink: 0 }}/>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>
+                        Last service here: {fmtSvcLabel(rj.service_type)}
+                      </p>
+                      <p style={{ fontSize: 11, color: "#6B7280", margin: 0 }}>
+                        {rjHours != null ? `${parseFloat(String(rjHours))} hrs · ` : ""}{rj.scheduled_date || ""}
+                      </p>
+                    </div>
+                    <button type="button" onClick={() => rebookFromProperty(rj)}
+                      style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: alreadyApplied ? "#9E9B94" : "#fff", background: alreadyApplied ? "#E5E2DC" : "var(--brand, #00C9A0)", border: "none", borderRadius: 8, padding: "8px 14px", cursor: alreadyApplied ? "default" : "pointer", fontFamily: "inherit" }}
+                      disabled={alreadyApplied}>
+                      {alreadyApplied ? "Applied" : "Rebook"}
+                    </button>
+                  </div>
+                );
+              })()}
 
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>

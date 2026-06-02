@@ -344,6 +344,50 @@ router.get("/:id/properties", requireAuth, requireRole("owner", "admin", "office
   }
 });
 
+// GET /api/accounts/:id/properties/:propId/recent-job
+// Most recent non-cancelled job at this property — powers the job-wizard
+// "Rebook last service" suggestion. Returns null when the property has no
+// prior jobs (the wizard then falls back to the property's
+// default_service_type). Scoped to the property so each building remembers
+// its own last service (e.g. a turnover at 1120 N La Salle, a common-area
+// clean at 1555 N Astor).
+router.get("/:id/properties/:propId/recent-job", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  const propId = parseInt(req.params.propId);
+  if (isNaN(id) || isNaN(propId)) return res.status(400).json({ error: "Invalid id" });
+
+  try {
+    const [job] = await db
+      .select({
+        id: jobsTable.id,
+        service_type: jobsTable.service_type,
+        billing_method: jobsTable.billing_method,
+        hourly_rate: jobsTable.hourly_rate,
+        allowed_hours: jobsTable.allowed_hours,
+        estimated_hours: jobsTable.estimated_hours,
+        base_fee: jobsTable.base_fee,
+        frequency: jobsTable.frequency,
+        scheduled_date: jobsTable.scheduled_date,
+      })
+      .from(jobsTable)
+      .where(
+        and(
+          eq(jobsTable.account_id, id),
+          eq(jobsTable.account_property_id, propId),
+          eq(jobsTable.company_id, req.auth!.companyId),
+          sql`${jobsTable.status} <> 'cancelled'`,
+        )
+      )
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobsTable.id))
+      .limit(1);
+
+    res.json(job ?? null);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch recent job" });
+  }
+});
+
 // POST /api/accounts/:id/properties
 router.post("/:id/properties", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);
