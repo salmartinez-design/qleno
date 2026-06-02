@@ -14,15 +14,24 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, assigned_user_id, client_id, date_from, date_to, page = "1", limit = "50", uninvoiced, branch_id } = req.query;
+    // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
+    // existing date_from/date_to range. `?date=YYYY-MM-DD` was being ignored
+    // (silently passed through), so callers got the full jobs table back.
+    // When `date` is set it takes precedence (clearer intent than passing
+    // identical from+to). Range params still work for multi-day queries.
+    const { status, assigned_user_id, client_id, date, date_from, date_to, page = "1", limit = "50", uninvoiced, branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const conditions: any[] = [eq(jobsTable.company_id, req.auth!.companyId)];
     if (status) conditions.push(eq(jobsTable.status, status as any));
     if (assigned_user_id) conditions.push(eq(jobsTable.assigned_user_id, parseInt(assigned_user_id as string)));
     if (client_id) conditions.push(eq(jobsTable.client_id, parseInt(client_id as string)));
-    if (date_from) conditions.push(gte(jobsTable.scheduled_date, date_from as string));
-    if (date_to) conditions.push(lte(jobsTable.scheduled_date, date_to as string));
+    if (date) {
+      conditions.push(eq(jobsTable.scheduled_date, date as string));
+    } else {
+      if (date_from) conditions.push(gte(jobsTable.scheduled_date, date_from as string));
+      if (date_to) conditions.push(lte(jobsTable.scheduled_date, date_to as string));
+    }
     if (branch_id && branch_id !== "all") conditions.push(eq(jobsTable.branch_id, parseInt(branch_id as string)));
     if (uninvoiced === "true") {
       conditions.push(
@@ -864,6 +873,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
       parking_fee_enabled,
       parking_fee_amount,
       parking_fee_days,
+      // [BUG-2 / 2026-06-01] status was referenced at lines ~1136 and ~1214
+      // (cancel-modal PATCH path) but never destructured here. Every PATCH
+      // request — even ones with no status field at all — hit the bare
+      // `status !== undefined` check and threw ReferenceError, breaking
+      // the entire Edit-Job modal. status is whitelisted to 'cancelled'
+      // only; the validation below stays unchanged.
+      status,
     } = req.body ?? {};
 
     // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
@@ -4332,12 +4348,22 @@ router.get("/:id/rate-mods", requireAuth, async (req, res) => {
 });
 
 // POST /api/jobs/:id/rate-mods — add a mod
+//
+// [BUG-3 / 2026-06-01] dry_run support. When body has `dry_run: true`, the
+// route validates the inputs and returns the projected billed_amount WITHOUT
+// inserting a row or updating billed_amount. Previously the flag was silently
+// ignored, so a "preview" call by the UI would actually charge the mod — and
+// a subsequent real submit would stack a second mod on top (double-charge:
+// $320 base + $100 dry-run + $100 real = $520 instead of the intended $420).
+// Response shape under dry_run keeps `billed_amount` so the preview UI can
+// render it; `mod` is null and `dry_run: true` is echoed back.
 router.post("/:id/rate-mods", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
     const userId = req.auth!.userId;
-    const { mod_type, minutes, amount, reason } = req.body ?? {};
+    const { mod_type, minutes, amount, reason, dry_run } = req.body ?? {};
+    const isDryRun = dry_run === true;
 
     if (mod_type !== "time" && mod_type !== "flat") {
       return res.status(400).json({ error: "Bad Request", message: "mod_type must be 'time' or 'flat'" });
@@ -4354,12 +4380,31 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     }
 
     const [existing] = await db
-      .select({ id: jobsTable.id })
+      .select({ id: jobsTable.id, base_fee: jobsTable.base_fee })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
     if (!existing) {
       return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    }
+
+    // Dry-run projection: current_billed + amt. No write to job_rate_mods,
+    // no UPDATE on jobs.billed_amount, no audit log row.
+    if (isDryRun) {
+      const base = parseFloat(String(existing.base_fee || "0"));
+      const sumRows = await db.execute(sql`
+        SELECT COALESCE(SUM(amount), 0)::numeric AS total
+        FROM job_rate_mods
+        WHERE job_id = ${jobId} AND company_id = ${companyId}
+      `);
+      const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
+      const projected = base + modsTotal + amt;
+      return res.status(200).json({
+        dry_run: true,
+        mod: null,
+        billed_amount: projected.toFixed(2),
+        projected_billed_amount: projected.toFixed(2),
+      });
     }
 
     const insert = await db.execute(sql`

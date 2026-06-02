@@ -602,7 +602,20 @@ router.get("/", requireAuth, async (req, res) => {
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
         frequency: j.frequency,
-        amount: j.base_fee ? parseFloat(j.base_fee) : 0,
+        // [BUG-6 / 2026-06-01] amount must match what the invoice will bill,
+        // not the raw base_fee. billed_amount is the source of truth when
+        // present (it's recomputed = base_fee + SUM(rate_mods.amount) every
+        // time a mod is added/removed), so we COALESCE to it first. Add-on
+        // subtotals are layered on top — the recompute helper doesn't fold
+        // them in today, and dispatch is the surface that matters for the
+        // day's revenue rollup. Fixes Job 4322 reading 320 when actual bill
+        // was 420 ($100 flat mod) and any job with add-ons under-reporting.
+        amount: (() => {
+          const billed = j.billed_amount ? parseFloat(j.billed_amount) : null;
+          const baseOrBilled = billed != null ? billed : (j.base_fee ? parseFloat(j.base_fee) : 0);
+          const addOnTotal = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
+          return baseOrBilled + addOnTotal;
+        })(),
         duration_minutes: durationMinutes,
         notes: j.notes,
         before_photo_count: photos.before,
@@ -615,6 +628,10 @@ router.get("/", requireAuth, async (req, res) => {
         last_service_date: j.last_service_date ?? null,
         account_id: j.account_id ?? null,
         account_name: j.account_name ?? null,
+        // [BUG-1 / 2026-06-01] Needed by the slotKey dedupe below to
+        // distinguish two commercial jobs at the same (account, date, time)
+        // serving different properties. Without it the second one collapsed.
+        account_property_id: (j as any).account_property_id ?? null,
         // [AI.6.2] Surface schedule linkage so the edit modal's cascade
         // prompt fires for recurring jobs.
         recurring_schedule_id: (j as any).recurring_schedule_id ?? null,
@@ -690,8 +707,22 @@ router.get("/", requireAuth, async (req, res) => {
     // order (Map preserves order; we just keep the first one in).
     const seenIds = new Set<number>();
     const seenSlots = new Set<string>();
-    const slotKey = (j: typeof mappedJobs[number]) =>
-      `${j.client_id ?? "n"}|${j.scheduled_date ?? ""}|${j.scheduled_time ?? "00:00:00"}`;
+    // [BUG-1 / 2026-06-01] Commercial jobs have client_id=NULL (the customer
+    // identity lives on jobs.account_id + jobs.account_property_id), so the
+    // old slotKey `"n|date|time"` collapsed every commercial job at the same
+    // (date, time) into one slot — the second job got silently dropped.
+    // Daniel Walter Properties had two 13:00 jobs on 2026-06-01 (PPM
+    // Unit Turnover #5661 on Hilda, PPM Common Areas #5663 on Jose);
+    // only the first one rendered. Slot key now uses
+    // (account_id, account_property_id) when client_id is null so each
+    // commercial property gets its own slot identity. Residential jobs
+    // (client_id present, account_id null) keep the original key shape.
+    const slotKey = (j: typeof mappedJobs[number]) => {
+      const identity = j.client_id != null
+        ? `c${j.client_id}`
+        : `a${j.account_id ?? "n"}p${j.account_property_id ?? "n"}`;
+      return `${identity}|${j.scheduled_date ?? ""}|${j.scheduled_time ?? "00:00:00"}`;
+    };
     for (const job of mappedJobs) {
       if (seenIds.has(job.id)) continue;
       const slot = slotKey(job);

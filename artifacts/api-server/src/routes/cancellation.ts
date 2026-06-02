@@ -200,15 +200,25 @@ router.post("/action", requireAuth, async (req, res) => {
 
   // Load job + client + company defaults in one round trip. Tech-pay
   // policy fields piggyback here so we don't need a second query.
+  //
+  // [BUG-4 / 2026-06-01] LEFT JOIN clients (was INNER). Commercial jobs
+  // store the customer identity on jobs.account_id + jobs.account_property_id
+  // and leave jobs.client_id NULL — INNER JOIN drops them, the handler
+  // returned 404 "Job not found", and the cancel modal bubbled that up
+  // for any commercial job. Affected the unassigned lane especially since
+  // recently-created commercial jobs land there first. Residential rows
+  // still get their cancel/lockout-pct overrides via the join; commercial
+  // rows resolve those columns to NULL and fall through to company
+  // defaults, which is the existing intended behavior for commercial.
   const ctx = await db.execute(sql`
-    SELECT j.id, j.client_id, j.status::text AS status, j.billed_amount, j.base_fee,
+    SELECT j.id, j.client_id, j.account_id, j.status::text AS status, j.billed_amount, j.base_fee,
            j.notes AS job_notes, j.recurring_schedule_id,
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
            c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
            co.default_cancel_fee_pct, co.default_lockout_fee_pct,
            co.cancellation_tech_pay_mode, co.cancellation_tech_pay_amount
       FROM jobs j
-      JOIN clients c ON c.id = j.client_id
+      LEFT JOIN clients c ON c.id = j.client_id
       JOIN companies co ON co.id = j.company_id
      WHERE j.id = ${body.job_id} AND j.company_id = ${companyId}
      LIMIT 1
