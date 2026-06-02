@@ -5453,8 +5453,28 @@ export default function JobsPage() {
                         line below is list-only context — it doesn't
                         belong on the chip body. */}
                     {allJobs.map(j => {
-                      const estH = j.est_hours_per_tech ?? j.estimated_hours;
-                      const showCommissionLine = estH != null && estH > 0;
+                      // [2026-06-02] Footer was only rendering when
+                      // est_hours_per_tech OR estimated_hours was populated,
+                      // which residential cards always have but commercial
+                      // PPM jobs often don't (allowed_hours is the source
+                      // of truth for commercial — see CLAUDE.md commission
+                      // routing notes). Result: residential rows showed
+                      // "Est X.X hrs · $X commission", commercial rows
+                      // showed nothing, and cards rendered at inconsistent
+                      // heights. Fallback chain now reaches duration_minutes
+                      // so every card has an hours value; commercial pay
+                      // computes as commercial_hourly_rate × hours when
+                      // est_pay_per_tech is null.
+                      const estH = j.est_hours_per_tech
+                        ?? j.estimated_hours
+                        ?? (j.duration_minutes ? j.duration_minutes / 60 : null);
+                      const isCommercial = !!j.account_id || j.client_type === "commercial";
+                      const commercialPay = (isCommercial && j.commercial_hourly_rate != null && estH != null)
+                        ? j.commercial_hourly_rate * estH
+                        : null;
+                      const payValue = j.est_pay_per_tech ?? commercialPay;
+                      const payLabel = isCommercial ? "tech pay" : "commission";
+                      const showLine = estH != null && estH > 0;
                       return (
                         <div key={j.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           <JobChip
@@ -5463,15 +5483,15 @@ export default function JobsPage() {
                             assignedName={j.assigned_user_name}
                             layout="list"
                           />
-                          {showCommissionLine && (
+                          {showLine && (
                             <div style={{ display: "flex", gap: 10, alignItems: "center", paddingLeft: 14, fontSize: 11, color: "#9E9B94" }}>
                               <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
                                 <Clock size={10} style={{ color: "#C4C0BB" }} />
                                 Est. {(estH ?? 0).toFixed(1)} hrs
                               </span>
-                              {j.est_pay_per_tech != null && j.est_pay_per_tech > 0 && (
+                              {payValue != null && payValue > 0 && (
                                 <span style={{ fontWeight: 700, color: "#16A34A" }}>
-                                  · ${j.est_pay_per_tech.toFixed(2)} commission
+                                  · ${payValue.toFixed(2)} {payLabel}
                                 </span>
                               )}
                             </div>
