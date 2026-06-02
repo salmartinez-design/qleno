@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { useBranch } from "@/contexts/branch-context";
 import { X, ChevronRight, ChevronLeft, Search, Check, Clock, User, Calendar, Sparkles, Zap, ArrowRightCircle, Home, RefreshCw, Wrench, Building2, LayoutGrid, MapPin, AlertTriangle, DollarSign } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -174,6 +175,16 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [newCustPhone, setNewCustPhone] = useState("");
   const [newCustEmail, setNewCustEmail] = useState("");
   const [newCustAddress, setNewCustAddress] = useState("");
+  // Google Places autocomplete on the inline New Customer address field —
+  // same help the profile/quote forms get, so the office isn't hand-typing
+  // (and mistyping) addresses when scheduling from Jobs.
+  const newCustAddrRef = useRef<HTMLInputElement>(null);
+  useAddressAutocomplete(newCustAddrRef, showNewCust, (p) => {
+    const composed = p.street && p.city
+      ? `${p.street}, ${p.city}, ${p.state} ${p.zip}`.trim()
+      : (p.formatted || "").replace(/, USA$/, "");
+    setNewCustAddress(composed);
+  });
   const [newCustSaving, setNewCustSaving] = useState(false);
   const [newCustError, setNewCustError] = useState("");
 
@@ -709,8 +720,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // - Hybrid client + operator picked an override → use override.
   // - Otherwise → fall back to clientType (set from preselected
   //   client or step 0 toggle).
+  // A client (not an account) tagged commercial — e.g. a church — gets
+  // commercial service types on the simple client path, WITHOUT the full
+  // account/property PM protocol. It defaults to commercial; the Job Type
+  // toggle lets the office flip back to residential services for a one-off.
+  const clientIsCommercial =
+    ((selectedClient?.client_type ?? preselectedClient?.client_type) === "commercial");
   const effectiveParent: "residential" | "commercial" =
-    (isHybridClient && hybridParentOverride) ? hybridParentOverride : clientType;
+    hybridParentOverride ?? (clientIsCommercial ? "commercial" : clientType);
 
   return (
     <div style={OVERLAY} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -858,7 +875,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   </div>
                   <div style={{ marginBottom: 14 }}>
                     <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Address</label>
-                    <input value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} placeholder="123 Main St, City, FL"
+                    <input ref={newCustAddrRef} value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} placeholder="Start typing an address…"
                       style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -1034,12 +1051,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           {/* ── STEP 2: DETAILS (Residential) ── */}
           {step === 2 && clientType === "residential" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-              {/* [commercial-workflow PR #3] Hybrid parent toggle —
-                  shown only when isHybridClient. Lets the operator
-                  flip Residential ↔ Commercial without backing out
-                  to step 0. Hidden for non-hybrid clients (current
-                  flow). */}
-              {isHybridClient && (
+              {/* Job Type toggle — Residential ↔ Commercial service types on
+                  the client path. Shown for hybrid clients (booked both types)
+                  AND for commercial clients (e.g. a church), so the office can
+                  schedule commercial service without the account/property PM
+                  protocol. Hidden for plain residential clients. */}
+              {(isHybridClient || clientIsCommercial) && (
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
                   <div style={{ display: "flex", gap: 8 }}>
@@ -1057,7 +1074,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     ))}
                   </div>
                   <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
-                    Hybrid client — has booked jobs in both types in the last 12 months.
+                    {isHybridClient
+                      ? "Hybrid client — has booked jobs in both types in the last 12 months."
+                      : "Commercial client — pick the service category for this job."}
                   </p>
                 </div>
               )}
@@ -1132,13 +1151,13 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     the API IS the source of truth. */}
                 {(() => {
                   const children = apiServiceTypes
-                    .filter(s => s.parent_slug === "residential" && s.is_active)
+                    .filter(s => s.parent_slug === effectiveParent && s.is_active)
                     .sort((a, b) => a.display_order - b.display_order);
                   if (serviceTypesLoading && children.length === 0) {
                     return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
                   }
                   if (children.length === 0) {
-                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active residential service types configured.</p>;
+                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active {effectiveParent} service types configured.</p>;
                   }
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>

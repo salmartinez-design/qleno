@@ -210,6 +210,9 @@ router.get("/detail", requireAuth, async (req, res) => {
         branch_id: jobsTable.branch_id,
         client_first: clientsTable.first_name,
         client_last: clientsTable.last_name,
+        // Commercial CLIENTS (no account_id) are still commercial for pay —
+        // never a residential %. Routing below keys on account_id OR this.
+        client_type: clientsTable.client_type,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -282,7 +285,11 @@ router.get("/detail", requireAuth, async (req, res) => {
         // [AI.7.4] Commercial routes on account_id. Hours signal honors
         // commercial_comp_mode (default 'allowed_hours'). Residential
         // unchanged — pool-rate × jobTotal.
-        const isCommercialJob = (job as any).account_id != null;
+        // [commercial-clients 2026-06-02] Commercial CLIENTS (client_type
+        // = 'commercial', no account) are commercial too — Sal's rule:
+        // commercial is ALWAYS hourly × allowed_hours, never a residential %.
+        const isCommercialJob = (job as any).account_id != null
+          || (job as any).client_type === "commercial";
         const commercialHours = commercialCompMode === "actual_hours" && workedHrs > 0
           ? workedHrs : allowedHrs;
         // [tiered-residential] Deep Clean / Move In-Out pay 32% (Phes
