@@ -3217,12 +3217,17 @@ export type { DispatchJob as _DispatchJobForTesting };
 type ChipLayout = "timeline" | "list" | "drag";
 
 function JobChip({
-  job, onClick, assignedName, isUnassigned, forceStatus, layout = "timeline",
+  job, onClick, assignedName, isUnassigned, forceStatus, layout = "timeline", top = 10,
 }: {
   job: DispatchJob;
   onClick: (j: DispatchJob) => void;
   assignedName?: string;
   isUnassigned?: boolean;
+  /** Timeline vertical offset within the lane. Default 10 (single
+   *  sub-lane, unchanged). The parent row's overlap packer raises this
+   *  for jobs stacked into deeper sub-lanes so time-overlapping chips
+   *  don't paint on top of (and hide) each other. */
+  top?: number;
   /** Test-only override for visual status. Used by /jobs/visual-test
    *  to render every lifecycle state side-by-side, bypassing
    *  LIVE_OPS / clock-derivation gates. Production callers should
@@ -3476,7 +3481,7 @@ function JobChip({
       onMouseEnter={onEnter} onMouseLeave={onLeave}
       {...(isComplete ? {} : { ...dnd.listeners, ...dnd.attributes })}
       style={{
-        position: "absolute", top: 10, left: timelineLeft, width: timelineWidth, height: ROW_H - 20,
+        position: "absolute", top, left: timelineLeft, width: timelineWidth, height: ROW_H - 20,
         borderRadius: 8, backgroundColor: bgColor,
         border: `2px solid ${borderColor}`,
         boxSizing: "border-box", overflow: "visible",
@@ -3727,6 +3732,53 @@ const TIME_OFF_BG: Record<string, string> = {
 function getBandLeft()  { return 0; }
 function getBandWidth() { return TOTAL_SLOTS * SLOT_W; }
 
+// [overlap-stacking 2026-06-02] Pack a lane's jobs into stacked sub-lanes
+// so time-overlapping chips never paint on top of each other.
+//
+// Root cause this fixes: every JobChip was absolutely positioned at a
+// fixed `top: 10`, with left/width derived purely from scheduled_time +
+// duration. When one tech had two jobs whose time ranges overlapped, the
+// two chips landed at the same top and overlapping left — the later one
+// in array order completely covered the earlier one. That single render
+// bug produced TWO long-standing field reports:
+//   * "cancel a job and a DIFFERENT client's job appears" (#223) — the
+//     hidden chip underneath surfaced once the top one was filtered out.
+//   * "skipped Ava Martinez but it se quedó ahí" — the overlapping chip
+//     stayed in the same spot, so the skip looked like a no-op.
+// The cancel→ghost diagnostic (#223) never caught it because the "ghost"
+// was always in the dispatch payload (so the before/after id-diff found
+// nothing new) — it was only ever hidden in the paint.
+//
+// Greedy interval packing: sort by start, drop each job into the first
+// sub-lane whose last chip has already ended, else open a new sub-lane.
+// A non-overlapping row resolves to one sub-lane → original 72px height,
+// chips at top:10 (zero visual change). Overlapping rows grow tall enough
+// to show every chip. Effective end uses a 30-min floor because the chip
+// has a SLOT_W minimum width — two back-to-back min-width chips still
+// overlap visually even when their logical durations don't.
+const CHIP_H = ROW_H - 20;       // 52 — single-chip height, unchanged
+const SUBLANE_GAP = 8;
+function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeight: number } {
+  const topById = new Map<number, number>();
+  if (jobs.length === 0) return { topById, rowHeight: ROW_H };
+  const sorted = [...jobs].sort((a, b) => {
+    const sa = timeToMins(a.scheduled_time), sb = timeToMins(b.scheduled_time);
+    return sa !== sb ? sa - sb : a.id - b.id;
+  });
+  const laneEnds: number[] = []; // end-minute of the last chip in each sub-lane
+  for (const j of sorted) {
+    const start = timeToMins(j.scheduled_time);
+    const end = start + Math.max(j.duration_minutes || 0, 30);
+    let lane = laneEnds.findIndex(e => e <= start);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(end); }
+    else laneEnds[lane] = end;
+    topById.set(j.id, 10 + lane * (CHIP_H + SUBLANE_GAP));
+  }
+  const laneCount = laneEnds.length;
+  const rowHeight = 20 + laneCount * CHIP_H + (laneCount - 1) * SUBLANE_GAP;
+  return { topById, rowHeight };
+}
+
 function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
@@ -3757,8 +3809,11 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   const pay = payFromJobs > 0 ? payFromJobs : payFromRate;
   const isClockedIn = employee.jobs.some(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
   const timeOffBg = employee.time_off ? TIME_OFF_BG[employee.time_off] : null;
+  // [overlap-stacking] Stack time-overlapping chips into sub-lanes so none
+  // hides another; row grows to fit. One sub-lane → unchanged 72px row.
+  const { topById, rowHeight } = packLanes(employee.jobs);
   return (
-    <div style={{ display: "flex", borderBottom: "1px solid #EEECE7", height: ROW_H }}>
+    <div style={{ display: "flex", borderBottom: "1px solid #EEECE7", height: rowHeight }}>
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: timeOffBg || "#FFFFFF", borderRight: "1px solid #E5E2DC", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
         <div style={{ position: "relative", flexShrink: 0 }}>
           {/* [2026-06-02] Show users.avatar_url when present; fall back
@@ -3793,14 +3848,14 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
           </div>
         </div>
       </div>
-      <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
+      <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
         {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }} />)}
         {/* Time-off band sits behind job chips (zIndex 0) */}
         {timeOffBg && (
           <div style={{ position: "absolute", left: getBandLeft(), width: getBandWidth(), top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />
         )}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
-        {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} />)}
+        {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
         {employee.jobs.length === 0 && (
           // [2026-06-02] Was centered horizontally on a full-width row,
           // which made the label visually land around the 11:30–12:30
@@ -3821,8 +3876,11 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
 // ─── DESKTOP: UNASSIGNED GANTT ROW ───────────────────────────────────────────
 function UnassignedGanttRow({ jobs, onChipClick, nowLine }: { jobs: DispatchJob[]; onChipClick: (j: DispatchJob) => void; nowLine: number }) {
   if (jobs.length === 0) return null;
+  // [overlap-stacking] Same packer the assigned rows use — the unassigned
+  // lane is the most overlap-prone (fresh imports land here clustered).
+  const { topById, rowHeight } = packLanes(jobs);
   return (
-    <div style={{ display: "flex", borderBottom: "2px solid #FCD34D", height: ROW_H }}>
+    <div style={{ display: "flex", borderBottom: "2px solid #FCD34D", height: rowHeight }}>
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: "#FFFBEB", borderRight: "1px solid #FCD34D", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
         <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "#FEF3C7", color: "#92400E", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, flexShrink: 0 }}>?</div>
         <div style={{ minWidth: 0 }}>
@@ -3830,10 +3888,10 @@ function UnassignedGanttRow({ jobs, onChipClick, nowLine }: { jobs: DispatchJob[
           <div style={{ fontSize: 10, color: "#D97706", marginTop: 1 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} · needs assignment</div>
         </div>
       </div>
-      <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: ROW_H, backgroundColor: "#FFFBEB88" }}>
+      <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: "#FFFBEB88" }}>
         {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #FDE68A" : "1px solid #FEF3C7" }} />)}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
-        {jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} isUnassigned />)}
+        {jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} isUnassigned top={topById.get(j.id) ?? 10} />)}
       </div>
     </div>
   );
