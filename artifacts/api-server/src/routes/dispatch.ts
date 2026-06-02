@@ -24,6 +24,10 @@ router.get("/", requireAuth, async (req, res) => {
         role: usersTable.role,
         tags: usersTable.tags,
         commission_rate: usersTable.commission_rate_override,
+        // [2026-06-02] Surface avatar so the EmployeeRow can render the
+        // tech's profile picture instead of initials. Frontend keeps the
+        // initials fallback when avatar_url is null.
+        avatar_url: usersTable.avatar_url,
       })
       .from(usersTable)
       .where(and(
@@ -780,6 +784,7 @@ router.get("/", requireAuth, async (req, res) => {
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
+        avatar_url: e.avatar_url ?? null,
       })),
       unassigned_jobs: unassigned,
     });

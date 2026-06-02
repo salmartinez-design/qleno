@@ -66,7 +66,7 @@ interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: str
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; }
-interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; }
+interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -3723,14 +3723,47 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
   const totalMins = employee.jobs.reduce((s: number, j: DispatchJob) => s + j.duration_minutes, 0);
   const revenue = employee.jobs.reduce((s: number, j: DispatchJob) => s + (j.amount || 0), 0);
-  const commission = employee.commission_rate != null ? revenue * (employee.commission_rate / 100) : null;
+  // [2026-06-02] Badge pay was using employee.commission_rate (the
+  // commission_rate_override column), which is null for techs that
+  // haven't been individually overridden — so the badge displayed "$0"
+  // for techs with real jobs (Juan Salazar: 1j · 2h · $150 · $0).
+  // Fix: sum est_pay_per_tech across the day's jobs — the server has
+  // already done the routing (residential pool vs commercial hourly,
+  // per-tech split) so the row badge agrees with the JobPanel's
+  // commission breakdown by construction. Falls back to the
+  // commission_rate × revenue formula when the API hasn't been
+  // re-deployed yet (so old payloads still show something).
+  const payFromJobs = employee.jobs.reduce(
+    (s: number, j: DispatchJob) => s + (j.est_pay_per_tech ?? 0),
+    0
+  );
+  const payFromRate = employee.commission_rate != null ? revenue * (employee.commission_rate / 100) : null;
+  const pay = payFromJobs > 0 ? payFromJobs : payFromRate;
   const isClockedIn = employee.jobs.some(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
   const timeOffBg = employee.time_off ? TIME_OFF_BG[employee.time_off] : null;
   return (
     <div style={{ display: "flex", borderBottom: "1px solid #EEECE7", height: ROW_H }}>
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: timeOffBg || "#FFFFFF", borderRight: "1px solid #E5E2DC", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{initials}</div>
+          {/* [2026-06-02] Show users.avatar_url when present; fall back
+              to initials in the existing brand-dim circle. The fallback
+              path is hit when a tech hasn't uploaded a photo yet OR if
+              the image fails to load (onError swaps in initials). */}
+          {employee.avatar_url ? (
+            <img
+              src={employee.avatar_url}
+              alt={employee.name}
+              style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", display: "block", backgroundColor: "var(--brand-dim)" }}
+              onError={(e) => {
+                const parent = (e.currentTarget as HTMLImageElement).parentElement;
+                if (parent) {
+                  parent.innerHTML = `<div style="width:32px;height:32px;border-radius:50%;background:var(--brand-dim);color:var(--brand);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800">${initials}</div>`;
+                }
+              }}
+            />
+          ) : (
+            <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800 }}>{initials}</div>
+          )}
           {isClockedIn && <div style={{ position: "absolute", bottom: 0, right: 0, width: 9, height: 9, borderRadius: "50%", backgroundColor: "#22C55E", border: "2px solid #FFFFFF" }} title="Clocked in" />}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -3740,7 +3773,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
           </div>
           <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.role}</div>
           <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1 }}>
-            {employee.jobs.length}j · {Math.floor(totalMins / 60)}h · ${revenue.toFixed(0)} · ${commission != null ? commission.toFixed(0) : "0"}
+            {employee.jobs.length}j · {Math.floor(totalMins / 60)}h · ${revenue.toFixed(0)} · ${pay != null ? pay.toFixed(0) : "0"}
           </div>
         </div>
       </div>
@@ -3753,8 +3786,15 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} />)}
         {employee.jobs.length === 0 && (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <span style={{ fontSize: 11, color: "#D0CEC9", letterSpacing: "0.02em" }}>No jobs scheduled</span>
+          // [2026-06-02] Was centered horizontally on a full-width row,
+          // which made the label visually land around the 11:30–12:30
+          // time column and read like "no techs working from 11:30–12:30"
+          // when it actually meant "this whole row is empty all day."
+          // Anchored to the left and rephrased so the row-scope is clear.
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", paddingLeft: 16 }}>
+            <span style={{ fontSize: 11, color: "#D0CEC9", letterSpacing: "0.02em", fontStyle: "italic" }}>
+              {employee.name.split(" ")[0]} has no jobs scheduled today
+            </span>
           </div>
         )}
       </div>
