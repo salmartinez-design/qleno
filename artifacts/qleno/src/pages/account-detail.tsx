@@ -528,9 +528,6 @@ export default function AccountDetailPage() {
                             {(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
                           </p>
                           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                              {PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type}
-                            </span>
                             {p.unit_count && (
                               <span className="text-xs text-gray-500 flex items-center gap-1">
                                 <Hash size={11} /> {p.unit_count} units

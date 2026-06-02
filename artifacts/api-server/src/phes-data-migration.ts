@@ -2265,6 +2265,146 @@ async function runPhesAdminPromotions(): Promise<void> {
   );
 }
 
+// ─── PPM (Daniel Walter Properties) account cleanup ──────────────────────────
+// Sal's cleanup pass on the PPM property-management account:
+//   1. Rename "Daniel Walter Properties" → "PPM" (Daniel Walter is the on-site
+//      manager, not the company name) — recorded as a property_manager contact.
+//   2. Backfill the full 47-property roster from MaidCentral. Only MISSING
+//      properties are inserted; existing rows are matched on a normalized
+//      address key (number + direction + street name, suffix-stripped) so the
+//      ~13 already imported under different spellings ("100 W Chestnut" vs
+//      "100 W Chestnut St") are NOT duplicated.
+//   3. Fix the W Addison zips MaidCentral had as 60657 → 60613 (verified: the
+//      632-644 W Addison block is PPM and sits in 60613 / Lakeview).
+// Fully idempotent: rename only fires while the old name is present, contact
+// insert is guarded by NOT EXISTS, property inserts are dedup-checked, and the
+// zip fix is a bounded UPDATE. Safe to re-run on every cold start.
+function normalizeAddrKey(addr: string): string {
+  const SUFFIX = new Set(["st", "street", "dr", "drive", "ave", "av", "avenue", "pl", "place",
+    "pkwy", "parkway", "blvd", "boulevard", "ct", "court", "ln", "lane", "rd", "road",
+    "ter", "terrace", "way", "ct.", "pl."]);
+  const DIR: Record<string, string> = { n: "north", s: "south", e: "east", w: "west" };
+  let s = (addr || "").toLowerCase();
+  s = s.replace(/\b(unit|apt|apartment|ste|suite|#)\b.*$/i, "");
+  s = s.replace(/[.,]/g, " ");
+  return s.split(/\s+/).filter(Boolean)
+    .map(w => (SUFFIX.has(w) ? "" : (DIR[w] ?? w)))
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+}
+
+async function runPpmAccountCleanup(): Promise<void> {
+  // 47-property roster (zips corrected: W Addison → 60613, 55 W Chestnut → 60610).
+  const ROSTER: { address: string; city: string; state: string; zip: string }[] = [
+    { address: "1 E Schiller St Unit 9D", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "100 W Chestnut St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1000 N La Salle Dr", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1049 W Oakdale Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "1111 N Dearborn St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1120 N La Salle Dr", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1133 N Dearborn St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1555 N Astor St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "1940 N Lincoln Ave", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "20 E Scott St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "2006 N Sedgwick St", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "2007 N Sedgwick St", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "2630 N Hampden Ct", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "2756 N Pine Grove Ave", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "2811 N Pine Grove Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "350 W Oakdale Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "3510 N Pine Grove Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "430 W Diversey Pkwy", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "440 W Diversey Pkwy", city: "Chicago", state: "IL", zip: "60614" },
+    { address: "441 W Barry Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "441 W Oakdale Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "446 W Diversey Pkwy", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "450 W Melrose St", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "455 W Wellington Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "500 W Belmont Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "515 W Briar Pl", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "536 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "537 W Melrose St", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "544 W Melrose St", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "55 Terrace Colony", city: "Olympia Fields", state: "IL", zip: "60461" },
+    { address: "55 W Chestnut St", city: "Chicago", state: "IL", zip: "60610" },
+    { address: "596 W Hawthorne Pl", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "632 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "634 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "634 W Cornelia Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "636 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "636 W Cornelia Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "638 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "638 W Cornelia Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "640 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "640 W Cornelia Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "641 W Cornelia Ave", city: "Chicago", state: "IL", zip: "60657" },
+    { address: "642 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "644 W Addison St", city: "Chicago", state: "IL", zip: "60613" },
+    { address: "750 N Rush St", city: "Chicago", state: "IL", zip: "60611" },
+  ];
+
+  // 1. Rename the account (idempotent — only fires while the old name exists).
+  await db.execute(sql`
+    UPDATE accounts SET account_name = 'PPM', updated_at = now()
+    WHERE company_id = ${PHES} AND lower(account_name) = 'daniel walter properties'
+  `);
+
+  // Resolve the PPM account id (post-rename, or if it was already 'PPM').
+  const acctRes = await db.execute(sql`
+    SELECT id FROM accounts
+    WHERE company_id = ${PHES} AND lower(account_name) = 'ppm'
+    ORDER BY id LIMIT 1
+  `);
+  const acctRow = acctRes.rows[0] as { id: number } | undefined;
+  if (!acctRow) {
+    console.warn("[ppm-cleanup] No 'PPM' (or 'Daniel Walter Properties') account found — skipping.");
+    return;
+  }
+  const acctId = acctRow.id;
+
+  // 2. Record Daniel Walter as the property manager (guarded — won't duplicate).
+  await db.execute(sql`
+    INSERT INTO account_contacts (account_id, company_id, name, role, phone, email, is_primary)
+    SELECT ${acctId}, ${PHES}, 'Daniel Walter', 'property_manager', '312-907-2512', 'dannyw@ppmapartments.com', false
+    WHERE NOT EXISTS (
+      SELECT 1 FROM account_contacts WHERE account_id = ${acctId} AND lower(name) = 'daniel walter'
+    )
+  `);
+
+  // 3. Correct W Addison zips MaidCentral had wrong (or left null).
+  await db.execute(sql`
+    UPDATE account_properties
+    SET zip = '60613', updated_at = now()
+    WHERE account_id = ${acctId} AND address ILIKE '%addison%'
+      AND (zip IS NULL OR zip = '60657')
+  `);
+
+  // 4. Insert only the MISSING properties (dedup on normalized address key).
+  const existing = await db.execute(sql`
+    SELECT address FROM account_properties WHERE account_id = ${acctId} AND company_id = ${PHES}
+  `);
+  const existingKeys = new Set(
+    (existing.rows as { address: string }[]).map(r => normalizeAddrKey(r.address))
+  );
+
+  let inserted = 0;
+  for (const p of ROSTER) {
+    const key = normalizeAddrKey(p.address);
+    if (existingKeys.has(key)) continue;
+    await db.execute(sql`
+      INSERT INTO account_properties
+        (account_id, company_id, property_name, address, city, state, zip, property_type, is_active)
+      VALUES
+        (${acctId}, ${PHES}, ${p.address}, ${p.address}, ${p.city}, ${p.state}, ${p.zip}, 'apartment_building', true)
+    `);
+    existingKeys.add(key); // guard against intra-roster dup keys (e.g. 515 Briar)
+    inserted++;
+  }
+
+  console.log(`[ppm-cleanup] Account ${acctId} → 'PPM'; inserted ${inserted} missing properties (roster ${ROSTER.length}).`);
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -2368,6 +2508,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runAddonFix();
   } catch (err: any) {
     console.warn("[phes-migration] addon-fix — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runPpmAccountCleanup();
+  } catch (err: any) {
+    console.warn("[phes-migration] ppm-account-cleanup — non-fatal:", err?.message ?? err);
   }
 
   try {
