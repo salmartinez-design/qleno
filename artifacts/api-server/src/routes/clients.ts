@@ -7,7 +7,7 @@ import {
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
   recurringSchedulesTable, jobPhotosTable, qbCustomerMapTable, companiesTable,
 } from "@workspace/db/schema";
-import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray } from "drizzle-orm";
+import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
@@ -784,6 +784,24 @@ router.patch("/:id/homes/:homeId", requireAuth, async (req, res) => {
       ...(allowed_hours !== undefined && { allowed_hours: String(allowed_hours) }),
       ...(geo && { lat: String(geo.lat), lng: String(geo.lng) }),
     }).where(and(eq(clientHomesTable.id, homeId), eq(clientHomesTable.company_id, req.auth!.companyId))).returning();
+
+    // When an address is promoted to the main one, it must be the ONLY primary,
+    // and the client-level zone follows it — the main address is what routing
+    // (comms/assignments) keys off when there's no per-job address context.
+    if (is_primary === true && home) {
+      const clientId = parseInt(req.params.id);
+      await db.update(clientHomesTable).set({ is_primary: false })
+        .where(and(
+          eq(clientHomesTable.client_id, clientId),
+          eq(clientHomesTable.company_id, req.auth!.companyId),
+          ne(clientHomesTable.id, homeId),
+        ));
+      const zoneId = await resolveZoneForZip(req.auth!.companyId, home.zip ?? "");
+      if (zoneId) {
+        await db.update(clientsTable).set({ zone_id: zoneId })
+          .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId)));
+      }
+    }
     return res.json(home);
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
