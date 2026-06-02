@@ -521,6 +521,12 @@ router.get("/", requireAuth, async (req, res) => {
         ? Math.max(30, Math.round((parseFloat(j.allowed_hours) / numTechsForDur) * 60))
         : 120;
       const isCommercial = !!j.account_id;
+      // [commercial-clients 2026-06-02] Pay routing is broader than the
+      // account flag: a commercial CLIENT (client_type='commercial', no
+      // account) is ALSO paid the commercial way (hourly × allowed_hours),
+      // never a residential %. `isCommercial` stays account-only for address
+      // / account-contract display; `isCommercialPay` drives the commission.
+      const isCommercialPay = isCommercial || (j as any).client_type === "commercial";
       // [AI.7.6] Canonical address render: "<street>, <city>, <state> <zip>".
       // formatAddress() inlined here on the server side; the same shape
       // ships to the frontend so there's only one rule. State + zip are
@@ -566,10 +572,10 @@ router.get("/", requireAuth, async (req, res) => {
       // rate (so per-tech overrides like senior 40% still apply).
       // Commercial routing is unchanged.
       const tierResPct = resolveResidentialPayPct(j.service_type as any, resRates);
-      const tierApplies = !isCommercial && tierResPct !== resRates.res_tech_pay_pct;
+      const tierApplies = !isCommercialPay && tierResPct !== resRates.res_tech_pay_pct;
       const technicians = jobTechs.map(t => {
-        const payType = isCommercial ? t.commercial_pay_type : t.residential_pay_type;
-        const matrixRate = isCommercial ? t.commercial_pay_rate : t.residential_pay_rate;
+        const payType = isCommercialPay ? t.commercial_pay_type : t.residential_pay_type;
+        const matrixRate = isCommercialPay ? t.commercial_pay_rate : t.residential_pay_rate;
         const payRate = (tierApplies && payType === "commission") ? tierResPct : matrixRate;
         const calcPay = payType === "hourly"
           ? Math.round(estHoursPerTech * payRate * 100) / 100
@@ -597,10 +603,10 @@ router.get("/", requireAuth, async (req, res) => {
       // instead.
       const primaryTech = jobTechs[0];
       const legacyBasis = primaryTech
-        ? (isCommercial
+        ? (isCommercialPay
             ? (primaryTech.commercial_pay_type === "hourly" ? "commercial_hourly" : "commercial_commission")
             : (primaryTech.residential_pay_type === "commission" ? "residential_pool" : "residential_hourly"))
-        : (isCommercial ? "commercial_hourly" : "residential_pool");
+        : (isCommercialPay ? "commercial_hourly" : "residential_pool");
       // calcPerTech for legacy callers — sum of per-tech calcs
       // averaged. Modern callers should sum technicians[].calc_pay.
       const calcPerTech = technicians.length
@@ -738,7 +744,7 @@ router.get("/", requireAuth, async (req, res) => {
         // value. Surfaces that need richer per-tech data should read
         // technicians[].pay_type / pay_rate.
         commission_basis: legacyBasis,
-        commercial_hourly_rate: isCommercial ? commercialHourlyRate : null,
+        commercial_hourly_rate: isCommercialPay ? commercialHourlyRate : null,
         // [job-card-redesign] Add-ons drive the "+N" chip pill and the
         // hover popover's full add-on list. Empty array (not null) when
         // a job has none, so the frontend can `.length` directly.
@@ -746,7 +752,7 @@ router.get("/", requireAuth, async (req, res) => {
         // [job-card-redesign] is_new_client — first-ever job for this
         // residential client (no prior completed). Commercial jobs read
         // false; clients with no client_id (rare/legacy) also read false.
-        is_new_client: !isCommercial && j.client_id != null
+        is_new_client: !isCommercialPay && j.client_id != null
           ? !clientsWithPriorComplete.has(j.client_id)
           : false,
       };
