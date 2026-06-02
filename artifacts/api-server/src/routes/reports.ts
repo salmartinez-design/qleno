@@ -152,19 +152,32 @@ router.get("/revenue", requireAuth, ROLE, async (req, res) => {
     // stamped at completion.
     const effectiveAmount = sql`coalesce(billed_amount, base_fee)`;
 
-    // [revenue] Match MaidCentral semantics: include every job scheduled in
-    // the window regardless of completion status. The previous filter
-    // (`status = 'complete'`) hid ~$15.9K of April revenue — cancelled +
-    // scheduled + in_progress jobs that still represent booked work and
-    // carry real dollar values. Cancelled jobs may carry a cancellation
-    // fee on base_fee; if a customer truly owes nothing the row should
-    // be base_fee=0 (or the job deleted), not silently excluded.
-    //
-    // Pass `?status=complete` to get the legacy cash-recognized-only view.
-    const statusFilter = (req.query.status as string) || "all";
-    const statusCond = statusFilter === "all"
-      ? sql`true`
-      : sql`status = ${statusFilter}`;
+    // [BUG-3F3 / 2026-06-02] Revenue rollup excludes cancelled jobs by
+    // default — matches the dispatch board's "what counts as billable"
+    // rule (`status != 'cancelled'`). Previously the default was "all
+    // statuses" to mirror an earlier MaidCentral parity ask, but it
+    // counted cancelled rows that still carry a (now-zeroed) base_fee
+    // or a cancellation fee stamped on billed_amount. On 2026-06-01 the
+    // page reported 63 jobs / $5,024.40 instead of 14 / $4,369.40, and
+    // 2026-06-02 reported 2 jobs / $521.50 for a day that hasn't
+    // happened yet. Default now: include scheduled + in_progress +
+    // complete. Operators can still opt into specific views:
+    //   ?status=complete     → cash-recognized only
+    //   ?status=cancelled    → cancellation-fee revenue stream
+    //   ?status=all          → everything incl. cancelled
+    //   (no status param)    → the dispatch-board-equivalent default
+    // The standalone cancel/lockout fee revenue still surfaces via the
+    // cancelBreakdown query further down — that's a separate, clear
+    // signal the dashboard cards already render.
+    const statusFilter = (req.query.status as string) || "active";
+    let statusCond;
+    if (statusFilter === "active") {
+      statusCond = sql`status IN ('scheduled','in_progress','complete')`;
+    } else if (statusFilter === "all") {
+      statusCond = sql`true`;
+    } else {
+      statusCond = sql`status = ${statusFilter}`;
+    }
 
     const branchFrag = branchFilter(req);
 

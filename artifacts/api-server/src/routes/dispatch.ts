@@ -767,11 +767,51 @@ router.get("/", requireAuth, async (req, res) => {
       }
       seenIds.add(job.id);
       seenSlots.add(slot);
-      if (!job.assigned_user_id) {
+
+      // [BUG-3F2 / 2026-06-02] Multi-tech fan-out. Previously the board
+      // only rendered a job under jobs.assigned_user_id (the primary), so
+      // team members on shared jobs — 5657 Joe Cusimano (Jose primary +
+      // Norma team) and 5656 Nitzsche (Alejandra primary + Juliana team)
+      // — were missing from their rows; their utilization tile read
+      // 0 jobs / 0 hours / $0. Now we fan the job onto every tech in
+      // technicians[] (the same array the payroll engine + JobPanel
+      // read). Each rendered copy carries team_role ('primary' | 'team')
+      // so the FE can style; revenue_share weights the badge $ tile by
+      // each tech's calc_pay share so per-row totals sum back to the
+      // company-wide revenue (no double counting). amount stays as
+      // the full job value on the chip — that's what the operator wants
+      // to see. assigned_user_id stays — still drives drag-and-drop and
+      // the chip's tech name badge for the primary.
+      const techsArr: Array<{ user_id: number; is_primary?: boolean; calc_pay?: number }> =
+        (Array.isArray((job as any).technicians) && (job as any).technicians.length > 0)
+          ? (job as any).technicians
+          : (job.assigned_user_id != null
+              ? [{ user_id: Number(job.assigned_user_id), is_primary: true, calc_pay: Number((job as any).est_pay_per_tech) || 0 }]
+              : []);
+
+      if (techsArr.length === 0) {
         unassigned.push(job);
-      } else {
-        if (!jobsByEmployee.has(job.assigned_user_id)) jobsByEmployee.set(job.assigned_user_id, []);
-        jobsByEmployee.get(job.assigned_user_id)!.push(job);
+        continue;
+      }
+
+      const totalCalcPay = techsArr.reduce((s, t) => s + (Number(t.calc_pay) || 0), 0);
+      const jobAmount = Number(job.amount) || 0;
+
+      for (const t of techsArr) {
+        const techId = Number(t.user_id);
+        if (!jobsByEmployee.has(techId)) jobsByEmployee.set(techId, []);
+        // Per-tech weighting: proportional to calc_pay when available,
+        // equal split otherwise. Matches the payroll engine's view of
+        // "who earned what slice of this job."
+        const share = totalCalcPay > 0
+          ? (Number(t.calc_pay) || 0) / totalCalcPay
+          : 1 / techsArr.length;
+        const perRender = {
+          ...job,
+          team_role: t.is_primary ? "primary" : "team",
+          revenue_share: Math.round(jobAmount * share * 100) / 100,
+        };
+        jobsByEmployee.get(techId)!.push(perRender);
       }
     }
 
