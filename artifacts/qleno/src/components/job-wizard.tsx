@@ -1092,6 +1092,18 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
+                  {/* [FE-polish 2026-06-01] Native time input accepts any
+                      minute (e.g. 1:06 PM, 2:45 PM, 5:06 PM) — previously
+                      the buttons-only grid limited operators to on-the-hour
+                      slots. Quick-pick chips below remain for the common
+                      times. step=60 keeps the picker on minutes (not seconds). */}
+                  <input
+                    type="time"
+                    value={scheduledTime}
+                    step={60}
+                    onChange={e => setScheduledTime(e.target.value)}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                  />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {TIME_OPTIONS.map(t => (
                       <button key={t} onClick={() => setScheduledTime(t)}
@@ -1411,6 +1423,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
+                  {/* [FE-polish 2026-06-01] Native time input — see residential
+                      branch above. Same rationale: free-form minutes. */}
+                  <input
+                    type="time"
+                    value={commercialScheduledTime}
+                    step={60}
+                    onChange={e => setCommercialScheduledTime(e.target.value)}
+                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box", marginBottom: 8 }}
+                  />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {TIME_OPTIONS.map(t => (
                       <button key={t} onClick={() => setCommercialScheduledTime(t)}

@@ -20,6 +20,12 @@ export const serviceTypeEnum = pgEnum("service_type", [
   "ppm_common_areas",
   // [AI.4] Two more commercial slugs added to PHES seed.
   "commercial_cleaning", "recurring_commercial_cleaning",
+  // [BUG-8 / 2026-06-01] Carpet Cleaning. MaidCentral has it as a first-class
+  // residential service; pre-this jobs that should have been carpet were
+  // typed under a substitute (e.g. deep_clean). Added as a residential
+  // specialty in service_types (per-company row); historical jobs keep
+  // their stored slug. Companion DB ALTER applied directly on prod.
+  "carpet_cleaning",
 ]);
 
 export const frequencyEnum = pgEnum("frequency", [
