@@ -32,6 +32,14 @@ export const timeclockTable = pgTable("timeclock", {
   override_approved: boolean("override_approved").notNull().default(false),
   override_by: integer("override_by").references(() => usersTable.id),
   flagged: boolean("flagged").notNull().default(false),
+  // [BUG-3F4 / 2026-06-02] Provenance marker. 'punched' = real
+  // clock from field-app or manual entry. 'estimated' = synthetic
+  // pair stamped by POST /jobs/:id/complete when the operator
+  // marks a job done without any prior clock activity (e.g.
+  // MaidCentral imports or one-tap "Mark complete" workflows).
+  // Real punches always win — the /complete handler skips the
+  // synthetic write when any row already exists for the job.
+  source: text("source").notNull().default("punched"),
 });
 
 export const clockInAttemptResultEnum = pgEnum("clock_in_attempt_result", [

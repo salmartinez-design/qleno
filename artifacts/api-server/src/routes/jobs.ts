@@ -880,6 +880,13 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // the entire Edit-Job modal. status is whitelisted to 'cancelled'
       // only; the validation below stays unchanged.
       status,
+      // [BUG-3F1 / 2026-06-02] Allow moving a job to a different property
+      // on the same account as a pure UPDATE. Previously this field was
+      // silently dropped from the destructure, which combined with some
+      // FE retry path Sal hit caused jobs 5654 and 5660 to disappear on
+      // 06-01 (recreated as 5976/5977). Property change is an atomic
+      // FK rewrite — it must NEVER delete or archive the job row.
+      account_property_id,
     } = req.body ?? {};
 
     // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
@@ -952,7 +959,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
       SELECT id, company_id, recurring_schedule_id, status, locked_at,
              service_type, frequency, scheduled_date, scheduled_time,
              allowed_hours, base_fee, hourly_rate, manual_rate_override, notes,
-             assigned_user_id, client_id, billed_amount,
+             assigned_user_id, client_id, account_id, account_property_id,
+             billed_amount,
              charge_succeeded_at, charge_failed_at
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
@@ -1122,7 +1130,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
     type FieldName =
       | "service_type" | "frequency" | "scheduled_date" | "scheduled_time"
       | "allowed_hours" | "base_fee" | "hourly_rate" | "manual_rate_override"
-      | "instructions" | "add_ons" | "team_user_ids" | "status";
+      | "instructions" | "add_ons" | "team_user_ids" | "status"
+      | "account_property_id";
     const changes: Array<{ field: FieldName; old: unknown; next: unknown }> = [];
     const pushChange = (field: FieldName, next: unknown, prev: unknown) => {
       const norm = (v: unknown) => v === null || v === undefined ? null : v;
@@ -1140,6 +1149,45 @@ router.patch("/:id", requireAuth, async (req, res) => {
     if (hourly_rate !== undefined) pushChange("hourly_rate", String(hourly_rate), String(before.hourly_rate ?? ""));
     if (manual_rate_override !== undefined) pushChange("manual_rate_override", !!manual_rate_override, !!before.manual_rate_override);
     if (instructions !== undefined) pushChange("instructions", instructions, before.notes);
+    // [BUG-3F1 / 2026-06-02] account_property_id change is a pure UPDATE.
+    // Only valid for commercial jobs (the column is null on residential
+    // rows). Reject the change if the requested property doesn't belong
+    // to the same account — that's almost always an operator error or a
+    // stale FE picker, and we'd rather 4xx than silently move the job to
+    // a different customer.
+    if (account_property_id !== undefined) {
+      const reqPropId = account_property_id == null ? null : Number(account_property_id);
+      const curPropId = before.account_property_id == null ? null : Number(before.account_property_id);
+      if (reqPropId !== curPropId) {
+        if (before.account_id == null) {
+          return res.status(400).json({
+            error: "Bad Request",
+            message: "account_property_id can only be set on commercial jobs (account_id is null on this row).",
+          });
+        }
+        if (reqPropId != null) {
+          const propRows = await db.execute(sql`
+            SELECT id, account_id FROM account_properties
+             WHERE id = ${reqPropId} AND company_id = ${companyId}
+             LIMIT 1
+          `);
+          const prop = propRows.rows[0] as any;
+          if (!prop) {
+            return res.status(404).json({
+              error: "Not Found",
+              message: `account_property_id ${reqPropId} not found.`,
+            });
+          }
+          if (Number(prop.account_id) !== Number(before.account_id)) {
+            return res.status(409).json({
+              error: "Conflict",
+              message: `Property ${reqPropId} belongs to account ${prop.account_id}, but this job is on account ${before.account_id}. Cannot move a job across accounts.`,
+            });
+          }
+        }
+        pushChange("account_property_id", reqPropId, curPropId);
+      }
+    }
     // Status transitions via PATCH are scoped to cancellation only — the
     // 'complete' path goes through POST /:id/complete (which writes the
     // completion artifacts: actual_end_time, locked_at, etc.). Allowing
@@ -1228,6 +1276,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // Status: pushChange validated above that status==='cancelled' only.
       // Writing it here lets the cancel modal's PATCH actually take effect.
       if (status !== undefined && status !== before.status) setParts.status = status;
+      // [BUG-3F1 / 2026-06-02] Property change writes the new FK directly.
+      // Account validation already happened in pushChange (rejects 409 on
+      // cross-account moves), so we trust the value at this point. Note:
+      // this is the SAME atomic UPDATE that handles base_fee, time, etc.
+      // — no parallel DELETE+INSERT path, no archive, the row keeps its
+      // id. Fixes the lost-job repro from 06-01.
+      if (account_property_id !== undefined && Number(account_property_id ?? null) !== Number(before.account_property_id ?? null)) {
+        setParts.account_property_id = account_property_id == null ? null : Number(account_property_id);
+      }
 
       // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
       // When the anchor is a completed job AND the operator picked a
@@ -2814,8 +2871,71 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       });
     }
 
-    // ── Hourly billing engine ─────────────────────────────────────────────
     const completedJob = updated[0] as any;
+
+    // ── Synthetic timeclock fallback ────────────────────────────────────
+    // [BUG-3F4 / 2026-06-02] If a job is completed without any timeclock
+    // activity (typical for MaidCentral imports and one-tap "Mark complete"
+    // workflows where the operator never ran the field-app timer), stamp
+    // an estimated clock pair for each assigned tech so the payroll
+    // report has hours to sum. Real punches always win — this only fires
+    // when ZERO timeclock rows exist for this job; future real punches
+    // would just create new rows that the payroll engine prefers via
+    // ORDER BY source='punched' DESC if/when we add the tiebreaker.
+    // Window: clock_in_at = scheduled_date + scheduled_time, clock_out_at
+    // = clock_in_at + duration_minutes (falls back to allowed_hours*60,
+    // then 120 mins as final safety). source='estimated' marks the
+    // provenance so reports can badge or exclude as needed.
+    try {
+      const existingClocks = await db
+        .select({ id: timeclockTable.id })
+        .from(timeclockTable)
+        .where(eq(timeclockTable.job_id, jobId))
+        .limit(1);
+      if (existingClocks.length === 0) {
+        const techRows = await db.execute(sql`
+          SELECT user_id
+            FROM job_technicians
+           WHERE job_id = ${jobId} AND company_id = ${req.auth!.companyId}
+        `);
+        const techIds: number[] = (techRows.rows as any[]).map(r => Number(r.user_id));
+        if (techIds.length === 0 && completedJob.assigned_user_id != null) {
+          techIds.push(Number(completedJob.assigned_user_id));
+        }
+        if (techIds.length > 0) {
+          const schedDate = String(completedJob.scheduled_date);
+          const schedTime = completedJob.scheduled_time
+            ? String(completedJob.scheduled_time)
+            : "09:00:00";
+          // [BUG-3F4 / 2026-06-02] jobs has no duration_minutes column —
+          // allowed_hours is the canonical job-length signal. Fall back
+          // to 120 min only as last-ditch (it'd take a malformed import
+          // to hit this branch in practice).
+          const durationMinutes =
+            (completedJob.allowed_hours != null && parseFloat(String(completedJob.allowed_hours)) > 0)
+              ? Math.round(parseFloat(String(completedJob.allowed_hours)) * 60)
+              : 120;
+          for (const uid of techIds) {
+            await db.execute(sql`
+              INSERT INTO timeclock (
+                job_id, user_id, company_id, branch_id,
+                clock_in_at, clock_out_at, source, flagged
+              ) VALUES (
+                ${jobId}, ${uid}, ${req.auth!.companyId},
+                ${completedJob.branch_id ?? null},
+                (${schedDate}::date + ${schedTime}::time),
+                (${schedDate}::date + ${schedTime}::time) + (${durationMinutes} || ' minutes')::interval,
+                'estimated', false
+              )
+            `);
+          }
+        }
+      }
+    } catch (clockErr) {
+      console.error("[complete] estimated-clock stamp failed (non-fatal):", clockErr);
+    }
+
+    // ── Hourly billing engine ─────────────────────────────────────────────
     if (completedJob.billing_method === "hourly" && completedJob.hourly_rate) {
       try {
         // Sum all completed timeclock entries for this job
