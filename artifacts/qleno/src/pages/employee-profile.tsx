@@ -568,7 +568,12 @@ export default function EmployeeProfilePage() {
   async function saveProfile() {
     setSaving(true);
     try {
-      await apiFetch(`/users/${userId}`, { method: 'PATCH', body: JSON.stringify(form) });
+      // [2026-06-02] Method is PUT, not PATCH. The backend only defines
+      // PUT /api/users/:id (routes/users.ts:344); the previous PATCH call
+      // returned 404 silently — toast showed "Save failed" but easy to
+      // miss, so deactivations (is_active=false) never persisted. Reported
+      // when Sal couldn't move Tatiana, Ana Valdez, Katie Fry to inactive.
+      await apiFetch(`/users/${userId}`, { method: 'PUT', body: JSON.stringify(form) });
       showToast('Changes saved');
       refetchUser();
     } catch { showToast('Save failed'); }
