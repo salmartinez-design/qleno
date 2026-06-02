@@ -1165,6 +1165,13 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
     onSuccess: () => refetch(),
   });
 
+  // Promote an address to the main one. The server makes it the sole primary
+  // and re-points the client's zone to this address's zone.
+  const setPrimaryMut = useMutation({
+    mutationFn: (homeId: number) => apiFetch(`/api/clients/${clientId}/homes/${homeId}`, { method: "PATCH", body: JSON.stringify({ is_primary: true }) }),
+    onSuccess: () => refetch(),
+  });
+
   const F = (field: string, label: string, type = "text", placeholder = "", extraProps?: Record<string, any>) => (
     <div>
       <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#6B7280", marginBottom: "4px" }}>{label}</label>
@@ -1182,7 +1189,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
             <div>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>{home.name || "Home"}</h3>
-                {home.is_primary && <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Default</span>}
+                {home.is_primary && <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Main</span>}
               </div>
               <p style={{ margin: "4px 0 0", fontSize: "15px", fontWeight: 700, color: "#0A0E1A" }}>{home.address}</p>
               <p style={{ margin: "2px 0 0", fontSize: "13px", fontWeight: 500, color: "#374151" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
@@ -1204,9 +1211,17 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 </div>
               )}
             </div>
-            <button onClick={() => deleteMut.mutate(home.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "4px" }}>
-              <Trash2 size={14} />
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
+              {!home.is_primary && (
+                <button onClick={() => setPrimaryMut.mutate(home.id)} disabled={setPrimaryMut.isPending}
+                  style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: "6px", cursor: "pointer", color: "var(--brand)", padding: "4px 10px", fontSize: "11px", fontWeight: 700, fontFamily: "inherit", whiteSpace: "nowrap" }}>
+                  Set as main
+                </button>
+              )}
+              <button onClick={() => deleteMut.mutate(home.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "4px" }}>
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Property details */}
@@ -1282,7 +1297,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
               {F("base_fee", "Rate ($)", "number")} {F("allowed_hours", "Allowed Hours", "number")}
             </div>
             <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", cursor: "pointer" }}>
-              <input type="checkbox" checked={form.is_primary} onChange={e => setForm(f => ({ ...f, is_primary: e.target.checked }))} /> Set as primary address
+              <input type="checkbox" checked={form.is_primary} onChange={e => setForm(f => ({ ...f, is_primary: e.target.checked }))} /> Set as main address
             </label>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
