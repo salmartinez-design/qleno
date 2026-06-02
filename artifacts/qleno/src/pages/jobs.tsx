@@ -4886,11 +4886,11 @@ export default function JobsPage() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Jobs</div>
               <button
-                onClick={() => isAllLocations ? toast({ title: "Select a location first", description: "Choose Oak Lawn or Schaumburg to create a job.", variant: "destructive" }) : setShowWizard(true)}
-                title={isAllLocations ? "Select a location to create jobs" : undefined}
-                style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: isAllLocations ? "#9E9B94" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: isAllLocations ? "not-allowed" : "pointer", opacity: isAllLocations ? 0.7 : 1 }}>
+                onClick={() => setShowWizard(true)}
+                title=""
+                style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: 1 }}>
                 <Plus size={14} /> New Job
-                {!isAllLocations && <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>}
+                <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>
               </button>
             </div>
             {/* Date navigation */}
@@ -5284,11 +5284,11 @@ export default function JobsPage() {
           <div style={{ padding: "8px 16px", borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "nowrap" }}>
             {/* New Job button */}
             <button
-              onClick={() => isAllLocations ? toast({ title: "Select a location first", description: "Choose Oak Lawn or Schaumburg to create a job.", variant: "destructive" }) : setShowWizard(true)}
-              title={isAllLocations ? "Select a location to create jobs" : undefined}
-              style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: isAllLocations ? "#9E9B94" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "7px 13px", fontSize: 13, fontWeight: 700, cursor: isAllLocations ? "not-allowed" : "pointer", flexShrink: 0, opacity: isAllLocations ? 0.7 : 1 }}>
+              onClick={() => setShowWizard(true)}
+              title=""
+              style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "7px 13px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0, opacity: 1 }}>
               <Plus size={14} /> New Job
-              {!isAllLocations && <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>}
+              <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>
             </button>
 
             <div style={{ width: 1, height: 22, backgroundColor: "#E5E2DC", flexShrink: 0 }} />
