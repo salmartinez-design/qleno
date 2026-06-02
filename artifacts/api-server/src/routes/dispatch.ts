@@ -424,6 +424,26 @@ router.get("/", requireAuth, async (req, res) => {
       });
     }
 
+    // [BUG-6 follow-up / 2026-06-02] Rate-mod totals per job for the LIVE
+    // amount computation. Previously dispatch read jobs.billed_amount, but
+    // PATCH /api/jobs/:id changes base_fee without recomputing that cache,
+    // so any edit left dispatch reporting the stale pre-edit total
+    // (Jaira's 4322: base_fee 320→400 left billed_amount at 320; dispatch
+    // showed 340 = 320 + 20 parking, not the correct 420). One aggregated
+    // query keyed by job_id avoids N+1 round trips.
+    const rateModSumByJob = new Map<number, number>();
+    if (idList.length > 0) {
+      const modRows = await db.execute(sql`
+        SELECT job_id, COALESCE(SUM(amount), 0)::numeric AS total
+          FROM job_rate_mods
+         WHERE job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
+         GROUP BY job_id
+      `);
+      for (const r of modRows.rows as any[]) {
+        rateModSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
+      }
+    }
+
     // [job-card-redesign] is_new_client — true when the residential client
     // has zero completed jobs strictly before today's board date. Drives
     // the "NEW" pill + inset white outline on the chip. Commercial jobs
@@ -602,19 +622,24 @@ router.get("/", requireAuth, async (req, res) => {
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
         frequency: j.frequency,
-        // [BUG-6 / 2026-06-01] amount must match what the invoice will bill,
-        // not the raw base_fee. billed_amount is the source of truth when
-        // present (it's recomputed = base_fee + SUM(rate_mods.amount) every
-        // time a mod is added/removed), so we COALESCE to it first. Add-on
-        // subtotals are layered on top — the recompute helper doesn't fold
-        // them in today, and dispatch is the surface that matters for the
-        // day's revenue rollup. Fixes Job 4322 reading 320 when actual bill
-        // was 420 ($100 flat mod) and any job with add-ons under-reporting.
+        // [BUG-6 follow-up / 2026-06-02] Compute amount LIVE from the three
+        // sources of truth: base_fee + SUM(rate_mods) + SUM(add_on subtotals).
+        // Previously we COALESCE'd to billed_amount, but that column is a
+        // cache that PATCH /api/jobs/:id doesn't refresh on base_fee/hourly_rate
+        // edits — Jaira's 4322 showed 340 ($320 stale + $20 parking) after
+        // base_fee 320→400, instead of the correct 420. The recompute path
+        // exists (`recomputeJobBilledAmount`) but only fires from the
+        // rate-mods routes. Reading live avoids the cache-invalidation
+        // class of bug entirely. Trade-off: one extra aggregated SUM query
+        // per dispatch render (loaded above as rateModSumByJob), and we
+        // give up the chance to display a "preview" billed_amount that
+        // dispatch had explicitly persisted — but dispatch is a
+        // read-only view, so persisted preview was never the intent.
         amount: (() => {
-          const billed = j.billed_amount ? parseFloat(j.billed_amount) : null;
-          const baseOrBilled = billed != null ? billed : (j.base_fee ? parseFloat(j.base_fee) : 0);
-          const addOnTotal = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
-          return baseOrBilled + addOnTotal;
+          const base = j.base_fee ? parseFloat(j.base_fee) : 0;
+          const mods = rateModSumByJob.get(j.id) ?? 0;
+          const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
+          return base + mods + addOns;
         })(),
         duration_minutes: durationMinutes,
         notes: j.notes,
@@ -706,29 +731,34 @@ router.get("/", requireAuth, async (req, res) => {
     // updated — but absent that, latest mappedJobs wins via insertion
     // order (Map preserves order; we just keep the first one in).
     const seenIds = new Set<number>();
+    // [BUG-1 follow-up / 2026-06-02] The first BUG-1 patch added an identity
+    // discriminator to slotKey (c<client> vs a<acct>p<prop>) but two
+    // commercial jobs at the same (date, time) still collapsed live in
+    // prod — the surviving symptom was 5654 (acct=4/prop=28 @14:00) and
+    // 5660 (acct=3/prop=29 @13:00) silently dropped while 5663/5661
+    // survived. The fix below appends job.id as the ultimate tiebreaker
+    // so two distinct DB rows can NEVER deduplicate, regardless of
+    // whether (account_id, account_property_id) is populated correctly
+    // on the mappedJobs output. The dedupe still catches the original
+    // failure mode (JOIN fan-out emitting the same job.id twice) via
+    // seenIds — that's the only true duplicate the dispatch query can
+    // produce now that the partial unique index on jobs prevents the
+    // historical April 27 data-corruption case Sal described. Persisted
+    // jobs are the source of truth; if two rows exist, two cards render.
     const seenSlots = new Set<string>();
-    // [BUG-1 / 2026-06-01] Commercial jobs have client_id=NULL (the customer
-    // identity lives on jobs.account_id + jobs.account_property_id), so the
-    // old slotKey `"n|date|time"` collapsed every commercial job at the same
-    // (date, time) into one slot — the second job got silently dropped.
-    // Daniel Walter Properties had two 13:00 jobs on 2026-06-01 (PPM
-    // Unit Turnover #5661 on Hilda, PPM Common Areas #5663 on Jose);
-    // only the first one rendered. Slot key now uses
-    // (account_id, account_property_id) when client_id is null so each
-    // commercial property gets its own slot identity. Residential jobs
-    // (client_id present, account_id null) keep the original key shape.
     const slotKey = (j: typeof mappedJobs[number]) => {
       const identity = j.client_id != null
         ? `c${j.client_id}`
         : `a${j.account_id ?? "n"}p${j.account_property_id ?? "n"}`;
-      return `${identity}|${j.scheduled_date ?? ""}|${j.scheduled_time ?? "00:00:00"}`;
+      // job.id at the end makes the key uniquely identify the row.
+      return `${identity}|${j.scheduled_date ?? ""}|${j.scheduled_time ?? "00:00:00"}|${j.id}`;
     };
     for (const job of mappedJobs) {
       if (seenIds.has(job.id)) continue;
       const slot = slotKey(job);
       if (seenSlots.has(slot)) {
-        // Different id, same slot → corrupt-data duplicate. Skip.
-        // The next deploy will dedupe it via the migration.
+        // Same job.id surfaced twice via JOIN fan-out — seenIds above
+        // catches this first, this is the belt-and-suspenders branch.
         continue;
       }
       seenIds.add(job.id);
