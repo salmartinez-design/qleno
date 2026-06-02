@@ -3285,9 +3285,18 @@ function JobChip({
     disabled: layout !== "timeline" || isComplete,
   });
 
+  // [BUG-6 follow-up / 2026-06-02] Dispatch.amount is now LIVE (post #229:
+  // base_fee + SUM(rate_mods) + SUM(add_ons)). job.billed_amount is a cache
+  // that PATCH /jobs/:id doesn't refresh on base_fee edits, so passing it
+  // to computePriceDelta made the chip render the stale value with a
+  // misleading "↓ $100" delta (Jaira 4322: amount=420 correct, billed=320
+  // stale → chip showed "$320 ↓ $100"). Passing billedAmount=null routes
+  // through the display-amount fallback so the chip shows the live amount
+  // and no delta. Delta was a workaround for the old amount/billed split
+  // and isn't meaningful now that amount is authoritative.
   const { display: priceDisplay, deltaAmount } = computePriceDelta({
     amount: job.amount,
-    billedAmount: job.billed_amount,
+    billedAmount: null,
     hourlyRate: job.hourly_rate,
     billingMethod: job.billing_method,
   });
@@ -4759,10 +4768,31 @@ export default function JobsPage() {
     }),
   } : null;
 
-  const allJobs = filteredData ? [
-    ...filteredData.unassigned_jobs,
-    ...filteredData.employees.flatMap(e => e.jobs.map(j => ({ ...j, assigned_user_name: e.name }))),
-  ].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time)) : [];
+  // [BUG-3F2 follow-up / 2026-06-02] Dedupe by job.id BEFORE rolling up day
+  // counts. The multi-tech fan-out (PR #232) pushes each job onto every
+  // assigned tech's row so team members can see their work, which means
+  // employees[].jobs[] now contains duplicates by design. The KPI strip
+  // counters (JOBS TODAY / REVENUE TODAY) and any "day total" math must
+  // see unique jobs only, otherwise a shared job inflates the day total
+  // by the number of techs on it (Sal's 06-01 regression: 14 jobs / $4369
+  // rendered as 15 / $5338 because 5656 and 5657 each had 2 techs).
+  // Per-row badge math is OK to keep duplicates because each row only
+  // reduces over its own jobs[]; it's the cross-employee flatten that
+  // needs the dedupe.
+  const allJobs = filteredData ? (() => {
+    const flat = [
+      ...filteredData.unassigned_jobs,
+      ...filteredData.employees.flatMap(e => e.jobs.map(j => ({ ...j, assigned_user_name: e.name }))),
+    ];
+    const seen = new Set<number>();
+    const out: DispatchJob[] = [];
+    for (const j of flat) {
+      if (seen.has(j.id)) continue;
+      seen.add(j.id);
+      out.push(j);
+    }
+    return out.sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time));
+  })() : [];
 
   const stats = {
     total: allJobs.length,
