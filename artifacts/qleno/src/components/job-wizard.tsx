@@ -456,7 +456,16 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       .then(r => r.ok ? r.json() : null)
       .then(d => {
         const all = d?.data || d || [];
-        setEmployees(all.filter((e: any) => e.role === "cleaner" || e.role === "employee" || e.role === "lead" || e.role === "admin"));
+        // [assignable-roles fix 2026-06-02] The full "All Technicians" list
+        // was filtering on legacy role names (cleaner/employee/lead) that no
+        // user actually has — the real field role in the user_role enum is
+        // 'technician' (and 'team_lead'), which is exactly what the server's
+        // own field-tech query and the Smart Suggestions endpoint use. So
+        // this filter matched nobody and the list always showed "No active
+        // employees found," even though Smart Suggestions listed real techs.
+        // Include the canonical roles plus the legacy names for safety.
+        const ASSIGNABLE = new Set(["technician", "team_lead", "lead", "admin", "cleaner", "employee"]);
+        setEmployees(all.filter((e: any) => ASSIGNABLE.has(e.role)));
       })
       .catch(() => {});
   }, [step]);
@@ -1554,6 +1563,13 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     </button>
                   </div>
 
+                  {/* [assign-clarity] One-liner so the operator knows these are
+                      recommendations, not the only choices — the full list
+                      below lets them override. */}
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: 0, padding: "8px 14px 0", lineHeight: 1.3 }}>
+                    Best fit by zone and availability. Start here unless there's a reason to pick someone else.
+                  </p>
+
                   {suggestionsLoading && (
                     <div style={{ display: "flex", flexDirection: "column" }}>
                       {[0, 1, 2].map(i => (
@@ -1617,9 +1633,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {/* Full employee list */}
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   {suggestions.length > 0 && !suggestionsDismissed ? "All Technicians" : "Choose Assignee (optional)"}
                 </p>
+                {suggestions.length > 0 && !suggestionsDismissed && (
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 10px", lineHeight: 1.3 }}>
+                    Assign anyone here — your pick overrides the suggestion above.
+                  </p>
+                )}
                 {employees.length === 0 && (
                   <p style={{ fontSize: 13, color: "#9E9B94", textAlign: "center", padding: "20px 0" }}>No active employees found</p>
                 )}
@@ -1637,6 +1658,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                         <p style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", margin: "0 0 2px" }}>{e.first_name} {e.last_name}</p>
                         <p style={{ fontSize: 11, color: "#9E9B94", margin: 0, textTransform: "capitalize" }}>{e.role?.replace(/_/g, " ")}</p>
                       </div>
+                      {/* [assign-clarity] Tag the techs that also surfaced as
+                          smart picks, so the two lists reinforce each other
+                          instead of looking like unrelated sets. */}
+                      {suggestions.some(s => s.employee_id === e.id) && (
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand, #00C9A0)", background: "var(--brand-dim, #EBF4FF)", padding: "2px 8px", borderRadius: 10, flexShrink: 0 }}>
+                          <MapPin size={10}/> Suggested
+                        </span>
+                      )}
                       {selectedEmployee === e.id && <Check size={16} color="var(--brand, #00C9A0)"/>}
                     </button>
                   ))}
