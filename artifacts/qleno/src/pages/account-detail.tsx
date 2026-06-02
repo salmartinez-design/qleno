@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
+import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -79,7 +80,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "jobs";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -348,6 +349,7 @@ export default function AccountDetailPage() {
     { key: "properties", label: "Properties", count: account.properties?.length },
     { key: "rate_cards", label: "Rate Cards", count: account.rate_cards?.length },
     { key: "contacts", label: "Contacts", count: account.contacts?.length },
+    { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
   ];
 
@@ -526,9 +528,6 @@ export default function AccountDetailPage() {
                             {(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
                           </p>
                           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                              {PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type}
-                            </span>
                             {p.unit_count && (
                               <span className="text-xs text-gray-500 flex items-center gap-1">
                                 <Hash size={11} /> {p.unit_count} units
@@ -690,6 +689,11 @@ export default function AccountDetailPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ─── CALENDAR TAB ────────────────────────────────────────────────── */}
+        {tab === "calendar" && id && (
+          <AccountJobsCalendar accountId={id} />
         )}
 
         {/* ─── JOBS TAB ────────────────────────────────────────────────────── */}

@@ -2,9 +2,9 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   accountsTable, accountRateCardsTable, accountPropertiesTable, accountContactsTable,
-  jobsTable, invoicesTable,
+  jobsTable, invoicesTable, usersTable,
 } from "@workspace/db/schema";
-import { eq, and, sql, inArray, notExists, desc } from "drizzle-orm";
+import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
 const router = Router();
@@ -341,6 +341,98 @@ router.get("/:id/properties", requireAuth, requireRole("owner", "admin", "office
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch properties" });
+  }
+});
+
+// GET /api/accounts/:id/properties/:propId/recent-job
+// Most recent non-cancelled job at this property — powers the job-wizard
+// "Rebook last service" suggestion. Returns null when the property has no
+// prior jobs (the wizard then falls back to the property's
+// default_service_type). Scoped to the property so each building remembers
+// its own last service (e.g. a turnover at 1120 N La Salle, a common-area
+// clean at 1555 N Astor).
+router.get("/:id/properties/:propId/recent-job", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  const propId = parseInt(req.params.propId);
+  if (isNaN(id) || isNaN(propId)) return res.status(400).json({ error: "Invalid id" });
+
+  try {
+    const [job] = await db
+      .select({
+        id: jobsTable.id,
+        service_type: jobsTable.service_type,
+        billing_method: jobsTable.billing_method,
+        hourly_rate: jobsTable.hourly_rate,
+        allowed_hours: jobsTable.allowed_hours,
+        estimated_hours: jobsTable.estimated_hours,
+        base_fee: jobsTable.base_fee,
+        frequency: jobsTable.frequency,
+        scheduled_date: jobsTable.scheduled_date,
+      })
+      .from(jobsTable)
+      .where(
+        and(
+          eq(jobsTable.account_id, id),
+          eq(jobsTable.account_property_id, propId),
+          eq(jobsTable.company_id, req.auth!.companyId),
+          sql`${jobsTable.status} <> 'cancelled'`,
+        )
+      )
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobsTable.id))
+      .limit(1);
+
+    res.json(job ?? null);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch recent job" });
+  }
+});
+
+// GET /api/accounts/:id/jobs-calendar?from=YYYY-MM-DD&to=YYYY-MM-DD
+// Jobs for this account across ALL its properties within a date range —
+// powers the simplified month calendar on the account detail page. Returns a
+// flat list; the frontend buckets by scheduled_date and shows one count per
+// day with a hover popover (per-job time / property / service / tech /
+// amount / status).
+router.get("/:id/jobs-calendar", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  const from = typeof req.query.from === "string" ? req.query.from : null;
+  const to = typeof req.query.to === "string" ? req.query.to : null;
+  if (!from || !to) return res.status(400).json({ error: "from and to are required (YYYY-MM-DD)" });
+
+  try {
+    const rows = await db
+      .select({
+        id: jobsTable.id,
+        scheduled_date: jobsTable.scheduled_date,
+        scheduled_time: jobsTable.scheduled_time,
+        status: jobsTable.status,
+        service_type: jobsTable.service_type,
+        base_fee: jobsTable.base_fee,
+        billing_method: jobsTable.billing_method,
+        allowed_hours: jobsTable.allowed_hours,
+        account_property_id: jobsTable.account_property_id,
+        property_name: accountPropertiesTable.property_name,
+        property_address: accountPropertiesTable.address,
+        tech_first_name: usersTable.first_name,
+        tech_last_name: usersTable.last_name,
+      })
+      .from(jobsTable)
+      .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
+      .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
+      .where(and(
+        eq(jobsTable.account_id, id),
+        eq(jobsTable.company_id, req.auth!.companyId),
+        gte(jobsTable.scheduled_date, from),
+        lte(jobsTable.scheduled_date, to),
+      ))
+      .orderBy(jobsTable.scheduled_date, jobsTable.scheduled_time);
+
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch jobs calendar" });
   }
 });
 

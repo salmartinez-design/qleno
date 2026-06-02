@@ -1186,10 +1186,21 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
               </div>
               <p style={{ margin: "4px 0 0", fontSize: "15px", fontWeight: 700, color: "#0A0E1A" }}>{home.address}</p>
               <p style={{ margin: "2px 0 0", fontSize: "13px", fontWeight: 500, color: "#374151" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
-              {zoneColor && zoneName && (
+              {/* [per-home zone 2026-06-02] Show THIS address's zone, resolved
+                  from its own zip by the API, not the client-level zone — a
+                  new address in a different area must reflect its real zone.
+                  When the zip matches no zone, show an explicit "No zone"
+                  rather than borrowing the client's (which is what made the
+                  old display wrong). */}
+              {home.zone_color && home.zone_name ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: zoneColor, display: "inline-block", flexShrink: 0, boxShadow: `0 0 0 2px ${zoneColor}35` }} />
-                  <span style={{ fontSize: "12px", fontWeight: 700, color: zoneColor }}>{zoneName}</span>
+                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: home.zone_color, display: "inline-block", flexShrink: 0, boxShadow: `0 0 0 2px ${home.zone_color}35` }} />
+                  <span style={{ fontSize: "12px", fontWeight: 700, color: home.zone_color }}>{home.zone_name}</span>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: "#D1D5DB", display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#9E9B94" }}>No zone for this zip</span>
                 </div>
               )}
             </div>

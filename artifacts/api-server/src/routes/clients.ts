@@ -378,6 +378,23 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       if (zone) zoneData = { zone_name: zone.name, zone_color: zone.color };
     }
 
+    // [per-home zone 2026-06-02] Each service address resolves its OWN zone
+    // from its zip. The profile previously showed the single client-level
+    // zone on every address card, so a home in a different area displayed
+    // the wrong zone (Maribel: added a River Forest address, the card kept
+    // the client's old Naperville zone). Match each home's zip against the
+    // active service_zones zip_codes; leave it null when the zip matches no
+    // zone — a visible gap is more honest than a confidently-wrong default.
+    const activeZones = await db
+      .select({ id: serviceZonesTable.id, name: serviceZonesTable.name, color: serviceZonesTable.color, zip_codes: serviceZonesTable.zip_codes })
+      .from(serviceZonesTable)
+      .where(and(eq(serviceZonesTable.company_id, companyId), eq(serviceZonesTable.is_active, true)));
+    const homesWithZone = homes.map(h => {
+      const clean = String(h.zip ?? "").trim().replace(/\D/g, "").slice(0, 5);
+      const match = clean.length === 5 ? activeZones.find(z => z.zip_codes?.includes(clean)) : undefined;
+      return { ...h, zone_id: match?.id ?? null, zone_name: match?.name ?? null, zone_color: match?.color ?? null };
+    });
+
     // QuickBooks status — tenant connected + client synced?
     const [company] = await db.select({ qb_connected: companiesTable.qb_connected })
       .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
@@ -396,7 +413,7 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       ...client,
       ...(zoneData || {}),
       qb_status,
-      homes,
+      homes: homesWithZone,
       tech_preferences: preferences,
       notification_settings: notifications,
       scorecards,
