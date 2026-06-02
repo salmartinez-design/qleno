@@ -220,22 +220,49 @@ router.get("/", requireAuth, async (req, res) => {
       ))
       .orderBy(jobsTable.scheduled_time);
 
-    // Employee zone assignments
-    const empZones = await db
-      .select({
-        user_id: serviceZoneEmployeesTable.user_id,
-        zone_id: serviceZoneEmployeesTable.zone_id,
-        zone_color: serviceZonesTable.color,
-        zone_name: serviceZonesTable.name,
-      })
-      .from(serviceZoneEmployeesTable)
-      .innerJoin(serviceZonesTable, eq(serviceZonesTable.id, serviceZoneEmployeesTable.zone_id))
-      .where(eq(serviceZoneEmployeesTable.company_id, companyId));
-
-    const empZoneMap: Record<number, { zone_id: number; zone_color: string; zone_name: string }> = {};
-    for (const r of empZones) {
-      if (!empZoneMap[r.user_id]) {
-        empZoneMap[r.user_id] = { zone_id: r.zone_id, zone_color: r.zone_color, zone_name: r.zone_name };
+    // Employee zone assignments. [2026-06-02] Two sources, in priority:
+    //   1. users.zip → service_zones.zip_codes match — "the zone the tech
+    //      lives in" (Sal's spec). This auto-updates when an operator
+    //      edits the tech's home address; no manual zone assignment needed.
+    //   2. service_zone_employees row — legacy/manual override, used as a
+    //      fallback when the tech has no home zip on file or their zip
+    //      doesn't match any zone's zip_codes list.
+    // The small dot next to each tech's name on the dispatch row uses this
+    // resolved zone — purple for Chicago Central, etc.
+    const empZoneRows = await db.execute(sql`
+      SELECT
+        u.id AS user_id,
+        COALESCE(home_match.id, manual_match.zone_id) AS zone_id,
+        COALESCE(home_match.color, manual_match.zone_color) AS zone_color,
+        COALESCE(home_match.name, manual_match.zone_name) AS zone_name,
+        CASE WHEN home_match.id IS NOT NULL THEN 'home' ELSE 'manual' END AS zone_source
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT z.id, z.color, z.name
+        FROM service_zones z
+        WHERE z.company_id = ${companyId}
+          AND z.is_active = true
+          AND NULLIF(u.zip, '') = ANY(z.zip_codes)
+        LIMIT 1
+      ) home_match ON true
+      LEFT JOIN (
+        SELECT sze.user_id, sze.zone_id, sz.color AS zone_color, sz.name AS zone_name
+        FROM service_zone_employees sze
+        JOIN service_zones sz ON sz.id = sze.zone_id
+        WHERE sze.company_id = ${companyId}
+      ) manual_match ON manual_match.user_id = u.id
+      WHERE u.company_id = ${companyId}
+        AND (home_match.id IS NOT NULL OR manual_match.zone_id IS NOT NULL)
+    `);
+    const empZoneMap: Record<number, { zone_id: number; zone_color: string; zone_name: string; zone_source: 'home' | 'manual' }> = {};
+    for (const r of empZoneRows.rows as any[]) {
+      if (!empZoneMap[r.user_id] && r.zone_id != null) {
+        empZoneMap[r.user_id] = {
+          zone_id: Number(r.zone_id),
+          zone_color: String(r.zone_color),
+          zone_name: String(r.zone_name),
+          zone_source: r.zone_source === 'home' ? 'home' : 'manual',
+        };
       }
     }
 
