@@ -539,6 +539,16 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           scheduled_date: commercialScheduledDate,
           scheduled_time: commercialScheduledTime + ":00",
           duration_minutes: commercialDuration,
+          // [allowed-hours fix 2026-06-02] allowed_hours is the load-bearing
+          // job-length signal: the dispatch Gantt derives the chip's block
+          // width from it (falling back to 2h when null) AND the commercial
+          // commission engine pays commercial_hourly_rate × allowed_hours.
+          // The wizard previously sent only estimated_hours + the dead
+          // duration_minutes (jobs has no such column), leaving allowed_hours
+          // NULL — so a job booked for "est. 3h" was scheduled as 2h on the
+          // board and paid commission on 0 hours. Send the operator's entered
+          // hours here. estimatedHours is already the stepper's string value.
+          allowed_hours: billingMethod === "hourly" ? (estimatedHours || undefined) : undefined,
           base_fee: baseFee || undefined,
           frequency: commercialFrequency,
           notes: commercialNotes || undefined,
@@ -557,6 +567,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           scheduled_date: scheduledDate,
           scheduled_time: scheduledTime + ":00",
           duration_minutes: duration,
+          // [allowed-hours fix 2026-06-02] Same fix as the commercial branch:
+          // the jobs table has no duration_minutes column, so the only signal
+          // the dispatch Gantt reads for the chip's block width is
+          // allowed_hours. Without it, every wizard-created residential
+          // one-off rendered as a flat 2h block. `duration` is in minutes.
+          allowed_hours: duration ? (duration / 60).toFixed(2) : undefined,
           base_fee: price,
           frequency,
           notes: notes || undefined,
