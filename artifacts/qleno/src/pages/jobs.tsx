@@ -1615,6 +1615,31 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
+          {/* [panel-revamp 2026-06-03] Recurring indicator — frequency, an
+              estimated next visit, and a jump to the client's schedule.
+              recurring_schedule_id isn't on the FE type; accessed via cast
+              like elsewhere in this file. */}
+          {(job as any).recurring_schedule_id != null && (() => {
+            const fl: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", every_3_weeks: "Every 3 weeks", monthly: "Monthly", every_4_weeks: "Every 4 weeks", daily: "Daily", weekdays: "Weekdays", custom_days: "Custom days" };
+            const freqLabel = fl[job.frequency] ?? "Recurring";
+            const iv: Record<string, number> = { weekly: 7, biweekly: 14, every_3_weeks: 21, monthly: 28, every_4_weeks: 28 };
+            let nextStr = "";
+            const days = iv[job.frequency];
+            if (days && job.scheduled_date) {
+              const d = new Date(`${job.scheduled_date}T00:00:00`);
+              d.setDate(d.getDate() + days);
+              nextStr = ` · next ~${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`;
+            }
+            const href = job.client_id ? `/customers/${job.client_id}` : job.account_id ? `/accounts/${job.account_id}` : null;
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", background: "#EEF4FF", borderRadius: 8, marginBottom: 12, width: "fit-content" }}>
+                <Repeat size={13} color="#3B6CC9" />
+                <span style={{ fontSize: 12, fontWeight: 700, color: "#3B6CC9" }}>{freqLabel} recurring{nextStr}</span>
+                {href && <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#3B6CC9" }}>View schedule</a>}
+              </div>
+            );
+          })()}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             {/* [time-edit 2026-04-29] Inline time editor with pencil
                 affordance. Uses the existing PATCH endpoint + cascade
@@ -1718,6 +1743,33 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               )}
             </PS>
           )}
+
+          {/* [panel-revamp 2026-06-03] Allowed vs actual hours + variance.
+              Allowed = the real allowed_hours from the payload (not the stale
+              estimated_hours stamp, per CLAUDE.md); accessed via cast since
+              it's not on the FE type. Actual prefers actual_hours/billed_hours,
+              falls back to clock in/out duration. */}
+          {(() => {
+            const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : null;
+            let actual: number | null = job.actual_hours != null ? Number(job.actual_hours)
+              : (job.billed_hours != null ? Number(job.billed_hours) : null);
+            if (actual == null && job.clock_entry?.clock_in_at && job.clock_entry?.clock_out_at) {
+              actual = (new Date(job.clock_entry.clock_out_at).getTime() - new Date(job.clock_entry.clock_in_at).getTime()) / 3600000;
+            }
+            if (allowed == null && actual == null) return null;
+            const variance = (allowed != null && actual != null) ? actual - allowed : null;
+            return (
+              <PS label="Hours">
+                {allowed != null && <KV label="Allowed" value={`${allowed.toFixed(1)}h`} />}
+                {actual != null && <KV label="Actual" value={`${actual.toFixed(1)}h`} />}
+                {variance != null && (
+                  <KV label="Variance"
+                    value={`${variance > 0 ? "+" : ""}${variance.toFixed(1)}h`}
+                    color={variance > 0.25 ? "#D97706" : variance < -0.25 ? "#16A34A" : undefined} />
+                )}
+              </PS>
+            );
+          })()}
 
           {(job.before_photo_count > 0 || job.after_photo_count > 0) && (
             <PS label="Photos">
