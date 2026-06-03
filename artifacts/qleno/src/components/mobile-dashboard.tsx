@@ -26,6 +26,7 @@ interface CardData {
   unassigned_jobs: number; techs_today: number; next_7_days_jobs: number; next_7_days_revenue: number;
   leads: number; quotes: number; closed_quotes: number; close_rate: number; monthly_revenue: number;
   avg_bill: number; active_clients: number; rate_trend: number; avg_bill_12mo: number; retention: number;
+  payroll_pct: number; payroll_window: string;
 }
 
 const money = (n: number) => `$${Math.round(n || 0).toLocaleString("en-US")}`;
@@ -36,7 +37,7 @@ function Big({ t, c = INK }: { t: string; c?: string }) {
   return <span style={{ fontSize: 28, fontWeight: 800, color: c, fontFamily: FF, lineHeight: 1.1 }}>{t}</span>;
 }
 
-interface LibCard { key: string; label: string; sub?: string; render: (d: CardData, payroll: number | null) => ReactNode; }
+interface LibCard { key: string; label: string; sub?: string; render: (d: CardData) => ReactNode; }
 
 // Full card library — every card available to every user.
 const LIBRARY: LibCard[] = [
@@ -75,7 +76,7 @@ const LIBRARY: LibCard[] = [
   { key: "active_clients",       label: "Active Clients",       render: d => <Big t={String(d.active_clients)} /> },
   { key: "rate_trend",           label: "Rate Trend",           sub: "avg bill, 12mo vs prior 12mo", render: d => <Big t={signPct(d.rate_trend)} c={d.rate_trend < 0 ? RED : MINT} /> },
   { key: "retention",            label: "Retention",            sub: "recurring clients active", render: d => <Big t={`${d.retention}%`} c={MINT} /> },
-  { key: "payroll_pct",          label: "Payroll %",            sub: "payroll / revenue",      render: (_d, payroll) => <Big t={payroll == null ? "—" : `${payroll.toFixed(1)}%`} /> },
+  { key: "payroll_pct",          label: "Payroll %",            sub: "payroll / revenue, Apr 2026", render: d => <Big t={`${d.payroll_pct}%`} /> },
 ];
 const LIB_KEYS = LIBRARY.map(l => l.key);
 const cardDef = (k: string) => LIBRARY.find(l => l.key === k);
@@ -91,7 +92,6 @@ export default function MobileDashboard() {
 
   const [data, setData] = useState<CardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [payroll, setPayroll] = useState<number | null>(null);
   const [order, setOrder] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [customizing, setCustomizing] = useState(false);
@@ -146,18 +146,6 @@ export default function MobileDashboard() {
     })();
     return () => { cancelled = true; };
   }, [activeBranchId]);
-
-  // Payroll % comes from the existing reports endpoint; fetch only if shown.
-  useEffect(() => {
-    if (!selected.has("payroll_pct") || payroll !== null) return;
-    (async () => {
-      try {
-        const r = await fetch(`${API}/api/reports/payroll-to-revenue`, { headers: getAuthHeaders() });
-        const d = await r.json();
-        setPayroll(d?.current?.pct ?? null);
-      } catch { /* leave as — */ }
-    })();
-  }, [selected, payroll]);
 
   const visibleKeys = order.filter(k => selected.has(k));
 
@@ -219,7 +207,7 @@ export default function MobileDashboard() {
           return (
             <div key={k} style={{ ...CARD, padding: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em" }}>{def.label}</div>
-              <div style={{ marginTop: 6 }}>{def.render(data, payroll)}</div>
+              <div style={{ marginTop: 6 }}>{def.render(data)}</div>
               {def.sub && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>{def.sub}</div>}
             </div>
           );
