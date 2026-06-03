@@ -1708,6 +1708,37 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             />
           </div>
 
+          {/* [panel-revamp step 3] Itemized service & pricing — base + add-ons
+              + discount (negative add-on) + total. Only shown when there are
+              add-ons/discounts; otherwise the price editor above already
+              carries the single price. */}
+          {(() => {
+            const addOns = job.add_ons ?? [];
+            if (addOns.length === 0) return null;
+            const total = Number(job.amount ?? job.billed_amount ?? 0);
+            const addOnSum = addOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
+            const base = total - addOnSum;
+            const positives = addOns.filter(a => Number(a.subtotal ?? 0) >= 0);
+            const discounts = addOns.filter(a => Number(a.subtotal ?? 0) < 0);
+            const line = (label: string, value: string, color?: string) => (
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "3px 0" }}>
+                <span style={{ color: "#6B6860", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+                <span style={{ fontWeight: 600, color: color ?? "#1A1917", flexShrink: 0 }}>{value}</span>
+              </div>
+            );
+            return (
+              <PS label="Service & pricing">
+                {line(fmtSvc(job.service_type), `$${base.toFixed(2)}`)}
+                {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, `$${Number(a.subtotal).toFixed(2)}`)}</div>)}
+                {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#2D9B83")}</div>)}
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
+                  <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
+                  <span style={{ fontWeight: 800, color: "#1A1917" }}>${total.toFixed(2)}</span>
+                </div>
+              </PS>
+            );
+          })()}
+
           {job.property_access_notes && (
             <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
               <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
