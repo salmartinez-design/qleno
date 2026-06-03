@@ -32,6 +32,9 @@ export const companiesTable = pgTable("companies", {
   geofence_clockout_radius_ft: integer("geofence_clockout_radius_ft").notNull().default(1000),
   geofence_override_allowed: boolean("geofence_override_allowed").notNull().default(true),
   geofence_soft_mode: boolean("geofence_soft_mode").notNull().default(false),
+  // [gps-flag] When true, the dispatch panel flags clock punches that captured
+  // no GPS coordinates ("GPS unavailable"). Office can turn it off here.
+  flag_missing_gps: boolean("flag_missing_gps").notNull().default(true),
   brand_color: text("brand_color").notNull().default("#00C9A7"),
   sms_on_my_way_enabled: boolean("sms_on_my_way_enabled").notNull().default(true),
   sms_arrived_enabled: boolean("sms_arrived_enabled").notNull().default(false),

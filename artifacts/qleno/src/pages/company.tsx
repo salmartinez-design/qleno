@@ -1501,6 +1501,7 @@ function ClockInOutTab() {
     geofence_clockout_radius_ft: 1000,
     geofence_override_allowed: true,
     geofence_soft_mode: false,
+    flag_missing_gps: true,
   });
 
   useEffect(() => {
@@ -1514,6 +1515,7 @@ function ClockInOutTab() {
           geofence_clockout_radius_ft: d.geofence_clockout_radius_ft ?? 1000,
           geofence_override_allowed: d.geofence_override_allowed ?? true,
           geofence_soft_mode: d.geofence_soft_mode ?? false,
+          flag_missing_gps: d.flag_missing_gps ?? true,
         });
       })
       .catch(() => {})
@@ -1561,6 +1563,16 @@ function ClockInOutTab() {
             <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Employees must be within range of job address to clock in and out</p>
           </div>
           <ToggleSwitch checked={settings.geofence_enabled} onChange={v => setSettings(s => ({ ...s, geofence_enabled: v }))} />
+        </div>
+      </div>
+
+      <div style={CARD}>
+        <div style={ROW}>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Flag missing GPS on the board</p>
+            <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Show a "GPS unavailable" flag on a job when a tech clocked in with no location captured</p>
+          </div>
+          <ToggleSwitch checked={settings.flag_missing_gps} onChange={v => setSettings(s => ({ ...s, flag_missing_gps: v }))} />
         </div>
       </div>
 
