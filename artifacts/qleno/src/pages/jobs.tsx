@@ -1652,6 +1652,30 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
+          {/* [panel-revamp step 2] At-a-glance summary tiles — Billed /
+              Commission / Hours. Three small tiles fit the mobile sheet. */}
+          {(() => {
+            const billed = Number(job.amount ?? job.billed_amount ?? 0);
+            const techs = job.technicians ?? [];
+            const hasComm = techs.length > 0;
+            const commTotal = techs.reduce((s, t) => s + (t.final_pay ?? 0), 0);
+            const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : (job.estimated_hours ?? null);
+            const Tile = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) => (
+              <div style={{ flex: 1, minWidth: 0, background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 11px" }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: color ?? "#1A1917", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
+                {sub && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1 }}>{sub}</div>}
+              </div>
+            );
+            return (
+              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+                <Tile label="Billed" value={`$${Math.round(billed).toLocaleString()}`} />
+                <Tile label="Commission" value={hasComm ? `$${Math.round(commTotal).toLocaleString()}` : "—"} color="#2D9B83" />
+                <Tile label="Hours" value={allowed != null ? `${allowed.toFixed(1)}h` : "—"} sub="allowed" />
+              </div>
+            );
+          })()}
+
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             {/* [time-edit 2026-04-29] Inline time editor with pencil
                 affordance. Uses the existing PATCH endpoint + cascade
