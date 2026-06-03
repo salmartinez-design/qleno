@@ -257,6 +257,48 @@ function OfficeAttachments({ jobId }: { jobId: number }) {
   );
 }
 
+// Field techs add a note from their phone. Prominent full-width button (easy
+// to find), 44px+ tap targets. Server appends to the job's notes (timestamped),
+// so the office sees it without the tech clobbering anything.
+function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [saving, setSaving] = useState(false);
+  async function save() {
+    const note = text.trim();
+    if (!note) return;
+    setSaving(true);
+    try {
+      const r = await apiFetch(`/jobs/${jobId}/note`, { method: "POST", body: JSON.stringify({ note }) });
+      if (r.ok) { setText(""); setOpen(false); onSaved(); }
+    } finally { setSaving(false); }
+  }
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)}
+        style={{ marginTop: 12, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 10, border: "1px dashed #C9C5BD", background: "#FAFAF8", color: "#1A1917", fontSize: 15, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+        + Add note
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 12 }}>
+      <textarea value={text} onChange={e => setText(e.target.value)} autoFocus rows={3} placeholder="Add a note for this job…"
+        style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button onClick={save} disabled={saving || !text.trim()}
+          style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: text.trim() && !saving ? "var(--brand, #00C9A0)" : "#D1D5DB", color: "#fff", fontSize: 15, fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
+          {saving ? "Saving…" : "Save note"}
+        </button>
+        <button onClick={() => { setOpen(false); setText(""); }} disabled={saving}
+          style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#fff", color: "#6B7280", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -542,6 +584,8 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
           <p style={{ fontSize: 12, color: "#1A1917", margin: 0 }}>{job.client_notes}</p>
         </div>
       )}
+
+      <AddNote jobId={job.id} onSaved={onRefresh} />
 
       {/* [quote-attachments] Files the office attached on the source quote.
           Read-only here — techs see photos/PDFs the client sent or the

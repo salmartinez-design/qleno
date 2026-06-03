@@ -12,7 +12,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
-  Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info,
+  Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -1648,6 +1648,30 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
               />
               <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
+            </div>
+          )}
+
+          {/* Delete (office/admin/owner) — for made-up/test jobs. Audit-logged. */}
+          {canEditOfficeNotes && (
+            <div style={{ marginTop: 12 }}>
+              <button
+                onClick={async () => {
+                  if (!window.confirm("Delete this job? It's removed from the schedule and recorded in the audit log.")) return;
+                  try {
+                    const r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+                    const d = await r.json().catch(() => ({}));
+                    if (!r.ok) { toast({ title: "Couldn't delete", description: d.message || d.error || `HTTP ${r.status}` }); return; }
+                    toast({ title: "Job deleted" });
+                    onClose();
+                    onUpdate();
+                  } catch (e: any) {
+                    toast({ title: "Couldn't delete", description: e?.message ?? "Network error" });
+                  }
+                }}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#DC2626", background: "none", border: "1px solid #FECACA", borderRadius: 8, padding: "7px 12px", cursor: "pointer", fontFamily: FF }}
+              >
+                <Trash2 size={13} /> Delete job
+              </button>
             </div>
           )}
 
