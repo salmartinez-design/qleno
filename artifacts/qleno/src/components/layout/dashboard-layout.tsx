@@ -704,28 +704,33 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               {quickCreateOpen && (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-                  background: '#FFF', borderRadius: 12, border: '1px solid #E5E2DC',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.14)', width: 185, zIndex: 300,
-                  overflow: 'hidden',
+                  background: '#FFF', borderRadius: 14, border: '1px solid #E5E2DC',
+                  boxShadow: '0 12px 36px rgba(10,14,26,0.14)', width: 244, zIndex: 300,
+                  padding: 6,
                 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
-                    { label: 'Quote',  Icon: Receipt,   href: '/quotes/new' },
-                    { label: 'Job',    Icon: Briefcase, href: '/dispatch' },
-                    { label: 'Client', Icon: UserPlus,  href: '/customers' },
-                  ] as const).map((item, i, arr) => (
+                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch' },
+                    { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
+                  ] as const).map((item) => (
                     <button
                       key={item.label}
                       onClick={() => { setLocation(item.href); setQuickCreateOpen(false); }}
                       style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '12px 16px', border: 'none',
-                        borderBottom: i < arr.length - 1 ? '1px solid #F0EDEA' : 'none',
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '9px 10px', border: 'none', borderRadius: 10,
                         background: 'none', cursor: 'pointer', textAlign: 'left' as const,
                       }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#F7F6F3')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                     >
-                      <item.Icon size={16} color="var(--brand)" />
-                      <span style={{ fontSize: 14, fontWeight: 500, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                        {item.label}
+                      <span style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(45,155,131,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <item.Icon size={16} color="#2D9B83" />
+                      </span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.label}</span>
+                        <span style={{ display: 'block', fontSize: 11, color: '#9E9B94', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.desc}</span>
                       </span>
                     </button>
                   ))}
@@ -859,45 +864,51 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                 onClick={() => setQuickCreateOpen(p => !p)}
                 title="Quick Create"
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 5,
-                  padding: '5px 11px', borderRadius: 8, cursor: 'pointer',
-                  background: '#1A1917', border: 'none', color: '#FFF',
-                  fontSize: 13, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 13px', borderRadius: 10, cursor: 'pointer',
+                  background: quickCreateOpen ? '#000' : '#1A1917', border: 'none', color: '#FFF',
+                  fontSize: 13, fontWeight: 700,
                   fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  transition: 'background 0.12s',
                 }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#000')}
+                onMouseLeave={e => (e.currentTarget.style.background = quickCreateOpen ? '#000' : '#1A1917')}
               >
-                <Plus size={14} strokeWidth={2.5} />
+                <Plus size={15} strokeWidth={2.5} />
                 <span>New</span>
               </button>
 
               {quickCreateOpen && (
                 <div style={{
                   position: 'absolute', top: 'calc(100% + 8px)', right: 0,
-                  background: '#FFF', borderRadius: 12, border: '1px solid #E5E2DC',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.12)', width: 190, zIndex: 300,
-                  overflow: 'hidden',
+                  background: '#FFF', borderRadius: 14, border: '1px solid #E5E2DC',
+                  boxShadow: '0 12px 36px rgba(10,14,26,0.14)', width: 244, zIndex: 300,
+                  padding: 6,
                 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
-                    { label: 'Quote',  Icon: Receipt,   href: '/quotes/new' },
-                    { label: 'Job',    Icon: Briefcase, href: '/dispatch' },
-                    { label: 'Client', Icon: UserPlus,  href: '/customers' },
-                  ] as const).map((item, i, arr) => (
+                    { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch' },
+                    { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
+                  ] as const).map((item) => (
                     <button
                       key={item.label}
                       onClick={() => { setLocation(item.href); setQuickCreateOpen(false); }}
                       style={{
-                        width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-                        padding: '11px 16px', border: 'none',
-                        borderBottom: i < arr.length - 1 ? '1px solid #F0EDEA' : 'none',
+                        width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                        padding: '9px 10px', border: 'none', borderRadius: 10,
                         background: 'none', cursor: 'pointer', textAlign: 'left' as const,
-                        transition: 'background 0.1s',
+                        transition: 'background 0.12s',
                       }}
                       onMouseEnter={e => (e.currentTarget.style.background = '#F7F6F3')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                     >
-                      <item.Icon size={16} color="var(--brand)" />
-                      <span style={{ fontSize: 14, fontWeight: 500, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                        {item.label}
+                      <span style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(45,155,131,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <item.Icon size={16} color="#2D9B83" />
+                      </span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.label}</span>
+                        <span style={{ display: 'block', fontSize: 11, color: '#9E9B94', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.desc}</span>
                       </span>
                     </button>
                   ))}
