@@ -154,6 +154,7 @@ export function AccountJobsCalendar({ accountId }: { accountId: number | string 
               style={{ zIndex: isHovered ? 30 : 1 }}
               onMouseEnter={() => dayJobs.length && setHovered(key)}
               onMouseLeave={() => setHovered(null)}
+              onClick={() => { if (dayJobs.length) setHovered(prev => (prev === key ? null : key)); }}
             >
               <div className={`text-[11px] font-semibold ${isToday ? "text-[#00897B]" : "text-gray-500"}`}>{dayNum}</div>
 

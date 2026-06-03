@@ -4,6 +4,7 @@ import { RefreshCw, Clock, Search } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -38,6 +39,7 @@ function fmtTime(t: string | null) {
 
 export default function RecurringSchedulesPage() {
   const { toast } = useToast();
+  const isMobile = useIsMobile();
   const [rows, setRows] = useState<Schedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -140,7 +142,34 @@ export default function RecurringSchedulesPage() {
           </button>
         </div>
 
-        {/* Table */}
+        {/* Mobile: card list (a wide table is unusable on a phone) */}
+        {isMobile ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {loading ? (
+              <p style={{ fontSize: 13, color: "#9E9B94", textAlign: "center", padding: 20 }}>Loading…</p>
+            ) : filtered.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#9E9B94", textAlign: "center", padding: 20 }}>No recurring schedules.</p>
+            ) : filtered.map(r => (
+              <div key={r.id} onClick={() => toggle(r.id)}
+                style={{ background: selected.has(r.id) ? "#F0FDFB" : "#fff", border: `1px solid ${selected.has(r.id) ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 12, padding: 14, display: "flex", gap: 12, alignItems: "flex-start", cursor: "pointer" }}>
+                <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} onClick={e => e.stopPropagation()} style={{ marginTop: 3, width: 18, height: 18, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{r.client_name?.trim() || `#${r.customer_id}`}</p>
+                  <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 2px" }}>
+                    {FREQ_LABEL[r.frequency] ?? r.frequency}{r.day_of_week ? ` · ${r.day_of_week}` : ""} · {r.base_fee ? `$${parseFloat(r.base_fee).toFixed(2)}` : "—"}
+                  </p>
+                  <p style={{ fontSize: 12, margin: 0 }}>
+                    {fmtTime(r.scheduled_time)
+                      ? <span style={{ color: "#1A1917", fontWeight: 600 }}>{fmtTime(r.scheduled_time)}</span>
+                      : <span style={{ color: "#B45309", fontWeight: 700 }}>No time set</span>}
+                  </p>
+                  <Link href={`/customers/${r.customer_id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "var(--brand, #00C9A0)", fontWeight: 600, display: "inline-block", marginTop: 6 }}>Open profile</Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+        /* Desktop: table */
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -178,6 +207,7 @@ export default function RecurringSchedulesPage() {
             </tbody>
           </table>
         </div>
+        )}
       </div>
     </DashboardLayout>
   );
