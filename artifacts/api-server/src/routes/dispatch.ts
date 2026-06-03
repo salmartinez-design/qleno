@@ -331,6 +331,13 @@ router.get("/", requireAuth, async (req, res) => {
         clock_out_at: timeclockTable.clock_out_at,
         distance_from_job_ft: timeclockTable.distance_from_job_ft,
         flagged: timeclockTable.flagged,
+        clock_in_lat: timeclockTable.clock_in_lat,
+        clock_in_lng: timeclockTable.clock_in_lng,
+        clock_in_distance_ft: timeclockTable.clock_in_distance_ft,
+        clock_out_distance_ft: timeclockTable.clock_out_distance_ft,
+        clock_in_outside_geofence: timeclockTable.clock_in_outside_geofence,
+        clock_out_outside_geofence: timeclockTable.clock_out_outside_geofence,
+        source: timeclockTable.source,
       })
       .from(timeclockTable)
       .where(sql`${timeclockTable.job_id} = ANY(ARRAY[${sql.raw(idList)}]::int[])`);
@@ -745,6 +752,13 @@ router.get("/", requireAuth, async (req, res) => {
           clock_out_at: clock.clock_out_at,
           distance_from_job_ft: clock.distance_from_job_ft ? parseFloat(clock.distance_from_job_ft) : null,
           is_flagged: clock.flagged,
+          clock_in_distance_ft: clock.clock_in_distance_ft != null ? parseFloat(clock.clock_in_distance_ft) : null,
+          clock_out_distance_ft: clock.clock_out_distance_ft != null ? parseFloat(clock.clock_out_distance_ft) : null,
+          clock_in_outside_geofence: clock.clock_in_outside_geofence ?? false,
+          clock_out_outside_geofence: clock.clock_out_outside_geofence ?? false,
+          // GPS unavailable = no coordinates captured at clock-in. Suppressed
+          // for synthetic 'estimated' completion stamps (legitimately no GPS).
+          gps_missing: clock.source !== "estimated" && (clock.clock_in_lat == null || clock.clock_in_lng == null),
         } : null,
         technicians,
         est_hours_per_tech: estHoursPerTech,

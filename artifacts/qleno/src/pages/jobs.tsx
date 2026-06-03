@@ -63,7 +63,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 };
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
-interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; }
+interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
@@ -1738,8 +1738,14 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <PS label="Clock Data">
               {job.clock_entry.clock_in_at && <KV label="Clock in" value={new Date(job.clock_entry.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
               {job.clock_entry.clock_out_at && <KV label="Clock out" value={new Date(job.clock_entry.clock_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
-              {job.clock_entry.distance_from_job_ft !== null && (
-                <KV label="Distance at clock-in" value={`${Math.round(job.clock_entry.distance_from_job_ft)} ft${job.clock_entry.is_flagged ? " (flagged)" : ""}`} color={job.clock_entry.is_flagged ? "#EF4444" : undefined} />
+              {(job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft) !== null && (job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft) !== undefined && (
+                <KV label="Distance at clock-in" value={`${Math.round((job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft)!)} ft${job.clock_entry.clock_in_outside_geofence ? " (outside)" : ""}`} color={job.clock_entry.clock_in_outside_geofence ? "#D97706" : undefined} />
+              )}
+              {job.clock_entry.clock_out_distance_ft != null && (
+                <KV label="Distance at clock-out" value={`${Math.round(job.clock_entry.clock_out_distance_ft)} ft${job.clock_entry.clock_out_outside_geofence ? " (outside)" : ""}`} color={job.clock_entry.clock_out_outside_geofence ? "#D97706" : undefined} />
+              )}
+              {job.clock_entry.gps_missing && (
+                <KV label="GPS" value="Unavailable — location not captured" color="#DC2626" />
               )}
             </PS>
           )}
@@ -3269,24 +3275,37 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         <div style={{ padding: "16px 20px", borderBottom: sectionBorder }}>
           <div style={labelStyle}>Job Clocks</div>
           <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 500, lineHeight: 1.5 }}>
-            {liveClock.clock_in_at && (
-              <div>
-                <span style={{ color: "#9E9B94" }}>In:</span>{" "}
-                {new Date(liveClock.clock_in_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
-                {liveClock.distance_from_job_ft != null && (
-                  <span style={{ color: "#9E9B94", marginLeft: 6 }}>
-                    ({Math.round(liveClock.distance_from_job_ft)} ft)
-                  </span>
-                )}
-              </div>
-            )}
+            {liveClock.clock_in_at && (() => {
+              const d = liveClock.clock_in_distance_ft ?? liveClock.distance_from_job_ft;
+              return (
+                <div>
+                  <span style={{ color: "#9E9B94" }}>In:</span>{" "}
+                  {new Date(liveClock.clock_in_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {d != null && (
+                    <span style={{ color: liveClock.clock_in_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
+                      ({Math.round(d)} ft{liveClock.clock_in_outside_geofence ? " · outside" : ""})
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {liveClock.clock_out_at && (
               <div>
                 <span style={{ color: "#9E9B94" }}>Out:</span>{" "}
                 {new Date(liveClock.clock_out_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                {liveClock.clock_out_distance_ft != null && (
+                  <span style={{ color: liveClock.clock_out_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
+                    ({Math.round(liveClock.clock_out_distance_ft)} ft{liveClock.clock_out_outside_geofence ? " · outside" : ""})
+                  </span>
+                )}
               </div>
             )}
-            {liveClock.is_flagged && (
+            {liveClock.gps_missing && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#DC2626", fontWeight: 700, marginTop: 4 }}>
+                <AlertTriangle size={12} /> GPS unavailable — location not captured
+              </div>
+            )}
+            {liveClock.is_flagged && !liveClock.gps_missing && (
               <div style={{ color: "#D97706", fontWeight: 600, marginTop: 4 }}>Flagged</div>
             )}
           </div>
