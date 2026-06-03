@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 
 const router = Router();
 
@@ -175,6 +176,10 @@ router.get("/today", requireAuth, async (req, res) => {
         assigned_user_id: jobsTable.assigned_user_id,
         client_name: sql<string>`concat(${clientsTable.first_name},' ',${clientsTable.last_name})`,
         base_fee: jobsTable.base_fee,
+        account_id: jobsTable.account_id,
+        hourly_rate: jobsTable.hourly_rate,
+        allowed_hours: jobsTable.allowed_hours,
+        client_type: clientsTable.client_type,
       })
         .from(jobsTable)
         .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -185,7 +190,15 @@ router.get("/today", requireAuth, async (req, res) => {
       db.select({ c: count() }).from(jobsTable).where(and(eq(jobsTable.company_id, companyId), eq(jobsTable.status, "scheduled"), eq(jobsTable.scheduled_date, todayStr), ...todayBranchCond)),
     ]);
 
-    const todayRevenue = todayJobs.filter(j => j.status === 'complete').reduce((s, j) => s + parseFloat(j.base_fee || '0'), 0);
+    // Commercial work bills hourly_rate × allowed_hours (matching MaidCentral
+    // and the dispatch board); residential uses the stored fee.
+    const todayRevenue = todayJobs.filter(j => j.status === 'complete').reduce((s, j) => {
+      const rate = parseFloat((j as any).hourly_rate || '0');
+      const hrs = parseFloat((j as any).allowed_hours || '0');
+      const commercial = (j as any).account_id != null || (j as any).client_type === 'commercial';
+      if (commercial && rate > 0 && hrs > 0) return s + rate * hrs;
+      return s + parseFloat(j.base_fee || '0');
+    }, 0);
 
     // Flagged clock-ins today — get both full count AND detail list separately
     const [flaggedCountRow, flagged] = await Promise.all([
@@ -405,49 +418,54 @@ router.get("/kpis", requireAuth, async (req, res) => {
       // (fresh-start tenants showed a blank "—"). Sum the period's
       // non-cancelled jobs by billed_amount when invoiced, else base_fee.
       db.execute(sql`
-        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND scheduled_date >= ${weekStartStr}
-          AND scheduled_date <= ${todayStr}
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${weekStartStr}
+          AND j.scheduled_date <= ${todayStr}
       `),
       // Previous week revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND scheduled_date >= ${prevWeekStartStr}
-          AND scheduled_date <= ${prevWeekEndStr}
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${prevWeekStartStr}
+          AND j.scheduled_date <= ${prevWeekEndStr}
       `),
       // This month revenue (MTD)
       db.execute(sql`
-        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND scheduled_date >= ${monthStartStr}
-          AND scheduled_date <= ${todayStr}
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${monthStartStr}
+          AND j.scheduled_date <= ${todayStr}
       `),
       // Last month revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND scheduled_date >= ${lastMonthStartStr}
-          AND scheduled_date <= ${lastMonthEndStr}
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${lastMonthStartStr}
+          AND j.scheduled_date <= ${lastMonthEndStr}
       `),
       // Avg bill — last 30 days (exclude $0 jobs so the average is meaningful)
       db.execute(sql`
-        SELECT COALESCE(AVG(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS avg_bill
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND COALESCE(billed_amount, base_fee, 0) > 0
-          AND scheduled_date >= ${thirtyDaysAgoStr}
-          AND scheduled_date <= ${todayStr}
+        SELECT COALESCE(AVG(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS avg_bill
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND ${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)} > 0
+          AND j.scheduled_date >= ${thirtyDaysAgoStr}
+          AND j.scheduled_date <= ${todayStr}
       `),
       // Avg quality score (last 90 days)
       db.execute(sql`
@@ -538,12 +556,13 @@ router.get("/kpis", requireAuth, async (req, res) => {
 
       // Next 7 days revenue
       db.execute(sql`
-        SELECT COALESCE(SUM(base_fee), 0)::numeric AS total
-        FROM jobs
-        WHERE company_id = ${companyId}
-          AND status != 'cancelled'
-          AND scheduled_date >= ${next7Start}
-          AND scheduled_date <= ${next7End}
+        SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${next7Start}
+          AND j.scheduled_date <= ${next7End}
       `),
 
       // Next 7 days job count

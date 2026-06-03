@@ -4,6 +4,7 @@ import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, se
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 
 const router = Router();
 
@@ -921,24 +922,25 @@ router.get("/week-summary", requireAuth, async (req, res) => {
     // and no row in job_technicians.
     const result = await db.execute(sql`
       SELECT
-        scheduled_date::text AS date,
+        j.scheduled_date::text AS date,
         COUNT(*)::int AS job_count,
-        COALESCE(SUM(CAST(base_fee AS NUMERIC)), 0)::numeric AS revenue,
+        COALESCE(SUM(${jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`)}), 0)::numeric AS revenue,
         SUM(
           CASE
-            WHEN assigned_user_id IS NULL
+            WHEN j.assigned_user_id IS NULL
               AND NOT EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id)
             THEN 1 ELSE 0
           END
         )::int AS unassigned_count
       FROM jobs j
-      WHERE company_id = ${companyId}
-        AND scheduled_date >= ${fromStr}
-        AND scheduled_date <= ${toStr}
-        AND status != 'cancelled'
+      LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.company_id = ${companyId}
+        AND j.scheduled_date >= ${fromStr}
+        AND j.scheduled_date <= ${toStr}
+        AND j.status != 'cancelled'
         ${branchCond}
-      GROUP BY scheduled_date
-      ORDER BY scheduled_date ASC
+      GROUP BY j.scheduled_date
+      ORDER BY j.scheduled_date ASC
     `);
 
     type Row = { date: string; job_count: number; revenue: string; unassigned_count: number };
