@@ -1186,4 +1186,230 @@ router.get("/weekly-forecast", requireAuth, async (req, res) => {
   }
 });
 
+// ── Mobile customizable dashboard ────────────────────────────────────────────
+// Read-only aggregate feeding the role-based, user-customizable MOBILE dashboard.
+// One payload = every card's value, so the mobile surface does a single fetch.
+// Branch-aware for job/client-based cards (jobs.branch_id / clients.branch_id);
+// leads + quotes are company-wide (quotes has no reliable branch_id column).
+// Desktop endpoints are untouched.
+router.get("/mobile-cards", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const branchRaw = req.query.branch_id;
+    const branchId = branchRaw && branchRaw !== "all" ? parseInt(branchRaw as string) : null;
+    const jb = branchId ? sql`AND j.branch_id = ${branchId}` : sql``;
+    const cb = branchId ? sql`AND branch_id = ${branchId}` : sql``;
+    // "Today" / month boundaries in Central time (Phes), not UTC.
+    const today = sql`(now() AT TIME ZONE 'America/Chicago')::date`;
+    const monthStart = sql`date_trunc('month', (now() AT TIME ZONE 'America/Chicago'))`;
+    // Revenue: completed/booked use base_fee; rollups use billed_amount fallback.
+    const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
+    const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
+
+    const [todayRev, todayCounts, monthRev, avgBill, next7, lateRows, leadsRows, quotesRows, activeRows, rateRows, retentionRows] = await Promise.all([
+      // Daily revenue (completed today, actual) vs Revenue booked today (all non-cancelled scheduled today)
+      db.execute(sql`
+        SELECT
+          COALESCE(SUM(${exprBase}) FILTER (WHERE j.status = 'complete'), 0)::numeric AS daily,
+          COALESCE(SUM(${exprBase}) FILTER (WHERE j.status != 'cancelled'), 0)::numeric AS booked
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId} AND j.scheduled_date = ${today} ${jb}
+      `),
+      // Today's counts + status breakdown + techs working
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE status != 'cancelled')::int AS jobs_today,
+          COUNT(*) FILTER (WHERE status = 'scheduled')::int AS scheduled,
+          COUNT(*) FILTER (WHERE status = 'in_progress')::int AS in_progress,
+          COUNT(*) FILTER (WHERE status = 'complete')::int AS complete,
+          COUNT(*) FILTER (WHERE flagged = true AND status != 'cancelled')::int AS flagged,
+          COUNT(*) FILTER (WHERE status = 'scheduled' AND assigned_user_id IS NULL)::int AS unassigned,
+          COUNT(DISTINCT assigned_user_id) FILTER (WHERE status != 'cancelled' AND assigned_user_id IS NOT NULL)::int AS techs_today
+        FROM jobs j
+        WHERE j.company_id = ${companyId} AND j.scheduled_date = ${today} ${jb}
+      `),
+      // Monthly revenue (month-to-date)
+      db.execute(sql`
+        SELECT COALESCE(SUM(${exprBilled}), 0)::numeric AS v
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${monthStart}::date AND j.scheduled_date <= ${today} ${jb}
+      `),
+      // Avg bill (last 30 days, excluding $0)
+      db.execute(sql`
+        SELECT COALESCE(AVG(${exprBilled}), 0)::numeric AS v
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${today} - INTERVAL '30 days' AND j.scheduled_date <= ${today}
+          AND ${exprBilled} > 0 ${jb}
+      `),
+      // Next 7 days (jobs + revenue)
+      db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE j.status != 'cancelled')::int AS jobs,
+          COALESCE(SUM(${exprBilled}) FILTER (WHERE j.status != 'cancelled'), 0)::numeric AS revenue
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.scheduled_date >= ${today} AND j.scheduled_date <= ${today} + INTERVAL '7 days' ${jb}
+      `),
+      // Late clock-ins: scheduled today, assigned, no clock-in for the job, now ≥ start+20m (Central)
+      db.execute(sql`
+        SELECT COUNT(*)::int AS v
+        FROM jobs j
+        WHERE j.company_id = ${companyId} AND j.scheduled_date = ${today}
+          AND j.status = 'scheduled' AND j.assigned_user_id IS NOT NULL
+          AND j.scheduled_time IS NOT NULL
+          AND (now() AT TIME ZONE 'America/Chicago')::time >= (j.scheduled_time::time + INTERVAL '20 minutes')
+          AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id AND tc.company_id = ${companyId})
+          ${jb}
+      `),
+      // Leads this month (company-wide)
+      db.execute(sql`
+        SELECT COUNT(*)::int AS v FROM leads
+        WHERE company_id = ${companyId} AND created_at >= ${monthStart}
+      `),
+      // Quotes + closed (won) this month (company-wide). Closed = booked / converted.
+      db.execute(sql`
+        SELECT COUNT(*)::int AS total,
+               COUNT(*) FILTER (WHERE status = 'booked' OR booked_job_id IS NOT NULL)::int AS closed
+        FROM quotes WHERE company_id = ${companyId} AND created_at >= ${monthStart}
+      `),
+      // Active clients (branch-aware)
+      db.execute(sql`
+        SELECT COUNT(*)::int AS v FROM clients
+        WHERE company_id = ${companyId} AND is_active = true ${cb}
+      `),
+      // Rate trend = avg bill (same calc as Avg Bill card) trailing 12mo vs prior 12mo.
+      // This is pricing erosion, NOT revenue volatility. First/only implementation.
+      db.execute(sql`
+        SELECT
+          COALESCE(AVG(${exprBilled}) FILTER (WHERE j.scheduled_date >= ${today} - INTERVAL '12 months'), 0)::numeric AS last12,
+          COALESCE(AVG(${exprBilled}) FILTER (WHERE j.scheduled_date >= ${today} - INTERVAL '24 months' AND j.scheduled_date < ${today} - INTERVAL '12 months'), 0)::numeric AS prior12
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
+          AND j.scheduled_date >= ${today} - INTERVAL '24 months' AND j.scheduled_date <= ${today}
+          AND ${exprBilled} > 0 ${jb}
+      `),
+      // Recurring retention = distinct clients with an active recurring schedule /
+      // distinct clients with any recurring schedule (company-wide; no branch column).
+      db.execute(sql`
+        SELECT
+          COUNT(DISTINCT customer_id)::int AS total,
+          COUNT(DISTINCT customer_id) FILTER (WHERE is_active = true)::int AS active
+        FROM recurring_schedules WHERE company_id = ${companyId}
+      `),
+    ]);
+
+    const tc: any = (todayCounts as any).rows[0] ?? {};
+    const tr: any = (todayRev as any).rows[0] ?? {};
+    const n7: any = (next7 as any).rows[0] ?? {};
+    const q: any = (quotesRows as any).rows[0] ?? {};
+    const quotesTotal = Number(q.total ?? 0);
+    const quotesClosed = Number(q.closed ?? 0);
+    const num = (v: any) => Math.round(Number(v ?? 0) * 100) / 100;
+
+    return res.json({
+      branch_id: branchId,
+      daily_revenue: num(tr.daily),
+      revenue_booked_today: num(tr.booked),
+      jobs_today: Number(tc.jobs_today ?? 0),
+      jobs_scheduled_today: Number(tc.scheduled ?? 0),
+      late_clockins: Number((lateRows as any).rows[0]?.v ?? 0),
+      todays_status: {
+        in_progress: Number(tc.in_progress ?? 0),
+        scheduled: Number(tc.scheduled ?? 0),
+        complete: Number(tc.complete ?? 0),
+        flagged: Number(tc.flagged ?? 0),
+        unassigned: Number(tc.unassigned ?? 0),
+      },
+      unassigned_jobs: Number(tc.unassigned ?? 0),
+      techs_today: Number(tc.techs_today ?? 0),
+      next_7_days_jobs: Number(n7.jobs ?? 0),
+      next_7_days_revenue: num(n7.revenue),
+      leads: Number((leadsRows as any).rows[0]?.v ?? 0),
+      quotes: quotesTotal,
+      closed_quotes: quotesClosed,
+      close_rate: quotesTotal > 0 ? Math.round((quotesClosed / quotesTotal) * 100) : 0,
+      monthly_revenue: num((monthRev as any).rows[0]?.v),
+      avg_bill: num((avgBill as any).rows[0]?.v),
+      active_clients: Number((activeRows as any).rows[0]?.v ?? 0),
+      // Rate trend: % change in avg bill, trailing 12mo vs prior 12mo (pricing erosion).
+      rate_trend: (() => {
+        const r: any = (rateRows as any).rows[0] ?? {};
+        const last12 = Number(r.last12 ?? 0);
+        const prior12 = Number(r.prior12 ?? 0);
+        return prior12 > 0 ? Math.round(((last12 - prior12) / prior12) * 10000) / 100 : 0;
+      })(),
+      avg_bill_12mo: num((rateRows as any).rows[0]?.last12),
+      // Recurring retention: % of recurring-schedule clients still active.
+      retention: (() => {
+        const r: any = (retentionRows as any).rows[0] ?? {};
+        const total = Number(r.total ?? 0);
+        return total > 0 ? Math.round((Number(r.active ?? 0) / total) * 100) : 0;
+      })(),
+    });
+  } catch (err) {
+    console.error("GET /dashboard/mobile-cards error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Per-user mobile dashboard card preference (selected cards + order).
+// Reuses user_column_preferences with page='mobile_dashboard' — no schema change.
+// No rows = user hasn't customized → frontend shows the role default.
+router.get("/card-prefs", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(sql`
+      SELECT column_key AS card_key, visible, sort_order
+      FROM user_column_preferences
+      WHERE user_id = ${userId} AND company_id = ${companyId} AND page = 'mobile_dashboard'
+      ORDER BY sort_order ASC
+    `);
+    return res.json((result as any).rows ?? []);
+  } catch (err) {
+    console.error("GET /dashboard/card-prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/card-prefs", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    const cards: Array<{ card_key: string; visible: boolean; sort_order: number }> = req.body?.cards;
+    if (!Array.isArray(cards)) return res.status(400).json({ error: "cards array required" });
+    // Pure upsert (no DELETE+INSERT): one row per card with visible flag + order.
+    for (const c of cards) {
+      await db.execute(sql`
+        INSERT INTO user_column_preferences (user_id, company_id, page, column_key, visible, sort_order)
+        VALUES (${userId}, ${companyId}, 'mobile_dashboard', ${String(c.card_key).slice(0, 50)}, ${!!c.visible}, ${parseInt(String(c.sort_order)) || 0})
+        ON CONFLICT (user_id, page, column_key)
+        DO UPDATE SET visible = EXCLUDED.visible, sort_order = EXCLUDED.sort_order
+      `);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("PUT /dashboard/card-prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Reset to role default = remove this user's customization rows.
+router.delete("/card-prefs", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId;
+    const companyId = req.auth!.companyId;
+    await db.execute(sql`
+      DELETE FROM user_column_preferences
+      WHERE user_id = ${userId} AND company_id = ${companyId} AND page = 'mobile_dashboard'
+    `);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /dashboard/card-prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
