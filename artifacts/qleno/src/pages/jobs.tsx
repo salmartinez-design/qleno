@@ -1104,13 +1104,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // Header overflow (•••) menu — home for rare/destructive actions so they
   // stay out of the everyday content flow.
   const [menuOpen, setMenuOpen] = useState(false);
+  // [delete-confirm 2026-06-03] Two-step inline confirm so a stray click on
+  // "Delete job" can't wipe a job. First click arms; second click (the red
+  // "Confirm delete") actually deletes. Sal: "needs a confirmation after
+  // pressing delete in case by accident."
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Delete a job. A completed job (or one with clock-in / add-on / billing
   // history) can't be removed by a plain delete — child rows block it and the
   // server returns an error. The server's force path cleans those up first;
   // owner/admin can escalate after a second, clearer confirm.
   async function handleDeleteJob() {
-    if (!window.confirm("Delete this job? It's removed from the schedule and recorded in the audit log.")) return;
     try {
       let r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
       let d = await r.json().catch(() => ({}));
@@ -1353,6 +1357,29 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     } finally { setAddTechBusy(false); }
   }
 
+  // [team-edit 2026-06-03] Remove a tech from the job. The server promotes the
+  // next remaining tech to primary + mirrors jobs.assigned_user_id (or NULLs it
+  // when none remain) and returns the recalculated team via { data }. We update
+  // commTechs from the response so the panel reflects the removal immediately —
+  // no reopen needed (Sal: "you cannot remove a tech" / list "not sticky").
+  const [removeTechBusy, setRemoveTechBusy] = useState<number | null>(null);
+  async function removeTechFromJob(techId: number) {
+    setRemoveTechBusy(techId);
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/technicians/${techId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.message || d.error || `HTTP ${r.status}`);
+      if (d.data) setCommTechs(d.data);
+      toast({ title: "Team member removed" });
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Couldn't remove", description: e?.message ?? "Network error", variant: "destructive" });
+    } finally { setRemoveTechBusy(null); }
+  }
+
   // [AF] Supply-logging state removed — drawer section pulled per cleanup.
   // /api/supplies/log endpoint and supplies table remain in place so the
   // feature can return later without schema churn.
@@ -1576,23 +1603,45 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             {canEditOfficeNotes && (
               <div style={{ position: "relative" }}>
                 <button
-                  onClick={() => setMenuOpen(o => !o)}
+                  onClick={() => { setMenuOpen(o => !o); setConfirmDelete(false); }}
                   aria-label="More actions"
                   style={{ border: "none", background: menuOpen ? "#F3F1EC" : "none", cursor: "pointer", color: "#9E9B94", padding: 4, borderRadius: 6 }}
                 ><MoreVertical size={18} /></button>
                 {menuOpen && (
                   <>
                     {/* Click-away layer */}
-                    <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
-                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 51, minWidth: 170, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, boxShadow: "0 8px 24px rgba(10,14,26,0.12)", padding: 4, overflow: "hidden" }}>
-                      <button
-                        onClick={() => { setMenuOpen(false); handleDeleteJob(); }}
-                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", background: "none", cursor: "pointer", color: "#DC2626", fontSize: 13, fontWeight: 600, fontFamily: FF, padding: "9px 10px", borderRadius: 6 }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
-                        onMouseLeave={e => (e.currentTarget.style.background = "none")}
-                      >
-                        <Trash2 size={14} /> Delete job
-                      </button>
+                    <div onClick={() => { setMenuOpen(false); setConfirmDelete(false); }} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 51, minWidth: 200, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, boxShadow: "0 8px 24px rgba(10,14,26,0.12)", padding: 4, overflow: "hidden" }}>
+                      {!confirmDelete ? (
+                        <button
+                          onClick={() => setConfirmDelete(true)}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", background: "none", cursor: "pointer", color: "#DC2626", fontSize: 13, fontWeight: 600, fontFamily: FF, padding: "9px 10px", borderRadius: 6 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                        >
+                          <Trash2 size={14} /> Delete job
+                        </button>
+                      ) : (
+                        <div style={{ padding: "6px 8px 8px" }}>
+                          <p style={{ margin: "2px 2px 8px", fontSize: 12, color: "#6B6860", fontFamily: FF, lineHeight: 1.4 }}>
+                            Delete this job? It's removed from the schedule and recorded in the audit log.
+                          </p>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              onClick={() => { setConfirmDelete(false); setMenuOpen(false); handleDeleteJob(); }}
+                              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: "none", background: "#DC2626", cursor: "pointer", color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: FF, padding: "8px 10px", borderRadius: 6 }}
+                            >
+                              <Trash2 size={13} /> Confirm delete
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(false)}
+                              style={{ border: "1px solid #E5E2DC", background: "#fff", cursor: "pointer", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, padding: "8px 12px", borderRadius: 6 }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
@@ -1807,44 +1856,44 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
-          {job.clock_entry && (
-            <PS label="Clock Data">
-              {job.clock_entry.clock_in_at && <KV label="Clock in" value={new Date(job.clock_entry.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
-              {job.clock_entry.clock_out_at && <KV label="Clock out" value={new Date(job.clock_entry.clock_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
-              {(job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft) !== null && (job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft) !== undefined && (
-                <KV label="Distance at clock-in" value={`${Math.round((job.clock_entry.clock_in_distance_ft ?? job.clock_entry.distance_from_job_ft)!)} ft${job.clock_entry.clock_in_outside_geofence ? " (outside)" : ""}`} color={job.clock_entry.clock_in_outside_geofence ? "#D97706" : undefined} />
-              )}
-              {job.clock_entry.clock_out_distance_ft != null && (
-                <KV label="Distance at clock-out" value={`${Math.round(job.clock_entry.clock_out_distance_ft)} ft${job.clock_entry.clock_out_outside_geofence ? " (outside)" : ""}`} color={job.clock_entry.clock_out_outside_geofence ? "#D97706" : undefined} />
-              )}
-              {job.clock_entry.gps_missing && (
-                <KV label="GPS" value="Unavailable — location not captured" color="#DC2626" />
-              )}
-            </PS>
-          )}
-
-          {/* [panel-revamp 2026-06-03] Allowed vs actual hours + variance.
-              Allowed = the real allowed_hours from the payload (not the stale
-              estimated_hours stamp, per CLAUDE.md); accessed via cast since
-              it's not on the FE type. Actual prefers actual_hours/billed_hours,
+          {/* [panel-revamp 2026-06-03 · hours-merge] One section so allowed
+              hours sit right next to the time-clock (actual) hours — Sal:
+              "you still put allowed hours separate from time clock hours, they
+              are not near each other." Order: Allowed → Actual → Variance →
+              the clock in/out times + distances. Allowed = the real
+              allowed_hours from the payload (not the stale estimated_hours
+              stamp, per CLAUDE.md). Actual prefers actual_hours/billed_hours,
               falls back to clock in/out duration. */}
           {(() => {
+            const ce = job.clock_entry;
             const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : null;
             let actual: number | null = job.actual_hours != null ? Number(job.actual_hours)
               : (job.billed_hours != null ? Number(job.billed_hours) : null);
-            if (actual == null && job.clock_entry?.clock_in_at && job.clock_entry?.clock_out_at) {
-              actual = (new Date(job.clock_entry.clock_out_at).getTime() - new Date(job.clock_entry.clock_in_at).getTime()) / 3600000;
+            if (actual == null && ce?.clock_in_at && ce?.clock_out_at) {
+              actual = (new Date(ce.clock_out_at).getTime() - new Date(ce.clock_in_at).getTime()) / 3600000;
             }
-            if (allowed == null && actual == null) return null;
+            if (allowed == null && actual == null && !ce) return null;
             const variance = (allowed != null && actual != null) ? actual - allowed : null;
+            const inDist = ce ? (ce.clock_in_distance_ft ?? ce.distance_from_job_ft) : null;
             return (
-              <PS label="Hours">
+              <PS label="Hours & Time Clock">
                 {allowed != null && <KV label="Allowed" value={`${allowed.toFixed(1)}h`} />}
                 {actual != null && <KV label="Actual" value={`${actual.toFixed(1)}h`} />}
                 {variance != null && (
                   <KV label="Variance"
                     value={`${variance > 0 ? "+" : ""}${variance.toFixed(1)}h`}
                     color={variance > 0.25 ? "#D97706" : variance < -0.25 ? "#16A34A" : undefined} />
+                )}
+                {ce?.clock_in_at && <KV label="Clock in" value={new Date(ce.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
+                {ce?.clock_out_at && <KV label="Clock out" value={new Date(ce.clock_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
+                {ce && inDist != null && (
+                  <KV label="Distance at clock-in" value={`${Math.round(inDist)} ft${ce.clock_in_outside_geofence ? " (outside)" : ""}`} color={ce.clock_in_outside_geofence ? "#D97706" : undefined} />
+                )}
+                {ce?.clock_out_distance_ft != null && (
+                  <KV label="Distance at clock-out" value={`${Math.round(ce.clock_out_distance_ft)} ft${ce.clock_out_outside_geofence ? " (outside)" : ""}`} color={ce.clock_out_outside_geofence ? "#D97706" : undefined} />
+                )}
+                {ce?.gps_missing && (
+                  <KV label="GPS" value="Unavailable — location not captured" color="#DC2626" />
                 )}
               </PS>
             );
@@ -1881,6 +1930,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           {overrideOpen[t.user_id] ? "Cancel" : "Override"}
                         </button>
                       ) : null}
+                      {!isLocked && (
+                        <button
+                          onClick={() => removeTechFromJob(t.user_id)}
+                          disabled={removeTechBusy === t.user_id}
+                          title="Remove from job"
+                          aria-label={`Remove ${t.name}`}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", flexShrink: 0, opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: "#9E9B94" }}>
@@ -2028,13 +2088,38 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </>
           )}
 
-          {/* Add Team Member — fallback for jobs without commission display */}
+          {/* Team — fallback for jobs without the commission display. Drives
+              off commTechs (live state updated on add/remove) so the list stays
+              sticky without reopening the panel. */}
           {(!canManageCommission || (job.estimated_hours ?? 0) === 0) && (
             <PS label="Team">
-              <div style={{ fontSize: 12, color: "#1A1917", marginBottom: 8 }}>
-                {assignedEmp?.name || job.assigned_user_name || "Unassigned"}
-                {commTechs.length > 1 && ` + ${commTechs.length - 1} more`}
-              </div>
+              {commTechs.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                  {commTechs.map(t => (
+                    <div key={t.user_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                        {t.is_primary && commTechs.length > 1 && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "2px 6px", borderRadius: 10, letterSpacing: "0.04em" }}>PRIMARY</span>}
+                      </span>
+                      {canManageCommission && !isLocked && (
+                        <button
+                          onClick={() => removeTechFromJob(t.user_id)}
+                          disabled={removeTechBusy === t.user_id}
+                          title="Remove from job"
+                          aria-label={`Remove ${t.name}`}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", flexShrink: 0, opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                        >
+                          <X size={13} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
+                  {job.assigned_user_name || "Unassigned"}
+                </div>
+              )}
               <button onClick={() => !isLocked && setAddTechOpen(true)}
                 disabled={isLocked}
                 style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
