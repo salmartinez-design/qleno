@@ -11,8 +11,10 @@ export type AddressParts = { street: string; city: string; state: string; zip: s
 // runtime config endpoint (Railway env) with the build-time var as fallback.
 let mapsLoadPromise: Promise<boolean> | null = null;
 
+const ready = () => !!(window as any).google?.maps?.places?.Autocomplete;
+
 function loadGoogleMaps(): Promise<boolean> {
-  if ((window as any).google?.maps?.places) return Promise.resolve(true);
+  if (ready()) return Promise.resolve(true);
   if (mapsLoadPromise) return mapsLoadPromise;
   mapsLoadPromise = (async () => {
     let key = "";
@@ -21,24 +23,30 @@ function loadGoogleMaps(): Promise<boolean> {
       if (r.ok) { const b = await r.json().catch(() => ({})); key = String((b as any)?.key ?? ""); }
     } catch { /* fall through to build-time key */ }
     if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
-    if (!key) return false;
-    if ((window as any).google?.maps?.places) return true;
-    return await new Promise<boolean>((resolve) => {
-      const id = "gmap-places-script";
-      const existing = document.getElementById(id) as HTMLScriptElement | null;
-      if (existing) {
-        existing.addEventListener("load", () => resolve(true));
-        if ((window as any).google?.maps?.places) resolve(true);
-        return;
-      }
+    // No key configured — don't cache the failure so a later call (after the
+    // env is fixed) can retry instead of being stuck on a poisoned promise.
+    if (!key) { mapsLoadPromise = null; return false; }
+
+    // Inject the script once. Another page may have already added it (same id),
+    // in which case we just wait for the library to come online below — we do
+    // NOT rely on catching its load event, which may have already fired.
+    const id = "gmap-places-script";
+    if (!document.getElementById(id)) {
       const s = document.createElement("script");
       s.id = id;
       s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
       s.async = true; s.defer = true;
-      s.onload = () => resolve(true);
-      s.onerror = () => resolve(false);
       document.head.appendChild(s);
-    });
+    }
+
+    // Poll for readiness regardless of who injected the script. ~10s ceiling.
+    for (let i = 0; i < 100; i++) {
+      if (ready()) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Timed out — clear the cache so a future attempt can try again.
+    mapsLoadPromise = null;
+    return false;
   })();
   return mapsLoadPromise;
 }
@@ -59,10 +67,19 @@ export function useAddressAutocomplete(
     let listener: any = null;
     let cancelled = false;
 
-    loadGoogleMaps().then(ok => {
-      if (!ok || cancelled || !inputRef.current) return;
+    (async () => {
+      const ok = await loadGoogleMaps();
+      if (!ok || cancelled) return;
       const g = (window as any).google;
       if (!g?.maps?.places?.Autocomplete) return;
+      // The input often mounts a render after `enabled` flips true (e.g. the
+      // wizard's New Customer form opens, then the address field appears). Wait
+      // briefly for the ref instead of bailing — this was the silent failure
+      // where autocomplete never attached inside the modal.
+      for (let i = 0; i < 40 && !inputRef.current && !cancelled; i++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      if (cancelled || !inputRef.current) return;
       ac = new g.maps.places.Autocomplete(inputRef.current, {
         componentRestrictions: { country: "us" },
         fields: ["address_components", "formatted_address"],
@@ -81,7 +98,7 @@ export function useAddressAutocomplete(
         const zip = get("postal_code");
         cb.current({ street, city, state, zip, formatted: place.formatted_address ?? "" });
       });
-    });
+    })();
 
     return () => { cancelled = true; listener?.remove?.(); };
   }, [enabled, inputRef]);
