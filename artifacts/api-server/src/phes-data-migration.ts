@@ -2477,6 +2477,34 @@ async function runKmaAccountSetup(): Promise<void> {
   console.log(`[kma-setup] Account ${acctId} ensured; inserted ${inserted} properties (roster ${ROSTER.length}).`);
 }
 
+// One-time June fill: the recurring engine only generates forward from when a
+// schedule is saved, so schedules set up on/after Jun 3 left Jun 1-2 empty and
+// the dashboard showed $0 for those days. This generates each active schedule's
+// visits back to Jun 1, 2026. Idempotent — the engine dedupes on
+// (recurring_schedule_id, scheduled_date), so it won't duplicate days that
+// already have jobs and is safe to re-run on every cold start.
+async function runJuneRecurringFill(): Promise<void> {
+  const { generateJobsFromSchedule, DAYS_AHEAD } = await import("./lib/recurring-jobs.js");
+  const from = new Date("2026-06-01T00:00:00");
+  const horizon = new Date();
+  horizon.setDate(horizon.getDate() + DAYS_AHEAD);
+  const scheds = await db.execute(sql`
+    SELECT * FROM recurring_schedules WHERE company_id = ${PHES} AND is_active = true
+  `);
+  let created = 0;
+  for (const s of scheds.rows as any[]) {
+    try {
+      const cl = await db.execute(sql`SELECT zip FROM clients WHERE id = ${s.customer_id} LIMIT 1`);
+      const zip = (cl.rows[0] as any)?.zip ?? null;
+      const gen = await generateJobsFromSchedule(s as any, from, horizon, null, zip);
+      created += gen.created;
+    } catch (err: any) {
+      console.warn("[june-fill] schedule", s.id, "—", err?.message ?? err);
+    }
+  }
+  console.log(`[june-fill] generated ${created} job(s) from Jun 1 across ${scheds.rows.length} schedules.`);
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -2592,6 +2620,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runKmaAccountSetup();
   } catch (err: any) {
     console.warn("[phes-migration] kma-account-setup — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runJuneRecurringFill();
+  } catch (err: any) {
+    console.warn("[phes-migration] june-recurring-fill — non-fatal:", err?.message ?? err);
   }
 
   try {
