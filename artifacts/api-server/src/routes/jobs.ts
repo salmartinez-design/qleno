@@ -877,7 +877,8 @@ router.put("/:id", requireAuth, async (req, res) => {
         ...(base_fee !== undefined && { base_fee }),
         ...(allowed_hours !== undefined && { allowed_hours }),
         ...(notes !== undefined && { notes }),
-        ...(office_notes !== undefined && { office_notes }),
+        // [notes-author] Stamp who/when on every office-notes edit.
+        ...(office_notes !== undefined && { office_notes, office_notes_updated_by: req.auth!.userId, office_notes_updated_at: new Date() }),
       })
       .where(and(
         eq(jobsTable.id, jobId),
