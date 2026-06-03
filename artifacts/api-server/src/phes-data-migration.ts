@@ -3075,6 +3075,31 @@ export async function runPhesDataMigration(): Promise<void> {
       `);
     }
 
+    // ── 3b. Backfill addresses for location-named commercial clients ─────────
+    // These KMA location clients were imported with empty addresses, so their
+    // dispatch tiles had NO zone color (the zone derives from the client's
+    // zip). Sal: "Ashland has no zone color — this cannot happen." Set the
+    // real address + zip so the zone resolves live on the board. Idempotent:
+    // only fills when the zip is still blank.
+    const clientAddrs: Array<[string, string, string, string, string]> = [
+      ["KMA Ashland",              "3421 N Ashland Ave",   "Chicago",   "IL", "60657"],
+      ["KMA Eggleston",            "12013 S Eggleston Ave", "Chicago",  "IL", "60628"],
+      ["KMA Lamon",                "1641 N Lamon Ave",     "Chicago",   "IL", "60639"],
+      ["KMA North Ave",            "4846 W North Ave",     "Chicago",   "IL", "60639"],
+      ["KMA 4846 W North Offices", "4846 W North Ave",     "Chicago",   "IL", "60639"],
+      ["KMA Tracy",                "14050 S Tracy Ave",    "Riverdale", "IL", "60827"],
+      ["KMA 63rd",                 "2503 W 63rd St",       "Chicago",   "IL", "60629"],
+    ];
+    for (const [name, street, city, state, zip] of clientAddrs) {
+      await db.execute(sql`
+        UPDATE clients
+           SET address = ${street}, city = ${city}, state = ${state}, zip = ${zip}
+         WHERE company_id = ${PHES}
+           AND LOWER(TRIM(first_name)) = LOWER(${name})
+           AND (zip IS NULL OR zip = '')
+      `);
+    }
+
     console.log("[phes-migration] Client data migration complete.");
 
     // ── 4. Ensure PHES pricing scopes exist ────────────────────────────────
