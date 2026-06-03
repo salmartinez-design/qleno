@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -218,10 +218,30 @@ export default function PayrollPage() {
   const employees = data?.data || [];
   const billableEmployees = employees.filter((e: any) => e.role !== 'owner');
 
-  const totalGross = billableEmployees.reduce((sum: number, e: any) => {
-    const rate = empRate(e);
-    return sum + rate * 40;
-  }, 0);
+  // Real payroll for the current bi-weekly period (Sun..Sat, 14 days) — same
+  // source as the detail view and the Earnings panel. Replaces the old stub
+  // that showed everyone a flat 40 hrs × rate.
+  const payPeriod = useMemo(() => {
+    const t = new Date();
+    const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
+    const start = new Date(end); start.setDate(end.getDate() - 13);
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    return { start: ymd(start), end: ymd(end) };
+  }, []);
+  const { data: payData } = useQuery({
+    queryKey: ['payroll-overview', payPeriod.start, payPeriod.end, activeBranchId],
+    queryFn: () => apiFetch(`/payroll/detail?pay_period_start=${payPeriod.start}&pay_period_end=${payPeriod.end}${activeBranchId !== 'all' ? `&branch_id=${activeBranchId}` : ''}`),
+  });
+  const payMap = useMemo(() => {
+    const m: Record<number, { hours: number; gross: number }> = {};
+    for (const e of (payData?.data || [])) {
+      m[e.user_id] = { hours: e.totals?.hrs_worked ?? 0, gross: e.totals?.grand_total ?? e.totals?.commission ?? 0 };
+    }
+    return m;
+  }, [payData]);
+
+  const totalGross = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.gross ?? 0), 0);
+  const totalHours = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.hours ?? 0), 0);
 
   const isOwnerAdmin = ['owner','admin'].includes(getTokenRole() || '');
   const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('overview');
@@ -308,10 +328,11 @@ export default function PayrollPage() {
           </button>
           <button
             onClick={() => {
-              const csv = ['Employee,Role,Hours,Rate,Gross Pay',
+              const csv = ['Employee,Role,Hours,Effective $/hr,Gross Pay',
                 ...billableEmployees.map((e: any) => {
-                  const rate = empRate(e);
-                  return `${e.first_name} ${e.last_name},${e.role},40,$${rate},$${(rate * 40).toFixed(2)}`;
+                  const p = payMap[e.id] || { hours: 0, gross: 0 };
+                  const eff = p.hours > 0 ? (p.gross / p.hours).toFixed(2) : '0.00';
+                  return `${e.first_name} ${e.last_name},${e.role},${p.hours.toFixed(1)},$${eff},$${p.gross.toFixed(2)}`;
                 })
               ].join('\n');
               const blob = new Blob([csv], { type: 'text/csv' });
@@ -327,9 +348,9 @@ export default function PayrollPage() {
         {/* Summary Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
           {[
-            { label: 'Gross Payroll', value: `$${totalGross.toLocaleString()}` },
-            { label: 'Total Hours (Est.)', value: `${billableEmployees.length * 40} hrs` },
-            { label: 'Employees Paid', value: billableEmployees.length },
+            { label: 'Gross Payroll', value: `$${totalGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+            { label: 'Total Hours', value: `${totalHours.toFixed(1)} hrs` },
+            { label: 'Employees Paid', value: billableEmployees.filter((e: any) => (payMap[e.id]?.gross ?? 0) > 0).length },
           ].map(c => (
             <div key={c.label} style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', padding: '20px' }}>
               <p style={{ fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 12px 0' }}>{c.label}</p>
@@ -386,7 +407,7 @@ export default function PayrollPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #EEECE7' }}>
-                {['Employee', 'Role', 'Hours (Est.)', 'Hourly Rate', 'Gross Pay', 'Status'].map(h => (
+                {['Employee', 'Role', 'Hours', 'Effective $/hr', 'Gross Pay', 'Status'].map(h => (
                   <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                 ))}
               </tr>
@@ -395,8 +416,8 @@ export default function PayrollPage() {
               {isLoading ? (
                 <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading payroll data...</td></tr>
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
-                const rate = empRate(emp);
-                const gross = rate * 40;
+                const pay = payMap[emp.id] || { hours: 0, gross: 0 };
+                const effRate = pay.hours > 0 ? pay.gross / pay.hours : null;
                 return (
                   <tr key={emp.id} style={{ borderBottom: '1px solid #F0EEE9', cursor: 'default' }}
                     onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F7F6F3')}
@@ -418,11 +439,13 @@ export default function PayrollPage() {
                         {emp.role}
                       </span>
                     </td>
-                    <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#1A1917' }}>40</td>
-                    <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#1A1917' }}>${rate}/hr</td>
-                    <td style={{ padding: '14px 20px', fontSize: '22px', fontWeight: 700, color: '#1A1917' }}>${gross.toFixed(2)}</td>
+                    <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#1A1917' }}>{pay.hours.toFixed(1)}</td>
+                    <td style={{ padding: '14px 20px', fontSize: '13px', fontWeight: 500, color: '#6B6860' }}>{effRate != null ? `$${effRate.toFixed(2)}/hr` : '—'}</td>
+                    <td style={{ padding: '14px 20px', fontSize: '22px', fontWeight: 700, color: '#1A1917' }}>${pay.gross.toFixed(2)}</td>
                     <td style={{ padding: '14px 20px' }}>
-                      <span style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Ready</span>
+                      {pay.gross > 0
+                        ? <span style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Ready</span>
+                        : <span style={{ background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E2DC', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>No pay yet</span>}
                     </td>
                   </tr>
                 );
