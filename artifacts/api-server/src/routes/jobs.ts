@@ -12,6 +12,66 @@ import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-ra
 
 const router = Router();
 
+// Shared add-on persistence. Resolves the add_ons.id FK by company + name
+// (creating the row if absent — see AI.6.3 below) and writes job_add_ons,
+// replacing any existing rows for the job. Used by BOTH job create
+// (POST /) and the edit cascade (PATCH /:id) so the FK-resolution logic
+// lives in exactly one place. `exec` is a db or transaction handle (both
+// expose .execute).
+type JobAddOnInput = { pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number };
+async function persistJobAddOns(exec: any, jobId: number, companyId: number, addOns: JobAddOnInput[]): Promise<void> {
+  await exec.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+  for (const a of addOns) {
+    // [AI.6.3] job_add_ons.add_on_id references add_ons.id (older catalog
+    // table) and is NOT NULL. The modal historically wrote
+    // add_on_id = pricing_addon_id which only worked when the IDs happened
+    // to coincide via seeding. PHES's Parking Fee row in pricing_addons has
+    // no matching add_ons.id, so the prior INSERT threw a foreign-key
+    // violation and the whole save aborted. Resolution: look up an add_ons
+    // row by company + name (case-insensitive); if absent, INSERT one
+    // mirroring the pricing_addon's name + price; use that row's real id.
+    const pricingId = Number(a.pricing_addon_id ?? 0) || null;
+    const qty = Number(a.qty ?? 1) || 1;
+    const unitPrice = a.unit_price != null ? String(a.unit_price) : "0";
+    const subtotal = a.subtotal != null ? String(a.subtotal) : "0";
+
+    let realAddOnId: number | null = null;
+    if (pricingId) {
+      const paRows = await exec.execute(sql`SELECT name FROM pricing_addons WHERE id = ${pricingId} LIMIT 1`);
+      const paName = String((paRows.rows[0] as any)?.name ?? "").trim();
+      if (paName) {
+        const existing = await exec.execute(sql`
+          SELECT id FROM add_ons WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${paName}) LIMIT 1
+        `);
+        if (existing.rows.length) {
+          realAddOnId = Number((existing.rows[0] as any).id);
+        } else {
+          const created = await exec.execute(sql`
+            INSERT INTO add_ons (company_id, name, price, category, is_active)
+            VALUES (${companyId}, ${paName}, ${unitPrice}, 'other', true)
+            RETURNING id
+          `);
+          realAddOnId = Number((created.rows[0] as any).id);
+        }
+      }
+    }
+    // Last-resort fallback: caller passed an explicit add_on_id that already
+    // exists in add_ons. Honor it if present.
+    if (!realAddOnId && a.add_on_id) realAddOnId = Number(a.add_on_id);
+    if (!realAddOnId) continue;
+
+    await exec.execute(sql`
+      INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+      VALUES (${jobId}, ${realAddOnId}, ${qty}, ${unitPrice}, ${subtotal}, ${pricingId})
+      ON CONFLICT (job_id, add_on_id) DO UPDATE
+        SET quantity = EXCLUDED.quantity,
+            unit_price = EXCLUDED.unit_price,
+            subtotal = EXCLUDED.subtotal,
+            pricing_addon_id = EXCLUDED.pricing_addon_id
+    `);
+  }
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
@@ -116,7 +176,7 @@ router.post("/", requireAuth, async (req, res) => {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
-      branch_id,
+      branch_id, add_ons,
     } = req.body;
 
     const newJob = await db
@@ -143,6 +203,19 @@ router.post("/", requireAuth, async (req, res) => {
 
     const jobId = newJob[0].id;
     logAudit(req, "CREATE", "job", jobId, null, newJob[0]);
+
+    // Persist add-ons (Parking Fee, etc.) selected in the create wizard.
+    // base_fee already carries the all-in total (service + add-on subtotals,
+    // computed client-side, matching the quote-calc + edit-modal convention),
+    // so these rows are the itemized record — no surface re-sums them into
+    // revenue. Wrapped so an add-on hiccup never fails the job itself.
+    if (Array.isArray(add_ons) && add_ons.length > 0) {
+      try {
+        await persistJobAddOns(db, jobId, req.auth!.companyId, add_ons);
+      } catch (e) {
+        console.error("persistJobAddOns (create) failed for job", jobId, e);
+      }
+    }
     // Stop any active post_job_retention enrollment for this client (non-blocking)
     if (client_id) {
       import("../services/followUpService.js").then(({ stopEnrollmentsForClient }) => {
@@ -1467,67 +1540,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
         ));
       }
 
-      // Replace job_add_ons if add_ons provided.
-      //
-      // [AI.6.3] FK fix. job_add_ons.add_on_id references add_ons.id (older
-      // catalog table) and is NOT NULL. The modal historically wrote
-      // add_on_id = pricing_addon_id which only worked when the IDs
-      // happened to coincide via seeding. PHES's Parking Fee row in
-      // pricing_addons does NOT have a matching add_ons.id, so the prior
-      // INSERT threw a foreign-key violation and the whole save aborted.
-      //
-      // Resolution path: look up an add_ons row by company + name (case-
-      // insensitive). If absent, INSERT one (mirroring the pricing_addon's
-      // name + price). Use that row's real id as add_on_id.
+      // Replace job_add_ons if add_ons provided. FK-resolution lives in the
+      // shared persistJobAddOns helper (see its [AI.6.3] note) so create and
+      // edit stay in lockstep.
       if (addOnsProvided && Array.isArray(add_ons)) {
-        await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
-        for (const a of add_ons as Array<{ pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number }>) {
-          const pricingId = Number(a.pricing_addon_id ?? 0) || null;
-          const qty = Number(a.qty ?? 1) || 1;
-          const unitPrice = a.unit_price != null ? String(a.unit_price) : "0";
-          const subtotal = a.subtotal != null ? String(a.subtotal) : "0";
-
-          // Resolve a valid add_ons.id for the FK. Source-of-truth name
-          // comes from pricing_addons via the supplied pricing_addon_id.
-          let realAddOnId: number | null = null;
-          if (pricingId) {
-            const paRows = await tx.execute(sql`
-              SELECT name FROM pricing_addons WHERE id = ${pricingId} LIMIT 1
-            `);
-            const paName = String((paRows.rows[0] as any)?.name ?? "").trim();
-            if (paName) {
-              const existing = await tx.execute(sql`
-                SELECT id FROM add_ons
-                WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${paName})
-                LIMIT 1
-              `);
-              if (existing.rows.length) {
-                realAddOnId = Number((existing.rows[0] as any).id);
-              } else {
-                const created = await tx.execute(sql`
-                  INSERT INTO add_ons (company_id, name, price, category, is_active)
-                  VALUES (${companyId}, ${paName}, ${unitPrice}, 'other', true)
-                  RETURNING id
-                `);
-                realAddOnId = Number((created.rows[0] as any).id);
-              }
-            }
-          }
-          // Last-resort fallback: caller passed an explicit add_on_id that
-          // already exists in add_ons. Honor it if present.
-          if (!realAddOnId && a.add_on_id) realAddOnId = Number(a.add_on_id);
-          if (!realAddOnId) continue;
-
-          await tx.execute(sql`
-            INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
-            VALUES (${jobId}, ${realAddOnId}, ${qty}, ${unitPrice}, ${subtotal}, ${pricingId})
-            ON CONFLICT (job_id, add_on_id) DO UPDATE
-              SET quantity = EXCLUDED.quantity,
-                  unit_price = EXCLUDED.unit_price,
-                  subtotal = EXCLUDED.subtotal,
-                  pricing_addon_id = EXCLUDED.pricing_addon_id
-          `);
-        }
+        await persistJobAddOns(tx, jobId, companyId, add_ons as JobAddOnInput[]);
       }
 
       // [recurring-on-save 2026-04-30] Seed the new schedule's
