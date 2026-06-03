@@ -72,6 +72,7 @@ const RevenueGoalPage     = lazy(() => import("@/pages/reports/revenue-goal"));
 const UpsellConversionPage= lazy(() => import("@/pages/reports/upsell-conversion"));
 const MessageLogPage      = lazy(() => import("@/pages/reports/message-log"));
 const AccountsPage        = lazy(() => import("@/pages/accounts"));
+const RecurringSchedulesPage = lazy(() => import("@/pages/recurring-schedules"));
 const AccountDetailPage   = lazy(() => import("@/pages/account-detail"));
 const OnboardPage         = lazy(() => import("@/pages/onboard"));
 const SignDocPage          = lazy(() => import("@/pages/sign-doc"));
@@ -124,6 +125,7 @@ function Router() {
         <Route path="/jobs"><Redirect to="/reports/jobs" /></Route>
         <Route path="/jobs/list"><Redirect to="/reports/jobs" /></Route>
         <Route path="/reports/jobs" component={JobsListPage} />
+        <Route path="/recurring" component={RecurringSchedulesPage} />
         <Route path="/employees/clocks" component={ClockMonitorPage} />
         <Route path="/employees/:id" component={EmployeeProfilePage} />
         <Route path="/employees" component={EmployeesPage} />
