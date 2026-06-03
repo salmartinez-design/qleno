@@ -420,7 +420,17 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
   // Re-book: pre-fill Step 2 details from a past job
   function rebookFromPastJob(pastJob: any) {
-    if (pastJob.service_type) setServiceType(pastJob.service_type);
+    if (pastJob.service_type) {
+      setServiceType(pastJob.service_type);
+      // Flip the Job Type toggle to match the past job's parent. Without this,
+      // re-booking a commercial past job on a hybrid client left the grid on
+      // Residential, so the picked service never showed — looked like the
+      // button did nothing ("no pasa nada").
+      const row = apiServiceTypes.find(s => s.slug === pastJob.service_type);
+      if (row?.parent_slug === "residential" || row?.parent_slug === "commercial") {
+        setHybridParentOverride(row.parent_slug);
+      }
+    }
     const mins = pastJob.duration_minutes
       ?? (pastJob.allowed_hours ? Math.round(parseFloat(pastJob.allowed_hours) * 60) : null);
     if (mins && mins > 0) setDuration(mins);
@@ -1001,9 +1011,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </div>
                       {properties.length > 0 && (
                         <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
+                          <div style={{ maxHeight: 320, overflowY: "auto" }}>
                           {properties
                             .filter((p: any) => !propertyQuery || (p.property_name || p.address || "").toLowerCase().includes(propertyQuery.toLowerCase()))
-                            .slice(0, 8)
+                            .slice(0, 100)
                             .map((p: any, i: number, arr: any[]) => (
                               <button key={p.id} onClick={() => setSelectedProperty(p)}
                                 style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px 14px", background: "#fff", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
@@ -1017,6 +1028,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                                 </div>
                               </button>
                             ))}
+                          </div>
                           <button onClick={() => window.open(`/accounts/${selectedAccount.id}`, "_blank")}
                             style={{ display: "block", width: "100%", padding: "10px 14px", background: "#F9F9F7", border: "none", borderTop: "1px solid #F3F4F6", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 12, color: "var(--brand, #00C9A0)", fontWeight: 600 }}>
                             + Add property to this account
