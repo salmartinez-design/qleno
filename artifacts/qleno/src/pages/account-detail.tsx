@@ -111,6 +111,7 @@ export default function AccountDetailPage() {
 
   const [account, setAccount] = useState<any>(null);
   const [jobs, setJobs] = useState<any[]>([]);
+  const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>("overview");
 
@@ -142,12 +143,24 @@ export default function AccountDetailPage() {
 
   async function load() {
     try {
-      const [accR, jobsR] = await Promise.all([
+      const ymd = (d: Date) => d.toISOString().slice(0, 10);
+      const today = new Date();
+      const to = new Date(today.getTime() + 30 * 86400000);
+      const [accR, jobsR, upR] = await Promise.all([
         fetch(`${API}/api/accounts/${id}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/uninvoiced-jobs`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(today)}&to=${ymd(to)}`, { headers: getAuthHeaders() }),
       ]);
       if (accR.ok) setAccount(await accR.json());
       if (jobsR.ok) setJobs(await jobsR.json());
+      if (upR.ok) {
+        const all = await upR.json();
+        const up = (Array.isArray(all) ? all : [])
+          .filter((j: any) => j.status === "scheduled")
+          .sort((a: any, b: any) => `${a.scheduled_date}${a.scheduled_time || ""}`.localeCompare(`${b.scheduled_date}${b.scheduled_time || ""}`))
+          .slice(0, 8);
+        setUpcoming(up);
+      }
     } catch {}
     setLoading(false);
   }
@@ -487,6 +500,36 @@ export default function AccountDetailPage() {
                   <span className={`font-medium ${jobs.length > 0 ? "text-amber-600" : "text-gray-400"}`}>{jobs.length}</span>
                 </div>
               </div>
+            </div>
+
+            {/* Upcoming visits — fills the overview with actionable info */}
+            <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Upcoming visits</p>
+                <button onClick={() => setTab("calendar")} className="text-xs font-semibold text-[#00C9A0]">View calendar →</button>
+              </div>
+              {upcoming.length === 0 ? (
+                <p className="text-sm text-gray-400">No upcoming visits scheduled.</p>
+              ) : (
+                <div className="divide-y divide-gray-50">
+                  {upcoming.map((j: any) => {
+                    const d = new Date(j.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    let t = "";
+                    if (j.scheduled_time) { const [h, m] = String(j.scheduled_time).split(":"); let hh = parseInt(h, 10); const ap = hh >= 12 ? "PM" : "AM"; hh = hh % 12 || 12; t = ` · ${hh}:${(m ?? "00").slice(0, 2)} ${ap}`; }
+                    const svc = j.service_type ? String(j.service_type).split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : "";
+                    const tech = j.tech_first_name ? `${j.tech_first_name} ${j.tech_last_name ?? ""}`.trim() : null;
+                    return (
+                      <div key={j.id} className="flex items-center justify-between py-2.5 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-[#0A0E1A] truncate">{j.property_name || j.property_address || "Property"}</p>
+                          <p className="text-xs text-gray-500 truncate">{d}{t} · {svc}{tech ? ` · ${tech}` : " · Unassigned"}</p>
+                        </div>
+                        <span className="text-sm font-semibold text-[#0A0E1A] flex-shrink-0">{j.base_fee ? `$${parseFloat(j.base_fee).toFixed(0)}` : "—"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Notes */}
