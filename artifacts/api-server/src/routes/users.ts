@@ -376,7 +376,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
 
     const {
       first_name, last_name, role, pay_rate, pay_type, is_active,
-      hire_date, phone, skills,
+      hire_date, phone, skills, avatar_url,
       // [pay-matrix 2026-04-29] 4-cell pay matrix.
       residential_pay_type, residential_pay_rate,
       commercial_pay_type,  commercial_pay_rate,
@@ -427,6 +427,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(hire_date !== undefined && { hire_date }),
         ...(phone !== undefined && { phone }),
         ...(skills !== undefined && { skills }),
+        ...(avatar_url !== undefined && { avatar_url }),
         ...(residential_pay_type !== undefined && { residential_pay_type }),
         ...(residential_pay_rate !== undefined && { residential_pay_rate: String(residential_pay_rate) }),
         ...(commercial_pay_type  !== undefined && { commercial_pay_type }),

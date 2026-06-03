@@ -24,6 +24,33 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return r.json();
 }
 
+// Read a chosen image file and downscale it to a small (max 256px) JPEG data
+// URL so the avatar stays a lightweight DB value — same data-URL convention
+// the app uses for job photos.
+async function fileToAvatarDataUrl(file: File): Promise<string> {
+  const dataUrl: string = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(String(fr.result));
+    fr.onerror = () => rej(new Error("read failed"));
+    fr.readAsDataURL(file);
+  });
+  const img: HTMLImageElement = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = () => rej(new Error("decode failed"));
+    im.src = dataUrl;
+  });
+  const max = 256;
+  const scale = Math.min(max / img.width, max / img.height, 1);
+  const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+  const canvas = document.createElement("canvas");
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return dataUrl;
+  ctx.drawImage(img, 0, 0, w, h);
+  return canvas.toDataURL("image/jpeg", 0.85);
+}
+
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
   admin:      { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
@@ -472,6 +499,20 @@ export default function EmployeeProfilePage() {
   const [, navigate] = useLocation();
   const userId = parseInt(id!);
   const qc = useQueryClient();
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  async function onPhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setPhotoBusy(true);
+    try {
+      const avatar_url = await fileToAvatarDataUrl(file);
+      await apiFetch(`/users/${userId}`, { method: "PUT", body: JSON.stringify({ avatar_url }) });
+      refetchUser();
+    } catch { /* leave existing photo */ }
+    finally { setPhotoBusy(false); }
+  }
   const isMobile = useIsMobile();
   const isOwner = getTokenRole() === 'owner';
   const { activateView } = useEmployeeView();
@@ -743,9 +784,10 @@ export default function EmployeeProfilePage() {
               ? <img src={user.avatar_url} alt={fullName} style={{ width: isMobile ? 72 : 96, height: isMobile ? 72 : 96, borderRadius:12, objectFit:'cover' }} />
               : <InitialAvatar name={fullName} size={isMobile ? 72 : 96} />
             }
-            <button style={{ fontSize:11,color:'var(--brand)',background:'none',border:'none',cursor:'pointer',fontWeight:600,fontFamily:'inherit' }}>
-              <Camera size={11} style={{ marginRight:3, verticalAlign:'middle' }}/> Edit photo
-            </button>
+            <label style={{ fontSize:11, color:'var(--brand)', cursor: photoBusy ? 'default' : 'pointer', fontWeight:600, fontFamily:'inherit', opacity: photoBusy ? 0.6 : 1 }}>
+              <Camera size={11} style={{ marginRight:3, verticalAlign:'middle' }}/> {photoBusy ? 'Uploading…' : 'Edit photo'}
+              <input type="file" accept="image/*" disabled={photoBusy} onChange={onPhotoSelected} style={{ display:'none' }} />
+            </label>
           </div>
 
           {/* Center: info */}
