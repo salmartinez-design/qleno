@@ -1642,6 +1642,31 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       }
     }
 
+    // [recurrence-generation 2026-06-03] Actually GENERATE the upcoming jobs
+    // from the schedule. Previously this endpoint updated the template and
+    // cascaded to EXISTING jobs but never generated new ones — so saving a
+    // fresh recurrence (e.g. a newly-recurring client) produced an empty
+    // calendar ("it saved the recurrence but that didn't trigger the
+    // scheduling"). The /api/recurring POST already did this; the
+    // customer-profile editor (this endpoint) didn't. The engine dedupes on
+    // (recurring_schedule_id, scheduled_date), so it's idempotent with the
+    // nightly cron and safe to re-run on every save.
+    let jobsGenerated = 0;
+    if (updated[0]) {
+      try {
+        const { generateJobsFromSchedule, DAYS_AHEAD } = await import("../lib/recurring-jobs.js");
+        const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable)
+          .where(eq(clientsTable.id, clientId)).limit(1);
+        const clientZip = (cl[0]?.zip as any) ?? null;
+        const now = new Date();
+        const horizon = new Date(now.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+        const gen = await generateJobsFromSchedule(updated[0] as any, now, horizon, null, clientZip);
+        jobsGenerated = gen.created;
+      } catch (genErr: any) {
+        console.warn("[recurring-schedule PATCH] sync generation failed:", genErr?.message ?? genErr);
+      }
+    }
+
     return res.json({
       ...(updated[0] || {}),
       cascade: {
@@ -1649,6 +1674,7 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
         parking_upserted: parkingCascadeUpserted,
         parking_removed: parkingCascadeRemoved,
       },
+      jobs_generated: jobsGenerated,
     });
   } catch (err) {
     console.error("Patch recurring schedule error:", err);
