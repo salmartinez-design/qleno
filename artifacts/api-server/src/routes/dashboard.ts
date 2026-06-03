@@ -400,45 +400,54 @@ router.get("/kpis", requireAuth, async (req, res) => {
       // Invoice sequence check
       invoiceHighId,
     ] = await Promise.all([
-      // Week revenue from job_history (authoritative historical billed revenue)
+      // Week revenue — from jobs (booked/realized). job_history is the legacy
+      // billed-history table and is empty for tenants that didn't import it
+      // (fresh-start tenants showed a blank "—"). Sum the period's
+      // non-cancelled jobs by billed_amount when invoiced, else base_fee.
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
-        FROM job_history
+        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
+        FROM jobs
         WHERE company_id = ${companyId}
-          AND job_date >= ${weekStartStr}
-          AND job_date <= ${todayStr}
+          AND status != 'cancelled'
+          AND scheduled_date >= ${weekStartStr}
+          AND scheduled_date <= ${todayStr}
       `),
       // Previous week revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
-        FROM job_history
+        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
+        FROM jobs
         WHERE company_id = ${companyId}
-          AND job_date >= ${prevWeekStartStr}
-          AND job_date <= ${prevWeekEndStr}
+          AND status != 'cancelled'
+          AND scheduled_date >= ${prevWeekStartStr}
+          AND scheduled_date <= ${prevWeekEndStr}
       `),
       // This month revenue (MTD)
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
-        FROM job_history
+        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
+        FROM jobs
         WHERE company_id = ${companyId}
-          AND job_date >= ${monthStartStr}
-          AND job_date <= ${todayStr}
+          AND status != 'cancelled'
+          AND scheduled_date >= ${monthStartStr}
+          AND scheduled_date <= ${todayStr}
       `),
       // Last month revenue (for delta calculation)
       db.execute(sql`
-        SELECT COALESCE(SUM(revenue), 0)::numeric AS total
-        FROM job_history
+        SELECT COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS total
+        FROM jobs
         WHERE company_id = ${companyId}
-          AND job_date >= ${lastMonthStartStr}
-          AND job_date <= ${lastMonthEndStr}
+          AND status != 'cancelled'
+          AND scheduled_date >= ${lastMonthStartStr}
+          AND scheduled_date <= ${lastMonthEndStr}
       `),
-      // Avg bill — last 30 days
+      // Avg bill — last 30 days (exclude $0 jobs so the average is meaningful)
       db.execute(sql`
-        SELECT COALESCE(AVG(revenue), 0)::numeric AS avg_bill
-        FROM job_history
+        SELECT COALESCE(AVG(COALESCE(billed_amount, base_fee, 0)), 0)::numeric AS avg_bill
+        FROM jobs
         WHERE company_id = ${companyId}
-          AND job_date >= ${thirtyDaysAgoStr}
-          AND job_date <= ${todayStr}
+          AND status != 'cancelled'
+          AND COALESCE(billed_amount, base_fee, 0) > 0
+          AND scheduled_date >= ${thirtyDaysAgoStr}
+          AND scheduled_date <= ${todayStr}
       `),
       // Avg quality score (last 90 days)
       db.execute(sql`
