@@ -858,7 +858,14 @@ export default function QuoteBuilderPage() {
       qc.invalidateQueries({ queryKey: ["quotes"] });
       qc.invalidateQueries({ queryKey: ["quote-stats"] });
       const savedId = result?.id ?? id;
-      if (thenConvert && savedId) {
+      if (thenConvert) {
+        // If the save didn't return an id we can't convert — say so instead
+        // of silently falling through to the "saved as draft" branch (which
+        // looked like "nothing happened" to the office).
+        if (!savedId) {
+          toast.error("Couldn't convert — the quote didn't save. Try again.");
+          return;
+        }
         await apiFetch(`/api/quotes/${savedId}/convert`, {
           method: "POST",
           body: {
@@ -876,8 +883,13 @@ export default function QuoteBuilderPage() {
         toast.success("Quote saved as draft");
         navigate(`/quotes/${savedId}`);
       }
-    } catch {
-      toast.error("Failed to save quote");
+    } catch (e: any) {
+      // Surface the real reason instead of a generic message, so a failed
+      // save/convert is self-diagnosing on the live site. apiFetch throws
+      // Error(responseBodyText); that body is often JSON ({error|message}).
+      let msg = String(e?.message || "").trim();
+      try { const j = JSON.parse(msg); msg = j.message || j.error || msg; } catch { /* plain text body */ }
+      toast.error(msg ? `Couldn't save: ${msg.slice(0, 200)}` : "Failed to save quote");
     } finally {
       setSaving(false);
     }
