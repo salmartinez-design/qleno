@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { recurringSchedulesTable, clientsTable, usersTable, jobsTable } from "@workspace/db/schema";
-import { eq, and, isNull, lte, sql } from "drizzle-orm";
+import { eq, and, isNull, lte, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
 import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
@@ -17,6 +17,7 @@ router.get("/", requireAuth, async (req, res) => {
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
         frequency: recurringSchedulesTable.frequency,
         day_of_week: recurringSchedulesTable.day_of_week,
+        scheduled_time: recurringSchedulesTable.scheduled_time,
         start_date: recurringSchedulesTable.start_date,
         end_date: recurringSchedulesTable.end_date,
         assigned_employee_id: recurringSchedulesTable.assigned_employee_id,
@@ -41,6 +42,59 @@ router.get("/", requireAuth, async (req, res) => {
     return res.json(rows);
   } catch (err) {
     console.error("[recurring GET]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Bulk set the time-of-day across many recurring schedules at once. Imported
+// schedules came in with no start time (and clumped on one day), so the office
+// needs to fix them in batches instead of one profile at a time. Time-only is
+// the safe, high-value bulk op: it sets the template time, cascades to existing
+// future scheduled (unlocked) jobs, and generates any missing upcoming visits.
+router.patch("/bulk", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { ids, scheduled_time } = req.body as { ids?: number[]; scheduled_time?: string | null };
+    const cleanIds = Array.isArray(ids) ? ids.filter((n) => Number.isInteger(n)) as number[] : [];
+    if (cleanIds.length === 0) return res.status(400).json({ error: "ids required" });
+    const timeVal = scheduled_time === "" || scheduled_time == null ? null : scheduled_time;
+
+    // 1. Update the schedule templates.
+    await db.update(recurringSchedulesTable)
+      .set({ scheduled_time: timeVal as any })
+      .where(and(eq(recurringSchedulesTable.company_id, companyId), inArray(recurringSchedulesTable.id, cleanIds)));
+
+    // 2. Cascade the time onto existing future scheduled (unlocked) jobs.
+    const today = new Date().toISOString().slice(0, 10);
+    await db.execute(sql`
+      UPDATE jobs SET scheduled_time = ${timeVal}
+      WHERE company_id = ${companyId}
+        AND recurring_schedule_id = ANY(${sql.raw(`ARRAY[${cleanIds.join(",")}]`)})
+        AND scheduled_date >= ${today}
+        AND status = 'scheduled'
+        AND locked_at IS NULL
+    `);
+
+    // 3. Generate any missing upcoming occurrences (idempotent — engine dedupes).
+    let generated = 0;
+    const schedRows = await db.select().from(recurringSchedulesTable)
+      .where(and(eq(recurringSchedulesTable.company_id, companyId), inArray(recurringSchedulesTable.id, cleanIds)));
+    const now = new Date();
+    const horizon = new Date(now.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+    for (const s of schedRows) {
+      try {
+        const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable)
+          .where(eq(clientsTable.id, s.customer_id)).limit(1);
+        const gen = await generateJobsFromSchedule(s as any, now, horizon, null, (cl[0]?.zip as any) ?? null);
+        generated += gen.created;
+      } catch (genErr: any) {
+        console.warn("[recurring bulk] generation failed for schedule", s.id, genErr?.message ?? genErr);
+      }
+    }
+
+    return res.json({ updated: cleanIds.length, jobs_generated: generated });
+  } catch (err) {
+    console.error("[recurring bulk]", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
