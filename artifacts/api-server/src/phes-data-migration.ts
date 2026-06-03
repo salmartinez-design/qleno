@@ -2410,6 +2410,73 @@ async function runPpmAccountCleanup(): Promise<void> {
   console.log(`[ppm-cleanup] Account ${acctId} → 'PPM'; inserted ${inserted} missing properties (roster ${ROSTER.length}).`);
 }
 
+// KMA Property Management — a commercial PM account like PPM, smaller. Created
+// fresh in Qleno (the office-role attempt hit 'Forbidden'). Account + its
+// properties seeded idempotently. Commercial work is quoted per visit, so no
+// fixed property rates here. Dedup on normalized address (so 4846 W North Ave,
+// which had two service sets in MaidCentral, lands as one property).
+async function runKmaAccountSetup(): Promise<void> {
+  const ROSTER: { address: string; city: string; state: string; zip: string }[] = [
+    { address: "12013 S Eggleston Ave", city: "Chicago",   state: "IL", zip: "60628" },
+    { address: "14050 S Tracy Ave",     city: "Riverdale", state: "IL", zip: "60827" },
+    { address: "1641 N Lamon Ave",      city: "Chicago",   state: "IL", zip: "60639" },
+    { address: "1930 S Wabash Ave",     city: "Chicago",   state: "IL", zip: "60616" },
+    { address: "2503 W 63rd St",        city: "Chicago",   state: "IL", zip: "60629" },
+    { address: "3421 N Ashland Ave",    city: "Chicago",   state: "IL", zip: "60657" },
+    { address: "4846 W North Ave",      city: "Chicago",   state: "IL", zip: "60639" },
+  ];
+
+  // 1. Create the account if it doesn't exist.
+  await db.execute(sql`
+    INSERT INTO accounts
+      (company_id, account_name, account_type, payment_method, invoice_frequency,
+       payment_terms_days, auto_charge_on_completion, is_active, notes)
+    SELECT ${PHES}, 'KMA Property Management', 'property_management'::account_type,
+           'invoice_only'::account_payment_method, 'monthly'::invoice_frequency,
+           30, false, true,
+           'Commercial property management (common areas + office cleaning). Billing: lflores@kmapm.com'
+    WHERE NOT EXISTS (
+      SELECT 1 FROM accounts WHERE company_id = ${PHES} AND lower(account_name) = 'kma property management'
+    )
+  `);
+
+  const acctRes = await db.execute(sql`
+    SELECT id FROM accounts WHERE company_id = ${PHES} AND lower(account_name) = 'kma property management' ORDER BY id LIMIT 1
+  `);
+  const acctRow = acctRes.rows[0] as { id: number } | undefined;
+  if (!acctRow) { console.warn("[kma-setup] account not found after insert — skipping"); return; }
+  const acctId = acctRow.id;
+
+  // 2. Billing contact (guarded).
+  await db.execute(sql`
+    INSERT INTO account_contacts (account_id, company_id, name, role, email, receives_invoices, is_primary)
+    SELECT ${acctId}, ${PHES}, 'KMA Billing', 'billing'::account_contact_role, 'lflores@kmapm.com', true, true
+    WHERE NOT EXISTS (
+      SELECT 1 FROM account_contacts WHERE account_id = ${acctId} AND lower(email) = 'lflores@kmapm.com'
+    )
+  `);
+
+  // 3. Insert missing properties (dedup on normalized address).
+  const existing = await db.execute(sql`
+    SELECT address FROM account_properties WHERE account_id = ${acctId} AND company_id = ${PHES}
+  `);
+  const existingKeys = new Set((existing.rows as { address: string }[]).map(r => normalizeAddrKey(r.address)));
+  let inserted = 0;
+  for (const p of ROSTER) {
+    const key = normalizeAddrKey(p.address);
+    if (existingKeys.has(key)) continue;
+    await db.execute(sql`
+      INSERT INTO account_properties
+        (account_id, company_id, property_name, address, city, state, zip, property_type, is_active)
+      VALUES
+        (${acctId}, ${PHES}, ${p.address}, ${p.address}, ${p.city}, ${p.state}, ${p.zip}, 'apartment_building', true)
+    `);
+    existingKeys.add(key);
+    inserted++;
+  }
+  console.log(`[kma-setup] Account ${acctId} ensured; inserted ${inserted} properties (roster ${ROSTER.length}).`);
+}
+
 export async function runPhesDataMigration(): Promise<void> {
   await runBookingSchemaGuard();
 
@@ -2519,6 +2586,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runPpmAccountCleanup();
   } catch (err: any) {
     console.warn("[phes-migration] ppm-account-cleanup — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runKmaAccountSetup();
+  } catch (err: any) {
+    console.warn("[phes-migration] kma-account-setup — non-fatal:", err?.message ?? err);
   }
 
   try {

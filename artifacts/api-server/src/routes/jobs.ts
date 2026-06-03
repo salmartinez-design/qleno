@@ -4572,5 +4572,79 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
   }
 });
 
+// ─── DELETE A JOB ────────────────────────────────────────────────────────────
+// For made-up / test jobs. Recorded in the audit trail. Clears child rows that
+// would block the delete (clock entries, photos, add-ons, status logs, etc.)
+// and detaches (nulls) records we keep — invoices, payroll, mileage. Returns
+// 409 if the job has links that can't be safely removed → cancel it instead.
+router.delete("/:id", requireAuth, async (req, res) => {
+  const role = req.auth!.role;
+  if (!["owner", "admin", "office"].includes(role)) {
+    return res.status(403).json({ error: "Forbidden", message: "Only office, admin, or owner can delete a job." });
+  }
+  const jobId = parseInt(req.params.id);
+  if (isNaN(jobId)) return res.status(400).json({ error: "Invalid id" });
+  const [job] = await db.select().from(jobsTable)
+    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId))).limit(1);
+  if (!job) return res.status(404).json({ error: "Not found" });
+  try {
+    await db.transaction(async (tx) => {
+      const childTables = [
+        "job_add_ons", "job_photos", "job_supplies", "job_status_logs", "job_clock_events",
+        "job_worksheet", "client_ratings", "cancellation_log", "timeclock", "clock_in_attempts",
+        "attendance_proposals", "job_technicians",
+      ];
+      for (const t of childTables) await tx.execute(sql.raw(`DELETE FROM ${t} WHERE job_id = ${jobId}`));
+      const detach: [string, string][] = [
+        ["additional_pay", "job_id"], ["communication_log", "job_id"], ["contact_tickets", "job_id"],
+        ["form_submissions", "job_id"], ["hr_logs", "job_id"], ["loyalty", "job_id"], ["invoices", "job_id"],
+        ["mileage", "from_job_id"], ["mileage", "to_job_id"],
+        ["mileage_requests", "from_job_id"], ["mileage_requests", "to_job_id"],
+        ["cancellation_log", "rescheduled_to_job_id"],
+      ];
+      for (const [t, c] of detach) await tx.execute(sql.raw(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ${jobId}`));
+      await tx.execute(sql.raw(`DELETE FROM jobs WHERE id = ${jobId}`));
+    });
+    logAudit(req, "DELETE", "job", jobId, null, {
+      client_id: job.client_id, scheduled_date: job.scheduled_date,
+      service_type: job.service_type, base_fee: job.base_fee,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete job error:", err);
+    return res.status(409).json({
+      error: "Could not delete",
+      message: "This job has linked records (e.g. an invoice or payroll entry) and can't be deleted. Cancel it instead.",
+    });
+  }
+});
+
+// ─── APPEND A NOTE TO A JOB ──────────────────────────────────────────────────
+// Field techs add notes from mobile. Server-side append (never clobbers
+// existing notes), stamped with the date so the history reads cleanly.
+router.post("/:id/note", requireAuth, async (req, res) => {
+  const jobId = parseInt(req.params.id);
+  if (isNaN(jobId)) return res.status(400).json({ error: "Invalid id" });
+  const note = String(req.body?.note ?? "").trim();
+  if (!note) return res.status(400).json({ error: "note required" });
+  const stamp = new Date().toLocaleString("en-US", {
+    timeZone: "America/Chicago", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+  });
+  const line = `[${stamp}] ${note}`;
+  try {
+    const [updated] = await db.execute(sql`
+      UPDATE jobs
+      SET notes = CASE WHEN notes IS NULL OR notes = '' THEN ${line} ELSE notes || E'\n' || ${line} END
+      WHERE id = ${jobId} AND company_id = ${req.auth!.companyId}
+      RETURNING notes
+    `).then((r: any) => r.rows);
+    if (!updated) return res.status(404).json({ error: "Not found" });
+    return res.json({ ok: true, notes: (updated as any).notes });
+  } catch (err) {
+    console.error("Append job note error:", err);
+    return res.status(500).json({ error: "Could not save note" });
+  }
+});
+
 export { calculateTechPay };
 export default router;
