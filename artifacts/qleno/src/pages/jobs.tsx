@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
+import { InlinePriceEdit } from "@/components/inline-price-edit";
 import LegendPopover from "@/components/legend-popover";
 import MobileDateSheet from "@/components/mobile-date-sheet";
 
@@ -1577,10 +1578,15 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             )}
             {/* [inline-edit] Tech dropdown swaps the primary tech in place. */}
             <InlineTechEdit job={job} onUpdate={onUpdate} />
-            {job.billing_method === "hourly" && job.hourly_rate
-              ? <IR icon={<DollarSign size={14} />} label={`$${job.hourly_rate.toFixed(2)}/hr · Hourly${job.billed_hours ? ` · ${job.billed_hours}h billed` : job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}`} bold />
-              : <IR icon={<DollarSign size={14} />} label={`$${(job.billed_amount ?? job.amount ?? 0).toFixed(2)}`} bold />
-            }
+            <InlinePriceEdit
+              jobId={job.id}
+              price={job.billed_amount ?? job.amount ?? 0}
+              billingMethod={job.billing_method}
+              hourlyRate={job.hourly_rate}
+              estimatedHours={job.estimated_hours}
+              canEdit={canEditOfficeNotes}
+              onUpdated={onUpdate}
+            />
           </div>
 
           {job.property_access_notes && (
