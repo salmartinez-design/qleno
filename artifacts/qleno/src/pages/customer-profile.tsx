@@ -3647,6 +3647,11 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
       : "",
     rec_base_fee: recurringSchedule?.base_fee || "",
     rec_service_type: recurringSchedule?.service_type || "",
+    // Time-of-day for the recurring visit. Stored as "HH:MM:SS"; the
+    // <input type="time"> wants "HH:MM".
+    rec_time: recurringSchedule?.scheduled_time
+      ? String(recurringSchedule.scheduled_time).slice(0, 5)
+      : "",
     rec_notes: recurringSchedule?.notes || "",
     // [PR #58] Anchor days for monthly + semi_monthly (sentence-builder UI).
     // Default to [1, 15] for semi_monthly when nothing's saved — matches
@@ -3716,6 +3721,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
               : Math.round(parseFloat(String(form.rec_duration)) * 60),
             base_fee: form.rec_base_fee,
             service_type: form.rec_service_type, notes: form.rec_notes,
+            scheduled_time: form.rec_time === "" ? null : form.rec_time,
             days_of_month: daysOfMonthToSend,
             custom_frequency_weeks: customWeeksToSend,
             parking_fee_enabled: form.rec_parking_fee_enabled,
@@ -4034,6 +4040,10 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                   })()}
                 </div>
               </div>
+              <div>{lbl("Start Time")}
+                <input type="time" value={form.rec_time} onChange={upd("rec_time")} style={inp} />
+              </div>
+
               <div>{lbl("Service Type")}
                 {(() => {
                   // [PR #58] Filter Service Type by Frequency. Per the user's
@@ -4064,6 +4074,12 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                   const oneTimeOk = (n: string) => /standard clean|deep clean|move in|move out|hourly standard|hourly deep/i.test(n) && !recurringNoise.test(n);
                   const scopeFiltered = filteredScopes.filter(s => {
                     if (recurringNoise.test(s.name)) return false;
+                    // Commercial scopes (PPM Common Areas, Turnover, etc.) don't
+                    // follow the residential standard/deep naming, so the
+                    // residential recurring/one-time name filters would hide
+                    // them all — leaving the dropdown empty. Show commercial
+                    // clients their full (Residential-group-stripped) scope list.
+                    if (isCommercialClient) return true;
                     if (isRecurring) return recurringOk(s.name);
                     if (isOneTime) return oneTimeOk(s.name);
                     return true; // commercial multi-day or unset frequency: keep filteredScopes as-is

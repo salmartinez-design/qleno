@@ -191,7 +191,7 @@ export async function insertJobFromSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(date),
-      scheduled_time: null as any,
+      scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
       allowed_hours: schedule.duration_minutes
@@ -258,6 +258,10 @@ type ScheduleInput = {
   end_date?: string | null;
   assigned_employee_id: number | null;
   service_type: string | null;
+  // Time-of-day for the recurring visit ("HH:MM:SS"). Stamped onto each
+  // generated job so recurring visits land at the office-set time instead
+  // of a null/midnight default.
+  scheduled_time?: string | null;
   duration_minutes: number | null;
   base_fee: string | null;
   notes: string | null;
@@ -322,7 +326,7 @@ export async function computeOccurrencesForSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(d),
-      scheduled_time: null as any,
+      scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
       allowed_hours: schedule.duration_minutes ? String((schedule.duration_minutes / 60).toFixed(2)) : null as any,

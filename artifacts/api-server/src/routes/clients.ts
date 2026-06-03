@@ -1319,6 +1319,8 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const {
       frequency, day_of_week, duration_minutes, base_fee, service_type, notes,
+      // Time-of-day for the recurring visit ("HH:MM"). null clears it.
+      scheduled_time,
       // [AI.6] Parking fee per-occurrence config. days uses 0=Sun..6=Sat;
       // null/empty days = "apply to every scheduled occurrence."
       parking_fee_enabled, parking_fee_amount, parking_fee_days,
@@ -1339,6 +1341,7 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
       ...(duration_minutes !== undefined && { duration_minutes: duration_minutes === "" ? null : parseInt(String(duration_minutes)) || null }),
       ...(base_fee !== undefined && { base_fee: base_fee === "" ? null : String(base_fee) }),
       ...(service_type !== undefined && { service_type }),
+      ...(scheduled_time !== undefined && { scheduled_time: scheduled_time === "" || scheduled_time === null ? null : scheduled_time }),
       ...(notes !== undefined && { notes }),
       ...(parking_fee_enabled !== undefined && { parking_fee_enabled: !!parking_fee_enabled }),
       ...(parking_fee_amount !== undefined && {
@@ -1386,6 +1389,7 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
         start_date: today,
         is_active: true,
         service_type: service_type ?? null,
+        scheduled_time: scheduled_time || null,
         duration_minutes: duration_minutes === "" || duration_minutes == null
           ? null
           : (parseInt(String(duration_minutes)) || null),
@@ -1783,6 +1787,7 @@ router.get("/:id/recurring-schedule", requireAuth, async (req, res) => {
       start_date: recurringSchedulesTable.start_date,
       end_date: recurringSchedulesTable.end_date,
       service_type: recurringSchedulesTable.service_type,
+      scheduled_time: recurringSchedulesTable.scheduled_time,
       duration_minutes: recurringSchedulesTable.duration_minutes,
       base_fee: recurringSchedulesTable.base_fee,
       notes: recurringSchedulesTable.notes,
