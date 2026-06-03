@@ -235,6 +235,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [frequency, setFrequency] = useState("on_demand");
   const [notes, setNotes] = useState("");
 
+  // Add-ons (Parking Fee, Refrigerator Cleaning, etc.) — selectable at
+  // creation. Company-wide active add-ons, shared by the residential and
+  // commercial branches. selectedAddons: Map<addon_id, qty>;
+  // addonPriceOverrides: Map<addon_id, unit_price> for flat-$ overrides.
+  const [availableAddons, setAvailableAddons] = useState<any[]>([]);
+  const [addonsLoading, setAddonsLoading] = useState(false);
+  const [selectedAddons, setSelectedAddons] = useState<Map<number, number>>(new Map());
+  const [addonPriceOverrides, setAddonPriceOverrides] = useState<Map<number, number>>(new Map());
+
   // Step 2 — Quote
   const [showQuote, setShowQuote] = useState(false);
   const [quoteSending, setQuoteSending] = useState(false);
@@ -281,6 +290,28 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   useEffect(() => {
     if (open && presetDate) setScheduledDate(presetDate);
   }, [open, presetDate]);
+
+  // Load company-wide active add-ons once when the wizard opens. Failure
+  // mode is "empty list" — the section shows an empty state but the wizard
+  // still works.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setAddonsLoading(true);
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/pricing/addons`, { headers: getAuthHeaders() });
+        const d = await r.json();
+        const rows = Array.isArray(d) ? d : (d.data ?? d.rows ?? []);
+        if (!cancelled) setAvailableAddons(rows);
+      } catch {
+        if (!cancelled) setAvailableAddons([]);
+      } finally {
+        if (!cancelled) setAddonsLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open]);
 
   // [commercial-workflow PR #3 / 2026-04-29] Fetch service_types
   // once when the wizard opens. Both residential and commercial
@@ -334,6 +365,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialNotes("");
       setSelectedEmployee(null); setSubmitting(false); setError("");
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
+      setSelectedAddons(new Map()); setAddonPriceOverrides(new Map());
     } else {
       setSelectedBranchOverride(activeBranchId);
       // If opened from a client profile, skip type + client-search +
@@ -603,6 +635,106 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     }
   }, [commercialServiceType, apiServiceTypes, clientType]);
 
+  // ── Add-ons math + payload ────────────────────────────────────────────
+  // The service base a %-priced add-on applies to. Residential = the entered
+  // price; commercial = rate × hours (or flat rate). Flat add-ons ignore this.
+  function currentServiceBase(): number {
+    if (clientType === "commercial") {
+      const billingMethod = rateLookup ? rateLookup.billing_method : manualBillingMethod;
+      const effRate = rateOverride ? overrideRate : (rateLookup?.rate_amount || manualRate);
+      return billingMethod === "flat_rate"
+        ? (parseFloat(effRate) || 0)
+        : (parseFloat(effRate) || 0) * (parseFloat(estimatedHours) || 1);
+    }
+    return Number(price) || 0;
+  }
+  function addonUnitPrice(a: any): number {
+    const override = addonPriceOverrides.get(a.id);
+    if (override != null) return override;
+    const pv = Number(a.price_value ?? a.price ?? 0);
+    const isPct = a.price_type === "percent" || a.price_type === "percentage";
+    if (isPct) return Number((currentServiceBase() * pv / 100).toFixed(2));
+    return pv;
+  }
+  const selectedAddonList = availableAddons.filter(a => selectedAddons.has(a.id));
+  const addOnsTotal = selectedAddonList.reduce(
+    (sum, a) => sum + addonUnitPrice(a) * (selectedAddons.get(a.id) || 1), 0,
+  );
+  function buildAddOnsPayload() {
+    return selectedAddonList.map(a => {
+      const qty = selectedAddons.get(a.id) || 1;
+      const unit = addonUnitPrice(a);
+      return { add_on_id: a.id, pricing_addon_id: a.id, qty, unit_price: unit, subtotal: Number((unit * qty).toFixed(2)) };
+    });
+  }
+
+  function renderAddOns() {
+    return (
+      <div>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-ons</p>
+        {addonsLoading ? (
+          <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Loading add-ons…</p>
+        ) : availableAddons.length === 0 ? (
+          <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>No add-ons configured.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {availableAddons.map(a => {
+              const checked = selectedAddons.has(a.id);
+              const isPct = a.price_type === "percent" || a.price_type === "percentage";
+              const catalogPrice = Number(a.price_value ?? a.price ?? 0);
+              const override = addonPriceOverrides.get(a.id);
+              const editable = checked && !isPct; // flat-$ add-ons get an inline price
+              const inputValue = override != null ? String(override) : "";
+              const toggle = () => {
+                const wasChecked = selectedAddons.has(a.id);
+                setSelectedAddons(prev => {
+                  const next = new Map(prev);
+                  if (next.has(a.id)) next.delete(a.id);
+                  else next.set(a.id, 1);
+                  return next;
+                });
+                // Drop any pending override when unchecking so a re-check
+                // starts from the catalog default again.
+                if (wasChecked) {
+                  setAddonPriceOverrides(prev => {
+                    if (!prev.has(a.id)) return prev;
+                    const n = new Map(prev);
+                    n.delete(a.id);
+                    return n;
+                  });
+                }
+              };
+              return (
+                <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 8, border: `1px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, backgroundColor: checked ? "rgba(0,201,160,0.05)" : "#F7F6F3" }}>
+                  <input type="checkbox" checked={checked} style={{ cursor: "pointer" }} onChange={toggle} />
+                  <span style={{ flex: 1, fontSize: 13, color: "#1A1917", cursor: "pointer" }} onClick={toggle}>{a.name}</span>
+                  {editable ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                      <span style={{ fontSize: 12, color: "#6B6860" }}>$</span>
+                      <input type="number" min={0} step={0.01} inputMode="decimal" value={inputValue} placeholder={String(catalogPrice)}
+                        onChange={e => {
+                          const raw = e.target.value;
+                          setAddonPriceOverrides(prev => {
+                            const next = new Map(prev);
+                            if (raw === "") next.delete(a.id);
+                            else next.set(a.id, Number(raw));
+                            return next;
+                          });
+                        }}
+                        style={{ width: 80, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
+                    </div>
+                  ) : (
+                    <span style={{ fontSize: 12, color: "#6B6860" }}>{isPct ? `${catalogPrice}%` : `$${catalogPrice.toFixed(2)}`}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   async function submit() {
     setSubmitting(true); setError("");
     try {
@@ -630,7 +762,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           // board and paid commission on 0 hours. Send the operator's entered
           // hours here. estimatedHours is already the stepper's string value.
           allowed_hours: billingMethod === "hourly" ? (estimatedHours || undefined) : undefined,
-          base_fee: baseFee || undefined,
+          // base_fee is the all-in total: service + add-on subtotals. Add-on
+          // rows below are the itemized record (no surface re-sums them).
+          base_fee: (baseFee + addOnsTotal) || undefined,
+          add_ons: buildAddOnsPayload(),
           frequency: commercialFrequency,
           notes: commercialNotes || undefined,
           assigned_user_id: selectedEmployee || undefined,
@@ -654,7 +789,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           // allowed_hours. Without it, every wizard-created residential
           // one-off rendered as a flat 2h block. `duration` is in minutes.
           allowed_hours: duration ? (duration / 60).toFixed(2) : undefined,
-          base_fee: price,
+          // base_fee is the all-in total: service price + add-on subtotals.
+          // Add-on rows below are the itemized record.
+          base_fee: Number(price) + addOnsTotal,
+          add_ons: buildAddOnsPayload(),
           frequency,
           notes: notes || undefined,
           assigned_user_id: selectedEmployee || undefined,
@@ -1283,6 +1421,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 </div>
               </div>
 
+              {/* Add-ons (Parking Fee, etc.) */}
+              {renderAddOns()}
+
               {/* View Quote section */}
               {serviceType && duration > 0 && (
                 <div>
@@ -1310,9 +1451,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <span style={{ color: "#6B7280" }}>Frequency</span>
                           <span style={{ fontWeight: 600, color: "#1A1917" }}>{frequency.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
                         </div>
+                        {selectedAddonList.map(a => (
+                          <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+                            <span style={{ color: "#6B7280" }}>{a.name}</span>
+                            <span style={{ fontWeight: 600, color: "#1A1917" }}>+${(addonUnitPrice(a) * (selectedAddons.get(a.id) || 1)).toFixed(2)}</span>
+                          </div>
+                        ))}
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, borderTop: "1px solid #E5E2DC", paddingTop: 10, marginTop: 2 }}>
                           <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
-                          <span style={{ fontWeight: 800, color: "var(--brand, #00C9A0)" }}>${price.toFixed(2)}</span>
+                          <span style={{ fontWeight: 800, color: "var(--brand, #00C9A0)" }}>${(Number(price) + addOnsTotal).toFixed(2)}</span>
                         </div>
                       </div>
                       {quoteError && <p style={{ fontSize: 12, color: "#DC2626", margin: "0 0 10px", padding: "8px 12px", background: "#FEE2E2", borderRadius: 6 }}>{quoteError}</p>}
@@ -1327,7 +1474,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                             try {
                               const r = await fetch(`${API}/api/quotes`, {
                                 method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-                                body: JSON.stringify({ client_id: selectedClient.id, service_type: serviceType, duration_minutes: duration, price, frequency, notes: notes || undefined, send_email: true }),
+                                body: JSON.stringify({ client_id: selectedClient.id, service_type: serviceType, duration_minutes: duration, price: Number(price) + addOnsTotal, frequency, notes: notes || undefined, send_email: true }),
                               });
                               if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error((e as any).message || "Failed to send quote"); }
                               setQuoteSent(true);
@@ -1593,6 +1740,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     style={{ width: "100%", height: 130, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "none", boxSizing: "border-box", lineHeight: 1.5 }}/>
                 </div>
               </div>
+
+              {/* Add-ons (Parking Fee, etc.) */}
+              {renderAddOns()}
             </div>
           )}
 

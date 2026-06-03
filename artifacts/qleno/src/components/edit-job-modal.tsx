@@ -613,7 +613,17 @@ export default function EditJobModal({
   // route already uses `!!j.account_id` as its commercial test (dispatch.ts).
   // Aligning here means jobs flagged commercial by either signal get the
   // commercial UI fork.
-  const isCommercial = clientType === "commercial" || job.account_id != null;
+  //
+  // Third signal: the job's own service_type is a tenant-managed commercial
+  // slug. MC import left some commercial clients tagged residential with NO
+  // account row (e.g. Bill Azzarello / office_cleaning), so the first two
+  // signals both miss — but the job itself carries the commercial slug
+  // (that's what renders "OFFICE CLEANING" on the tile). Forking on it fixes
+  // every misflagged client at once, with no false positives: a residential
+  // job never has a commercial slug as its service_type.
+  const serviceTypeIsCommercial =
+    !!job.service_type && commercialServiceTypes.some(t => t.slug === job.service_type);
+  const isCommercial = clientType === "commercial" || job.account_id != null || serviceTypeIsCommercial;
 
   // ── Load scopes once ────────────────────────────────────────────────────
   // Skipped for commercial clients (modal uses the commercial dropdown instead).
