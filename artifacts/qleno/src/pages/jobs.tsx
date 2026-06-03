@@ -1052,8 +1052,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
   }
 
-  // Show charge button when: completed + can charge + not already charged + Stripe client
-  const chargeAmount = Number(job.billed_amount ?? job.amount ?? 0);
+  // Show charge button when: completed + can charge + not already charged + Stripe client.
+  // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons) over the
+  // billed_amount cache — that cache isn't refreshed on price/fee edits, so it
+  // goes stale and makes the panel disagree with the chip/tech-row total.
+  const chargeAmount = Number(job.amount ?? job.billed_amount ?? 0);
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");
@@ -1635,7 +1638,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <InlineTechEdit job={job} onUpdate={onUpdate} />
             <InlinePriceEdit
               jobId={job.id}
-              price={job.billed_amount ?? job.amount ?? 0}
+              price={job.amount ?? job.billed_amount ?? 0}
               billingMethod={job.billing_method}
               hourlyRate={job.hourly_rate}
               estimatedHours={job.estimated_hours}
@@ -2425,11 +2428,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           { key: "lockout",        label: "Lockout",        sub: "Couldn't get in (full fee)",   accent: "#475569", tint: "#F1F5F9", charges: true },
           { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#991B1B", tint: "#FEF2F2", charges: false, ends_service: true },
         ];
-        // Fall through 0 to base_fee with `||` (the previous `??` only
-        // skipped null/undefined and reported $0 when billed_amount was
-        // a literal 0). job.amount is the dispatch's normalized total
-        // and is the last resort.
-        const jobAmount = Number(job.billed_amount) || Number((job as any).base_fee) || Number((job as any).amount) || 0;
+        // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons);
+        // billed_amount is a cache that goes stale after price/fee edits. Fall
+        // through with `||` so a literal 0 doesn't pin the fee preview to $0.
+        const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
         const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); };
@@ -2818,7 +2820,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isCommercial && job.billing_method === "hourly" && job.hourly_rate
             ? <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>${job.hourly_rate.toFixed(0)}/hr{job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}</span>
-            : <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${(job.billed_amount ?? job.amount ?? 0).toFixed(2)}</span>
+            : <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${(job.amount ?? job.billed_amount ?? 0).toFixed(2)}</span>
           }
           {job.est_pay_per_tech != null && job.est_pay_per_tech > 0 && (
             <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>· ${job.est_pay_per_tech.toFixed(2)} comm.</span>
