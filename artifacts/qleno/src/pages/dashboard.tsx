@@ -369,6 +369,20 @@ export default function Dashboard() {
   const revenueChart = useRevenueChart();
   const techsData = useTechsToday();
 
+  // BUSINESS HEALTH cards (rate trend, payroll %, retention) — sourced from
+  // job_history via the shared backend calc, NOT the corrupted jobs table.
+  const [bizHealth, setBizHealth] = useState<{ rate_trend: number; avg_bill_12mo: number; retention: number; payroll_pct: number; payroll_window: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/dashboard/business-health`, { headers: getAuthHeaders() });
+        if (!cancelled) setBizHealth(await r.json());
+      } catch { /* leave null → cards render — */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const token = useAuthStore(state => state.token) || '';
   let userRole = 'office';
   try {
@@ -680,6 +694,39 @@ export default function Dashboard() {
             ))}
           </div>
         )}
+
+        {/* ── BUSINESS HEALTH ──────────────────────────────────── */}
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px', marginTop: 2, fontFamily: FF }}>Business Health</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            {/* Rate Trend */}
+            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Rate Trend</p>
+              <p style={{ fontSize: 36, fontWeight: 500, color: bizHealth && bizHealth.rate_trend < 0 ? '#D85A30' : '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
+                {bizHealth == null ? '—' : `${bizHealth.rate_trend > 0 ? '+' : ''}${bizHealth.rate_trend}%`}
+              </p>
+              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>avg bill, 12mo vs prior 12mo</p>
+            </div>
+
+            {/* Payroll % */}
+            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Payroll %</p>
+              <p style={{ fontSize: 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
+                {bizHealth == null ? '—' : `${bizHealth.payroll_pct}%`}
+              </p>
+              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>payroll cost / revenue, {bizHealth?.payroll_window ?? 'Apr 2026'}</p>
+            </div>
+
+            {/* Retention */}
+            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
+              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Retention</p>
+              <p style={{ fontSize: 36, fontWeight: 500, color: '#2D9B83', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
+                {bizHealth == null ? '—' : `${bizHealth.retention}%`}
+              </p>
+              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>recurring clients active</p>
+            </div>
+          </div>
+        </div>
 
         {/* ── Weekly Revenue Forecast ── */}
         <WeeklyForecastSection />

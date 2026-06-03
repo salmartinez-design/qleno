@@ -1186,6 +1186,110 @@ router.get("/weekly-forecast", requireAuth, async (req, res) => {
   }
 });
 
+// Shared BUSINESS HEALTH calc — single source of truth for rate-trend,
+// avg-bill, and retention, used by BOTH the mobile cards and the desktop
+// BUSINESS HEALTH section. Revenue/avg-bill/trend read job_history (the clean
+// MC ledger the desktop revenue chart uses: date=job_date, amount=revenue),
+// NOT the jobs table (corrupted for trend windows). Closed full months only —
+// trailing 12 vs prior 12, partial current month excluded. Company-wide
+// (job_history has no branch column). This is the #266 calc, factored out so
+// there is no divergent parallel implementation.
+async function computeBusinessHealth(companyId: number): Promise<{
+  rate_trend: number; avg_bill_12mo: number; retention: number; last12_n: number; prior12_n: number;
+}> {
+  const [hist, ret] = await Promise.all([
+    db.execute(sql`
+      SELECT
+        COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
+          AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
+          AND job_date <  date_trunc('month', now())), 0)::numeric AS last12_avg,
+        COUNT(*) FILTER (WHERE revenue > 0
+          AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
+          AND job_date <  date_trunc('month', now()))::int AS last12_n,
+        COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
+          AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
+          AND job_date <  date_trunc('month', now()) - INTERVAL '12 months'), 0)::numeric AS prior12_avg,
+        COUNT(*) FILTER (WHERE revenue > 0
+          AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
+          AND job_date <  date_trunc('month', now()) - INTERVAL '12 months')::int AS prior12_n
+      FROM job_history WHERE company_id = ${companyId}
+    `),
+    db.execute(sql`
+      SELECT COUNT(DISTINCT customer_id)::int AS total,
+             COUNT(DISTINCT customer_id) FILTER (WHERE is_active = true)::int AS active
+      FROM recurring_schedules WHERE company_id = ${companyId}
+    `),
+  ]);
+  const h: any = (hist as any).rows[0] ?? {};
+  const r: any = (ret as any).rows[0] ?? {};
+  const last12 = Number(h.last12_avg ?? 0);
+  const prior12 = Number(h.prior12_avg ?? 0);
+  const total = Number(r.total ?? 0);
+  return {
+    rate_trend: prior12 > 0 ? Math.round(((last12 - prior12) / prior12) * 10000) / 100 : 0,
+    avg_bill_12mo: Math.round(last12 * 100) / 100,
+    retention: total > 0 ? Math.round((Number(r.active ?? 0) / total) * 100) : 0,
+    last12_n: Number(h.last12_n ?? 0),
+    prior12_n: Number(h.prior12_n ?? 0),
+  };
+}
+
+// Payroll % to revenue — TEMPORARY single clean month (April 2026).
+// Cost: the existing reports.ts pay calc (pay_type x hours/rate + fee_split +
+// additional_pay) scoped to April-only completed jobs — April is clean in the
+// jobs table. Revenue denominator: job_history April (clean MC ledger).
+// We deliberately do NOT compute trailing-12 here: that would inherit the May
+// gap and Jan-Mar 2x corruption on the cost side. A true single month beats a
+// corrupt twelve. Widen to trailing-12 once the jobs table is reconciled
+// (known follow-up). Window is hardcoded by design until then.
+const PAYROLL_MONTH_START = "2026-04-01";
+const PAYROLL_MONTH_END = "2026-04-30";
+const PAYROLL_WINDOW_LABEL = "Apr 2026";
+async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct: number; payroll_window: string }> {
+  const [payRow, addPayRow, revRow] = await Promise.all([
+    db.execute(sql`
+      SELECT COALESCE(SUM(
+        CASE u.pay_type
+          WHEN 'hourly'    THEN u.pay_rate::numeric * COALESCE(j.actual_hours, j.allowed_hours, 0)::numeric
+          WHEN 'per_job'   THEN u.pay_rate::numeric
+          WHEN 'fee_split' THEN j.base_fee::numeric * COALESCE(u.fee_split_pct, j.fee_split_pct, 0)::numeric / 100
+          ELSE 0
+        END), 0)::numeric AS payroll
+      FROM jobs j JOIN users u ON u.id = j.assigned_user_id
+      WHERE j.company_id = ${companyId} AND j.status = 'complete'
+        AND j.scheduled_date >= ${PAYROLL_MONTH_START} AND j.scheduled_date <= ${PAYROLL_MONTH_END}
+    `),
+    db.execute(sql`
+      SELECT COALESCE(SUM(amount), 0)::numeric AS add_pay FROM additional_pay
+      WHERE company_id = ${companyId}
+        AND created_at::date >= ${PAYROLL_MONTH_START} AND created_at::date <= ${PAYROLL_MONTH_END}
+    `),
+    db.execute(sql`
+      SELECT COALESCE(SUM(revenue), 0)::numeric AS revenue FROM job_history
+      WHERE company_id = ${companyId}
+        AND job_date >= ${PAYROLL_MONTH_START} AND job_date <= ${PAYROLL_MONTH_END}
+    `),
+  ]);
+  const cost = Number((payRow as any).rows[0]?.payroll ?? 0) + Number((addPayRow as any).rows[0]?.add_pay ?? 0);
+  const revenue = Number((revRow as any).rows[0]?.revenue ?? 0);
+  return {
+    payroll_pct: revenue > 0 ? Math.round((cost / revenue) * 1000) / 10 : 0,
+    payroll_window: PAYROLL_WINDOW_LABEL,
+  };
+}
+
+// Desktop BUSINESS HEALTH section. Same source-of-truth helpers as mobile.
+router.get("/business-health", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const [bh, pay] = await Promise.all([computeBusinessHealth(companyId), computeAprilPayrollPct(companyId)]);
+    return res.json({ ...bh, ...pay });
+  } catch (err) {
+    console.error("GET /dashboard/business-health error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── Mobile customizable dashboard ────────────────────────────────────────────
 // Read-only aggregate feeding the role-based, user-customizable MOBILE dashboard.
 // One payload = every card's value, so the mobile surface does a single fetch.
@@ -1206,7 +1310,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
     const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
     const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
 
-    const [todayRev, todayCounts, monthRev, histRows, next7, lateRows, leadsRows, quotesRows, activeRows, retentionRows] = await Promise.all([
+    const [todayRev, todayCounts, monthRev, bh, pay, next7, lateRows, leadsRows, quotesRows, activeRows] = await Promise.all([
       // Daily revenue (completed today, actual) vs Revenue booked today (all non-cancelled scheduled today)
       db.execute(sql`
         SELECT
@@ -1235,31 +1339,12 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
         WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
           AND j.scheduled_date >= ${monthStart}::date AND j.scheduled_date <= ${today} ${jb}
       `),
-      // Avg bill + rate trend SOURCE = job_history (the clean MC ledger), NOT
-      // jobs. The jobs table is corrupted for trend purposes (Jan-Mar 2026
-      // billed_amount ~2x, May ~80% missing, no real 12-24 month depth), so
-      // jobs-sourced trends were nonsense (+70.54%). job_history is the
-      // MC-accurate closed-month ledger and is exactly what the desktop
-      // revenue chart reads (dashboard.ts revenue-chart): date = job_date,
-      // amount = revenue. Closed full months only: the partial current month
-      // is excluded. Company-wide: job_history has no branch column.
-      db.execute(sql`
-        SELECT
-          COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
-            AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
-            AND job_date <  date_trunc('month', now())), 0)::numeric AS last12_avg,
-          COUNT(*) FILTER (WHERE revenue > 0
-            AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
-            AND job_date <  date_trunc('month', now()))::int AS last12_n,
-          COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
-            AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
-            AND job_date <  date_trunc('month', now()) - INTERVAL '12 months'), 0)::numeric AS prior12_avg,
-          COUNT(*) FILTER (WHERE revenue > 0
-            AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
-            AND job_date <  date_trunc('month', now()) - INTERVAL '12 months')::int AS prior12_n
-        FROM job_history
-        WHERE company_id = ${companyId}
-      `),
+      // Avg bill, rate trend, retention via the shared BUSINESS HEALTH calc
+      // (job_history-sourced; see computeBusinessHealth). Single source of
+      // truth shared with the desktop BUSINESS HEALTH section.
+      computeBusinessHealth(companyId),
+      // Payroll % (April 2026 clean month) — shared with desktop.
+      computeAprilPayrollPct(companyId),
       // Next 7 days (jobs + revenue)
       db.execute(sql`
         SELECT
@@ -1296,14 +1381,6 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
         SELECT COUNT(*)::int AS v FROM clients
         WHERE company_id = ${companyId} AND is_active = true ${cb}
       `),
-      // Recurring retention = distinct clients with an active recurring schedule /
-      // distinct clients with any recurring schedule (company-wide; no branch column).
-      db.execute(sql`
-        SELECT
-          COUNT(DISTINCT customer_id)::int AS total,
-          COUNT(DISTINCT customer_id) FILTER (WHERE is_active = true)::int AS active
-        FROM recurring_schedules WHERE company_id = ${companyId}
-      `),
     ]);
 
     const tc: any = (todayCounts as any).rows[0] ?? {};
@@ -1337,24 +1414,14 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       closed_quotes: quotesClosed,
       close_rate: quotesTotal > 0 ? Math.round((quotesClosed / quotesTotal) * 100) : 0,
       monthly_revenue: num((monthRev as any).rows[0]?.v),
-      // Avg bill = avg job revenue over the trailing 12 closed months (job_history).
-      avg_bill: num((histRows as any).rows[0]?.last12_avg),
+      // Avg bill, rate trend, retention from the shared job_history calc.
+      avg_bill: bh.avg_bill_12mo,
       active_clients: Number((activeRows as any).rows[0]?.v ?? 0),
-      // Rate trend: % change in avg bill, trailing 12 closed months vs prior 12,
-      // sourced from job_history (pricing erosion, not jobs-table noise).
-      rate_trend: (() => {
-        const r: any = (histRows as any).rows[0] ?? {};
-        const last12 = Number(r.last12_avg ?? 0);
-        const prior12 = Number(r.prior12_avg ?? 0);
-        return prior12 > 0 ? Math.round(((last12 - prior12) / prior12) * 10000) / 100 : 0;
-      })(),
-      avg_bill_12mo: num((histRows as any).rows[0]?.last12_avg),
-      // Recurring retention: % of recurring-schedule clients still active.
-      retention: (() => {
-        const r: any = (retentionRows as any).rows[0] ?? {};
-        const total = Number(r.total ?? 0);
-        return total > 0 ? Math.round((Number(r.active ?? 0) / total) * 100) : 0;
-      })(),
+      rate_trend: bh.rate_trend,
+      avg_bill_12mo: bh.avg_bill_12mo,
+      retention: bh.retention,
+      payroll_pct: pay.payroll_pct,
+      payroll_window: pay.payroll_window,
     });
   } catch (err) {
     console.error("GET /dashboard/mobile-cards error:", err);
