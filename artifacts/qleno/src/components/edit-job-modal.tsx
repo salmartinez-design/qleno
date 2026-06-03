@@ -847,12 +847,15 @@ export default function EditJobModal({
     && allowedHours > 0
     && selectedTechIds.length > 0
     && /^\d{2}:\d{2}$/.test(scheduledTime)
-    // [AH] Commercial requires a positive hourly rate.
-    && (!isCommercial || hourlyRate > 0)
+    // [AH] Commercial requires a positive hourly rate — UNLESS a manual flat
+    // price is set, which ignores the hourly math entirely.
+    && (!isCommercial || manualRate || hourlyRate > 0)
     // [AI] custom_days requires at least one day checked.
     && (frequency !== "custom_days" || daysOfWeek.length > 0)
-    // [AI.4] Commercial requires a valid service type from the active list.
-    && commercialServiceTypeValid;
+    // [AI.4] Commercial requires a valid service type — UNLESS a manual flat
+    // price is set. Billing an arbitrary amount ("$1000 on whichever service")
+    // must never be blocked by service-type validity. (Sal, 2026-06-03.)
+    && (manualRate || commercialServiceTypeValid);
 
   // ── Cascade prompt or direct submit ─────────────────────────────────────
   // [recurring-on-save 2026-04-30] Three branches now:
@@ -1049,8 +1052,13 @@ export default function EditJobModal({
       // user picked from the commercial dropdown; hourly_rate persists to
       // jobs.hourly_rate (and cascades to recurring_schedules.commercial_hourly_rate).
       if (isCommercial) {
-        payload.service_type = commercialServiceType;
-        payload.hourly_rate = hourlyRate;
+        // Only send service_type when the operator actually has one selected.
+        // If the dropdown was auto-blanked for a legacy slug (AI.4) and they're
+        // just setting a manual price, sending "" would WIPE the job's existing
+        // service_type — so omit it and leave the stored value untouched.
+        if (commercialServiceType !== "") payload.service_type = commercialServiceType;
+        // Don't overwrite a real hourly_rate with 0 on a manual-price save.
+        if (hourlyRate > 0) payload.hourly_rate = hourlyRate;
       }
       // [AI] Multi-day fields. days_of_week is only meaningful when frequency
       // is one of the multi-day values; PATCH endpoint validates exclusivity.
