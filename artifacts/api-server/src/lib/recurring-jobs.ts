@@ -23,6 +23,10 @@ function mapServiceType(raw: string | null): string {
   if (s.includes("move out") || s.includes("move-out")) return "move_out";
   if (s.includes("move in") || s.includes("move-in")) return "move_in";
   if (s.includes("post construct") || s.includes("post-construct")) return "post_construction";
+  // PPM-specific turnover keeps its own slug; a plain "Turnover" maps to the
+  // generic commercial turnover value.
+  if (s.includes("ppm") && s.includes("turnover")) return "ppm_turnover";
+  if (s.includes("turnover")) return "turnover";
   if (s.includes("commercial") || s.includes("office")) return "office_cleaning";
   if (s.includes("common")) return "common_areas";
   if (s.includes("retail")) return "retail_store";
