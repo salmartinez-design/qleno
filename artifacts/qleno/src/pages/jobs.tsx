@@ -4763,6 +4763,20 @@ export default function JobsPage() {
       window.history.replaceState(null, "", url.toString());
     }
   }, [selectedDate]);
+  // Open the New Job wizard when arrived via the global "New → Job" menu (?new=1).
+  // The dispatch toolbar's own New Job button was removed, so this is how the
+  // header create menu reaches the scheduler.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("new") === "1") {
+      setShowWizard(true);
+      sp.delete("new");
+      const url = new URL(window.location.href);
+      url.search = sp.toString();
+      window.history.replaceState(null, "", url.toString());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);

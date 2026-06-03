@@ -711,7 +711,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
-                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch' },
+                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
                   ] as const).map((item) => (
                     <button
@@ -888,7 +888,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
-                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch' },
+                    { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
                   ] as const).map((item) => (
                     <button
