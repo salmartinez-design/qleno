@@ -2993,12 +2993,16 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
     let nextVertical = anchor.vertical;
     let nextHorizontal = anchor.horizontal;
 
-    // Vertical: flip up when the popover's bottom would clip past the
-    // scroll container's bottom AND there's more room above than below.
-    if (rect.bottom > bottomBound - margin) {
-      const spaceAbove = Math.max(0, rect.top - topBound);
-      const spaceBelow = Math.max(0, bottomBound - (rect.top - rect.height));
-      if (spaceAbove > spaceBelow) nextVertical = "above";
+    // Vertical: measure the CHIP (the popover's positioned parent), not the
+    // popover, so room-above / room-below are real. The previous math derived
+    // both from the popover's own rect and inflated "space below" by a full
+    // card height, so the card rarely flipped and clipped on mid/low rows.
+    // Flip up when the card doesn't fit below and there's more room above.
+    const chipRect = el.parentElement ? el.parentElement.getBoundingClientRect() : rect;
+    const spaceBelow = bottomBound - chipRect.bottom;
+    const spaceAbove = chipRect.top - topBound;
+    if (rect.height + margin > spaceBelow && spaceAbove > spaceBelow) {
+      nextVertical = "above";
     }
 
     // Horizontal: flip right-anchor when the popover's right edge would
