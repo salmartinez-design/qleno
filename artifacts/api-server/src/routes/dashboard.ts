@@ -1206,7 +1206,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
     const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
     const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
 
-    const [todayRev, todayCounts, monthRev, avgBill, next7, lateRows, leadsRows, quotesRows, activeRows, rateRows, retentionRows] = await Promise.all([
+    const [todayRev, todayCounts, monthRev, histRows, next7, lateRows, leadsRows, quotesRows, activeRows, retentionRows] = await Promise.all([
       // Daily revenue (completed today, actual) vs Revenue booked today (all non-cancelled scheduled today)
       db.execute(sql`
         SELECT
@@ -1235,13 +1235,30 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
         WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
           AND j.scheduled_date >= ${monthStart}::date AND j.scheduled_date <= ${today} ${jb}
       `),
-      // Avg bill (last 30 days, excluding $0)
+      // Avg bill + rate trend SOURCE = job_history (the clean MC ledger), NOT
+      // jobs. The jobs table is corrupted for trend purposes (Jan-Mar 2026
+      // billed_amount ~2x, May ~80% missing, no real 12-24 month depth), so
+      // jobs-sourced trends were nonsense (+70.54%). job_history is the
+      // MC-accurate closed-month ledger and is exactly what the desktop
+      // revenue chart reads (dashboard.ts revenue-chart): date = job_date,
+      // amount = revenue. Closed full months only: the partial current month
+      // is excluded. Company-wide: job_history has no branch column.
       db.execute(sql`
-        SELECT COALESCE(AVG(${exprBilled}), 0)::numeric AS v
-        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
-        WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
-          AND j.scheduled_date >= ${today} - INTERVAL '30 days' AND j.scheduled_date <= ${today}
-          AND ${exprBilled} > 0 ${jb}
+        SELECT
+          COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
+            AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
+            AND job_date <  date_trunc('month', now())), 0)::numeric AS last12_avg,
+          COUNT(*) FILTER (WHERE revenue > 0
+            AND job_date >= date_trunc('month', now()) - INTERVAL '12 months'
+            AND job_date <  date_trunc('month', now()))::int AS last12_n,
+          COALESCE(AVG(revenue) FILTER (WHERE revenue > 0
+            AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
+            AND job_date <  date_trunc('month', now()) - INTERVAL '12 months'), 0)::numeric AS prior12_avg,
+          COUNT(*) FILTER (WHERE revenue > 0
+            AND job_date >= date_trunc('month', now()) - INTERVAL '24 months'
+            AND job_date <  date_trunc('month', now()) - INTERVAL '12 months')::int AS prior12_n
+        FROM job_history
+        WHERE company_id = ${companyId}
       `),
       // Next 7 days (jobs + revenue)
       db.execute(sql`
@@ -1278,17 +1295,6 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       db.execute(sql`
         SELECT COUNT(*)::int AS v FROM clients
         WHERE company_id = ${companyId} AND is_active = true ${cb}
-      `),
-      // Rate trend = avg bill (same calc as Avg Bill card) trailing 12mo vs prior 12mo.
-      // This is pricing erosion, NOT revenue volatility. First/only implementation.
-      db.execute(sql`
-        SELECT
-          COALESCE(AVG(${exprBilled}) FILTER (WHERE j.scheduled_date >= ${today} - INTERVAL '12 months'), 0)::numeric AS last12,
-          COALESCE(AVG(${exprBilled}) FILTER (WHERE j.scheduled_date >= ${today} - INTERVAL '24 months' AND j.scheduled_date < ${today} - INTERVAL '12 months'), 0)::numeric AS prior12
-        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
-        WHERE j.company_id = ${companyId} AND j.status != 'cancelled'
-          AND j.scheduled_date >= ${today} - INTERVAL '24 months' AND j.scheduled_date <= ${today}
-          AND ${exprBilled} > 0 ${jb}
       `),
       // Recurring retention = distinct clients with an active recurring schedule /
       // distinct clients with any recurring schedule (company-wide; no branch column).
@@ -1331,16 +1337,18 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       closed_quotes: quotesClosed,
       close_rate: quotesTotal > 0 ? Math.round((quotesClosed / quotesTotal) * 100) : 0,
       monthly_revenue: num((monthRev as any).rows[0]?.v),
-      avg_bill: num((avgBill as any).rows[0]?.v),
+      // Avg bill = avg job revenue over the trailing 12 closed months (job_history).
+      avg_bill: num((histRows as any).rows[0]?.last12_avg),
       active_clients: Number((activeRows as any).rows[0]?.v ?? 0),
-      // Rate trend: % change in avg bill, trailing 12mo vs prior 12mo (pricing erosion).
+      // Rate trend: % change in avg bill, trailing 12 closed months vs prior 12,
+      // sourced from job_history (pricing erosion, not jobs-table noise).
       rate_trend: (() => {
-        const r: any = (rateRows as any).rows[0] ?? {};
-        const last12 = Number(r.last12 ?? 0);
-        const prior12 = Number(r.prior12 ?? 0);
+        const r: any = (histRows as any).rows[0] ?? {};
+        const last12 = Number(r.last12_avg ?? 0);
+        const prior12 = Number(r.prior12_avg ?? 0);
         return prior12 > 0 ? Math.round(((last12 - prior12) / prior12) * 10000) / 100 : 0;
       })(),
-      avg_bill_12mo: num((rateRows as any).rows[0]?.last12),
+      avg_bill_12mo: num((histRows as any).rows[0]?.last12_avg),
       // Recurring retention: % of recurring-schedule clients still active.
       retention: (() => {
         const r: any = (retentionRows as any).rows[0] ?? {};
