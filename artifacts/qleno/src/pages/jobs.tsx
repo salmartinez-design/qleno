@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
@@ -4848,20 +4849,26 @@ export default function JobsPage() {
       window.history.replaceState(null, "", url.toString());
     }
   }, [selectedDate]);
-  // Open the New Job wizard when arrived via the global "New → Job" menu (?new=1).
-  // The dispatch toolbar's own New Job button was removed, so this is how the
-  // header create menu reaches the scheduler.
+  // Open the New Job wizard when arrived via the global "New → Job" menu
+  // (?new=1). Keyed on wouter's reactive search string (not mount) so it fires
+  // from EVERY screen — including when the user is already on the dispatch page
+  // and the URL just gains ?new=1, which wouldn't remount this component.
+  const routeSearch = useSearch();
+  const [, navigate] = useLocation();
   useEffect(() => {
+    // Read the live URL (routeSearch is only the reactive trigger) so we keep
+    // any ?date= the date-sync effect just wrote.
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("new") === "1") {
       setShowWizard(true);
+      // Strip ?new=1 via wouter's navigate (keeps wouter's reactive search in
+      // sync, so clicking New → Job again re-fires) while preserving ?date=.
       sp.delete("new");
-      const url = new URL(window.location.href);
-      url.search = sp.toString();
-      window.history.replaceState(null, "", url.toString());
+      const rest = sp.toString();
+      navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [routeSearch]);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
