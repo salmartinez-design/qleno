@@ -71,7 +71,7 @@ const LIBRARY: LibCard[] = [
   { key: "closed_quotes",        label: "Closed Quotes",        sub: "won this month",         render: d => <Big t={String(d.closed_quotes)} /> },
   { key: "close_rate",           label: "Close Rate",           sub: "closed / total, this month", render: d => <Big t={`${d.close_rate}%`} c={MINT} /> },
   { key: "monthly_revenue",      label: "Monthly Revenue",      sub: "month to date",          render: d => <Big t={money(d.monthly_revenue)} /> },
-  { key: "avg_bill",             label: "Avg Bill",             sub: "last 30 days",           render: d => <Big t={money2(d.avg_bill)} /> },
+  { key: "avg_bill",             label: "Avg Bill",             sub: "per job, last 12 months", render: d => <Big t={money2(d.avg_bill)} /> },
   { key: "active_clients",       label: "Active Clients",       render: d => <Big t={String(d.active_clients)} /> },
   { key: "rate_trend",           label: "Rate Trend",           sub: "avg bill, 12mo vs prior 12mo", render: d => <Big t={signPct(d.rate_trend)} c={d.rate_trend < 0 ? RED : MINT} /> },
   { key: "retention",            label: "Retention",            sub: "recurring clients active", render: d => <Big t={`${d.retention}%`} c={MINT} /> },
