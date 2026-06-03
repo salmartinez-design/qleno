@@ -469,7 +469,7 @@ export default function Dashboard() {
         {/* ── STATUS CHIPS ─────────────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Today's Status</p>
-          <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4, scrollbarWidth: 'none' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isMobile ? 8 : 12 }}>
             {STATUS_CARDS.map(card => {
               const val = Number(counts[card.key] ?? 0);
               return (
@@ -697,20 +697,20 @@ function StatusChip({ label, value, bg, color, accentColor, onClick }: { label: 
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        flexShrink: 0, minWidth: 130,
+        minWidth: 0, width: '100%',
         minHeight: 90,
         backgroundColor: bg,
         border: hovered ? '1px solid #5B9BD5' : '0.5px solid #E5E2DC',
         borderLeft: hasAccent ? `4px solid ${accentColor}` : (hovered ? '1px solid #5B9BD5' : '0.5px solid #E5E2DC'),
         borderRadius: hasAccent ? '0 12px 12px 0' : 12,
-        padding: hasAccent ? '20px 16px 20px 14px' : '20px 16px',
+        padding: hasAccent ? '18px 8px 18px 10px' : '18px 8px',
         cursor: 'pointer',
         display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
         fontFamily: FF, transition: 'border-color 0.15s',
       }}
     >
-      <p style={{ fontSize: 36, fontWeight: 600, color, margin: 0, lineHeight: 1, fontFamily: FF }}>{value}</p>
-      <p style={{ fontSize: 12, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.04em', margin: '8px 0 0', fontFamily: FF }}>{label}</p>
+      <p style={{ fontSize: 30, fontWeight: 600, color, margin: 0, lineHeight: 1, fontFamily: FF }}>{value}</p>
+      <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.03em', margin: '6px 0 0', fontFamily: FF, textAlign: 'center', lineHeight: 1.15 }}>{label}</p>
     </button>
   );
 }
