@@ -1603,42 +1603,54 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, backgroundColor: sc.bg, border: `1px solid ${sc.border}`, marginBottom: 16 }}>
-            <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: sc.dot }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: sc.text, textTransform: "capitalize" }}>{job.status.replace("_", " ")}</span>
+          {/* [panel-revamp step 1] Unified tag row — status + recurring +
+              residential/commercial. Wraps cleanly on the mobile bottom-sheet. */}
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, backgroundColor: sc.bg, border: `1px solid ${sc.border}` }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: sc.dot }} />
+              <span style={{ fontSize: 12, fontWeight: 700, color: sc.text, textTransform: "capitalize" }}>{job.status.replace("_", " ")}</span>
+            </span>
+            {(job as any).recurring_schedule_id != null && (() => {
+              const fl: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", every_3_weeks: "Every 3 weeks", monthly: "Monthly", every_4_weeks: "Every 4 weeks", daily: "Daily", weekdays: "Weekdays", custom_days: "Custom days" };
+              const freqLabel = fl[job.frequency] ?? "Recurring";
+              return (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "#EEF4FF" }}>
+                  <Repeat size={12} color="#3B6CC9" />
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#3B6CC9" }}>{freqLabel} recurring</span>
+                </span>
+              );
+            })()}
+            <span style={{ padding: "4px 10px", borderRadius: 20, background: "#F2F0EC", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B6860" }}>
+              {(job.client_type === "commercial" || job.account_id != null) ? "Commercial" : "Residential"}
+            </span>
           </div>
 
-            {job.account_id && (
+          {/* Next visit + jump to schedule (recurring only) */}
+          {(job as any).recurring_schedule_id != null && (() => {
+            const iv: Record<string, number> = { weekly: 7, biweekly: 14, every_3_weeks: 21, monthly: 28, every_4_weeks: 28 };
+            const days = iv[job.frequency];
+            let nextStr = "";
+            if (days && job.scheduled_date) {
+              const d = new Date(`${job.scheduled_date}T00:00:00`);
+              d.setDate(d.getDate() + days);
+              nextStr = `Next visit ~${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`;
+            }
+            const href = job.client_id ? `/customers/${job.client_id}` : job.account_id ? `/accounts/${job.account_id}` : null;
+            if (!nextStr && !href) return null;
+            return (
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12, color: "#6B6860" }}>
+                {nextStr && <span>{nextStr}</span>}
+                {href && <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 700, color: "#3B6CC9" }}>View schedule</a>}
+              </div>
+            );
+          })()}
+
+          {job.account_id && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", background: "var(--brand-dim, #EBF4FF)", borderRadius: 8, marginBottom: 12, width: "fit-content" }}>
               <Building2 size={13} color="var(--brand, #00C9A0)" />
               <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)" }}>{job.account_name || "Commercial Account"}</span>
             </div>
           )}
-
-          {/* [panel-revamp 2026-06-03] Recurring indicator — frequency, an
-              estimated next visit, and a jump to the client's schedule.
-              recurring_schedule_id isn't on the FE type; accessed via cast
-              like elsewhere in this file. */}
-          {(job as any).recurring_schedule_id != null && (() => {
-            const fl: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", every_3_weeks: "Every 3 weeks", monthly: "Monthly", every_4_weeks: "Every 4 weeks", daily: "Daily", weekdays: "Weekdays", custom_days: "Custom days" };
-            const freqLabel = fl[job.frequency] ?? "Recurring";
-            const iv: Record<string, number> = { weekly: 7, biweekly: 14, every_3_weeks: 21, monthly: 28, every_4_weeks: 28 };
-            let nextStr = "";
-            const days = iv[job.frequency];
-            if (days && job.scheduled_date) {
-              const d = new Date(`${job.scheduled_date}T00:00:00`);
-              d.setDate(d.getDate() + days);
-              nextStr = ` · next ~${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`;
-            }
-            const href = job.client_id ? `/customers/${job.client_id}` : job.account_id ? `/accounts/${job.account_id}` : null;
-            return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 10px", background: "#EEF4FF", borderRadius: 8, marginBottom: 12, width: "fit-content" }}>
-                <Repeat size={13} color="#3B6CC9" />
-                <span style={{ fontSize: 12, fontWeight: 700, color: "#3B6CC9" }}>{freqLabel} recurring{nextStr}</span>
-                {href && <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: "#3B6CC9" }}>View schedule</a>}
-              </div>
-            );
-          })()}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
             {/* [time-edit 2026-04-29] Inline time editor with pencil
