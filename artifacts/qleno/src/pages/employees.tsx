@@ -48,14 +48,24 @@ export default function EmployeesPage() {
   const [addModal, setAddModal] = useState(false);
   const [newEmp, setNewEmp] = useState({ first_name: '', last_name: '', email: '', role: 'technician', pay_type: 'hourly', pay_rate: '' });
   const [creating, setCreating] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
 
   const { activeBranchId } = useBranch();
   const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
   const { data, isLoading, refetch } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
 
-  const employees = (data?.data || []).filter(u =>
-    !search || `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(search.toLowerCase())
-  );
+  // Hide inactive by default (toggle to show). Order: technicians → office →
+  // other roles (owner/admin) → generic/test stub accounts pinned at the bottom.
+  const isStub = (u: any) => /\b(generic|test)\b/i.test(`${u.first_name} ${u.last_name} ${u.email ?? ""}`);
+  const roleRank = (u: any) => isStub(u) ? 3 : (u.role === "technician" ? 0 : u.role === "office" ? 1 : 2);
+  const employees = (data?.data || [])
+    .filter(u => showInactive || (u as any).is_active !== false)
+    .filter(u => !search || `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => {
+      const ra = roleRank(a), rb = roleRank(b);
+      if (ra !== rb) return ra - rb;
+      return `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`);
+    });
 
   function showToast(msg: string) {
     setInviteToast(msg);
@@ -114,10 +124,16 @@ export default function EmployeesPage() {
               style={{ paddingLeft: '36px', paddingRight: '12px', height: '36px', width: isMobile ? '100%' : '260px', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '8px', color: '#1A1917', fontSize: '13px', outline: 'none' }}
             />
           </div>
-          <button onClick={() => setAddModal(true)}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
-            <Plus size={14} strokeWidth={2} /> Add Team Member
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexShrink: 0 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#6B6860', cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} style={{ cursor: 'pointer' }} />
+              Show inactive
+            </label>
+            <button onClick={() => setAddModal(true)}
+              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
+              <Plus size={14} strokeWidth={2} /> Add Team Member
+            </button>
+          </div>
         </div>
 
         {/* Table / Card list */}
