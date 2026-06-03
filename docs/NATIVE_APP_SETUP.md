@@ -77,15 +77,33 @@ pnpm run cap:android        # opens Android Studio → Build > Generate Signed B
 3. Distribute App → App Store Connect → Upload.
 4. The build appears in TestFlight after processing; add internal testers.
 
-## Push notifications (Phase 2)
+## Push notifications (Phase 2 — server side BUILT)
 
-`native-push.ts` already registers and posts the token to
-`POST /api/devices/register` (built next). To finish:
+The server side is now in place and inert until credentials exist:
 
-1. **iOS:** APNs key (.p8) in the Apple Developer portal; enable the Push
-   Notifications capability in Xcode.
-2. **Android:** Firebase project, `google-services.json` into `android/app`.
-3. **Server:** build `POST /api/devices/register` (persist `{token, platform}`
-   per user) and a sender that pushes on new-job / schedule-change /
-   PTO-approved, routed through `getBranchByZip` like every other comm and
-   gated by `COMMS_ENABLED`.
+- **`device_tokens` table** (migration guard `CREATE device_tokens`) — one user → many devices.
+- **`POST /api/devices/register`** / **`DELETE /api/devices/register`** (`routes/devices.ts`) — the app's `native-push.ts` already calls register on launch.
+- **`lib/push.ts` → `notifyUser(userId, companyId, {title, body, data})`** — sends via APNs (iOS, HTTP/2 + ES256) and FCM (Android, HTTP v1). Gated by `COMMS_ENABLED`; a **no-op when creds are absent**; prunes dead tokens on 410/UNREGISTERED.
+- **Triggers wired** (all fire-and-forget): new job assigned (`POST /jobs/:id/technicians`), schedule changed (`PUT /jobs/:id`), PTO approved (`POST /leave/requests/:id/approve`).
+
+### To switch it on — set these Railway env vars
+
+iOS (APNs):
+```
+APNS_KEY_P8        # contents of the .p8 auth key (newlines as \n is fine)
+APNS_KEY_ID        # 10-char key id
+APNS_TEAM_ID       # Apple developer team id
+APNS_BUNDLE_ID     # io.phes.qleno  (default)
+APNS_PRODUCTION    # "true" for App Store / TestFlight builds, else sandbox
+```
+Android (FCM HTTP v1, from a Firebase service-account JSON):
+```
+FCM_PROJECT_ID
+FCM_CLIENT_EMAIL
+FCM_PRIVATE_KEY    # the service account private key (\n escaped)
+```
+And of course `COMMS_ENABLED=true` (currently false — nothing sends until you flip it).
+
+### Native enablement still required (on a Mac)
+1. **iOS:** add the Push Notifications + Background Modes (remote notifications) capabilities in Xcode; the APNs key above is uploaded once to Apple.
+2. **Android:** create the Firebase project, drop `google-services.json` into `android/app`.

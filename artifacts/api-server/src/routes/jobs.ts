@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { notifyUserAsync } from "../lib/push.js";
 import { logAudit } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
@@ -891,6 +892,23 @@ router.put("/:id", requireAuth, async (req, res) => {
     }
 
     logAudit(req, "UPDATE", "job", jobId, null, updated[0]);
+
+    // [push 2026-06-03] Schedule-change push to the assigned tech. Strictly
+    // gated on a date/time change so office-notes / status-only saves don't
+    // fire it. Fire-and-forget; no-op unless COMMS_ENABLED + a device exists.
+    const schedChanged = scheduled_date !== undefined || scheduled_time !== undefined;
+    const assignedTech = (updated[0] as any).assigned_user_id as number | null;
+    if (schedChanged && assignedTech && assignedTech !== req.auth!.userId) {
+      const dStr = (updated[0] as any).scheduled_date
+        ? new Date(`${(updated[0] as any).scheduled_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+        : "";
+      notifyUserAsync(assignedTech, req.auth!.companyId!, {
+        title: "Schedule updated",
+        body: dStr ? `A job on your schedule was moved to ${dStr}.` : "A job time on your schedule was updated.",
+        data: { type: "job", jobId: String(jobId) },
+      });
+    }
+
     return res.json({
       ...updated[0],
       client_name: "",
@@ -3620,6 +3638,32 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
     });
 
     const result = await calculateTechPay(jobId, companyId);
+
+    // [push 2026-06-03] Notify the assigned tech (fire-and-forget, no-op unless
+    // COMMS_ENABLED and a device is registered). Don't block the response.
+    if (Number(user_id) !== userId) {
+      try {
+        const info = await db.execute(sql`
+          SELECT COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'')||' '||COALESCE(c.last_name,'')),''),
+                          c.company_name, a.account_name, 'A job') AS who,
+                 j.scheduled_date::text AS scheduled_date
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          LEFT JOIN accounts a ON a.id = j.account_id
+          WHERE j.id = ${jobId} LIMIT 1
+        `);
+        const row = info.rows[0] as any;
+        const when = row?.scheduled_date
+          ? new Date(`${row.scheduled_date}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+          : "";
+        notifyUserAsync(Number(user_id), companyId, {
+          title: "New job assigned",
+          body: `${row?.who ?? "A job"}${when ? ` · ${when}` : ""}`,
+          data: { type: "job", jobId: String(jobId) },
+        });
+      } catch (e: any) { console.warn("[push] assign notify skipped", e?.message); }
+    }
+
     return res.json({ data: result, primary: willBePrimary });
   } catch (err) {
     console.error("POST /jobs/:id/technicians error:", err);
