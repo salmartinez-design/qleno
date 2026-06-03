@@ -1859,7 +1859,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               {commTechs.length > 0 ? commTechs.map(t => (
                 <div key={t.user_id} style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{t.name}{t.is_primary ? " (primary)" : ""}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                      {t.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "2px 6px", borderRadius: 10, letterSpacing: "0.04em" }}>PRIMARY</span>}
+                    </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                       <span style={{ fontSize: 12, color: t.pay_override != null ? "#D97706" : "#16A34A", fontWeight: 700 }}>
                         ${t.final_pay.toFixed(2)}{t.pay_override != null ? " (override)" : ""}
