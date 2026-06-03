@@ -92,6 +92,7 @@ import lmsSettingsRouter from "./lms-settings.js";
 import lmsAdminAuditRouter from "./lms-admin-audit.js";
 import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
+import devicesRouter from "./devices.js";
 
 const router: IRouter = Router();
 
@@ -123,6 +124,7 @@ router.use("/attachments", attachmentsRouter);
 // [translate-job-notes 2026-05-27] Office-only translation endpoint —
 // Claude API. POST /api/translate {text, target} → {translated}.
 router.use("/translate", translateRouter);
+router.use("/devices", devicesRouter);
 // [quote-attachments] The routers define full paths internally
 // (`:id/attachments`), so mount them at the resource root.
 router.use("/quotes", quoteAttachmentsRouter);

@@ -1070,6 +1070,22 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_job_rate_mods_job",
       stmt: `CREATE INDEX IF NOT EXISTS idx_job_rate_mods_job ON job_rate_mods(company_id, job_id)` },
+    // ── device_tokens (Capacitor push notifications) ────────────────────────
+    { label: "CREATE device_tokens", stmt: `
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        id           SERIAL PRIMARY KEY,
+        company_id   INTEGER NOT NULL,
+        user_id      INTEGER NOT NULL,
+        token        TEXT NOT NULL,
+        platform     TEXT NOT NULL DEFAULT 'unknown',
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "device_tokens_token_key",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_key ON device_tokens(token)` },
+    { label: "idx_device_tokens_user",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(company_id, user_id)` },
   ];
 
   for (const { label, stmt } of guards) {

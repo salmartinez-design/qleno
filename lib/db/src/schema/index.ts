@@ -143,3 +143,7 @@ export * from "./user_companies";
 // missing_clockout). Pending rows become employee_attendance_log rows
 // via the confirm flow (which drives the 3A unexcused-hours ladder).
 export * from "./attendance_proposals";
+
+// Push-notification device tokens (Capacitor native app). One user → many
+// devices; sender lives in api-server/src/lib/push.ts, gated by COMMS_ENABLED.
+export * from "./device_tokens";

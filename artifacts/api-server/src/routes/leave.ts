@@ -55,6 +55,7 @@ import {
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { notifyUserAsync } from "../lib/push.js";
 import {
   computeCurrentBalance,
   isPastWaitingPeriod,
@@ -841,6 +842,17 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
     })
     .where(eq(leaveRequestsTable.id, id));
   void notifyEmployeeOfDecisionSilent(id, "approved");
+  // [push 2026-06-03] Push the employee (fire-and-forget, gated by COMMS_ENABLED).
+  {
+    const when = reqRow.start_date
+      ? new Date(`${String(reqRow.start_date)}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+      : "";
+    notifyUserAsync(reqRow.user_id, companyId, {
+      title: "Time off approved",
+      body: `Your request${when ? ` for ${when}` : ""} was approved.`,
+      data: { type: "leave", requestId: String(id) },
+    });
+  }
   return res.json({ data: { id, status: "approved" } });
 });
 
