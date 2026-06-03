@@ -1502,7 +1502,7 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
           "post_construction", "move_in", "office_cleaning",
           "common_areas", "retail_store", "medical_office",
           "ppm_turnover", "post_event", "ppm_common_areas",
-          "commercial_cleaning", "recurring_commercial_cleaning",
+          "commercial_cleaning", "recurring_commercial_cleaning", "turnover",
         ]);
         const slugify = (s: string) => String(s).toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
         const candidate = service_type ? slugify(String(service_type)) : "";

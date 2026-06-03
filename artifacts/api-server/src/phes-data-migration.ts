@@ -557,6 +557,10 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'commercial_cleaning'` },
     { label: "service_type.recurring_commercial_cleaning",
       stmt: `ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'recurring_commercial_cleaning'` },
+    // Generic commercial "turnover" (distinct from the PPM-specific
+    // ppm_turnover) so plain commercial clients can book turnovers.
+    { label: "service_type.turnover",
+      stmt: `ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'turnover'` },
 
     { label: "CREATE commercial_service_types", stmt: `
       CREATE TABLE IF NOT EXISTS commercial_service_types (
@@ -1514,6 +1518,7 @@ async function runServiceTypesSeed(): Promise<void> {
     // Commercial (parent_slug='commercial')
     { parent: "commercial",  slug: "office_cleaning",    name: "Office Cleaning",    order: 110 },
     { parent: "commercial",  slug: "common_areas",       name: "Common Areas",       order: 120 },
+    { parent: "commercial",  slug: "turnover",           name: "Turnover",           order: 125 },
     { parent: "commercial",  slug: "ppm_common_areas",   name: "PPM Common Areas",   order: 130 },
     { parent: "commercial",  slug: "retail_store",       name: "Retail Store",       order: 140 },
     { parent: "commercial",  slug: "medical_office",     name: "Medical Office",     order: 150 },
@@ -3011,6 +3016,15 @@ export async function runPhesDataMigration(): Promise<void> {
       { name: "Hourly Standard Cleaning",            method: "hourly", rate: "60.00", min: "150.00" },
       { name: "Commercial Cleaning",                 method: "hourly", rate: "65.00", min: "200.00" },
       { name: "PPM Turnover",                       method: "sqft",   rate: "65.00", min: "250.00" },
+      // Commercial scopes for plain commercial CLIENTS (not the PPM account).
+      // scope_group = "Commercial" so the customer-profile recurring editor
+      // surfaces them for commercial clients (e.g. the church) and hides them
+      // from residential. Rates are DEFAULTS only — commercial is quoted per
+      // visit (allowed hours × hourly rate), and the rate varies by account,
+      // so the operator overrides on the job. min = 0 (no minimum bill).
+      { name: "Common Areas",                        method: "hourly", rate: "45.00", min: "0.00", scopeGroup: "Commercial" },
+      { name: "Turnover",                            method: "hourly", rate: "50.00", min: "0.00", scopeGroup: "Commercial" },
+      { name: "Office Cleaning",                     method: "hourly", rate: "50.00", min: "0.00", scopeGroup: "Commercial" },
       // Recurring variants — each with a single frequency (handled in separate block below)
       { name: "Recurring Cleaning - Weekly",         method: "sqft",   rate: "55.00", min: "180.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
       { name: "Recurring Cleaning - Every 2 Weeks",  method: "sqft",   rate: "60.00", min: "195.00", noDefaultFreqs: true, scopeGroup: "Recurring Cleaning" },
@@ -3055,6 +3069,16 @@ export async function runPhesDataMigration(): Promise<void> {
       UPDATE pricing_scopes
       SET minimum_bill = 210.00
       WHERE company_id = ${PHES} AND name = 'Recurring Cleaning - Every 4 Weeks' AND minimum_bill != 210.00
+    `);
+    // These were seeded before scope_group existed, so they defaulted to
+    // 'Residential' — which both hid them from commercial clients AND showed
+    // commercial work to residential ones. Reclassify to 'Commercial'.
+    await db.execute(sql`
+      UPDATE pricing_scopes
+      SET scope_group = 'Commercial'
+      WHERE company_id = ${PHES}
+        AND name IN ('Commercial Cleaning', 'PPM Turnover')
+        AND scope_group <> 'Commercial'
     `);
 
     // Build scope name → id map
