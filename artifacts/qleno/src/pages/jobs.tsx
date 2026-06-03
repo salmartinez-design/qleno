@@ -5692,7 +5692,23 @@ export default function JobsPage() {
                     {filteredData.unassigned_jobs.length > 0 && (
                       <UnassignedGanttRow jobs={filteredData.unassigned_jobs} onChipClick={setSelectedJob} nowLine={nowLine} />
                     )}
-                    {filteredData.employees.map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} />)}
+                    {/* Row order: techs with jobs first, ordered by their
+                        earliest job time; then idle techs (no jobs today);
+                        then generic/test stub accounts pinned at the bottom. */}
+                    {[...filteredData.employees].sort((a, b) => {
+                      const isStub = (e: Employee) => /\b(generic|test)\b/i.test(e.name);
+                      const rank = (e: Employee) => isStub(e) ? 3 : (e.jobs.length === 0 ? 2 : 1);
+                      const ra = rank(a), rb = rank(b);
+                      if (ra !== rb) return ra - rb;
+                      if (ra === 1) {
+                        const earliest = (e: Employee) => {
+                          const t = e.jobs.map(j => timeToMins(j.scheduled_time)).filter(n => Number.isFinite(n));
+                          return t.length ? Math.min(...t) : Infinity;
+                        };
+                        return earliest(a) - earliest(b);
+                      }
+                      return a.name.localeCompare(b.name);
+                    }).map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} />)}
                   </>
                 )}
               </div>
