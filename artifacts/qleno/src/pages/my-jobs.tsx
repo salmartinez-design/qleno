@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth";
+import { useAuthStore, getTokenRole } from "@/lib/auth";
+import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { useToast } from "@/hooks/use-toast";
 import { Car, X, Check, Eye, Navigation, Phone, GraduationCap } from "lucide-react";
 import { Link } from "wouter";
@@ -433,7 +434,9 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
         <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: sc.bg, color: sc.color, textTransform: "capitalize", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
           {job.status.replace("_", " ")}
         </span>
-        <span style={{ fontSize: 20, fontWeight: 700, color: "#1A1917" }}>${job.base_fee.toFixed(2)}</span>
+        {["owner", "admin", "office"].includes(getTokenRole() || "")
+          ? <InlinePriceEdit jobId={job.id} price={job.base_fee} canEdit onUpdated={onRefresh} />
+          : <span style={{ fontSize: 20, fontWeight: 700, color: "#1A1917" }}>${job.base_fee.toFixed(2)}</span>}
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4, flexWrap: "wrap" }}>
