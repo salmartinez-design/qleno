@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
-  Building2, ChevronLeft, Plus, Pencil, Trash2, DollarSign,
+  Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
   MapPin, Users, Phone, Mail, Star, Bell, BellOff, Briefcase,
   TrendingUp, AlertCircle, CheckCircle2, Clock, FileText,
   CreditCard, Home, Hash,
@@ -113,6 +113,9 @@ export default function AccountDetailPage() {
   const [jobs, setJobs] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  // Expandable property cards — click to drop down details + last service.
+  const [expandedProp, setExpandedProp] = useState<number | null>(null);
+  const [propRecent, setPropRecent] = useState<Record<number, any>>({});
   const [tab, setTab] = useState<Tab>("overview");
 
   // Rate card
@@ -262,6 +265,20 @@ export default function AccountDetailPage() {
     if (!confirm("Remove this property?")) return;
     await fetch(`${API}/api/accounts/${id}/properties/${propId}`, { method: "DELETE", headers: getAuthHeaders() });
     load();
+  }
+
+  // Tap a property card to drop down its full details + last service. The
+  // last-service lookup is lazy and cached so we only hit the API the first
+  // time a card is opened.
+  function toggleProp(propId: number) {
+    setExpandedProp((cur) => (cur === propId ? null : propId));
+    if (propRecent[propId] === undefined) {
+      setPropRecent((m) => ({ ...m, [propId]: "loading" }));
+      fetch(`${API}/api/accounts/${id}/properties/${propId}/recent-job`, { headers: getAuthHeaders() })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((job) => setPropRecent((m) => ({ ...m, [propId]: job ?? "none" })))
+        .catch(() => setPropRecent((m) => ({ ...m, [propId]: "none" })));
+    }
   }
 
   // ─── Contacts ────────────────────────────────────────────────────────────
@@ -557,9 +574,18 @@ export default function AccountDetailPage() {
               </div>
             ) : (
               <div className="space-y-2">
-                {account.properties.map((p: any) => (
-                  <div key={p.id} className="bg-white border border-gray-100 rounded-xl p-4">
-                    <div className="flex items-start justify-between">
+                {account.properties.map((p: any) => {
+                  const open = expandedProp === p.id;
+                  const recent = propRecent[p.id];
+                  return (
+                  <div key={p.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => toggleProp(p.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleProp(p.id); } }}
+                      className="flex items-start justify-between p-4 cursor-pointer hover:bg-gray-50/60 transition-colors"
+                    >
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0 mt-0.5">
                           <Home size={14} className="text-purple-600" />
@@ -590,16 +616,70 @@ export default function AccountDetailPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditProperty(p)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openEditProperty(p); }}>
                           <Pencil size={13} className="text-gray-400" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteProperty(p.id)}>
+                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}>
                           <Trash2 size={13} className="text-red-400" />
                         </Button>
+                        <ChevronDown size={16} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
                       </div>
                     </div>
+
+                    {open && (
+                      <div className="border-t border-gray-100 bg-gray-50/40 px-4 py-3 space-y-3">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                          <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
+                          <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
+                          <Detail
+                            label="Default service"
+                            value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"}
+                          />
+                          <Detail label="Zone" value={p.zone_name ?? (p.zone_id ? `Zone ${p.zone_id}` : "—")} />
+                          {(p.lat != null && p.lng != null) && (
+                            <Detail label="Map location" value={`${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`} />
+                          )}
+                        </div>
+
+                        {p.notes && (
+                          <div>
+                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
+                            <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p>
+                          </div>
+                        )}
+
+                        <div>
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
+                          {recent === undefined || recent === "loading" ? (
+                            <p className="text-xs text-gray-400">Loading…</p>
+                          ) : recent && recent !== "none" ? (
+                            <div className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2">
+                              <div>
+                                <p className="text-xs font-medium text-[#0A0E1A]">
+                                  {SERVICE_TYPES.find((s) => s.value === recent.service_type)?.label ?? recent.service_type}
+                                </p>
+                                <p className="text-[11px] text-gray-500 mt-0.5">
+                                  {recent.scheduled_date ? new Date(recent.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                                  {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
+                                </p>
+                              </div>
+                              <span className="text-xs font-semibold text-[#00C9A0]">
+                                {recent.billing_method === "hourly" && recent.hourly_rate
+                                  ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
+                                  : recent.base_fee != null
+                                  ? fmtDecimal(parseFloat(recent.base_fee))
+                                  : "—"}
+                              </span>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400">No service history yet</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1019,5 +1099,15 @@ export default function AccountDetailPage() {
         </DialogContent>
       </Dialog>
     </DashboardLayout>
+  );
+}
+
+// Small label/value pair used in the expanded property card.
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">{label}</p>
+      <p className="text-xs text-[#0A0E1A] mt-0.5">{value}</p>
+    </div>
   );
 }
