@@ -6,6 +6,7 @@ import { useLocation } from "wouter";
 import { ChevronRight, Calendar, ShieldAlert, Building2, Car, Check, X } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
+import MobileDashboard from "@/components/mobile-dashboard";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -420,6 +421,17 @@ export default function Dashboard() {
   const ytdTotal = revenueChart.data
     .filter(r => r.month.endsWith(currentYearSuffix))
     .reduce((s, r) => s + r.revenue, 0);
+
+  // Mobile gets the role-based, user-customizable card dashboard. Desktop
+  // (below) is unchanged. All hooks above run in both paths, so this early
+  // return is safe re: rules-of-hooks.
+  if (isMobile) {
+    return (
+      <DashboardLayout>
+        <MobileDashboard />
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
