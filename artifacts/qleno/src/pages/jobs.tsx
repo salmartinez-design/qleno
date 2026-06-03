@@ -1523,7 +1523,21 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         {mobile && <div style={{ width: 40, height: 4, backgroundColor: "#E5E2DC", borderRadius: 2, margin: "12px auto 0" }} />}
         <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>{job.display_name ?? job.client_name}</h2>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+              {(job.client_id || job.account_id) ? (
+                <a
+                  href={job.client_id ? `/customers/${job.client_id}` : `/accounts/${job.account_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open profile in a new tab"
+                  style={{ color: "#1A1917", textDecoration: "none", cursor: "pointer" }}
+                  onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
+                  onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}
+                >
+                  {job.display_name ?? job.client_name}
+                </a>
+              ) : (job.display_name ?? job.client_name)}
+            </h2>
             <span style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
           </div>
           <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>

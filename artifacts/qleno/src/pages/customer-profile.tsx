@@ -3752,7 +3752,15 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
       refetch();
       setEditing(false);
       onToast("Service details saved");
-    } catch { onToast("Failed to save changes", "error"); }
+    } catch (e: any) {
+      // Surface the server's actual reason instead of a blind "Failed to
+      // save changes" — apiFetch throws the response body, so the operator
+      // (and we) can see WHY (e.g. an invalid enum value) instead of guessing.
+      const raw = String(e?.message || "").trim();
+      let detail = raw;
+      try { const j = JSON.parse(raw); detail = j.error || j.message || raw; } catch { /* plain text */ }
+      onToast(detail ? `Couldn't save: ${detail.slice(0, 160)}` : "Failed to save changes", "error");
+    }
     finally { setSaving(false); }
   };
 
