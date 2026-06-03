@@ -12,7 +12,7 @@ import {
 import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
-  Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2,
+  Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -1052,8 +1052,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
   }
 
-  // Show charge button when: completed + can charge + not already charged + Stripe client
-  const chargeAmount = Number(job.billed_amount ?? job.amount ?? 0);
+  // Show charge button when: completed + can charge + not already charged + Stripe client.
+  // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons) over the
+  // billed_amount cache — that cache isn't refreshed on price/fee edits, so it
+  // goes stale and makes the panel disagree with the chip/tech-row total.
+  const chargeAmount = Number(job.amount ?? job.billed_amount ?? 0);
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");
@@ -1097,6 +1100,34 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [overrideBusy, setOverrideBusy] = useState(false);
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
+
+  // Header overflow (•••) menu — home for rare/destructive actions so they
+  // stay out of the everyday content flow.
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Delete a job. A completed job (or one with clock-in / add-on / billing
+  // history) can't be removed by a plain delete — child rows block it and the
+  // server returns an error. The server's force path cleans those up first;
+  // owner/admin can escalate after a second, clearer confirm.
+  async function handleDeleteJob() {
+    if (!window.confirm("Delete this job? It's removed from the schedule and recorded in the audit log.")) return;
+    try {
+      let r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      let d = await r.json().catch(() => ({}));
+      if (!r.ok && canCharge) {
+        if (window.confirm("This job has clock-in, completion, or billing history. Remove the job and clear that history too?")) {
+          r = await fetch(`${_API3}/api/jobs/${job.id}?force=true`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+          d = await r.json().catch(() => ({}));
+        }
+      }
+      if (!r.ok) { toast({ title: "Couldn't delete", description: d.message || d.error || `HTTP ${r.status}` }); return; }
+      toast({ title: "Job deleted" });
+      onClose();
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Couldn't delete", description: e?.message ?? "Network error" });
+    }
+  }
 
   // Office Notes state
   const [officeNotes, setOfficeNotes] = useState(job.office_notes || "");
@@ -1541,7 +1572,34 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </h2>
             <span style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
           </div>
-          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+          <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+            {canEditOfficeNotes && (
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => setMenuOpen(o => !o)}
+                  aria-label="More actions"
+                  style={{ border: "none", background: menuOpen ? "#F3F1EC" : "none", cursor: "pointer", color: "#9E9B94", padding: 4, borderRadius: 6 }}
+                ><MoreVertical size={18} /></button>
+                {menuOpen && (
+                  <>
+                    {/* Click-away layer */}
+                    <div onClick={() => setMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 51, minWidth: 170, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, boxShadow: "0 8px 24px rgba(10,14,26,0.12)", padding: 4, overflow: "hidden" }}>
+                      <button
+                        onClick={() => { setMenuOpen(false); handleDeleteJob(); }}
+                        style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", background: "none", cursor: "pointer", color: "#DC2626", fontSize: 13, fontWeight: 600, fontFamily: FF, padding: "9px 10px", borderRadius: 6 }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
+                        onMouseLeave={e => (e.currentTarget.style.background = "none")}
+                      >
+                        <Trash2 size={14} /> Delete job
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+          </div>
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
@@ -1580,7 +1638,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <InlineTechEdit job={job} onUpdate={onUpdate} />
             <InlinePriceEdit
               jobId={job.id}
-              price={job.billed_amount ?? job.amount ?? 0}
+              price={job.amount ?? job.billed_amount ?? 0}
               billingMethod={job.billing_method}
               hourlyRate={job.hourly_rate}
               estimatedHours={job.estimated_hours}
@@ -1648,40 +1706,6 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
               />
               <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
-            </div>
-          )}
-
-          {/* Delete (office/admin/owner) — for made-up/test jobs. Audit-logged. */}
-          {canEditOfficeNotes && (
-            <div style={{ marginTop: 12 }}>
-              <button
-                onClick={async () => {
-                  if (!window.confirm("Delete this job? It's removed from the schedule and recorded in the audit log.")) return;
-                  try {
-                    let r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-                    let d = await r.json().catch(() => ({}));
-                    // A completed job (or one with clock-in / add-on / payment history)
-                    // can't be removed by a plain delete — child rows block it. The
-                    // server's force path cleans those up first. Owner/admin can
-                    // escalate after a second, clearer confirm.
-                    if (!r.ok && canCharge) {
-                      if (window.confirm("This job has clock-in, completion, or billing history. Remove the job and clear that history too?")) {
-                        r = await fetch(`${_API3}/api/jobs/${job.id}?force=true`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-                        d = await r.json().catch(() => ({}));
-                      }
-                    }
-                    if (!r.ok) { toast({ title: "Couldn't delete", description: d.message || d.error || `HTTP ${r.status}` }); return; }
-                    toast({ title: "Job deleted" });
-                    onClose();
-                    onUpdate();
-                  } catch (e: any) {
-                    toast({ title: "Couldn't delete", description: e?.message ?? "Network error" });
-                  }
-                }}
-                style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#DC2626", background: "none", border: "1px solid #FECACA", borderRadius: 8, padding: "7px 12px", cursor: "pointer", fontFamily: FF }}
-              >
-                <Trash2 size={13} /> Delete job
-              </button>
             </div>
           )}
 
@@ -2404,11 +2428,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           { key: "lockout",        label: "Lockout",        sub: "Couldn't get in (full fee)",   accent: "#475569", tint: "#F1F5F9", charges: true },
           { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#991B1B", tint: "#FEF2F2", charges: false, ends_service: true },
         ];
-        // Fall through 0 to base_fee with `||` (the previous `??` only
-        // skipped null/undefined and reported $0 when billed_amount was
-        // a literal 0). job.amount is the dispatch's normalized total
-        // and is the last resort.
-        const jobAmount = Number(job.billed_amount) || Number((job as any).base_fee) || Number((job as any).amount) || 0;
+        // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons);
+        // billed_amount is a cache that goes stale after price/fee edits. Fall
+        // through with `||` so a literal 0 doesn't pin the fee preview to $0.
+        const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
         const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); };
@@ -2797,7 +2820,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isCommercial && job.billing_method === "hourly" && job.hourly_rate
             ? <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>${job.hourly_rate.toFixed(0)}/hr{job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}</span>
-            : <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${(job.billed_amount ?? job.amount ?? 0).toFixed(2)}</span>
+            : <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${(job.amount ?? job.billed_amount ?? 0).toFixed(2)}</span>
           }
           {job.est_pay_per_tech != null && job.est_pay_per_tech > 0 && (
             <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>· ${job.est_pay_per_tech.toFixed(2)} comm.</span>

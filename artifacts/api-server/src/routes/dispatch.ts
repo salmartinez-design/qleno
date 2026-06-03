@@ -673,9 +673,22 @@ router.get("/", requireAuth, async (req, res) => {
         // dispatch had explicitly persisted — but dispatch is a
         // read-only view, so persisted preview was never the intent.
         amount: (() => {
-          const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           const mods = rateModSumByJob.get(j.id) ?? 0;
           const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
+          // [revenue-reconciliation 2026-06-03] Commercial work bills
+          // hourly_rate × allowed_hours (matching MaidCentral), NOT a flat
+          // base_fee. allowed_hours is team-aggregated — the same total MC
+          // invoices against. This closes the variance where an imported
+          // commercial job carried a flat base_fee that didn't equal the
+          // contracted rate × hours. Fall back to base_fee only when the
+          // hourly inputs are missing (un-migrated commercial job), so
+          // nothing regresses to $0. Residential is unchanged.
+          if (isCommercialPay) {
+            const rate = j.hourly_rate ? parseFloat(j.hourly_rate) : 0;
+            const hrs = j.allowed_hours ? parseFloat(j.allowed_hours) : 0;
+            if (rate > 0 && hrs > 0) return rate * hrs + mods + addOns;
+          }
+          const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods + addOns;
         })(),
         duration_minutes: durationMinutes,
