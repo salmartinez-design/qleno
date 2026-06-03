@@ -353,6 +353,10 @@ router.get("/", requireAuth, async (req, res) => {
     const userNameById = new Map<number, string>();
     for (const u of allCompanyUsers) userNameById.set(u.id, `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim());
 
+    // [gps-flag] Tenant toggle — when off, suppress the "GPS unavailable" flag.
+    const gpsFlagRow = await db.execute(sql`SELECT flag_missing_gps FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const flagMissingGps = (gpsFlagRow.rows[0] as any)?.flag_missing_gps ?? true;
+
     const photoMap = new Map<number, { before: number; after: number }>();
     for (const row of photoCounts) {
       if (!photoMap.has(row.job_id)) photoMap.set(row.job_id, { before: 0, after: 0 });
@@ -771,7 +775,7 @@ router.get("/", requireAuth, async (req, res) => {
           clock_out_outside_geofence: clock.clock_out_outside_geofence ?? false,
           // GPS unavailable = no coordinates captured at clock-in. Suppressed
           // for synthetic 'estimated' completion stamps (legitimately no GPS).
-          gps_missing: clock.source !== "estimated" && (clock.clock_in_lat == null || clock.clock_in_lng == null),
+          gps_missing: flagMissingGps && clock.source !== "estimated" && (clock.clock_in_lat == null || clock.clock_in_lng == null),
         } : null,
         technicians,
         est_hours_per_tech: estHoursPerTech,
