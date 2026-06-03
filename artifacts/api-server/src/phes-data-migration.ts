@@ -28,6 +28,8 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.condition_multiplier",  stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS condition_multiplier NUMERIC(5,3)" },
     { label: "jobs.applied_bundle_id",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applied_bundle_id INTEGER" },
     { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
+    { label: "jobs.office_notes_updated_by", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_by INTEGER" },
+    { label: "jobs.office_notes_updated_at", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_at TIMESTAMP" },
     { label: "jobs.last_cleaned_response", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_response TEXT" },
     { label: "jobs.last_cleaned_flag",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_flag TEXT" },
     { label: "jobs.overage_disclaimer_acknowledged", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false" },

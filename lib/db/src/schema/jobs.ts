@@ -115,6 +115,10 @@ export const jobsTable = pgTable("jobs", {
   booking_location: text("booking_location"),
   // ── Office notes (pushed from quote call notes) ─────────────────────────────
   office_notes: text("office_notes"),
+  // [notes-author] Last editor + time of the office notes, so the panel can
+  // show "Edited by X · date". Stamped by the PATCH /jobs/:id handler.
+  office_notes_updated_by: integer("office_notes_updated_by"),
+  office_notes_updated_at: timestamp("office_notes_updated_at"),
   flagged: boolean("flagged").notNull().default(false),
   // [AG] Set true when a user manually overrides the calculated base_fee in
   // the edit modal. Cleared when scope/freq/add-ons change AND base_fee is

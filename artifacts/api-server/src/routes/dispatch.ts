@@ -190,6 +190,8 @@ router.get("/", requireAuth, async (req, res) => {
         property_zip: accountPropertiesTable.zip,
         property_access_notes: accountPropertiesTable.access_notes,
         office_notes: jobsTable.office_notes,
+        office_notes_updated_by: jobsTable.office_notes_updated_by,
+        office_notes_updated_at: jobsTable.office_notes_updated_at,
         // [AF] Completion flow surface-area — drawer renders read-only state
         // when locked_at is set. actual_end_time + completed_by render the
         // "Completed at …" label below the Mark Complete slot.
@@ -341,6 +343,15 @@ router.get("/", requireAuth, async (req, res) => {
       })
       .from(timeclockTable)
       .where(sql`${timeclockTable.job_id} = ANY(ARRAY[${sql.raw(idList)}]::int[])`);
+
+    // [notes-author] id → name, to resolve who last edited the office notes
+    // (office staff aren't in the technician `employees` list above).
+    const allCompanyUsers = await db
+      .select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable)
+      .where(eq(usersTable.company_id, companyId));
+    const userNameById = new Map<number, string>();
+    for (const u of allCompanyUsers) userNameById.set(u.id, `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim());
 
     const photoMap = new Map<number, { before: number; after: number }>();
     for (const row of photoCounts) {
@@ -739,6 +750,8 @@ router.get("/", requireAuth, async (req, res) => {
         property_address: displayAddress,
         property_access_notes: j.property_access_notes ?? null,
         office_notes: j.office_notes ?? null,
+        office_notes_updated_at: (j as any).office_notes_updated_at ?? null,
+        office_notes_updated_by_name: (j as any).office_notes_updated_by != null ? (userNameById.get((j as any).office_notes_updated_by) || null) : null,
         // [AF] Completion / lock state — drawer renders read-only UI when
         // locked_at is set.
         locked_at: j.locked_at ?? null,
