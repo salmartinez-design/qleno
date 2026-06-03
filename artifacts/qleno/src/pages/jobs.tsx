@@ -5471,19 +5471,9 @@ export default function JobsPage() {
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div style={{ display: "flex", height: "calc(100vh - 56px)", overflow: "hidden", fontFamily: FF, flexDirection: "column" }}>
 
-          {/* TOP BAR — New Job + date nav + mini-cal popover + stats + zones + view toggle */}
+          {/* TOP BAR — date nav + mini-cal popover + stats + zones + view toggle.
+              New Job button removed — the global "New" in the header covers it. */}
           <div style={{ padding: "8px 16px", borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, flexWrap: "nowrap" }}>
-            {/* New Job button */}
-            <button
-              onClick={() => setShowWizard(true)}
-              title=""
-              style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "7px 13px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0, opacity: 1 }}>
-              <Plus size={14} /> New Job
-              <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>
-            </button>
-
-            <div style={{ width: 1, height: 22, backgroundColor: "#E5E2DC", flexShrink: 0 }} />
-
             {/* Date nav */}
             <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
               <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "1px solid #E5E2DC", background: "#FAFAF9", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B7280" }}><ChevronLeft size={14} /></button>
