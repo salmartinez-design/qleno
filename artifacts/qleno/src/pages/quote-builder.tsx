@@ -255,7 +255,12 @@ export default function QuoteBuilderPage() {
 
   // ── Section 2: Multi-scope selection ────────────────────────────────────
   const [selectedScopes, setSelectedScopes] = useState<SelectedScopeState[]>([]);
-  const [selectedDate, setSelectedDate] = useState("");
+  // Default the convert date to today (local, not UTC — avoids the
+  // off-by-one that would land the job on the previous day in Central time).
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  });
   const [selectedTime, setSelectedTime] = useState("09:00");
 
   // ── Section 3: Notes + discount + photos ─────────────────────────────────
@@ -2458,7 +2463,13 @@ export default function QuoteBuilderPage() {
                   <Button variant="outline" size="sm" onClick={() => save("sent")} disabled={saving || !finalScopeId} className="gap-1.5">
                     <SendHorizonal className="w-3.5 h-3.5" /> Save &amp; Send Quote
                   </Button>
-                  <Button size="sm" onClick={() => save("draft", true)} disabled={saving || !canConvert || !selectedDate} style={{ background: !selectedDate ? "#D1D5DB" : "var(--brand)", color: "#FFF", cursor: !selectedDate ? "not-allowed" : "pointer" }} className="gap-1.5 hover:opacity-90">
+                  <Button size="sm" onClick={() => {
+                      // Never a silent no-op: tell the office exactly what's missing
+                      // instead of a dead, pointer-events:none button.
+                      if (!canConvert) { toast.error("Add a customer and pick a service before converting."); return; }
+                      if (!selectedDate) { toast.error("Pick a scheduled date to convert to a job."); return; }
+                      save("draft", true);
+                    }} disabled={saving} style={{ background: "var(--brand)", color: "#FFF", cursor: "pointer" }} className="gap-1.5 hover:opacity-90">
                     <ArrowRight className="w-3.5 h-3.5" /> Save &amp; Convert to Job
                   </Button>
                 </div>
