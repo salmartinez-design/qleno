@@ -1658,8 +1658,18 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 onClick={async () => {
                   if (!window.confirm("Delete this job? It's removed from the schedule and recorded in the audit log.")) return;
                   try {
-                    const r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
-                    const d = await r.json().catch(() => ({}));
+                    let r = await fetch(`${_API3}/api/jobs/${job.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+                    let d = await r.json().catch(() => ({}));
+                    // A completed job (or one with clock-in / add-on / payment history)
+                    // can't be removed by a plain delete — child rows block it. The
+                    // server's force path cleans those up first. Owner/admin can
+                    // escalate after a second, clearer confirm.
+                    if (!r.ok && canCharge) {
+                      if (window.confirm("This job has clock-in, completion, or billing history. Remove the job and clear that history too?")) {
+                        r = await fetch(`${_API3}/api/jobs/${job.id}?force=true`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+                        d = await r.json().catch(() => ({}));
+                      }
+                    }
                     if (!r.ok) { toast({ title: "Couldn't delete", description: d.message || d.error || `HTTP ${r.status}` }); return; }
                     toast({ title: "Job deleted" });
                     onClose();
