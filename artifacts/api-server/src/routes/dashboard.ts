@@ -505,17 +505,20 @@ router.get("/kpis", requireAuth, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
-      // HCP: New Jobs Booked This Week — real bookings only
-      // Exclude phantom recurring-engine auto-spawned jobs (recurring_schedule_id set + base_fee=0).
-      // Those aren't "new bookings" in the human sense — they're cron-generated.
+      // HCP: New Jobs Booked This Week — genuinely new bookings only.
+      // Exclude recurring-engine-generated occurrences (recurring_schedule_id
+      // set — those are cron output, not human bookings) AND require the job to
+      // be scheduled this week or later. The scheduled_date floor drops the
+      // one-time data import (which stamped every migrated job with this week's
+      // created_at but kept their real, mostly-past scheduled dates) — that was
+      // inflating this to ~773 for a freshly-imported tenant.
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),
           gte(jobsTable.created_at, weekStart),
-          or(
-            isNull(jobsTable.recurring_schedule_id),
-            sql`CAST(${jobsTable.base_fee} AS NUMERIC) > 0`,
-          ),
+          isNull(jobsTable.recurring_schedule_id),
+          gte(jobsTable.scheduled_date, weekStartStr),
+          sql`${jobsTable.status} != 'cancelled'`,
         )),
 
       // HCP: Quotes Given Today
