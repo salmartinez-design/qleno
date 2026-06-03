@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
+import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Car, X, Check, Eye, Navigation, Phone, GraduationCap } from "lucide-react";
+import { Car, X, Check, Eye, Navigation, Phone, GraduationCap, DollarSign } from "lucide-react";
 import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
@@ -825,6 +826,7 @@ export default function MyJobsPage() {
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showMileage, setShowMileage] = useState(false);
+  const [showPay, setShowPay] = useState(false);
 
   let userInfo: { firstName: string; lastName: string } | null = null;
   if (token) {
@@ -890,6 +892,10 @@ export default function MyJobsPage() {
                 <GraduationCap size={13}/> Training
               </a>
             </Link>
+            <button onClick={() => setShowPay(p => !p)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <DollarSign size={13}/> Pay
+            </button>
             <button onClick={() => setShowMileage(true)}
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <Car size={13}/> Mileage
@@ -910,6 +916,12 @@ export default function MyJobsPage() {
               style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
               Exit
             </button>
+          </div>
+        )}
+
+        {showPay && (
+          <div style={{ padding: "16px 14px", borderBottom: "1px solid #E5E2DC", background: "#FBFAF8" }}>
+            <EarningsPanel title="My pay" />
           </div>
         )}
 

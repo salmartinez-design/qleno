@@ -10,6 +10,7 @@ import {
   Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp, Download, Users,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
+import { EarningsPanel } from "@/components/earnings-panel";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -59,7 +60,7 @@ const SCORE_BGS   = ['', '#FEE2E2', '#FEF3C7', '#DBEAFE', '#DCFCE7'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
-  'Information','Tags & Skills','Attendance','Availability',
+  'Information','Earnings','Tags & Skills','Attendance','Availability',
   'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
@@ -844,6 +845,11 @@ export default function EmployeeProfilePage() {
 
         {/* ── TAB CONTENT ── */}
         <div style={{ marginBottom:40 }}>
+
+          {/* ── EARNINGS TAB ── (real-time commission/pay for the period) */}
+          {activeTab === 'Earnings' && (
+            <EarningsPanel userId={userId} />
+          )}
 
           {/* ── INFORMATION TAB ── */}
           {activeTab === 'Information' && (
