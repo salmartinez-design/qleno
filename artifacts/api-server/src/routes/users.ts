@@ -382,6 +382,24 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       commercial_pay_type,  commercial_pay_rate,
     } = req.body;
 
+    // Only the OWNER may change a user's role (grant/revoke admin etc.).
+    // Per Sal: admin privileges are owner-controlled — office/admin cannot
+    // elevate anyone (or themselves). Same-role passthrough is allowed so
+    // non-owners can still edit other fields without tripping this.
+    if (role !== undefined && callerRole !== "owner") {
+      const cur = await db
+        .select({ role: usersTable.role })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (cur[0] && cur[0].role !== role) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Only the owner can change a user's role.",
+        });
+      }
+    }
+
     // Validate matrix inputs if provided.
     const validateMatrixPair = (type: any, rate: any, label: string) => {
       if (type !== undefined && type !== "commission" && type !== "hourly") {

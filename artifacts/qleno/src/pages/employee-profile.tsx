@@ -1111,10 +1111,20 @@ export default function EmployeeProfilePage() {
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:16 }}>
                   <Field label="Login Email"><Input value={form.email||''} onChange={v=>setField('email',v)}/></Field>
                   <Field label="Role">
-                    <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
-                      {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
-                      {value:'office',label:'Office'},{value:'technician',label:'Technician'}
-                    ]}/>
+                    {/* Admin privileges are owner-controlled: only the owner can
+                        change a role (grant/revoke admin). Everyone else sees it
+                        read-only — the server enforces this too. */}
+                    {isOwner ? (
+                      <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
+                        {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
+                        {value:'office',label:'Office'},{value:'technician',label:'Technician'}
+                      ]}/>
+                    ) : (
+                      <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#FAFAF8', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
+                        {(form.role||'').replace('_',' ') || '—'}
+                        <span style={{ marginLeft:8, fontSize:11, color:'#9E9B94' }}>· only the owner can change this</span>
+                      </div>
+                    )}
                   </Field>
                 </div>
                 <div style={{ marginTop:16 }}>
