@@ -4698,6 +4698,38 @@ router.delete("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── SET A JOB'S ZONE (manual override) ──────────────────────────────────────
+// [zone-picker 2026-06-04] Lets the office assign a zone directly on a gray/
+// zone-less tile (jobs.zone_id is priority 1 in the dispatch zone chain). Pass
+// zone_id null to clear and fall back to the zip-derived chain. Office-only.
+router.put("/:id/zone", requireAuth, async (req, res) => {
+  const role = req.auth!.role;
+  if (!["owner", "admin", "office"].includes(role)) {
+    return res.status(403).json({ error: "Forbidden", message: "Only office, admin, or owner can set a zone." });
+  }
+  const jobId = parseInt(req.params.id);
+  if (isNaN(jobId)) return res.status(400).json({ error: "Invalid id" });
+  const companyId = req.auth!.companyId;
+  const raw = req.body?.zone_id;
+  const zoneId = raw == null || raw === "" ? null : parseInt(String(raw));
+  if (zoneId != null && isNaN(zoneId)) return res.status(400).json({ error: "Invalid zone_id" });
+  try {
+    if (zoneId != null) {
+      const z = await db.execute(sql`SELECT 1 FROM service_zones WHERE id = ${zoneId} AND company_id = ${companyId} LIMIT 1`);
+      if (!z.rows.length) return res.status(400).json({ error: "Zone not found for this company" });
+    }
+    const upd = await db.update(jobsTable).set({ zone_id: zoneId })
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .returning({ id: jobsTable.id });
+    if (!upd.length) return res.status(404).json({ error: "Not found" });
+    logAudit(req, "SET_ZONE", "job", jobId, null, { zone_id: zoneId });
+    return res.json({ ok: true, zone_id: zoneId });
+  } catch (err) {
+    console.error("Set job zone error:", err);
+    return res.status(500).json({ error: "Failed to set zone" });
+  }
+});
+
 // ─── APPEND A NOTE TO A JOB ──────────────────────────────────────────────────
 // Field techs add notes from mobile. Server-side append (never clobbers
 // existing notes), stamped with the date so the history reads cleanly.
