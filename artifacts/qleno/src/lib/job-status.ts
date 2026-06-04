@@ -111,6 +111,27 @@ export const LATE_THRESHOLD_MINUTES = 20;
 // decides whether to enable the No Show button on the tech's screen.
 export const NO_SHOW_WAIT_MINUTES = 20;
 
+// [2026-06-04] Drain most of the color out of a chip fill while preserving
+// its luminance, so a completed job's bar reads as "done" (washed out) but the
+// light/dark text-token choice (which keys off the original luminance) still
+// contrasts. Blends each channel toward the color's own grey at MUTE_MIX
+// (0 = untouched, 1 = full grey). Kept short of full grey so a completed bar
+// stays distinct from a cancelled one (which greyscales the whole card).
+// Lives here next to STATUS_VISUALS so every surface mutes identically.
+export const MUTE_MIX = 0.8;
+export function mutedFill(hex: string | null | undefined): string {
+  if (!hex) return "#D6D3CD";
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  if ([r, g, b].some(v => Number.isNaN(v))) return hex;
+  const grey = 0.299 * r + 0.587 * g + 0.114 * b;
+  const mix = (c: number) => Math.round(c * (1 - MUTE_MIX) + grey * MUTE_MIX);
+  return `#${[mix(r), mix(g), mix(b)].map(v => v.toString(16).padStart(2, "0")).join("")}`;
+}
+
 function timeToMins(t: string | null | undefined): number {
   if (!t) return 0;
   const m = String(t).match(/^(\d{1,2}):(\d{2})/);
@@ -193,8 +214,16 @@ export interface StatusVisual {
   swatch: string;
   /** Stripe color when active (amber); null for non-active states. */
   stripe: string | null;
-  /** Body opacity multiplier (1.0 default; 0.6 for completed; 0.5 cancelled). */
+  /** Body opacity multiplier (1.0 default; 0.5 cancelled). [2026-06-04]
+   *  Completed jobs no longer dim — Sal's call: dimming the whole card made
+   *  the text hard to read. Completion now reads from `fillMuted` (the bar
+   *  loses its color) + the green checkmark, while text/badges stay crisp. */
   bodyOpacity: number;
+  /** [2026-06-04] Desaturate ONLY the bar's fill color (not the text or
+   *  badges), so a completed job's bar drains of color while staying fully
+   *  legible. Distinct from `desaturate`, which greyscales the whole card
+   *  (text included) for cancelled. Optional — defaults to false. */
+  fillMuted?: boolean;
   /** Whether to render a green checkmark badge top-right (completed). */
   showCheckmark: boolean;
   /** Whether to render a "NO SHOW" text badge. */
@@ -263,7 +292,10 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     description: "Job finished and payment is in.",
     swatch: "#A78BFA",
     stripe: null,
-    bodyOpacity: 0.6,
+    // [2026-06-04] No body dimming — keep the card readable. Completion
+    // reads from the muted bar fill + green checkmark instead.
+    bodyOpacity: 1,
+    fillMuted: true,
     showCheckmark: true,
     showNoShowBadge: false,
     strikethrough: false,
@@ -276,7 +308,8 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     description: "Job is done but the payment hasn't gone through yet.",
     swatch: "#BA7517",
     stripe: null,
-    bodyOpacity: 0.6,
+    bodyOpacity: 1,
+    fillMuted: true,
     showCheckmark: true,
     showNoShowBadge: false,
     strikethrough: false,

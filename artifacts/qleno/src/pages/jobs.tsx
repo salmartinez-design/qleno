@@ -16,7 +16,7 @@ import {
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
   Languages,
 } from "lucide-react";
-import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
+import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS, mutedFill } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import LegendPopover from "@/components/legend-popover";
@@ -3744,6 +3744,10 @@ function JobChip({
   const ZONE_FALLBACK = "#9CA3AF";
   const bgColor = job.zone_color || ZONE_FALLBACK;
   const isLightZone = zoneLuminance(job.zone_color) > 0.65;
+  // [2026-06-04] Completed bars drain their color (fillMuted) but keep the
+  // border + text-token choice from the original zone color, so the chip
+  // stays legible. bgColor stays the source for token/border decisions.
+  const chipBg = visual.fillMuted ? mutedFill(bgColor) : bgColor;
   const borderColor = visual.borderOverride ?? bgColor;
 
   // Color tokens depend on background. Timeline + drag sit on the
@@ -3884,7 +3888,7 @@ function JobChip({
           border: `1.5px solid ${visual.borderOverride ?? "#E5E2DC"}`,
           borderLeft: visual.stripe
             ? "1.5px solid #E5E2DC"
-            : `4px solid ${visual.borderOverride ?? bgColor}`,
+            : `4px solid ${visual.borderOverride ?? chipBg}`,
           borderRadius: 10, padding: "12px 14px", cursor: "pointer",
           position: "relative", overflow: "hidden",
           opacity: visual.bodyOpacity,
@@ -3944,7 +3948,7 @@ function JobChip({
     return (
       <div style={{
         width: timelineWidth, height: ROW_H - 20,
-        borderRadius: 8, backgroundColor: bgColor,
+        borderRadius: 8, backgroundColor: chipBg,
         border: `2px solid ${borderColor}`,
         boxSizing: "border-box", overflow: "visible",
         opacity: 0.92,
@@ -3976,7 +3980,7 @@ function JobChip({
       {...(isComplete ? {} : { ...dnd.listeners, ...dnd.attributes })}
       style={{
         position: "absolute", top, left: timelineLeft, width: timelineWidth, height: ROW_H - 20,
-        borderRadius: 8, backgroundColor: bgColor,
+        borderRadius: 8, backgroundColor: chipBg,
         border: `2px solid ${borderColor}`,
         boxSizing: "border-box", overflow: "visible",
         cursor: isComplete ? "default" : dnd.isDragging ? "grabbing" : "grab",
@@ -4349,8 +4353,16 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
             {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
           </div>
           <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.role}</div>
-          <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1 }}>
-            {employee.jobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)} · {fmtUSD(pay)}
+          {/* [2026-06-04] Two lines so the two dollar figures don't read as
+              one number. Line 1 = the work (jobs · hours · revenue billed).
+              Line 2 = what the TECH earns that day (commission/pay), mint +
+              labeled so it's never confused with the billed revenue. */}
+          <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1, whiteSpace: "nowrap" }}>
+            {employee.jobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)}
+          </div>
+          <div style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700, marginTop: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
+            {fmtUSD(pay)}
+            <span style={{ fontSize: 8, fontWeight: 800, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>pay</span>
           </div>
         </div>
       </div>
