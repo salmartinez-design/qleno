@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -345,12 +345,20 @@ export default function PayrollPage() {
     }
     return m;
   }, [payData]);
+  // Full per-employee detail (jobs + additional pay) keyed by user_id, so the
+  // Overview rows can expand into a per-client breakdown without another fetch.
+  const payDetailMap = useMemo(() => {
+    const m: Record<number, any> = {};
+    for (const e of (payData?.data || [])) m[e.user_id] = e;
+    return m;
+  }, [payData]);
 
   const totalGross = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.gross ?? 0), 0);
   const totalHours = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.hours ?? 0), 0);
 
   const isOwnerAdmin = ['owner','admin'].includes(getTokenRole() || '');
   const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('overview');
+  const [expandedOverview, setExpandedOverview] = useState<number[]>([]);
 
   // Templates
   const { data: templatesData, refetch: refetchTemplates } = useQuery({
@@ -526,13 +534,23 @@ export default function PayrollPage() {
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
                 const pay = payMap[emp.id] || { hours: 0, gross: 0 };
                 const effRate = pay.hours > 0 ? pay.gross / pay.hours : null;
+                const detail = payDetailMap[emp.id];
+                const jobs: any[] = detail?.jobs || [];
+                const addl = Object.entries(detail?.additional_pay || {}).filter(([, v]) => (v as number) !== 0);
+                const canOpen = jobs.length > 0 || addl.length > 0;
+                const isOpen = expandedOverview.includes(emp.id);
                 return (
-                  <tr key={emp.id} style={{ borderBottom: '1px solid #F0EEE9', cursor: 'default' }}
+                  <Fragment key={emp.id}>
+                  <tr style={{ borderBottom: isOpen ? 'none' : '1px solid #F0EEE9', cursor: canOpen ? 'pointer' : 'default' }}
+                    onClick={() => canOpen && setExpandedOverview(p => isOpen ? p.filter(id => id !== emp.id) : [...p, emp.id])}
                     onMouseEnter={e => (e.currentTarget.style.backgroundColor = '#F7F6F3')}
                     onMouseLeave={e => (e.currentTarget.style.backgroundColor = 'transparent')}
                   >
                     <td style={{ padding: '14px 20px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {canOpen
+                          ? (isOpen ? <ChevronDown size={14} style={{ color: '#9E9B94', flexShrink: 0 }} /> : <ChevronRight size={14} style={{ color: '#9E9B94', flexShrink: 0 }} />)
+                          : <span style={{ width: 14, flexShrink: 0 }} />}
                         <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 600, flexShrink: 0 }}>
                           {emp.first_name?.[0]}{emp.last_name?.[0]}
                         </div>
@@ -556,6 +574,40 @@ export default function PayrollPage() {
                         : <span style={{ background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E2DC', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>No pay yet</span>}
                     </td>
                   </tr>
+                  {isOpen && (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '0 20px 16px 64px', background: '#FBFBFA', borderBottom: '1px solid #F0EEE9' }}>
+                        {jobs.length > 0 && (
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead><tr>
+                              {['Date', 'Client', 'Scope', 'Hours', 'Pay'].map(h => (
+                                <th key={h} style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', padding: '10px 12px 6px 0' }}>{h}</th>
+                              ))}
+                            </tr></thead>
+                            <tbody>
+                              {jobs.map((job: any) => (
+                                <tr key={job.job_id}>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: '#6B6860', whiteSpace: 'nowrap' }}>{job.date}</td>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9' }}>{job.client}</td>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: '#6B6860' }}>{job.scope}</td>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled hours — not clocked yet' : 'Clocked hours'}>{job.hrs_estimated ? '≈' : ''}{Number(job.hrs_worked ?? 0).toFixed(1)}h</td>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', fontWeight: 600, color: 'var(--brand)' }}>${Number(job.commission ?? 0).toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                        {addl.length > 0 && (
+                          <div style={{ marginTop: 10, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                            {addl.map(([type, amt]) => (
+                              <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>{PAY_TYPE_LABELS[type] || type}: <b style={{ color: '#1A1917' }}>${Number(amt).toFixed(2)}</b></span>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               }) : (
                 <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>No employees found.</td></tr>
