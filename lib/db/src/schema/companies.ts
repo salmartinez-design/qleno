@@ -101,6 +101,23 @@ export const companiesTable = pgTable("companies", {
   // nobody worked.
   cancellation_tech_pay_mode: text("cancellation_tech_pay_mode").notNull().default("flat"),
   cancellation_tech_pay_amount: numeric("cancellation_tech_pay_amount", { precision: 10, scale: 4 }).notNull().default("60.0000"),
+  // [overtime 2026-06-04] Jurisdiction-aware overtime config. Out of the box
+  // every tenant runs the federal/most-state baseline (weekly-40, 1.5×), so
+  // Qleno is compliant by default no matter where they operate. Daily-overtime
+  // states (CA/AK/CO/NV…) are opt-in via the state preset seeded from
+  // companies.state on cold-start, and any field is owner-overridable here.
+  // null daily columns = "no daily overtime" (the common case). See
+  // lib/overtime.ts + docs/OVERTIME_COMPLIANCE_DESIGN.md. Computed overtime is
+  // a REVIEW SIGNAL — it never auto-moves money.
+  //   ot_rules_source: null = not yet configured → fall back to state preset;
+  //     'preset:<state>' = seeded from state; 'custom' = owner-edited.
+  ot_rules_source: text("ot_rules_source"),
+  ot_weekly_threshold_hours: numeric("ot_weekly_threshold_hours", { precision: 5, scale: 2 }).default("40.00"),
+  ot_daily_threshold_hours: numeric("ot_daily_threshold_hours", { precision: 5, scale: 2 }),
+  ot_daily_doubletime_hours: numeric("ot_daily_doubletime_hours", { precision: 5, scale: 2 }),
+  ot_seventh_day_rule: boolean("ot_seventh_day_rule").notNull().default(false),
+  ot_multiplier: numeric("ot_multiplier", { precision: 4, scale: 2 }).notNull().default("1.50"),
+  ot_doubletime_multiplier: numeric("ot_doubletime_multiplier", { precision: 4, scale: 2 }).notNull().default("2.00"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

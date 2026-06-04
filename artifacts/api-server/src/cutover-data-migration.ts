@@ -99,6 +99,14 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await addOvertimeColumns();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] overtime columns failed (non-fatal):",
+      err,
+    );
+  }
 }
 
 /**
@@ -313,6 +321,55 @@ async function addCancellationTechPayColumns(): Promise<void> {
         WHERE table_schema='public' AND table_name='companies' AND column_name='cancellation_tech_pay_amount'
       ) THEN
         ALTER TABLE companies ADD COLUMN cancellation_tech_pay_amount numeric(10,4) NOT NULL DEFAULT 60.0000;
+      END IF;
+    END $$;
+  `),
+  );
+}
+
+/**
+ * Overtime (2026-06-04) — add the jurisdiction-aware overtime config columns
+ * to companies. Idempotent (every ADD is column-guarded).
+ *
+ * ot_rules_source is intentionally left NULL on add: a NULL source means "not
+ * yet configured", and resolveOvertimeRules() falls back to the preset for
+ * companies.state at read time. So a fresh column add immediately yields the
+ * correct per-state rules (federal/weekly-40 for IL and most states; daily OT
+ * for CA/AK/CO/NV) without seeding state-specific values into every row. The
+ * source flips to 'custom' only when an owner edits the settings.
+ */
+async function addOvertimeColumns(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_rules_source') THEN
+        ALTER TABLE companies ADD COLUMN ot_rules_source text;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_weekly_threshold_hours') THEN
+        ALTER TABLE companies ADD COLUMN ot_weekly_threshold_hours numeric(5,2) DEFAULT 40.00;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_daily_threshold_hours') THEN
+        ALTER TABLE companies ADD COLUMN ot_daily_threshold_hours numeric(5,2);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_daily_doubletime_hours') THEN
+        ALTER TABLE companies ADD COLUMN ot_daily_doubletime_hours numeric(5,2);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_seventh_day_rule') THEN
+        ALTER TABLE companies ADD COLUMN ot_seventh_day_rule boolean NOT NULL DEFAULT false;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_multiplier') THEN
+        ALTER TABLE companies ADD COLUMN ot_multiplier numeric(4,2) NOT NULL DEFAULT 1.50;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='companies' AND column_name='ot_doubletime_multiplier') THEN
+        ALTER TABLE companies ADD COLUMN ot_doubletime_multiplier numeric(4,2) NOT NULL DEFAULT 2.00;
       END IF;
     END $$;
   `),
