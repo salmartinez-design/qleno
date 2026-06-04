@@ -517,6 +517,10 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
     lat: number; lng: number; formatted: string;
   } | null>(null);
   const [permanent, setPermanent] = useState(false);
+  // [address-cascade 2026-06-04] When "apply to all future" is checked and the
+  // client has upcoming jobs with their own saved address, we ask how far to
+  // cascade instead of guessing. Null = no prompt showing.
+  const [cascadePrompt, setCascadePrompt] = useState<{ total: number; same: number; diff: number } | null>(null);
 
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -614,24 +618,51 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
     setPickedAddress(null);
     setError(null);
     setPermanent(false);
+    setCascadePrompt(null);
     setEditing(true);
   }
   function cancel() {
     setPickedAddress(null);
     setError(null);
     setPermanent(false);
+    setCascadePrompt(null);
     setEditing(false);
   }
 
+  // Click "Save". For a one-time (job) change, just write it. For a permanent
+  // (client) change, first check how many upcoming jobs carry their own saved
+  // address — if any, ask how far to cascade before writing.
   async function save() {
     if (!pickedAddress) {
       setError("Pick an address from the suggestions.");
       return;
     }
-    // Resolve the effective mode. If the client has no address on file
-    // (NULL/empty), the server will auto-cascade to client mode regardless
-    // of this flag; we still send the user's intent so audit log is honest.
-    const requestedMode: "client" | "job" = permanent ? "client" : "job";
+    if (!permanent) { await doSave("job", "none"); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/address`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ address: pickedAddress.address, city: pickedAddress.city, state: pickedAddress.state, zip: pickedAddress.zip, mode: "client", preview: true }),
+      });
+      const body = await r.json().catch(() => ({} as any));
+      const total = Number(body?.future_override_total ?? 0);
+      if (total > 0) {
+        setSaving(false);
+        setCascadePrompt({ total, same: Number(body?.future_same ?? 0), diff: Number(body?.future_different ?? 0) });
+        return;
+      }
+      // No upcoming jobs with their own address — nothing to ask.
+      await doSave("client", "none");
+    } catch (e: any) {
+      setError(e.message || "Network error.");
+      setSaving(false);
+    }
+  }
+
+  async function doSave(mode: "client" | "job", cascade: "none" | "matching" | "all") {
+    if (!pickedAddress) return;
     setSaving(true);
     setError(null);
     try {
@@ -643,7 +674,8 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
           city:    pickedAddress.city,
           state:   pickedAddress.state,
           zip:     pickedAddress.zip,
-          mode:    requestedMode,
+          mode,
+          cascade_future: cascade,
         }),
       });
       if (!r.ok) {
@@ -652,20 +684,21 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
         setSaving(false);
         return;
       }
-      // Server may have upgraded our requested mode to "client" if the
-      // client had no address on file. Read the response to surface the
-      // accurate result in the toast.
       const body = await r.json().catch(() => ({} as any));
-      const effectiveMode = body?.data?.mode ?? requestedMode;
+      const effectiveMode = body?.data?.mode ?? mode;
+      const cascaded = Number(body?.data?.cascaded_jobs ?? 0);
       toast({
         title: "Address updated",
         description: effectiveMode === "client"
-          ? "Applied to this client and all future jobs."
+          ? (cascaded > 0
+              ? `Applied to this client and ${cascaded} upcoming job${cascaded === 1 ? "" : "s"}.`
+              : "Applied to this client and all future jobs.")
           : "Applied as a one-time override for this job only.",
       });
       setEditing(false);
       setPickedAddress(null);
       setPermanent(false);
+      setCascadePrompt(null);
       onUpdate();
     } catch (e: any) {
       setError(e.message || "Network error.");
@@ -770,31 +803,68 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
             {error}
           </div>
         )}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button
-            onClick={save}
-            disabled={saving || !pickedAddress}
-            style={{
-              fontSize: 12, fontWeight: 700, color: "#FFFFFF",
-              background: (saving || !pickedAddress) ? "#9CA3AF" : "#2D9B83",
-              border: "none", borderRadius: 6, padding: "6px 14px",
-              cursor: (saving || !pickedAddress) ? "not-allowed" : "pointer", fontFamily: FF,
-            }}
-          >
-            {saving ? "Saving…" : "Save"}
-          </button>
-          <button
-            onClick={cancel}
-            disabled={saving}
-            style={{
-              fontSize: 12, fontWeight: 600, color: "#6B6860",
-              background: "transparent", border: "1px solid #E5E2DC",
-              borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontFamily: FF,
-            }}
-          >
-            Cancel
-          </button>
-        </div>
+        {cascadePrompt ? (
+          /* [address-cascade] Ask how far the permanent change reaches into
+             jobs already on the calendar. Jobs without their own saved
+             address inherit the client change automatically and aren't
+             counted here. */
+          <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>
+              {cascadePrompt.total} upcoming job{cascadePrompt.total === 1 ? "" : "s"} {cascadePrompt.total === 1 ? "has" : "have"} their own saved address.
+            </div>
+            <div style={{ fontSize: 11, color: "#4B5563", lineHeight: 1.4 }}>
+              {cascadePrompt.diff > 0
+                ? `${cascadePrompt.diff} ${cascadePrompt.diff === 1 ? "is" : "are"} at a different address than the current one. Update them to the new address too?`
+                : "Update those to the new address as well?"}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+              <button onClick={() => doSave("client", "all")} disabled={saving}
+                style={{ fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: saving ? "#9CA3AF" : "#2D9B83", border: "none", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
+                {saving ? "Saving…" : `Update all ${cascadePrompt.total} upcoming job${cascadePrompt.total === 1 ? "" : "s"}`}
+              </button>
+              {cascadePrompt.diff > 0 && cascadePrompt.same > 0 && (
+                <button onClick={() => doSave("client", "matching")} disabled={saving}
+                  style={{ fontSize: 12, fontWeight: 600, color: "#2D9B83", background: "#FFFFFF", border: "1px solid #A7F3D0", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
+                  Update only the {cascadePrompt.same} at the old address (leave the {cascadePrompt.diff} different)
+                </button>
+              )}
+              <button onClick={() => doSave("client", "none")} disabled={saving}
+                style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
+                Just the client record — leave upcoming jobs as they are
+              </button>
+              <button onClick={() => setCascadePrompt(null)} disabled={saving}
+                style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", background: "transparent", border: "none", cursor: "pointer", fontFamily: FF, alignSelf: "flex-start", padding: "2px 0" }}>
+                ← Back
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={save}
+              disabled={saving || !pickedAddress}
+              style={{
+                fontSize: 12, fontWeight: 700, color: "#FFFFFF",
+                background: (saving || !pickedAddress) ? "#9CA3AF" : "#2D9B83",
+                border: "none", borderRadius: 6, padding: "6px 14px",
+                cursor: (saving || !pickedAddress) ? "not-allowed" : "pointer", fontFamily: FF,
+              }}
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={cancel}
+              disabled={saving}
+              style={{
+                fontSize: 12, fontWeight: 600, color: "#6B6860",
+                background: "transparent", border: "1px solid #E5E2DC",
+                borderRadius: 6, padding: "6px 14px", cursor: "pointer", fontFamily: FF,
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
