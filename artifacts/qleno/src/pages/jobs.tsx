@@ -14,6 +14,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
+  Languages,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -300,6 +301,56 @@ async function patchJob(id: number, patch: object, token: string) {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const r = await fetch(`${API}/api/jobs/${id}`, { method: "PUT", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(patch) });
   if (!r.ok) throw new Error("Failed");
+}
+
+// [translate-note] One-tap English → Spanish for job notes. Office writes
+// notes in English; many Phes techs read more comfortably in Spanish. Calls
+// the existing POST /api/translate (Claude-backed, office-gated). The English
+// original is never changed — the Spanish shows below it and toggles off.
+// No-op for empty text. Resets when the source text changes (e.g. office
+// notes edited) so a stale translation never lingers.
+function TranslateNote({ text }: { text: string }) {
+  const token = useAuthStore(s => s.token)!;
+  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => { setTranslated(null); setOpen(false); setErr(""); }, [text]);
+  if (!text || !text.trim()) return null;
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  async function run() {
+    setErr("");
+    if (translated) { setOpen(o => !o); return; }
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/api/translate`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ text, target: "es" }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || d.message || `HTTP ${r.status}`);
+      setTranslated(d.translated); setOpen(true);
+    } catch (e: any) {
+      setErr(e?.message || "Translation failed");
+    } finally { setBusy(false); }
+  }
+  const label = busy ? "Translating…" : translated ? (open ? "Hide Spanish" : "Show Spanish") : "Translate to Spanish";
+  return (
+    <div style={{ marginTop: 6 }}>
+      <button type="button" onClick={run} disabled={busy}
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", color: "#2D9B83", fontSize: 12, fontWeight: 600, fontFamily: FF }}>
+        <Languages size={13} /> {label}
+      </button>
+      {err && <div style={{ marginTop: 4, fontSize: 11, color: "#B91C1C" }}>{err}</div>}
+      {open && translated && (
+        <div style={{ marginTop: 6, padding: "8px 10px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 8 }}>
+          <p style={{ margin: 0, fontSize: 13, color: "#0C4A6E", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{translated}</p>
+          <p style={{ margin: "4px 0 0", fontSize: 10, color: "#7DA9C0" }}>Translated automatically · español</p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 async function fetchDispatch(date: string, token: string, branchId?: number | "all"): Promise<DispatchData> {
@@ -1822,7 +1873,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
 
           {job.notes && (
-            <PS label="Notes"><p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{job.notes}</p></PS>
+            <PS label="Notes">
+              <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{job.notes}</p>
+              <TranslateNote text={job.notes} />
+            </PS>
           )}
 
           {/* Office Notes — editable, office/owner/admin only */}
@@ -1857,6 +1911,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               ) : (
                 <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
               )}
+              <TranslateNote text={officeNotes} />
             </div>
           )}
 
