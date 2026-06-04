@@ -40,6 +40,11 @@ const PAY_GROUPS = [
   { label: 'Other',     types: ['compliment','amount_owed'] },
 ];
 
+// Label any additional-pay type. Known types use the map; custom categories
+// (free-text types like 'google_review_bonus', 'birthday') fall back to a
+// readable title-case so owner-defined pay categories display cleanly.
+const labelType = (t: string) => PAY_TYPE_LABELS[t] || String(t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
 function getDefaultPeriod() {
   // Match the Overview bi-weekly window (Sun..Sat, 14 days ending this Saturday)
   // so switching tabs shows the same period.
@@ -218,7 +223,7 @@ function WeeklyDetailView() {
                     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                       {addlEntries.map(([type, amount]) => (
                         <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>
-                          {PAY_TYPE_LABELS[type] || type}: <b style={{ color: (amount as number) < 0 ? '#EF4444' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
+                          {labelType(type)}: <b style={{ color: (amount as number) < 0 ? '#EF4444' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
                         </span>
                       ))}
                     </div>
@@ -416,7 +421,7 @@ export default function PayrollPage() {
 
   // New template modal
   const [newTplModal, setNewTplModal] = useState(false);
-  const [newTpl, setNewTpl] = useState({ name: '', type: 'bonus', amount: '', notes: '' });
+  const [newTpl, setNewTpl] = useState({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
   const [savingTpl, setSavingTpl] = useState(false);
 
   async function handleApplyTemplate() {
@@ -436,11 +441,18 @@ export default function PayrollPage() {
 
   async function handleSaveTpl() {
     if (!newTpl.name || !newTpl.amount) return;
+    // Custom category → slugify into a reusable additional_pay type, e.g.
+    // "Google Review Bonus" → "google_review_bonus". Lets the office define
+    // their own pay categories (review bonus, birthday, etc.).
+    const resolvedType = newTpl.type === '__custom__'
+      ? (newTpl.customName || newTpl.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+      : newTpl.type;
+    if (!resolvedType) return;
     setSavingTpl(true);
     try {
-      await apiFetch('/payroll/templates', { method: 'POST', body: JSON.stringify(newTpl) });
+      await apiFetch('/payroll/templates', { method: 'POST', body: JSON.stringify({ name: newTpl.name, type: resolvedType, amount: newTpl.amount, notes: newTpl.notes }) });
       setNewTplModal(false);
-      setNewTpl({ name: '', type: 'bonus', amount: '', notes: '' });
+      setNewTpl({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
       refetchTemplates();
     } catch { alert('Failed to save template'); }
     setSavingTpl(false);
@@ -547,7 +559,7 @@ export default function PayrollPage() {
                   )}
                 </div>
                 <span style={{ fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:10,background:'#DBEAFE',color:'#1E40AF',alignSelf:'flex-start' }}>
-                  {PAY_TYPE_LABELS[t.type] || t.type}
+                  {labelType(t.type)}
                 </span>
                 <div style={{ fontSize:22,fontWeight:800,color:'var(--brand)' }}>${parseFloat(t.amount).toFixed(2)}</div>
                 {t.notes && <div style={{ fontSize:11,color:'#9E9B94' }}>{t.notes}</div>}
@@ -646,7 +658,7 @@ export default function PayrollPage() {
                         {addl.length > 0 && (
                           <div style={{ marginTop: 10, display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                             {addl.map(([type, amt]) => (
-                              <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>{PAY_TYPE_LABELS[type] || type}: <b style={{ color: '#1A1917' }}>${Number(amt).toFixed(2)}</b></span>
+                              <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>{labelType(type)}: <b style={{ color: '#1A1917' }}>${Number(amt).toFixed(2)}</b></span>
                             ))}
                           </div>
                         )}
@@ -673,7 +685,7 @@ export default function PayrollPage() {
               <button onClick={() => setApplyTemplate(null)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
             </div>
             <p style={{ margin:'0 0 20px 0',fontSize:12,color:'#9E9B94' }}>
-              <strong style={{ color:'#1A1917' }}>{applyTemplate.name}</strong> — ${parseFloat(applyTemplate.amount).toFixed(2)} · {PAY_TYPE_LABELS[applyTemplate.type] || applyTemplate.type}
+              <strong style={{ color:'#1A1917' }}>{applyTemplate.name}</strong> — ${parseFloat(applyTemplate.amount).toFixed(2)} · {labelType(applyTemplate.type)}
             </p>
             <div style={{ display:'flex',flexDirection:'column',gap:12,marginBottom:20 }}>
               <div>
@@ -716,15 +728,23 @@ export default function PayrollPage() {
                 <input value={newTpl.name} onChange={e => setNewTpl(p => ({...p,name:e.target.value}))} placeholder="e.g. Holiday Pay" style={inputStyle}/>
               </div>
               <div>
-                <label style={labelStyle}>Pay Type</label>
+                <label style={labelStyle}>Category</label>
                 <select value={newTpl.type} onChange={e => setNewTpl(p => ({...p,type:e.target.value}))} style={inputStyle}>
                   {PAY_GROUPS.map(g => (
                     <optgroup key={g.label} label={g.label}>
                       {g.types.map(t => <option key={t} value={t}>{PAY_TYPE_LABELS[t]}</option>)}
                     </optgroup>
                   ))}
+                  <option value="__custom__">+ Custom category…</option>
                 </select>
               </div>
+              {newTpl.type === '__custom__' && (
+                <div>
+                  <label style={labelStyle}>Custom category name</label>
+                  <input value={newTpl.customName} onChange={e => setNewTpl(p => ({...p,customName:e.target.value}))} placeholder="e.g. Google Review Bonus, Birthday Pay" style={inputStyle}/>
+                  <p style={{ fontSize:11,color:'#9E9B94',margin:'4px 0 0' }}>Reusable pay category — e.g. $10 per Google/FB review, birthday pay. Techs see it in their tips &amp; bonuses.</p>
+                </div>
+              )}
               <div>
                 <label style={labelStyle}>Default Amount ($)</label>
                 <input type="number" value={newTpl.amount} onChange={e => setNewTpl(p => ({...p,amount:e.target.value}))} placeholder="0.00" style={inputStyle}/>
