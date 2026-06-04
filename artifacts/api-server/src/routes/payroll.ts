@@ -616,6 +616,24 @@ router.get("/detail", requireAuth, async (req, res) => {
       }
     } catch { /* pay_adjustments absent for this tenant — skip */ }
 
+    // [tech-rewards 2026-06-04] Per-tech mileage accrued in the window (any
+    // non-discarded leg). Powers the tech's "total rewards" tracker. Reported
+    // separately as totals.mileage — display-only; applied mileage already
+    // counts in grand_total via pay_adjustments above, so this isn't re-added.
+    const mileageByUser = new Map<number, number>();
+    try {
+      const mRows = await db.execute(sql`
+        SELECT user_id, COALESCE(SUM(amount), 0) AS total
+        FROM mileage_legs
+        WHERE company_id = ${companyId}
+          AND status <> 'discarded'
+          AND leg_date >= ${String(pay_period_start)} AND leg_date <= ${String(pay_period_end)}
+          ${filterUserId ? sql`AND user_id = ${filterUserId}` : sql``}
+        GROUP BY user_id
+      `);
+      for (const r of mRows.rows as any[]) mileageByUser.set(Number(r.user_id), parseFloat(String(r.total || 0)));
+    } catch { /* mileage_legs absent — skip */ }
+
     // Group jobs by user
     const byUser = new Map<number, typeof jobs>();
     for (const job of jobs) {
@@ -766,6 +784,8 @@ router.get("/detail", requireAuth, async (req, res) => {
           commission: Math.round(totalCommission * 100) / 100,
           hrs_scheduled: Math.round(totalHrsScheduled * 100) / 100,
           hrs_worked: Math.round(totalHrsWorked * 100) / 100,
+          mileage: Math.round((mileageByUser.get(uid) || 0) * 100) / 100,
+          effective_rate: totalHrsWorked > 0 ? Math.round((totalCommission / totalHrsWorked) * 100) / 100 : null,
           grand_total: Math.round(grandTotal * 100) / 100,
         },
       });
