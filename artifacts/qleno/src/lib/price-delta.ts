@@ -61,7 +61,11 @@ export function computePriceDelta(input: PriceDeltaInput): PriceDelta {
   // current even when delta is suppressed (e.g. base=0).
   const displayValue = billed != null ? billed : baseFee;
   return {
-    display: `$${Math.round(displayValue)}`,
+    // [penny-exact 2026-06-04] Render full cents + thousands separators
+    // ($1,339.20 — not $1339). Dispatch dollars are reconciled against
+    // MaidCentral/ADP payroll to the cent, so rounding the chip drops the
+    // exact figure the office is matching against.
+    display: displayValue.toLocaleString("en-US", { style: "currency", currency: "USD" }),
     deltaAmount: delta,
     isHourly: false,
   };
