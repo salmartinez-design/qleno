@@ -425,11 +425,12 @@ router.put("/overtime-rules", requireAuth, requireRole("owner", "admin"), async 
 
 // ── Pre-payroll health check ──────────────────────────────────────────────────
 // [payroll-preflight 2026-06-04] The "fix before you run payroll" safety net —
-// a cleaner take on MaidCentral's "Uh oh! issues with your data" screen.
-// Surfaces what quietly breaks a payroll run: completed jobs with no clock
-// punch, completed jobs never invoiced, techs still clocked in, and tipped
-// invoices with no matching tip pay. Blocking issues vs soft warnings.
-// Office-only, pure read.
+// a cleaner take on MaidCentral's "Uh oh! issues with your data" screen, but
+// PAYROLL-only: it flags only things that affect what a tech is PAID. Invoicing
+// is deliberately excluded — billing the customer is A/R, not payroll, and the
+// tech is paid regardless of whether the invoice went out (Sal, 2026-06-04).
+// Checks: completed jobs with no clock punch, techs still clocked in (blocking),
+// and tipped invoices with no matching tip pay (warning). Office-only, pure read.
 router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { from, to } = req.query;
@@ -445,10 +446,6 @@ router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), a
              WHERE j.company_id = ${companyId} AND j.status = 'complete'
                AND j.scheduled_date BETWEEN ${f} AND ${t}
                AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id)) AS no_clocks,
-          (SELECT COUNT(*) FROM jobs j
-             WHERE j.company_id = ${companyId} AND j.status = 'complete'
-               AND j.scheduled_date BETWEEN ${f} AND ${t}
-               AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id)) AS not_invoiced,
           (SELECT COUNT(DISTINCT tc.user_id) FROM timeclock tc
              WHERE tc.company_id = ${companyId} AND tc.clock_out_at IS NULL
                AND tc.clock_in_at::date BETWEEN ${f} AND ${t}) AS open_clocks,
@@ -471,7 +468,6 @@ router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), a
     const n = (v: any) => Number(v || 0);
     const issues = [
       { key: "jobs_without_clocks", severity: "block", count: n(row.no_clocks),    label: "completed job(s) with no clock punch", action: "Add a clock or cancel the job" },
-      { key: "jobs_not_invoiced",   severity: "block", count: n(row.not_invoiced),  label: "completed job(s) not invoiced",        action: "Invoice or cancel the job" },
       { key: "still_clocked_in",    severity: "block", count: n(row.open_clocks),   label: "employee(s) still clocked in",         action: "Review clock data" },
       { key: "missing_tips",        severity: "warn",  count: n(row.missing_tips),  label: "tipped invoice(s) with no tip pay",    action: "Review tips — won't block payroll" },
     ].filter(i => i.count > 0);
