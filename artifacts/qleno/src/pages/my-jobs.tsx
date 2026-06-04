@@ -4,7 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Car, X, Check, Eye, Navigation, Phone, GraduationCap, DollarSign } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign } from "lucide-react";
 import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
@@ -300,7 +300,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   );
 }
 
-function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean }) {
+function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; prevJobId?: number | null }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -412,6 +412,45 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
     },
     onError: () => toast({ variant: "destructive", title: "Status update failed" }),
   });
+
+  // [mileage-auto 2026-06-04] "On My Way" now hits the proper tech-clock
+  // endpoint: it captures the tech's GPS, computes the driving ETA, sends the
+  // client an SMS with that ETA, and writes the on_my_way_events row that feeds
+  // the mileage engine. from_job_id = the tech's previous job today, so the
+  // engine bills only the between-jobs leg (home→first-job is auto-excluded as
+  // the first leg of the day). Replaces the manual mileage form.
+  const [omwBusy, setOmwBusy] = useState(false);
+  const omwMutation = useMutation({
+    mutationFn: async ({ lat, lng }: { lat?: number; lng?: number }) => {
+      const body: Record<string, unknown> = {};
+      if (typeof lat === "number" && typeof lng === "number") { body.from_latitude = lat; body.from_longitude = lng; }
+      if (prevJobId != null) body.from_job_id = prevJobId;
+      const res = await apiFetch(`/tech/jobs/${job.id}/on-my-way`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new Error();
+      return res.json();
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["status-log", job.id] });
+      const eta = data?.data?.estimated_eta_minutes;
+      const notified = data?.data?.client_notified;
+      toast({
+        title: eta != null ? `On My Way — ETA ~${eta} min` : "On My Way sent",
+        description: notified ? "Client notified by text" : "Logged (text paused or no phone)",
+      });
+    },
+    onError: () => toast({ variant: "destructive", title: "Couldn't send On My Way" }),
+    onSettled: () => setOmwBusy(false),
+  });
+  const fireOnMyWay = () => {
+    if (isPreviewMode) return;
+    setOmwBusy(true);
+    if (!navigator.geolocation) { omwMutation.mutate({}); return; }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => omwMutation.mutate({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => omwMutation.mutate({}), // GPS denied/failed — still send (ETA falls back)
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30000 },
+    );
+  };
 
   const getLocation = (cb: (lat: number, lng: number, accuracy?: number) => void) => {
     setGeoLoading(true);
@@ -697,18 +736,18 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
         ) : (
           <div>
             <button
-              onClick={() => !isPreviewMode && smsMutation.mutate("on_my_way")}
-              disabled={smsMutation.isPending || isPreviewMode}
+              onClick={fireOnMyWay}
+              disabled={omwBusy || omwMutation.isPending || isPreviewMode}
               title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: "1px solid var(--brand)",
                 fontSize: 14, fontWeight: 600, cursor: isPreviewMode ? "not-allowed" : "pointer", marginBottom: 10,
                 backgroundColor: "var(--brand-soft)", color: "var(--brand)",
-                opacity: isPreviewMode ? 0.6 : 1,
+                opacity: (isPreviewMode || omwBusy) ? 0.6 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
-              {smsMutation.isPending ? "Sending…" : "On My Way"}
+              {omwBusy || omwMutation.isPending ? "Sending…" : "On My Way"}
             </button>
             <button
               onClick={() => {
@@ -738,94 +777,11 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode }: { job: Job; empPos: 
   );
 }
 
-function MileageModal({ onClose }: { onClose: () => void }) {
-  const { toast } = useToast();
-  const [form, setForm] = useState({ service_date: new Date().toISOString().split('T')[0], from_client_name: '', to_client_name: '', miles: '', notes: '' });
-  const [submitting, setSubmitting] = useState(false);
-  const [done, setDone] = useState(false);
-  const set = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }));
-
-  const handleSubmit = async () => {
-    if (!form.from_client_name || !form.to_client_name || !form.miles) return;
-    setSubmitting(true);
-    try {
-      const token = useAuthStore.getState().token;
-      const r = await fetch(`${BASE}/api/mileage-requests`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      if (!r.ok) throw new Error();
-      setDone(true);
-      setTimeout(onClose, 1800);
-    } catch {
-      toast({ title: 'Failed to submit request', variant: 'destructive' });
-    }
-    setSubmitting(false);
-  };
-
-  const field = { width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: 'border-box' as const };
-  const lbl = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block', marginBottom: 4, fontFamily: "'Plus Jakarta Sans', sans-serif" };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}>
-      <div style={{ background: '#fff', borderRadius: '16px 16px 0 0', padding: '24px 20px', width: '100%', maxWidth: 460, maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Car size={18} color="var(--brand)"/>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Mileage Reimbursement</span>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}><X size={18} color="#9E9B94"/></button>
-        </div>
-
-        {done ? (
-          <div style={{ textAlign: 'center', padding: '32px 0' }}>
-            <div style={{ width: 48, height: 48, borderRadius: 24, background: '#F0FBF8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-              <Check size={22} color="var(--brand)"/>
-            </div>
-            <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Request submitted!</p>
-            <p style={{ fontSize: 13, color: '#6B7280', margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Your manager will review and approve it.</p>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div>
-              <label style={lbl}>Service Date</label>
-              <input type="date" value={form.service_date} onChange={e => set('service_date', e.target.value)} style={field}/>
-            </div>
-            <div>
-              <label style={lbl}>From (Client / Location)</label>
-              <input value={form.from_client_name} onChange={e => set('from_client_name', e.target.value)} placeholder="e.g. Home, John Smith" style={field}/>
-            </div>
-            <div>
-              <label style={lbl}>To (Client / Location)</label>
-              <input value={form.to_client_name} onChange={e => set('to_client_name', e.target.value)} placeholder="e.g. Jane Doe, Warehouse" style={field}/>
-            </div>
-            <div>
-              <label style={lbl}>Miles Driven</label>
-              <input type="number" min="0" step="0.1" value={form.miles} onChange={e => set('miles', e.target.value)} placeholder="0.0" style={field}/>
-            </div>
-            <div>
-              <label style={lbl}>Notes (optional)</label>
-              <textarea value={form.notes} onChange={e => set('notes', e.target.value)} placeholder="Any additional details…" rows={2}
-                style={{ ...field, resize: 'vertical' as const }}/>
-            </div>
-            <button onClick={handleSubmit} disabled={submitting || !form.from_client_name || !form.to_client_name || !form.miles}
-              style={{ padding: '12px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 10, fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer', marginTop: 4 }}>
-              {submitting ? 'Submitting…' : 'Submit Request'}
-            </button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export default function MyJobsPage() {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [showMileage, setShowMileage] = useState(false);
   const [showPay, setShowPay] = useState(false);
 
   let userInfo: { firstName: string; lastName: string } | null = null;
@@ -896,10 +852,6 @@ export default function MyJobsPage() {
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <DollarSign size={13}/> Pay
             </button>
-            <button onClick={() => setShowMileage(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-              <Car size={13}/> Mileage
-            </button>
             <div title={initials} style={{ width: 28, height: 28, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
               {initials}
             </div>
@@ -935,8 +887,9 @@ export default function MyJobsPage() {
             </div>
           ) : (
             <>
-              {activeJobs.map(job => (
-                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView} />
+              {activeJobs.map((job, i) => (
+                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
+                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} />
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>
@@ -965,7 +918,6 @@ export default function MyJobsPage() {
           )}
         </div>
       </div>
-      {showMileage && <MileageModal onClose={() => setShowMileage(false)}/>}
     </div>
   );
 }
