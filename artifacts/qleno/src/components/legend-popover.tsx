@@ -7,7 +7,7 @@
  */
 import { useEffect, useRef } from "react";
 import { X, Check, AlertTriangle } from "lucide-react";
-import { JobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
+import { JobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, mutedFill } from "@/lib/job-status";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 
@@ -32,7 +32,7 @@ function ExampleTile({ status }: { status: JobVisualStatus }) {
     <div style={{
       display: "flex", alignItems: "stretch", gap: 6, width: 96, height: 44,
       borderRadius: 6, padding: 4, position: "relative",
-      backgroundColor: v.swatch, opacity: v.bodyOpacity,
+      backgroundColor: v.fillMuted ? mutedFill(v.swatch) : v.swatch, opacity: v.bodyOpacity,
       filter: v.desaturate ? "grayscale(1)" : "none",
       border: v.borderOverride ? `1.5px solid ${v.borderOverride}` : "1px solid rgba(0,0,0,0.08)",
       flexShrink: 0,
