@@ -423,6 +423,72 @@ router.put("/overtime-rules", requireAuth, requireRole("owner", "admin"), async 
   }
 });
 
+// ── Pre-payroll health check ──────────────────────────────────────────────────
+// [payroll-preflight 2026-06-04] The "fix before you run payroll" safety net —
+// a cleaner take on MaidCentral's "Uh oh! issues with your data" screen.
+// Surfaces what quietly breaks a payroll run: completed jobs with no clock
+// punch, completed jobs never invoiced, techs still clocked in, and tipped
+// invoices with no matching tip pay. Blocking issues vs soft warnings.
+// Office-only, pure read.
+router.get("/preflight", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ error: "Bad Request", message: "from and to are required (YYYY-MM-DD)" });
+    const companyId = req.auth!.companyId;
+    const f = String(from), t = String(to), tEnd = `${to} 23:59:59`;
+
+    let row: any = {};
+    try {
+      const r = await db.execute(sql`
+        SELECT
+          (SELECT COUNT(*) FROM jobs j
+             WHERE j.company_id = ${companyId} AND j.status = 'complete'
+               AND j.scheduled_date BETWEEN ${f} AND ${t}
+               AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id)) AS no_clocks,
+          (SELECT COUNT(*) FROM jobs j
+             WHERE j.company_id = ${companyId} AND j.status = 'complete'
+               AND j.scheduled_date BETWEEN ${f} AND ${t}
+               AND NOT EXISTS (SELECT 1 FROM invoices i WHERE i.job_id = j.id)) AS not_invoiced,
+          (SELECT COUNT(DISTINCT tc.user_id) FROM timeclock tc
+             WHERE tc.company_id = ${companyId} AND tc.clock_out_at IS NULL
+               AND tc.clock_in_at::date BETWEEN ${f} AND ${t}) AS open_clocks,
+          (SELECT COUNT(*) FROM invoices i
+             JOIN jobs j ON j.id = i.job_id
+             WHERE i.company_id = ${companyId} AND COALESCE(i.tips, 0) > 0
+               AND j.scheduled_date BETWEEN ${f} AND ${t}
+               AND j.assigned_user_id IS NOT NULL
+               AND NOT EXISTS (
+                 SELECT 1 FROM additional_pay ap
+                 WHERE ap.user_id = j.assigned_user_id AND ap.type = 'tips'
+                   AND ap.created_at BETWEEN ${f} AND ${tEnd})) AS missing_tips
+      `);
+      row = r.rows[0] || {};
+    } catch (e) {
+      console.error("Preflight query failed (non-fatal):", e);
+      return res.json({ ok: true, available: false, issues: [] });
+    }
+
+    const n = (v: any) => Number(v || 0);
+    const issues = [
+      { key: "jobs_without_clocks", severity: "block", count: n(row.no_clocks),    label: "completed job(s) with no clock punch", action: "Add a clock or cancel the job" },
+      { key: "jobs_not_invoiced",   severity: "block", count: n(row.not_invoiced),  label: "completed job(s) not invoiced",        action: "Invoice or cancel the job" },
+      { key: "still_clocked_in",    severity: "block", count: n(row.open_clocks),   label: "employee(s) still clocked in",         action: "Review clock data" },
+      { key: "missing_tips",        severity: "warn",  count: n(row.missing_tips),  label: "tipped invoice(s) with no tip pay",    action: "Review tips — won't block payroll" },
+    ].filter(i => i.count > 0);
+
+    const blocking = issues.filter(i => i.severity === "block");
+    return res.json({
+      ok: blocking.length === 0,
+      available: true,
+      total_blocking: blocking.reduce((s, i) => s + i.count, 0),
+      issues,
+    });
+  } catch (err) {
+    console.error("Preflight error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to run payroll preflight" });
+  }
+});
+
 // ── Payroll Detail (per-job breakdown) ────────────────────────────────────────
 
 router.get("/detail", requireAuth, async (req, res) => {
@@ -528,6 +594,31 @@ router.get("/detail", requireAuth, async (req, res) => {
       .select({ user_id: additionalPayTable.user_id, type: additionalPayTable.type, amount: additionalPayTable.amount, notes: additionalPayTable.notes })
       .from(additionalPayTable)
       .where(and(...addlPayConditions));
+
+    // [payroll-summary 2026-06-04] pay_adjustments (the 2B mileage-reimbursement
+    // promotion + any office adjustments) never reached the payroll summary —
+    // /detail only read additional_pay, so applied mileage was invisible here.
+    // Pull them grouped per (user, adjustment_type) and fold into each
+    // employee's breakdown + grand total below. Filtered by created_at to match
+    // the additional_pay window. Raw SQL + try/catch so a tenant without the
+    // table degrades gracefully.
+    const adjByUser = new Map<number, Record<string, number>>();
+    try {
+      const adjRows = await db.execute(sql`
+        SELECT user_id, adjustment_type, COALESCE(SUM(amount), 0) AS total
+        FROM pay_adjustments
+        WHERE company_id = ${companyId}
+          AND created_at >= ${String(pay_period_start)}
+          AND created_at <= ${String(pay_period_end) + " 23:59:59"}
+          ${filterUserId ? sql`AND user_id = ${filterUserId}` : sql``}
+        GROUP BY user_id, adjustment_type
+      `);
+      for (const r of adjRows.rows as any[]) {
+        const uid = Number(r.user_id);
+        if (!adjByUser.has(uid)) adjByUser.set(uid, {});
+        adjByUser.get(uid)![String(r.adjustment_type)] = parseFloat(String(r.total || 0));
+      }
+    } catch { /* pay_adjustments absent for this tenant — skip */ }
 
     // Group jobs by user
     const byUser = new Map<number, typeof jobs>();
@@ -640,6 +731,11 @@ router.get("/detail", requireAuth, async (req, res) => {
       const addlByType: Record<string, number> = {};
       for (const p of userAddlPay) {
         addlByType[p.type] = (addlByType[p.type] || 0) + parseFloat(String(p.amount || 0));
+      }
+      // Fold pay_adjustments (e.g. mileage_reimbursement from the 2B apply gate)
+      // into the same breakdown so they show as a line AND land in grand_total.
+      for (const [adjType, amt] of Object.entries(adjByUser.get(uid) || {})) {
+        addlByType[adjType] = (addlByType[adjType] || 0) + amt;
       }
 
       const totalCommission = jobRows.reduce((s, j) => s + j.commission, 0);

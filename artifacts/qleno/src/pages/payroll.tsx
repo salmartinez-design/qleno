@@ -28,13 +28,14 @@ function empRate(emp: any): number {
 }
 
 const PAY_TYPE_LABELS: Record<string, string> = {
-  bonus: 'Bonus', tips: 'Tips', mileage: 'Mileage',
+  bonus: 'Bonus', tips: 'Tips', mileage: 'Mileage', mileage_reimbursement: 'Mileage',
   sick_pay: 'Sick Pay', holiday_pay: 'Holiday Pay', vacation_pay: 'Vacation Pay',
   compliment: 'Compliment', amount_owed: 'Amount Owed',
 };
 
 const PAY_GROUPS = [
-  { label: 'Earnings',  types: ['bonus','tips','mileage'] },
+  { label: 'Earnings',  types: ['bonus','tips'] },
+  { label: 'Reimbursements', types: ['mileage','mileage_reimbursement'] },
   { label: 'Time Off',  types: ['sick_pay','holiday_pay','vacation_pay'] },
   { label: 'Other',     types: ['compliment','amount_owed'] },
 ];
@@ -96,6 +97,23 @@ function WeeklyDetailView() {
       {employees.map((emp: any) => {
         const isOpen = expanded.includes(emp.user_id);
         const addlEntries = Object.entries(emp.additional_pay || {}).filter(([, v]) => (v as number) !== 0);
+        // At-a-glance roll-up so the office sees each person's pay essentials
+        // inline — no horizontal scrolling (the MaidCentral pain).
+        const ap: Record<string, number> = emp.additional_pay || {};
+        const sumK = (...ks: string[]) => ks.reduce((s, k) => s + (Number(ap[k]) || 0), 0);
+        const tipsAmt = sumK('tips');
+        const mileageAmt = sumK('mileage', 'mileage_reimbursement');
+        const timeOffAmt = sumK('sick_pay', 'holiday_pay', 'vacation_pay');
+        const hoursWorked = Number(emp.totals?.hrs_worked ?? 0);
+        const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const rollup: any[] = [
+          { label: 'Hours', value: hoursWorked.toFixed(1) },
+          { label: 'Commission', value: money(emp.totals.commission), accent: true },
+          ...(tipsAmt > 0 ? [{ label: 'Tips', value: money(tipsAmt) }] : []),
+          ...(mileageAmt > 0 ? [{ label: 'Mileage', value: money(mileageAmt) }] : []),
+          ...(timeOffAmt > 0 ? [{ label: 'Time Off', value: money(timeOffAmt) }] : []),
+          { label: 'Total Pay', value: money(emp.totals.grand_total), strong: true },
+        ];
         return (
           <div key={emp.user_id} style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, overflow: 'hidden' }}>
             <div
@@ -106,19 +124,13 @@ function WeeklyDetailView() {
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{emp.name}</span>
                 <span style={{ fontSize: 12, color: '#9E9B94' }}>{emp.totals.job_count} jobs</span>
               </div>
-              <div style={{ display: 'flex', gap: 24 }}>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Job Total</p>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: 0 }}>${emp.totals.job_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Commission</p>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--brand)', margin: 0 }}>${emp.totals.commission.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Grand Total</p>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: 0 }}>${emp.totals.grand_total.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                </div>
+              <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {rollup.map((s: any) => (
+                  <div key={s.label} style={{ textAlign: 'right', minWidth: 64 }}>
+                    <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p>
+                    <p style={{ fontSize: 14, fontWeight: s.strong ? 800 : 700, color: s.accent ? 'var(--brand)' : '#1A1917', margin: 0 }}>{s.value}</p>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -256,6 +268,49 @@ function OvertimeBanner({ from, to }: { from: string; to: string }) {
   );
 }
 
+// [payroll-preflight 2026-06-04] Office-only "fix before you run payroll" banner.
+// Hits /payroll/preflight (jobs without clocks, not invoiced, still clocked in,
+// missing tips). Red when blocking issues exist, amber for warnings only, green
+// when clean. Role-gated server-side so it never reaches a technician.
+function PreflightBanner({ from, to }: { from: string; to: string }) {
+  const { data } = useQuery<any>({
+    queryKey: ['payroll-preflight', from, to],
+    queryFn: () => apiFetch(`/payroll/preflight?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+  if (!data || !data.available) return null;
+  const issues: any[] = data.issues || [];
+  if (issues.length === 0) {
+    return (
+      <div style={{ background: '#F0FDF9', border: '1px solid #99E6D3', borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: '#00C9A0', display: 'inline-block' }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: '#0A6E5A' }}>Payroll looks clean — no issues to fix before you run it.</span>
+      </div>
+    );
+  }
+  const blocking = issues.filter(i => i.severity === 'block');
+  const hasBlock = blocking.length > 0;
+  return (
+    <div style={{ background: hasBlock ? '#FEF2F2' : '#FEF3C7', border: `1px solid ${hasBlock ? '#FCA5A5' : '#FCD34D'}`, borderRadius: 10, padding: '12px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <AlertTriangle size={15} color={hasBlock ? '#B91C1C' : '#92400E'} />
+        <span style={{ fontWeight: 800, color: hasBlock ? '#B91C1C' : '#92400E', fontSize: 13 }}>
+          {hasBlock
+            ? `${blocking.length} thing${blocking.length > 1 ? 's' : ''} to fix before you run payroll`
+            : 'Heads up before you run payroll'}
+        </span>
+      </div>
+      <ul style={{ margin: 0, padding: '0 0 0 20px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {issues.map((i, idx) => (
+          <li key={idx} style={{ fontSize: 12, color: i.severity === 'block' ? '#991B1B' : '#92400E' }}>
+            <b>{i.count}</b> {i.label} <span style={{ opacity: 0.8 }}>— {i.action}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const qc = useQueryClient();
   const { activeBranchId } = useBranch();
@@ -349,6 +404,7 @@ export default function PayrollPage() {
   return (
     <DashboardLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <PreflightBanner from={payPeriod.start} to={payPeriod.end} />
         <OvertimeBanner from={payPeriod.start} to={payPeriod.end} />
         {/* View Toggle */}
         <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8, width: 'fit-content' }}>
