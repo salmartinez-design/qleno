@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Qleno Time & Mileage Workflow</title>
+<style>
+  @page { size: letter; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: 'Plus Jakarta Sans', -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1A1917; background: #fff; font-size: 12px; line-height: 1.55; }
+  .page { width: 8.5in; min-height: 11in; padding: 0.7in 0.75in; page-break-after: always; position: relative; }
+  .page:last-child { page-break-after: avoid; }
+  h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+  h2 { font-size: 19px; font-weight: 800; color: #0A0E1A; margin: 26px 0 10px; letter-spacing: -0.01em; }
+  h3 { font-size: 14px; font-weight: 800; margin: 16px 0 6px; }
+  p { margin: 0 0 9px; color: #2b2a27; }
+  .muted { color: #6B6860; }
+  .mint { color: #2D9B83; }
+  .pill { display: inline-block; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 9px; border-radius: 20px; }
+  .pill-mint { background: #ECFDF5; color: #2D9B83; }
+  .pill-night { background: #0A0E1A; color: #fff; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-size: 11.5px; }
+  th { text-align: left; background: #0A0E1A; color: #fff; padding: 8px 10px; font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 8px 10px; border-bottom: 1px solid #E5E2DC; vertical-align: top; }
+  tr:nth-child(even) td { background: #FAFAF8; }
+  .card { background: #fff; border: 1px solid #E5E2DC; border-radius: 12px; padding: 16px 18px; margin: 10px 0; }
+  .card-mint { border-left: 3px solid #2D9B83; }
+  .grid2 { display: flex; gap: 14px; }
+  .grid2 > * { flex: 1; }
+  .step { display: flex; gap: 12px; align-items: flex-start; margin: 10px 0; }
+  .stepnum { flex-shrink: 0; width: 26px; height: 26px; border-radius: 13px; background: #2D9B83; color: #fff; font-weight: 800; font-size: 13px; display: flex; align-items: center; justify-content: center; }
+  .footer { position: absolute; bottom: 0.4in; left: 0.75in; right: 0.75in; font-size: 9.5px; color: #9E9B94; border-top: 1px solid #E5E2DC; padding-top: 6px; display: flex; justify-content: space-between; }
+  .lead { background: #F7F6F3; border-radius: 10px; padding: 12px 14px; margin: 10px 0; }
+  ul { margin: 4px 0 12px 18px; } li { margin: 3px 0; }
+  .good { color: #15803D; font-weight: 700; }
+  .bad { color: #B91C1C; font-weight: 700; }
+  /* phone mock */
+  .phone { width: 250px; border: 9px solid #0A0E1A; border-radius: 30px; overflow: hidden; background: #F7F6F3; }
+  .phone .bar { background: #fff; padding: 9px 12px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid #eee; }
+  .phone .logo { width: 20px; height: 20px; border-radius: 6px; background: #2D9B83; color: #fff; font-weight: 800; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+  .phone .body { padding: 12px; }
+  .jc { background: #fff; border: 1px solid #E5E2DC; border-left: 3px solid #2D9B83; border-radius: 11px; padding: 12px; }
+  .tile { background: #F7F6F3; border-radius: 9px; padding: 8px 10px; }
+  .btn { border-radius: 9px; padding: 9px; text-align: center; font-weight: 700; font-size: 12px; margin-top: 8px; }
+  .btn-out { border: 1px solid #2D9B83; color: #2D9B83; background: #ECFDF5; }
+  .btn-solid { background: #2D9B83; color: #fff; }
+  .anno { display: flex; gap: 9px; margin: 7px 0; font-size: 11.5px; }
+  .anno b { color: #0A0E1A; }
+  .dot { flex-shrink:0; width: 18px; height: 18px; border-radius: 9px; background: #0A0E1A; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="page" style="display:flex;flex-direction:column;justify-content:center;background:#F7F6F3;">
+  <div style="width:64px;height:64px;border-radius:16px;background:#2D9B83;color:#fff;font-weight:800;font-size:38px;display:flex;align-items:center;justify-content:center;margin-bottom:28px;">Q</div>
+  <span class="pill pill-night" style="align-self:flex-start;margin-bottom:16px;">Internal Guideline</span>
+  <h1 style="font-size:40px;">Time &amp; Mileage<br>Workflow</h1>
+  <p style="font-size:16px;color:#6B6860;margin-top:14px;max-width:5in;">How the Qleno clock, drive, and pay model works — and how it improves on MaidCentral by removing the confusion.</p>
+  <div style="margin-top:40px;display:flex;gap:10px;">
+    <span class="pill pill-mint">One clock, at the house</span>
+    <span class="pill pill-mint">Automatic mileage</span>
+    <span class="pill pill-mint">Capture &ne; pay</span>
+  </div>
+  <div style="position:absolute;bottom:0.7in;left:0.75in;color:#9E9B94;font-size:11px;">Qleno · Phes · Prepared June 2026</div>
+</div>
+
+<!-- PAGE 1: Reading the My Jobs screen -->
+<div class="page">
+  <span class="pill pill-mint">Part 1</span>
+  <h2 style="margin-top:8px;">Reading the My Jobs screen</h2>
+  <p>This is what a cleaner sees for each job. Every element maps to a decision — here is what each one does.</p>
+  <div style="display:flex;gap:24px;margin-top:10px;">
+    <div class="phone">
+      <div class="bar"><div class="logo">Q</div><b style="font-size:13px;">My Jobs</b></div>
+      <div class="body">
+        <div class="jc">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="pill" style="background:#EEF4FF;color:#3B6CC9;">Scheduled</span>
+            <span style="font-weight:800;font-size:13px;">$260.00 <span style="color:#3B6CC9;font-weight:600;">Change price</span></span>
+          </div>
+          <div style="font-size:17px;font-weight:800;margin:8px 0 1px;">Daryll Golladay <span class="pill" style="background:#F2F0EC;color:#6B6860;">PHES</span></div>
+          <div style="color:#3B6CC9;font-weight:700;font-size:11px;">STANDARD CLEAN</div>
+          <div style="color:#6B6860;font-size:12px;margin:3px 0;">9:00 AM</div>
+          <div style="color:#3B6CC9;font-size:11.5px;text-decoration:underline;">15060 West 95th Ave, IL 15060</div>
+          <span class="pill" style="background:#FEE2E2;color:#B91C1C;margin-top:6px;">8.0 mi away — drive to location</span>
+          <div class="btn" style="border:1px dashed #C9C6C0;color:#6B6860;">+ Add note</div>
+          <div style="font-size:11px;font-weight:700;margin-top:8px;">Before / After Photos</div>
+          <div class="btn btn-out">On My Way</div>
+          <div class="btn btn-solid">Clock In</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;">
+      <div class="anno"><div class="dot">1</div><div><b>Status + Price.</b> The job state and price. <b>Change price</b> lets the cleaner adjust with office permission (e.g. an add-on).</div></div>
+      <div class="anno"><div class="dot">2</div><div><b>Client &amp; service.</b> Who, what service, scheduled time, and the address (tap to navigate).</div></div>
+      <div class="anno"><div class="dot">3</div><div><b>"8.0 mi away."</b> Live distance from the cleaner's phone to the job — orientation only. <span class="muted">This is NOT the reimbursed mileage; that is computed job-to-job by the engine.</span></div></div>
+      <div class="anno"><div class="dot">4</div><div><b>Add note + Before/After photos.</b> Job documentation — proof of work and any issues.</div></div>
+      <div class="anno"><div class="dot">5</div><div><b>On My Way.</b> The departure tap. Sends the client an ETA text from GPS <i>and</i> records the drive leg from the previous job (the mileage hook).</div></div>
+      <div class="anno"><div class="dot">6</div><div><b>Clock In.</b> The check-in at the house — starts this job's time. (Clock Out appears when done.)</div></div>
+      <div class="lead" style="margin-top:14px;"><b>Notice what's missing:</b> no "Mileage" button (retired — it's automatic now) and no separate "start my day" clock. The day is figured out from the clocks themselves.</div>
+    </div>
+  </div>
+  <div class="footer"><span>Qleno — Time &amp; Mileage Workflow</span><span>1</span></div>
+</div>
+
+<!-- PAGE 2: The flow + Day complete -->
+<div class="page">
+  <span class="pill pill-mint">Part 2</span>
+  <h2 style="margin-top:8px;">The whole day — three taps per house</h2>
+  <p>One simple loop repeats at each home. There is no day clock to remember.</p>
+  <div class="step"><div class="stepnum">1</div><div><b>On My Way</b> — when leaving for the house. Texts the client a live ETA and starts the drive leg (job&nbsp;A&nbsp;→&nbsp;job&nbsp;B).</div></div>
+  <div class="step"><div class="stepnum">2</div><div><b>Clock In</b> — on arrival. Starts this job's time, with GPS to confirm they're on-site.</div></div>
+  <div class="step"><div class="stepnum">3</div><div><b>Clock Out</b> — when the house is done. Stamps the actual job time. Then drive to the next house and repeat.</div></div>
+  <div class="lead"><b>The day is derived, never a button.</b> "Paid day" = first Clock In → last Clock Out. Checking out of the <i>last</i> house ends the day automatically — because there's no more activity, not because a button was pressed. A surprise add-on just extends it. This is also what guarantees the drive home is never paid.</div>
+
+  <h3>What the cleaner sees when the last house is done</h3>
+  <div style="display:flex;gap:24px;align-items:flex-start;">
+    <div class="phone" style="width:230px;">
+      <div class="bar"><div class="logo">Q</div><b style="font-size:13px;">My Jobs</b></div>
+      <div class="body">
+        <div class="jc">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div style="width:28px;height:28px;border-radius:14px;background:#ECFDF5;color:#2D9B83;font-weight:800;display:flex;align-items:center;justify-content:center;">&#10003;</div>
+            <div><div style="font-size:15px;font-weight:800;">Day complete</div><div style="color:#9E9B94;font-size:11px;">Wed, Jun 4</div></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <div class="tile" style="flex:1;"><div style="font-size:9px;font-weight:800;color:#9E9B94;text-transform:uppercase;">Jobs done</div><div style="font-size:19px;font-weight:800;">3</div></div>
+            <div class="tile" style="flex:1;"><div style="font-size:9px;font-weight:800;color:#9E9B94;text-transform:uppercase;">Job hours</div><div style="font-size:19px;font-weight:800;">6.4h</div></div>
+          </div>
+          <div style="font-size:10.5px;color:#6B6860;margin-top:9px;">Drive mileage between your jobs is calculated automatically. Pay and mileage finalize after office review.</div>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;">
+      <p>This is a <b>closure state, not a tap</b> — it appears on its own once every job is checked out. It gives the cleaner a clear "I'm finished" moment plus their day at a glance, without a clock-out button to forget.</p>
+      <p class="muted">"Start another job" is available only if a late add-on comes in — which simply extends the day.</p>
+      <p style="margin-top:8px;"><span class="pill pill-mint">Shipped</span> &nbsp;This card is live in the mobile app today.</p>
+    </div>
+  </div>
+  <div class="footer"><span>Qleno — Time &amp; Mileage Workflow</span><span>2</span></div>
+</div>
+
+<!-- PAGE 3: MaidCentral vs Qleno -->
+<div class="page">
+  <span class="pill pill-mint">Part 3</span>
+  <h2 style="margin-top:8px;">MaidCentral vs. Qleno</h2>
+  <p>Same rigor — half the friction, none of the "why is this on here?"</p>
+  <table>
+    <tr><th style="width:26%;">Area</th><th style="width:37%;">MaidCentral</th><th style="width:37%;">Qleno</th></tr>
+    <tr><td><b>Taps per house</b></td><td>Day Clock In/Out <i>and</i> per-job Check In/Out — two button pairs the tech mixes up</td><td class="good">One pair, at the house. Day is derived. One fewer tap.</td></tr>
+    <tr><td><b>Drive time on payroll</b></td><td>Auto-adds a paid "Drive &amp; Office Hours" line — confusing for a commission shop</td><td class="good">Drive hours are a record, never an auto-pay line. Pay = commission + mileage only.</td></tr>
+    <tr><td><b>Mileage entry</b></td><td>Captured, but bundled with auto drive-pay</td><td class="good">Automatic from the job sequence. No form. Route-proof point-to-point distance.</td></tr>
+    <tr><td><b>"Efficiency"</b></td><td>Three different formulas all called "Efficiency"</td><td class="good">One number, one name: Allowed ÷ Actual Job Hours.</td></tr>
+    <tr><td><b>Payroll screen</b></td><td>Hours-first; the drive-pay line draws the eye</td><td class="good">Dollars-first: Commission + Mileage = Total. Hours shown as a record.</td></tr>
+    <tr><td><b>Compliance</b></td><td>Captured</td><td class="good">Same record — plus a quiet flag only when a week crosses 40 hours.</td></tr>
+  </table>
+
+  <h2>Mileage — the rules, locked</h2>
+  <ul>
+    <li><b>Only the legs between jobs are paid.</b> House A → House B counts. Home → first job and last job → home are commute and are never reimbursed.</li>
+    <li><b>Distance is the mapping API's driving distance between the two client addresses</b> — not the cleaner's actual route. They cannot pad miles by driving around.</li>
+    <li><b>Dated rate table.</b> A past week computes at the rate that was in effect then, never today's rate.</li>
+    <li><b>No money until reviewed.</b> Computed mileage waits in a review gate; it only becomes pay when the office approves it. Every paid mile traces back to its leg.</li>
+  </ul>
+  <div class="footer"><span>Qleno — Time &amp; Mileage Workflow</span><span>3</span></div>
+</div>
+
+<!-- PAGE 4: Idle, capture vs pay, anti-gaming, reports -->
+<div class="page">
+  <span class="pill pill-mint">Part 4</span>
+  <h2 style="margin-top:8px;">Idle time, &amp; "what if they milk it?"</h2>
+  <div class="card card-mint"><b>The one rule that protects you both ways: capturing &ne; paying.</b><br>Qleno records every minute — job, drive, idle — for visibility and the rare overtime check. But the only dollars that move are <b>commission + mileage</b>. Idle is a number you <i>see</i>, not a line you <i>pay</i>.</div>
+  <p><b>Idle</b> = on-the-clock time that wasn't in a house and wasn't reimbursed driving (usually a lunch break). It is a record, not pay. Real meal breaks are excluded; on-duty waiting only matters in a 40+ hour week.</p>
+
+  <h3>Why milking the system earns nothing</h3>
+  <table>
+    <tr><th style="width:42%;">What they might try</th><th>Why it doesn't work</th></tr>
+    <tr><td>Dawdle inside a house</td><td>Pay is on commission / allowed hours — taking longer earns the <b>same money in more time</b>, lowering their effective rate and turning their efficiency score <span class="bad">red</span>.</td></tr>
+    <tr><td>Pad idle / linger between jobs</td><td>Idle isn't paid. Lingering earns <b>$0</b>.</td></tr>
+    <tr><td>Take the long way for more miles</td><td>Mileage is fixed point-to-point distance — <b>route-independent</b>.</td></tr>
+    <tr><td>Fake their location</td><td>GPS at check-in/out + a geofence flag catches off-site punches.</td></tr>
+    <tr><td>Linger into overtime</td><td>No day clock to pad — the day auto-ends at the last check-out.</td></tr>
+  </table>
+  <p class="muted">The captured idle / drive / efficiency data is the office's <b>coaching radar</b> — it tells you who to coach, not who to pay.</p>
+
+  <h2>Where each timestamp goes</h2>
+  <table>
+    <tr><th>Timestamp</th><th>Feeds</th><th>Drives</th></tr>
+    <tr><td>Clock In/Out (per house)</td><td>Job hours, allowed-vs-actual, billing</td><td>Pay, pricing, coaching</td></tr>
+    <tr><td>On My Way</td><td>Client ETA text + drive leg</td><td>Customer experience + mileage</td></tr>
+    <tr><td>Drive legs (between jobs)</td><td>Mileage reimbursement; hours record</td><td>Reimbursement; OT check</td></tr>
+    <tr><td>GPS at punch</td><td>On-site verification + geofence flag</td><td>Accountability / disputes</td></tr>
+    <tr><td>Derived day</td><td>Total paid hours record</td><td>Overtime compliance</td></tr>
+  </table>
+  <div class="lead"><b>Bottom line.</b> Qleno keeps MaidCentral's insight — separate meters for pay, job cost, and the drive/idle gap — but the cleaner only ever taps On My Way, Clock In, Clock Out. Everything else is derived, automatic, and milking-proof.</div>
+  <div class="footer"><span>Qleno — Time &amp; Mileage Workflow · Phes</span><span>4</span></div>
+</div>
+
+</body>
+</html>
