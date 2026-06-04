@@ -137,6 +137,88 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
   }
 });
 
+// ── Overtime check (>40 hrs/week) ─────────────────────────────────────────────
+// [ot-trigger 2026-06-04] Per CLAUDE.md "Time Clock — Workflow Model": a quiet
+// flag only when total hours cross 40 in a workweek — the one real OT exposure
+// for a commission shop. "Hours worked" = job clock time (timeclock) + drive
+// time between jobs (mileage_legs.minutes). Idle/breaks excluded. Buckets by
+// ISO week (Mon-start, date_trunc('week')) so a multi-week range is split into
+// proper workweeks. Pure read; surfaces in the office payroll view.
+router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) {
+      return res.status(400).json({ error: "Bad Request", message: "from and to are required (YYYY-MM-DD)" });
+    }
+    const companyId = req.auth!.companyId;
+    const toEnd = `${to} 23:59:59`;
+
+    // Job hours per (user, week) from the per-house clock.
+    const jobRows = await db.execute(sql`
+      SELECT user_id,
+             to_char(date_trunc('week', clock_in_at), 'YYYY-MM-DD') AS week_start,
+             COALESCE(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600), 0) AS job_hours
+      FROM timeclock
+      WHERE company_id = ${companyId}
+        AND clock_out_at IS NOT NULL
+        AND clock_in_at >= ${from} AND clock_in_at <= ${toEnd}
+      GROUP BY user_id, week_start
+    `);
+
+    // Drive hours per (user, week) from the between-jobs mileage legs.
+    const driveRows = await db.execute(sql`
+      SELECT user_id,
+             to_char(date_trunc('week', leg_date::timestamp), 'YYYY-MM-DD') AS week_start,
+             COALESCE(SUM(minutes) / 60.0, 0) AS drive_hours
+      FROM mileage_legs
+      WHERE company_id = ${companyId}
+        AND status <> 'discarded'
+        AND leg_date >= ${from} AND leg_date <= ${to}
+      GROUP BY user_id, week_start
+    `);
+
+    type Bucket = { user_id: number; week_start: string; job: number; drive: number };
+    const map = new Map<string, Bucket>();
+    const key = (u: number, w: string) => `${u}|${w}`;
+    for (const r of jobRows.rows as any[]) {
+      const u = Number(r.user_id), w = String(r.week_start);
+      map.set(key(u, w), { user_id: u, week_start: w, job: Number(r.job_hours) || 0, drive: 0 });
+    }
+    for (const r of driveRows.rows as any[]) {
+      const u = Number(r.user_id), w = String(r.week_start);
+      const b = map.get(key(u, w)) ?? { user_id: u, week_start: w, job: 0, drive: 0 };
+      b.drive = Number(r.drive_hours) || 0;
+      map.set(key(u, w), b);
+    }
+
+    const over = [...map.values()].filter(b => b.job + b.drive > 40);
+    const userIds = [...new Set(over.map(b => b.user_id))];
+    const names = userIds.length
+      ? await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
+          .from(usersTable).where(inArray(usersTable.id, userIds))
+      : [];
+    const nameById = new Map(names.map(n => [n.id, `${n.first_name ?? ""} ${n.last_name ?? ""}`.trim()]));
+
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const weeks = over
+      .map(b => ({
+        user_id: b.user_id,
+        name: nameById.get(b.user_id) || `User ${b.user_id}`,
+        week_start: b.week_start,
+        job_hours: round1(b.job),
+        drive_hours: round1(b.drive),
+        total_hours: round1(b.job + b.drive),
+        overtime_hours: round1(b.job + b.drive - 40),
+      }))
+      .sort((a, b) => b.total_hours - a.total_hours);
+
+    return res.json({ any_over_40: weeks.length > 0, count: weeks.length, weeks });
+  } catch (err) {
+    console.error("Overtime check error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to run overtime check" });
+  }
+});
+
 // ── Payroll Detail (per-job breakdown) ────────────────────────────────────────
 
 router.get("/detail", requireAuth, async (req, res) => {

@@ -4,7 +4,7 @@ import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight } from "lucide-react";
+import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -210,6 +210,40 @@ function WeeklyDetailView() {
   );
 }
 
+// [ot-trigger 2026-06-04] Quiet overtime alert. Hits /payroll/overtime-check
+// (job clock hours + between-jobs drive hours, bucketed by workweek) and warns
+// only when a tech crosses 40 hrs in a week — so no one is underpaid on OT.
+// Renders nothing when everyone's under 40.
+function OvertimeBanner({ from, to }: { from: string; to: string }) {
+  const { data } = useQuery<any>({
+    queryKey: ['ot-check', from, to],
+    queryFn: () => apiFetch(`/payroll/overtime-check?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+  if (!data?.any_over_40) return null;
+  return (
+    <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 10, padding: '12px 16px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <AlertTriangle size={15} color="#92400E" />
+        <span style={{ fontWeight: 800, color: '#92400E', fontSize: 13 }}>
+          Overtime check — {data.count} {data.count === 1 ? 'week' : 'weeks'} over 40 hours
+        </span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {data.weeks.map((w: any, i: number) => (
+          <div key={i} style={{ fontSize: 12, color: '#92400E' }}>
+            <b>{w.name}</b> · week of {w.week_start}: <b>{w.total_hours}h</b>{' '}
+            ({w.job_hours}h job + {w.drive_hours}h drive) — <b>{w.overtime_hours}h over</b>
+          </div>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: '#92400E', opacity: 0.85, marginTop: 6 }}>
+        Hours worked = job time + between-jobs drive. Review these for overtime so no one is underpaid.
+      </div>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const qc = useQueryClient();
   const { activeBranchId } = useBranch();
@@ -303,6 +337,7 @@ export default function PayrollPage() {
   return (
     <DashboardLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <OvertimeBanner from={payPeriod.start} to={payPeriod.end} />
         {/* View Toggle */}
         <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8, width: 'fit-content' }}>
           {[{ key: 'overview', label: 'Overview' }, { key: 'weekly-detail', label: 'Weekly Detail' }].map(v => (
