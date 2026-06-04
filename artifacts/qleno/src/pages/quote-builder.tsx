@@ -780,7 +780,11 @@ export default function QuoteBuilderPage() {
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
       total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total) : null),
-      estimated_hours: cr ? String(cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
+      // [addon-hours 2026-06-04] Persist TOTAL hours (base + add-on time-adds)
+      // so Hourly/Time-Add add-ons (Oven, Cabinets, Basement, etc.) flow into
+      // the booked job's allowed hours. Was base_hours, which silently dropped
+      // every add-on's time — the job came out under-budgeted on the schedule.
+      estimated_hours: cr ? String(cr.total_hours ?? cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
       hourly_rate: cr ? String(cr.hourly_rate) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,

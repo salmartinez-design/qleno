@@ -350,11 +350,16 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     };
     const jobFreq = FREQ_MAP[freqRaw] || "on_demand";
 
+    // [addon-hours 2026-06-04] Carry the quote's estimated hours (which now
+    // include add-on time-adds) onto the job as BOTH allowed_hours and
+    // estimated_hours. Previously the convert wrote neither, so every
+    // quote-booked job landed with NULL allowed_hours — the dispatch Gantt
+    // rendered a flat default block and the add-on time never showed up.
     const jobResult = await db.execute(sql`
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, created_at
+        frequency, notes, allowed_hours, estimated_hours, created_at
       ) VALUES (
         ${companyId},
         ${q.client_id || null},
@@ -366,6 +371,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${assigned_user_id || null},
         ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
+        ${q.estimated_hours || null},
+        ${q.estimated_hours || null},
         NOW()
       ) RETURNING id
     `);
