@@ -861,6 +861,179 @@ function PlaceholderTab({ title, desc }: { title: string; desc: string }) {
   );
 }
 
+// [overtime 2026-06-04] Office settings for jurisdiction-aware overtime. Reads
+// the resolved rules from /payroll/overtime-rules (state preset unless the
+// owner has overridden), lets the owner tune the thresholds, and saves back
+// (source flips to 'custom'). "Reset to preset" clears the override so the
+// company falls back to its state's rule again. Self-contained — does not
+// touch the payroll_settings save flow.
+function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
+  const { toast } = useToast();
+  const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+  const FF2 = "'Plus Jakarta Sans', sans-serif";
+  const fieldLabel = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase' as const, letterSpacing: '0.06em', display: 'block', marginBottom: 5, fontFamily: FF2 };
+  const fieldInput: React.CSSProperties = { padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF2, background: '#fff', color: '#1A1917', width: 90, outline: 'none' };
+  const sectionCard: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
+
+  const [loaded, setLoaded] = useState(false);
+  const [stateName, setStateName] = useState<string | null>(null);
+  const [source, setSource] = useState<string>('');
+  const [presetLabel, setPresetLabel] = useState<string>('');
+  const [presetNote, setPresetNote] = useState<string>('');
+  const [weekly, setWeekly] = useState('40');
+  const [dailyEnabled, setDailyEnabled] = useState(false);
+  const [daily, setDaily] = useState('8');
+  const [dtEnabled, setDtEnabled] = useState(false);
+  const [dt, setDt] = useState('12');
+  const [seventh, setSeventh] = useState(false);
+  const [otMult, setOtMult] = useState('1.5');
+  const [dtMult, setDtMult] = useState('2.0');
+  const [saving, setSaving] = useState(false);
+
+  const load = () => {
+    fetch(`${BASE}/api/payroll/overtime-rules`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const rules = d.rules || {};
+        setStateName(d.state ?? null);
+        setSource(d.source ?? '');
+        setPresetLabel(d.state_preset?.label ?? '');
+        setPresetNote(d.state_preset?.note ?? '');
+        setWeekly(String(rules.weeklyThresholdHours ?? 40));
+        setDailyEnabled(rules.dailyThresholdHours != null);
+        if (rules.dailyThresholdHours != null) setDaily(String(rules.dailyThresholdHours));
+        setDtEnabled(rules.dailyDoubleTimeHours != null);
+        if (rules.dailyDoubleTimeHours != null) setDt(String(rules.dailyDoubleTimeHours));
+        setSeventh(!!rules.seventhConsecutiveDayRule);
+        setOtMult(String(rules.otMultiplier ?? 1.5));
+        setDtMult(String(rules.dtMultiplier ?? 2.0));
+        setLoaded(true);
+      });
+  };
+  useEffect(load, []);
+
+  const save = async (reset = false) => {
+    setSaving(true);
+    try {
+      const body = reset ? { reset: true } : {
+        weeklyThresholdHours: parseFloat(weekly),
+        dailyThresholdHours: dailyEnabled ? parseFloat(daily) : null,
+        dailyDoubleTimeHours: dailyEnabled && dtEnabled ? parseFloat(dt) : null,
+        seventhConsecutiveDayRule: seventh,
+        otMultiplier: parseFloat(otMult),
+        dtMultiplier: parseFloat(dtMult),
+      };
+      const r = await fetch(`${BASE}/api/payroll/overtime-rules`, {
+        method: 'PUT',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error('save failed');
+      toast({ title: reset ? 'Reset to state preset' : 'Overtime rules saved' });
+      load();
+    } catch {
+      toast({ title: 'Failed to save overtime rules', variant: 'destructive' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const isCustom = source === 'custom';
+  const numInput = (v: string, set: (s: string) => void, props: any = {}) => (
+    <input type="number" value={v} onChange={e => set(e.target.value)} disabled={!isOwner}
+      style={isOwner ? fieldInput : { ...fieldInput, background: '#F9FAFB', color: '#9CA3AF', cursor: 'not-allowed' }} {...props} />
+  );
+
+  return (
+    <div style={sectionCard}>
+      <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Overtime Rules</p>
+      <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px', fontFamily: FF2 }}>
+        Used only to flag and estimate the overtime premium for the office when a tech's weekly
+        hours (job clock + between-jobs drive) cross the limit. Techs never see this.
+      </p>
+
+      {loaded && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#F0FDF9', border: '1px solid #99E6D3', borderRadius: 8, padding: '8px 12px', marginBottom: 16 }}>
+          <span style={{ fontSize: 12, color: '#0A6E5A', fontFamily: FF2 }}>
+            Currently using: <strong>{isCustom ? 'Custom rules' : (presetLabel || 'Federal baseline')}</strong>
+            {stateName ? ` · business state ${stateName}` : ''}
+            {isCustom && presetLabel ? ` (state default: ${presetLabel})` : ''}
+          </span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Weekly overtime after</label>
+          {numInput(weekly, setWeekly, { step: '1', min: '1' })}
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours/week (federal &amp; most states = 40)</span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Daily overtime</label>
+          <input type="checkbox" checked={dailyEnabled} disabled={!isOwner} onChange={e => setDailyEnabled(e.target.checked)} />
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>This state has daily overtime</span>
+        </div>
+        {dailyEnabled && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 16, borderLeft: '2px solid #E5E2DC' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>OT after (per day)</label>
+              {numInput(daily, setDaily, { step: '1', min: '1' })}
+              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours/day (e.g. CA = 8)</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>Double-time</label>
+              <input type="checkbox" checked={dtEnabled} disabled={!isOwner} onChange={e => setDtEnabled(e.target.checked)} />
+              {dtEnabled && numInput(dt, setDt, { step: '1', min: '1' })}
+              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>{dtEnabled ? 'hours/day (e.g. CA = 12)' : 'pay double-time past a daily limit'}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>7th-consecutive-day rule</label>
+              <input type="checkbox" checked={seventh} disabled={!isOwner} onChange={e => setSeventh(e.target.checked)} />
+              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>California-style</span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Multipliers</label>
+          {numInput(otMult, setOtMult, { step: '0.1', min: '1' })}
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>× OT</span>
+          {numInput(dtMult, setDtMult, { step: '0.1', min: '1' })}
+          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>× double-time</span>
+        </div>
+      </div>
+
+      {presetNote && (
+        <p style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 10px', margin: '14px 0 0', fontFamily: FF2 }}>
+          {presetLabel}: {presetNote}
+        </p>
+      )}
+      <p style={{ fontSize: 11, color: '#9E9B94', margin: '12px 0 0', fontFamily: FF2, lineHeight: 1.5 }}>
+        Defaults follow your business state. Labor law has industry carve-outs and changes over time —
+        confirm these settings with your payroll provider or employment counsel. This estimates the
+        premium; it does not file or pay it.
+      </p>
+
+      {isOwner && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button onClick={() => save(false)} disabled={saving}
+            style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
+            {saving ? 'Saving...' : 'Save Overtime Rules'}
+          </button>
+          {isCustom && (
+            <button onClick={() => save(true)} disabled={saving}
+              style={{ padding: '9px 20px', background: '#fff', color: '#6B7280', border: '1px solid #E5E2DC', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
+              Reset to {presetLabel || 'state'} preset
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PayrollOptionsTab() {
   const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
   const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
@@ -1107,6 +1280,8 @@ function PayrollOptionsTab() {
           </div>
         </div>
       </div>
+
+      <OvertimeSettingsCard isOwner={isOwner} />
 
       {isOwner ? (
         <button

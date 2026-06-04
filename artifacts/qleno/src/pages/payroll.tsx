@@ -210,10 +210,12 @@ function WeeklyDetailView() {
   );
 }
 
-// [ot-trigger 2026-06-04] Quiet overtime alert. Hits /payroll/overtime-check
-// (job clock hours + between-jobs drive hours, bucketed by workweek) and warns
-// only when a tech crosses 40 hrs in a week — so no one is underpaid on OT.
-// Renders nothing when everyone's under 40.
+// [overtime 2026-06-04] Office-only overtime review banner. Hits
+// /payroll/overtime-check (job clock hours + between-jobs drive hours, bucketed
+// by workweek under the tenant's jurisdiction rules) and surfaces both the
+// overtime HOURS and the estimated premium DOLLARS for any week that crosses
+// the limit — so the office can pay it. Endpoint is role-gated to office/admin/
+// owner, so this never reaches a technician. Renders nothing when all clear.
 function OvertimeBanner({ from, to }: { from: string; to: string }) {
   const { data } = useQuery<any>({
     queryKey: ['ot-check', from, to],
@@ -221,24 +223,34 @@ function OvertimeBanner({ from, to }: { from: string; to: string }) {
     enabled: !!from && !!to,
   });
   if (!data?.any_over_40) return null;
+  const money = (n: number) => `$${(n ?? 0).toFixed(2)}`;
+  const totalPremium = data.total_premium_estimate ?? 0;
   return (
     <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 10, padding: '12px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         <AlertTriangle size={15} color="#92400E" />
         <span style={{ fontWeight: 800, color: '#92400E', fontSize: 13 }}>
-          Overtime check — {data.count} {data.count === 1 ? 'week' : 'weeks'} over 40 hours
+          Overtime review — {data.count} {data.count === 1 ? 'week' : 'weeks'} over the limit
+          {totalPremium > 0 && <> · est. premium {money(totalPremium)}</>}
         </span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {data.weeks.map((w: any, i: number) => (
           <div key={i} style={{ fontSize: 12, color: '#92400E' }}>
             <b>{w.name}</b> · week of {w.week_start}: <b>{w.total_hours}h</b>{' '}
-            ({w.job_hours}h job + {w.drive_hours}h drive) — <b>{w.overtime_hours}h over</b>
+            ({w.job_hours}h job + {w.drive_hours}h drive) —{' '}
+            <b>{w.ot_hours}h OT</b>{w.dt_hours > 0 ? <> + <b>{w.dt_hours}h double-time</b></> : null}
+            {w.premium_estimate > 0 && (
+              <> · est. premium <b>{money(w.premium_estimate)}</b>{w.regular_rate > 0 ? <> (reg. rate {money(w.regular_rate)}/h)</> : null}</>
+            )}
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: '#92400E', opacity: 0.85, marginTop: 6 }}>
-        Hours worked = job time + between-jobs drive. Review these for overtime so no one is underpaid.
+      <div style={{ fontSize: 11, color: '#92400E', opacity: 0.85, marginTop: 6, lineHeight: 1.5 }}>
+        Hours worked = job clock time + between-jobs drive (home↔job commute excluded). Premium is the
+        extra owed over commission ({data.has_daily_overtime ? 'daily + weekly' : 'weekly'} rules
+        {data.rules_source ? ` · ${String(data.rules_source).replace(/^preset:/, '')}` : ''}).
+        Estimate for review — confirm with your payroll provider before paying. Configure thresholds in Settings → Payroll.
       </div>
     </div>
   );

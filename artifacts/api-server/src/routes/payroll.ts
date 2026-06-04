@@ -4,6 +4,15 @@ import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable
 import { eq, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { computeCommissionRows } from "../lib/commission-compute.js";
+import {
+  resolveOvertimeRules,
+  computeWeekOvertime,
+  computeOvertimePremium,
+  STATE_OVERTIME_PRESETS,
+  FEDERAL_DEFAULT_RULES,
+  type OvertimeRules,
+} from "../lib/overtime.js";
 
 const router = Router();
 
@@ -137,13 +146,24 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
   }
 });
 
-// ── Overtime check (>40 hrs/week) ─────────────────────────────────────────────
-// [ot-trigger 2026-06-04] Per CLAUDE.md "Time Clock — Workflow Model": a quiet
-// flag only when total hours cross 40 in a workweek — the one real OT exposure
-// for a commission shop. "Hours worked" = job clock time (timeclock) + drive
-// time between jobs (mileage_legs.minutes). Idle/breaks excluded. Buckets by
-// ISO week (Mon-start, date_trunc('week')) so a multi-week range is split into
-// proper workweeks. Pure read; surfaces in the office payroll view.
+// ── Overtime check ────────────────────────────────────────────────────────────
+// [overtime 2026-06-04] Jurisdiction-aware overtime review signal. Per
+// CLAUDE.md "Time Clock — Workflow Model" + docs/OVERTIME_COMPLIANCE_DESIGN.md.
+//
+// "Hours worked" = job clock time (timeclock) + drive time BETWEEN jobs
+// (mileage_legs.minutes). The home↔job commute never enters this — no clock
+// runs during it and the mileage engine excludes the commute legs (29 CFR
+// 785.35/785.38). Idle/breaks excluded.
+//
+// Threshold is per-tenant: federal/most states (incl. Illinois) = weekly-40
+// only; CA/AK/CO/NV add daily overtime. The rules resolve from the company's
+// OT config (falls back to the preset for companies.state, then federal).
+//
+// For a commission shop the only money owed on OT is the PREMIUM portion
+// (extra 0.5×/1.0× the regular rate) — straight time is already in commission.
+// regular rate = workweek commission ÷ hours worked; mileage excluded
+// (29 CFR 778.117/778.217). The premium is an ESTIMATE for office review — it
+// does not auto-move money. Pure read.
 router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { from, to } = req.query;
@@ -153,69 +173,253 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
     const companyId = req.auth!.companyId;
     const toEnd = `${to} 23:59:59`;
 
-    // Job hours per (user, week) from the per-house clock.
+    // Resolve this tenant's overtime rules (state preset unless overridden).
+    let rules: OvertimeRules = { ...FEDERAL_DEFAULT_RULES };
+    let rulesSource = "preset:Federal baseline";
+    try {
+      const cRow = await db.execute(sql`
+        SELECT state, ot_rules_source, ot_weekly_threshold_hours, ot_daily_threshold_hours,
+               ot_daily_doubletime_hours, ot_seventh_day_rule, ot_multiplier, ot_doubletime_multiplier
+        FROM companies WHERE id = ${companyId} LIMIT 1`);
+      if (cRow.rows[0]) {
+        const resolved = resolveOvertimeRules(cRow.rows[0] as any);
+        rules = resolved.rules;
+        rulesSource = resolved.source;
+      }
+    } catch { /* OT columns absent pre-migration — keep federal default */ }
+
+    // Job hours per (user, week, day) from the per-house clock.
     const jobRows = await db.execute(sql`
       SELECT user_id,
              to_char(date_trunc('week', clock_in_at), 'YYYY-MM-DD') AS week_start,
+             to_char(date_trunc('day',  clock_in_at), 'YYYY-MM-DD') AS day,
              COALESCE(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600), 0) AS job_hours
       FROM timeclock
       WHERE company_id = ${companyId}
         AND clock_out_at IS NOT NULL
         AND clock_in_at >= ${from} AND clock_in_at <= ${toEnd}
-      GROUP BY user_id, week_start
+      GROUP BY user_id, week_start, day
     `);
 
-    // Drive hours per (user, week) from the between-jobs mileage legs.
+    // Drive hours per (user, week, day) from the between-jobs mileage legs.
     const driveRows = await db.execute(sql`
       SELECT user_id,
              to_char(date_trunc('week', leg_date::timestamp), 'YYYY-MM-DD') AS week_start,
+             to_char(date_trunc('day',  leg_date::timestamp), 'YYYY-MM-DD') AS day,
              COALESCE(SUM(minutes) / 60.0, 0) AS drive_hours
       FROM mileage_legs
       WHERE company_id = ${companyId}
         AND status <> 'discarded'
         AND leg_date >= ${from} AND leg_date <= ${to}
-      GROUP BY user_id, week_start
+      GROUP BY user_id, week_start, day
     `);
 
-    type Bucket = { user_id: number; week_start: string; job: number; drive: number };
-    const map = new Map<string, Bucket>();
+    // Assemble per (user, week): a map of day → {job, drive} so we can feed the
+    // daily-hours array to the rules engine (needed for daily-OT states).
+    type WeekBucket = { user_id: number; week_start: string; days: Map<string, { job: number; drive: number }> };
+    const map = new Map<string, WeekBucket>();
     const key = (u: number, w: string) => `${u}|${w}`;
+    const touch = (u: number, w: string, d: string) => {
+      const k = key(u, w);
+      let b = map.get(k);
+      if (!b) { b = { user_id: u, week_start: w, days: new Map() }; map.set(k, b); }
+      let day = b.days.get(d);
+      if (!day) { day = { job: 0, drive: 0 }; b.days.set(d, day); }
+      return day;
+    };
     for (const r of jobRows.rows as any[]) {
-      const u = Number(r.user_id), w = String(r.week_start);
-      map.set(key(u, w), { user_id: u, week_start: w, job: Number(r.job_hours) || 0, drive: 0 });
+      touch(Number(r.user_id), String(r.week_start), String(r.day)).job += Number(r.job_hours) || 0;
     }
     for (const r of driveRows.rows as any[]) {
-      const u = Number(r.user_id), w = String(r.week_start);
-      const b = map.get(key(u, w)) ?? { user_id: u, week_start: w, job: 0, drive: 0 };
-      b.drive = Number(r.drive_hours) || 0;
-      map.set(key(u, w), b);
+      touch(Number(r.user_id), String(r.week_start), String(r.day)).drive += Number(r.drive_hours) || 0;
     }
 
-    const over = [...map.values()].filter(b => b.job + b.drive > 40);
-    const userIds = [...new Set(over.map(b => b.user_id))];
+    // Weekly commission per (user, week) → the regular rate for the OT premium.
+    // Reuse the canonical commission engine + per-job final_pay overrides so the
+    // rate matches what the office sees on the payroll detail screen.
+    const weeklyCommission = new Map<string, number>(); // user|mondayWeek → $
+    try {
+      let comp: any = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32, commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" };
+      try {
+        const cr = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+        if (cr.rows[0]) comp = cr.rows[0];
+      } catch { /* keep defaults */ }
+      const resRates = parseResRatesRow(comp);
+
+      const cJobs = await db
+        .select({
+          id: jobsTable.id, assigned_user_id: jobsTable.assigned_user_id,
+          service_type: jobsTable.service_type, account_id: jobsTable.account_id,
+          base_fee: jobsTable.base_fee, billed_amount: jobsTable.billed_amount,
+          allowed_hours: jobsTable.allowed_hours, actual_hours: jobsTable.actual_hours,
+          branch_id: jobsTable.branch_id, scheduled_date: jobsTable.scheduled_date,
+        })
+        .from(jobsTable)
+        .where(and(
+          eq(jobsTable.company_id, companyId),
+          eq(jobsTable.status, "complete"),
+          gte(jobsTable.scheduled_date, from as string),
+          lte(jobsTable.scheduled_date, to as string),
+        ));
+
+      // Per-job final_pay overrides (one query for the whole range).
+      const overrides = new Map<string, number>();
+      const jobIds = cJobs.map(j => j.id);
+      if (jobIds.length) {
+        try {
+          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL`);
+          for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
+        } catch { /* job_technicians may be absent */ }
+      }
+
+      const rows = computeCommissionRows({
+        jobs: cJobs as any,
+        resRates,
+        commercial: {
+          commercial_hourly_rate: parseFloat(String(comp.commercial_hourly_rate ?? 20)),
+          commercial_comp_mode: (String(comp.commercial_comp_mode ?? "allowed_hours") as any),
+        },
+        overrides,
+      });
+      for (const row of rows) {
+        const wk = mondayOf(row.scheduled_date);
+        const k = key(row.user_id, wk);
+        weeklyCommission.set(k, (weeklyCommission.get(k) || 0) + row.amount);
+      }
+    } catch (e) {
+      console.error("Overtime commission regular-rate calc failed (non-fatal):", e);
+    }
+
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const weeks = [...map.values()].map(b => {
+      const dayEntries = [...b.days.entries()].sort((a, c) => a[0].localeCompare(c[0]));
+      const dailyHours = dayEntries.map(([, v]) => v.job + v.drive);
+      const job = dayEntries.reduce((s, [, v]) => s + v.job, 0);
+      const drive = dayEntries.reduce((s, [, v]) => s + v.drive, 0);
+
+      const ot = computeWeekOvertime(dailyHours, rules);
+      const commission = weeklyCommission.get(key(b.user_id, b.week_start)) || 0;
+      const regularRate = ot.totalHours > 0 ? commission / ot.totalHours : 0;
+      const premium = computeOvertimePremium({ otHours: ot.otHours, dtHours: ot.dtHours, regularRate, rules });
+
+      return {
+        user_id: b.user_id,
+        week_start: b.week_start,
+        job_hours: round1(job),
+        drive_hours: round1(drive),
+        total_hours: round1(ot.totalHours),
+        // overtime_hours = premium-bearing hours (1.5× + 2×). For weekly-40
+        // tenants this equals max(0, total − 40); daily-OT states may exceed it.
+        overtime_hours: round1(ot.otHours + ot.dtHours),
+        ot_hours: round1(ot.otHours),
+        dt_hours: round1(ot.dtHours),
+        weekly_commission: round2(commission),
+        regular_rate: round2(regularRate),
+        premium_estimate: round2(premium),
+      };
+    }).filter(w => w.ot_hours > 0 || w.dt_hours > 0);
+
+    const userIds = [...new Set(weeks.map(w => w.user_id))];
     const names = userIds.length
       ? await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
           .from(usersTable).where(inArray(usersTable.id, userIds))
       : [];
     const nameById = new Map(names.map(n => [n.id, `${n.first_name ?? ""} ${n.last_name ?? ""}`.trim()]));
 
-    const round1 = (n: number) => Math.round(n * 10) / 10;
-    const weeks = over
-      .map(b => ({
-        user_id: b.user_id,
-        name: nameById.get(b.user_id) || `User ${b.user_id}`,
-        week_start: b.week_start,
-        job_hours: round1(b.job),
-        drive_hours: round1(b.drive),
-        total_hours: round1(b.job + b.drive),
-        overtime_hours: round1(b.job + b.drive - 40),
-      }))
+    const enriched = weeks
+      .map(w => ({ ...w, name: nameById.get(w.user_id) || `User ${w.user_id}` }))
       .sort((a, b) => b.total_hours - a.total_hours);
 
-    return res.json({ any_over_40: weeks.length > 0, count: weeks.length, weeks });
+    const totalPremium = round2(enriched.reduce((s, w) => s + w.premium_estimate, 0));
+
+    return res.json({
+      any_over_40: enriched.length > 0,
+      count: enriched.length,
+      weeks: enriched,
+      total_premium_estimate: totalPremium,
+      rules,
+      rules_source: rulesSource,
+      has_daily_overtime: rules.dailyThresholdHours != null,
+    });
   } catch (err) {
     console.error("Overtime check error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to run overtime check" });
+  }
+});
+
+// Monday-of-week (ISO, matches Postgres date_trunc('week')) for a YYYY-MM-DD
+// date string. TZ-independent because scheduled_date carries no time.
+function mondayOf(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  const dow = d.getUTCDay(); // 0 Sun..6 Sat
+  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
+  return d.toISOString().slice(0, 10);
+}
+
+// ── Overtime rules config (read + save) ───────────────────────────────────────
+// Powers the Overtime section of company settings. GET returns the resolved
+// rules + the state preset + all presets for the picker; PUT persists owner
+// overrides onto the companies OT columns (source flips to 'custom').
+router.get("/overtime-rules", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const cRow = await db.execute(sql`
+      SELECT state, ot_rules_source, ot_weekly_threshold_hours, ot_daily_threshold_hours,
+             ot_daily_doubletime_hours, ot_seventh_day_rule, ot_multiplier, ot_doubletime_multiplier
+      FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const company = (cRow.rows[0] as any) || {};
+    const resolved = resolveOvertimeRules(company);
+    return res.json({
+      state: company.state ?? null,
+      rules: resolved.rules,
+      source: resolved.source,
+      state_preset: resolved.statePreset,
+      is_custom: company.ot_rules_source === "custom",
+      presets: STATE_OVERTIME_PRESETS,
+    });
+  } catch (err) {
+    console.error("Get overtime rules error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to get overtime rules" });
+  }
+});
+
+router.put("/overtime-rules", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const b = req.body ?? {};
+
+    // "reset" clears overrides → source NULL → resolver falls back to the
+    // state preset again.
+    if (b.reset === true) {
+      await db.execute(sql`UPDATE companies SET ot_rules_source = NULL WHERE id = ${companyId}`);
+      return res.json({ ok: true, reset: true });
+    }
+
+    const numOrNull = (v: any) => (v === null || v === undefined || v === "" ? null : Number(v));
+    const weekly = numOrNull(b.weeklyThresholdHours) ?? 40;
+    const daily = numOrNull(b.dailyThresholdHours);
+    const dt = numOrNull(b.dailyDoubleTimeHours);
+    const seventh = b.seventhConsecutiveDayRule === true;
+    const otMult = numOrNull(b.otMultiplier) ?? 1.5;
+    const dtMult = numOrNull(b.dtMultiplier) ?? 2.0;
+
+    await db.execute(sql`
+      UPDATE companies SET
+        ot_rules_source = 'custom',
+        ot_weekly_threshold_hours = ${weekly},
+        ot_daily_threshold_hours = ${daily},
+        ot_daily_doubletime_hours = ${dt},
+        ot_seventh_day_rule = ${seventh},
+        ot_multiplier = ${otMult},
+        ot_doubletime_multiplier = ${dtMult}
+      WHERE id = ${companyId}`);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Save overtime rules error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to save overtime rules" });
   }
 });
 

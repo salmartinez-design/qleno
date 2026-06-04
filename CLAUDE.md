@@ -346,6 +346,36 @@ commission shop, and the word "Efficiency" meaning three different formulas.)*
   can't be padded into overtime. Captured idle/drive/efficiency data is the
   office's coaching radar, not a pay obligation.
 
+## Overtime — Jurisdiction-Aware (Locked)
+*(Source of truth: docs/OVERTIME_COMPLIANCE_DESIGN.md. Engine: `lib/overtime.ts`.
+Not legal advice — the engine ESTIMATES the premium for office review; it never
+files or pays it.)*
+
+- **Hours worked = job clock time (`timeclock`) + between-jobs drive
+  (`mileage_legs.minutes`).** The home↔job commute is NEVER counted — no clock
+  runs during it and the mileage engine already excludes the commute legs
+  (29 CFR 785.35/785.38). Idle/breaks excluded. **Allowed hours is NOT hours
+  worked** — it's a budget for efficiency + commercial commission only.
+  Overtime is always measured against ACTUAL clocked time.
+- **Threshold is per-tenant.** Federal + most states (incl. Illinois) =
+  weekly-40 only, 1.5×. Daily-OT states (CA/AK/CO/NV; OR manufacturing) are
+  opt-in via `STATE_OVERTIME_PRESETS`, seeded from `companies.state`. Rules
+  resolve via `resolveOvertimeRules()`: company `ot_*` columns → state preset →
+  federal default. **Never hardcode 40 or 1.5× at a call site** — go through
+  the engine. No-pyramiding (a daily-OT hour isn't re-counted weekly).
+- **Premium = the extra over commission.** Phes pays commission, not hourly, so
+  straight time is already in the commission; only the premium portion is owed.
+  regular rate = workweek commission ÷ hours worked (reuse
+  `computeCommissionRows`). OT hours owe `(otMult−1)×rate`, DT hours
+  `(dtMult−1)×rate`. **Mileage is EXCLUDED from the regular rate** (reimbursement,
+  not wages — 29 CFR 778.217).
+- **Office-only.** `/payroll/overtime-check` is role-gated to owner/admin/office;
+  techs NEVER see overtime, hours-worked totals, drive, or idle as pay lines.
+  A tech's view is dollars. (Decision 2026-06-04: leave the tech view as-is;
+  do not surface hours to techs.)
+- **No money moves automatically** — same philosophy as mileage. The banner
+  surfaces the estimate; the office pays it via the normal additional-pay flow.
+
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
 - Square is for existing Phes clients only — new bookings always use Stripe
