@@ -4508,6 +4508,22 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   return newBilled;
 }
 
+// [additional-time 2026-06-04] A 'time' rate-mod (e.g. "Additional Time: 1.5h")
+// must also move the job's allowed_hours so commercial commission
+// (rate × allowed_hours) and the schedule block grow with the added time.
+// Incremental: +minutes on add, −minutes on remove. Clamped at 0.
+async function adjustAllowedHours(jobId: number, companyId: number, deltaMinutes: number): Promise<number | null> {
+  if (!deltaMinutes) return null;
+  const r = await db.execute(sql`
+    UPDATE jobs
+    SET allowed_hours = GREATEST(0, ROUND((COALESCE(allowed_hours, 0) + ${deltaMinutes / 60})::numeric, 2))
+    WHERE id = ${jobId} AND company_id = ${companyId}
+    RETURNING allowed_hours
+  `);
+  const v = (r.rows?.[0] as any)?.allowed_hours;
+  return v != null ? parseFloat(String(v)) : null;
+}
+
 // GET /api/jobs/:id/rate-mods — list all mods on a job
 router.get("/:id/rate-mods", requireAuth, async (req, res) => {
   try {
@@ -4599,10 +4615,13 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
       RETURNING id, mod_type, minutes, amount, reason, created_by, created_at
     `);
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    // Time mods extend the job's allowed hours (commercial commission + block).
+    const newAllowedHours = mod_type === "time" ? await adjustAllowedHours(jobId, companyId, Number(minutes)) : null;
     logAudit(req, "CREATE", "job_rate_mod", jobId, null, { mod_type, minutes, amount: amt });
     return res.status(201).json({
       mod: insert.rows[0],
       billed_amount: newBilled.toFixed(2),
+      allowed_hours: newAllowedHours,
     });
   } catch (err) {
     console.error("POST /jobs/:id/rate-mods error:", err);
@@ -4617,17 +4636,24 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
     const modId = parseInt(req.params.modId);
     const companyId = req.auth!.companyId;
 
-    const result = await db.execute(sql`
+    // Read the mod first so a removed 'time' mod also rolls back allowed_hours.
+    const modRows = await db.execute(sql`
+      SELECT mod_type, minutes FROM job_rate_mods
+      WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `);
+    const mod = modRows.rows?.[0] as any;
+    if (!mod) {
+      return res.status(404).json({ error: "Not Found", message: "Rate mod not found" });
+    }
+    await db.execute(sql`
       DELETE FROM job_rate_mods
       WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId}
     `);
-    const deleted = (result as any).rowCount ?? 0;
-    if (!deleted) {
-      return res.status(404).json({ error: "Not Found", message: "Rate mod not found" });
-    }
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    const newAllowedHours = mod.mod_type === "time" && mod.minutes
+      ? await adjustAllowedHours(jobId, companyId, -Number(mod.minutes)) : null;
     logAudit(req, "DELETE", "job_rate_mod", modId, null, null);
-    return res.json({ success: true, billed_amount: newBilled.toFixed(2) });
+    return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
   } catch (err) {
     console.error("DELETE /jobs/:id/rate-mods/:modId error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete rate mod" });
