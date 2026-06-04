@@ -88,6 +88,11 @@ function WeeklyDetailView() {
         </div>
       </div>
 
+      <p style={{ fontSize: 11, color: '#9E9B94', margin: '-4px 2px 0', fontFamily: FF }}>
+        During the transition, hours fall back to a job's <b>scheduled</b> hours (shown with ≈) when it
+        hasn't been clocked yet — real clocked time takes over automatically as the team adopts clock-in/out.
+      </p>
+
       {isLoading && <div style={{ padding: '40px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>}
 
       {!isLoading && employees.length === 0 && (
@@ -155,7 +160,7 @@ function WeeklyDetailView() {
                           <td style={td}>${job.job_total.toFixed(2)}</td>
                           <td style={{ ...td, color: 'var(--brand)', fontWeight: 600 }}>${job.commission.toFixed(2)}</td>
                           <td style={{ ...td, color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
-                          <td style={{ ...td, color: '#6B6860' }}>{job.hrs_worked.toFixed(1)}h</td>
+                          <td style={{ ...td, color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled hours — job not clocked yet' : 'Clocked hours'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
                           <td style={{ ...td, color: '#9E9B94', fontSize: 11 }}>{job.effective_rate != null ? `$${job.effective_rate.toFixed(2)}/hr` : '—'}</td>
                         </tr>
                       ))}

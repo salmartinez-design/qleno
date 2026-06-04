@@ -655,6 +655,13 @@ router.get("/detail", requireAuth, async (req, res) => {
         const jobTotal = parseFloat(String(job.billed_amount || job.base_fee || 0));
         const allowedHrs = parseFloat(String(job.allowed_hours || 0));
         const workedHrs = parseFloat(String(job.actual_hours || 0));
+        // [payroll-hours-transition 2026-06-04] Until clock-in/out is fully
+        // adopted in Qleno, fall back to the job's scheduled (allowed) hours
+        // when there's no clocked time, so payroll hours don't read 0 during
+        // the cutover. Self-correcting: the moment a job is actually clocked,
+        // workedHrs > 0 and the real time takes over automatically.
+        const effectiveHrs = workedHrs > 0 ? workedHrs : allowedHrs;
+        const hoursEstimated = workedHrs <= 0 && allowedHrs > 0;
         // [AI.7.4] Commercial routes on account_id. Hours signal honors
         // commercial_comp_mode (default 'allowed_hours'). Residential
         // unchanged — pool-rate × jobTotal.
@@ -673,7 +680,7 @@ router.get("/detail", requireAuth, async (req, res) => {
           ? Math.round(commercialHourlyRate * commercialHours * 100) / 100
           : Math.round(jobTotal * jobResPct * 100) / 100;
         const commission = jtMap.has(job.id) ? jtMap.get(job.id)! : calcCommission;
-        const effectiveRate = workedHrs > 0 ? Math.round((commission / workedHrs) * 100) / 100 : null;
+        const effectiveRate = effectiveHrs > 0 ? Math.round((commission / effectiveHrs) * 100) / 100 : null;
         return {
           job_id: job.id,
           date: job.scheduled_date,
@@ -691,7 +698,11 @@ router.get("/detail", requireAuth, async (req, res) => {
             ? (branchNameMap.get((job as any).branch_id) ?? null)
             : null,
           hrs_scheduled: allowedHrs,
-          hrs_worked: workedHrs,
+          // hrs_worked is the figure that cascades to payroll: clocked time
+          // when present, else scheduled hours (transition fallback above).
+          hrs_worked: effectiveHrs,
+          hrs_actual: workedHrs,
+          hrs_estimated: hoursEstimated,
           effective_rate: effectiveRate,
         };
       });
