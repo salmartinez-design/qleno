@@ -70,6 +70,16 @@ function WeeklyDetailView() {
 
   const employees: any[] = data?.data || [];
   const resPct = data?.res_tech_pay_pct ? Math.round(data.res_tech_pay_pct * 100) : 35;
+  // [reconciliation 2026-06-04] Day totals so the office can set both dates to a
+  // single day and reconcile Revenue · Commission · Allowed hrs against MC.
+  const dayTotals = employees.reduce((a: any, e: any) => ({
+    revenue: a.revenue + Number(e.totals?.job_total || 0),
+    commission: a.commission + Number(e.totals?.commission || 0),
+    allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
+    worked: a.worked + Number(e.totals?.hrs_worked || 0),
+  }), { revenue: 0, commission: 0, allowed: 0, worked: 0 });
+  const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const isSingleDay = period.start === period.end;
 
   const inputStyle: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #E5E2DC', borderRadius: 6, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF };
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
@@ -94,7 +104,25 @@ function WeeklyDetailView() {
       <p style={{ fontSize: 11, color: '#9E9B94', margin: '-4px 2px 0', fontFamily: FF }}>
         During the transition, hours fall back to a job's <b>scheduled</b> hours (shown with ≈) when it
         hasn't been clocked yet — real clocked time takes over automatically as the team adopts clock-in/out.
+        Set both dates to the same day to reconcile that day against MaidCentral.
       </p>
+
+      {employees.length > 0 && (
+        <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '14px 18px' }}>
+          {[
+            { k: isSingleDay ? 'Revenue · this day' : 'Revenue', v: money2(dayTotals.revenue), accent: true },
+            { k: 'Commission', v: money2(dayTotals.commission), accent: true },
+            { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
+            { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
+            { k: 'Employees', v: String(employees.length) },
+          ].map(s => (
+            <div key={s.k} style={{ minWidth: 104 }}>
+              <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF }}>{s.k}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.accent ? 'var(--brand)' : '#1A1917', fontFamily: FF }}>{s.v}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {isLoading && <div style={{ padding: '40px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>}
 
