@@ -291,7 +291,10 @@ function useIsMobile() { const [m, setM] = useState(window.innerWidth < 1024); u
 function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return "12 AM"; return h < 12 ? `${h} AM` : `${h - 12} PM`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
-function slotLbl(count: number) { if (count === 0) return "Open"; if (count <= 2) return `${count} job${count === 1 ? "" : "s"}`; return `Full (${count})`; }
+// Honest labels: the count is total jobs booked that hour across the whole
+// team — NOT a hard capacity. "Full" wrongly implied the slot was blocked, so
+// we show the real count and let colour carry the busy signal.
+function slotLbl(count: number) { if (count === 0) return "Open"; return `${count} job${count === 1 ? "" : "s"}`; }
 
 async function patchJob(id: number, patch: object, token: string) {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -2473,6 +2476,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             {availLoading ? "Loading availability..." : "Tap a time slot to select"}
                           </span>
                           {!availLoading && (
+                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 12px", marginBottom: 10 }}>
+                              {([["#16A34A", "Open"], ["#92400E", "1–2 jobs"], ["#991B1B", "3+ jobs (busy)"]] as [string, string][]).map(([c, l]) => (
+                                <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "#6B6860" }}>
+                                  <span style={{ width: 9, height: 9, borderRadius: 3, backgroundColor: slotBg(l === "Open" ? 0 : l.startsWith("1") ? 1 : 3), border: `1px solid ${c}33` }} />
+                                  {l}
+                                </span>
+                              ))}
+                              <span style={{ fontSize: 11, color: "#9E9B94", width: "100%" }}>Counts are jobs already booked that hour across your team — you can still pick a busy slot.</span>
+                            </div>
+                          )}
+                          {!availLoading && (
                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                               {availSlots.map(slot => {
                                 const isSelected = rescheduleHour === slot.hour;
@@ -2493,7 +2507,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {/* Section 4 — Team Assignment */}
                     {rescheduleHour !== null && (
                       <div style={{ margin: "14px 20px 0", backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", padding: "14px 16px" }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 10 }}>Team Assignment</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Team Assignment</span>
+                        <span style={{ fontSize: 11, color: "#9E9B94", display: "block", marginBottom: 10 }}>
+                          "<span style={{ color: "#991B1B", fontWeight: 600 }}>Conflict</span>" means the tech already has a job overlapping {fmtHour(rescheduleHour)}. You can still assign them.
+                        </span>
                         {techLoading ? (
                           <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Loading team availability...</p>
                         ) : techList.length === 0 ? (
@@ -2522,6 +2539,14 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                                 </button>
                               );
                             })}
+                          </div>
+                        )}
+                        {selectedTechId !== null && techList.find(t => t.id === selectedTechId)?.has_conflict && (
+                          <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <AlertTriangle size={13} color="#92400E" style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span style={{ fontSize: 12, color: "#92400E", lineHeight: 1.4 }}>
+                              {techList.find(t => t.id === selectedTechId)?.name?.split(" ")[0]} already has a job at this time. Confirming will double-book them.
+                            </span>
                           </div>
                         )}
                       </div>
