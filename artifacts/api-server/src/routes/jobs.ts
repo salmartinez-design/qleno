@@ -3026,6 +3026,15 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             (completedJob.allowed_hours != null && parseFloat(String(completedJob.allowed_hours)) > 0)
               ? Math.round(parseFloat(String(completedJob.allowed_hours)) * 60)
               : 120;
+          // [BUG 2026-06-04] scheduled_time is a Central (America/Chicago) wall
+          // time. Building the stamp as a naive `date + time` and letting it
+          // land in a `timestamp` column treats that wall time as UTC, so the
+          // round-trip renders it shifted by the Chicago offset (a 6:00 AM job
+          // showed a 1:00 AM clock-in). Anchor the wall time to Chicago, then
+          // express it in UTC for storage — session-timezone independent and
+          // consistent with the AT TIME ZONE pattern used elsewhere. Single-tz
+          // tenant (Phes); multi-tenant later should derive the zone per branch.
+          const clockIn = sql`(((${schedDate}::date + ${schedTime}::time) AT TIME ZONE 'America/Chicago') AT TIME ZONE 'UTC')`;
           for (const uid of techIds) {
             await db.execute(sql`
               INSERT INTO timeclock (
@@ -3034,8 +3043,8 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
               ) VALUES (
                 ${jobId}, ${uid}, ${req.auth!.companyId},
                 ${completedJob.branch_id ?? null},
-                (${schedDate}::date + ${schedTime}::time),
-                (${schedDate}::date + ${schedTime}::time) + (${durationMinutes} || ' minutes')::interval,
+                ${clockIn},
+                ${clockIn} + (${durationMinutes} || ' minutes')::interval,
                 'estimated', false
               )
             `);
