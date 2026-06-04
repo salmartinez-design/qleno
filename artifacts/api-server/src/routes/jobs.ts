@@ -1418,10 +1418,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // 4 future jobs reflect new times.").
       const anchorSkippedFields: string[] = [];
       if (skipAnchorLockedFields) {
+        // [2026-06-04] Price + rate are NO LONGER frozen on the completed
+        // anchor. Sal needs completed visits price-editable for MaidCentral
+        // reconciliation (correct hours/parking/rate on a finished job and
+        // have THIS visit's billed amount follow). The series identity —
+        // frequency + service_type — stays frozen on the anchor; the cascade
+        // below still propagates those to the template + future visits. Every
+        // change is captured by pushChange's audit rows above.
         if ("frequency" in setParts) { delete setParts.frequency; anchorSkippedFields.push("frequency"); }
         if ("service_type" in setParts) { delete setParts.service_type; anchorSkippedFields.push("service_type"); }
-        if ("base_fee" in setParts) { delete setParts.base_fee; anchorSkippedFields.push("base_fee"); }
-        if ("hourly_rate" in setParts) { delete setParts.hourly_rate; anchorSkippedFields.push("hourly_rate"); }
       }
       (req as any)._anchorSkippedFields = anchorSkippedFields;
 
