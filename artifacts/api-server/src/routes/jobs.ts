@@ -1708,8 +1708,23 @@ router.patch("/:id", requireAuth, async (req, res) => {
         let cascadeInserted = 0;
         let cascadeSkippedLocked = 0;
 
+        // The anchor job IS the first occurrence — it already carries the
+        // schedule's settings and was linked above. The cadence window
+        // includes its date, so without this guard the loop would query
+        // existing jobs at that date EXCLUDING the anchor (`j.id != jobId`),
+        // see "no other job," and INSERT a duplicate of the anchor on the
+        // same day. Normalize the anchor's date (before.scheduled_date is a
+        // raw pg Date; scheduled_date from the payload is a string) and skip
+        // it so we never self-duplicate.
+        const anchorDateStr = scheduled_date !== undefined
+          ? String(scheduled_date)
+          : (before.scheduled_date instanceof Date
+              ? `${before.scheduled_date.getFullYear()}-${String(before.scheduled_date.getMonth() + 1).padStart(2, "0")}-${String(before.scheduled_date.getDate()).padStart(2, "0")}`
+              : String(before.scheduled_date));
+
         for (const row of candidateRows) {
           const dateStr = String(row.scheduled_date);
+          if (dateStr === anchorDateStr) continue;
           const date = new Date(`${dateStr}T00:00:00`);
 
           // Find existing jobs at this date for this client EXCEPT the

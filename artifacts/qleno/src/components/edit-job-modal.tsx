@@ -1183,6 +1183,21 @@ export default function EditJobModal({
       if (d.cascade?.schedule_updated) summaryParts.push("Schedule updated.");
       const futureN = Number(d.cascade?.future_jobs_updated ?? 0);
       if (futureN > 0) summaryParts.push(`${futureN} future job${futureN === 1 ? "" : "s"} reflect new times.`);
+      // [recurring-fix] create_recurring path — the operator just converted a
+      // one-off into a recurring schedule. Make the fan-out result explicit so
+      // "I set a cadence and nothing happened" can never recur silently: report
+      // newly-scheduled visits, in-place updates of existing imported jobs, and
+      // any locked (paid/completed) occurrences that were left untouched.
+      if (d.cascade?.create_recurring) {
+        const cr = d.cascade.create_recurring;
+        const inserted = Number(cr.jobs_inserted ?? 0);
+        const overwritten = Number(cr.jobs_overwritten ?? 0);
+        const lockedSkipped = Number(cr.jobs_skipped_locked ?? 0);
+        if (inserted > 0) summaryParts.push(`Scheduled ${inserted} upcoming visit${inserted === 1 ? "" : "s"}.`);
+        if (overwritten > 0) summaryParts.push(`${overwritten} existing job${overwritten === 1 ? "" : "s"} updated to match.`);
+        if (inserted === 0 && overwritten === 0) summaryParts.push("Recurring schedule created.");
+        if (lockedSkipped > 0) summaryParts.push(`${lockedSkipped} paid/completed visit${lockedSkipped === 1 ? "" : "s"} left untouched.`);
+      }
       if (d.cascade?.anchor_protected) {
         const fields: string[] = Array.isArray(d.cascade?.anchor_skipped_fields) ? d.cascade.anchor_skipped_fields : [];
         const fieldList = fields.length > 0 ? ` (${fields.join(", ")} stayed frozen)` : "";

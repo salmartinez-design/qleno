@@ -31,7 +31,20 @@ export function addMonths(date: Date, months: number): Date {
   return d;
 }
 
-export function parseDate(str: string): Date {
+export function parseDate(str: string | Date): Date {
+  // Accept a JS Date as well as a "YYYY-MM-DD" string. The cadence engine
+  // is fed schedule rows from two sources: Drizzle typed selects (the
+  // `date()` column codec yields a string) and raw `tx.execute`/`db.execute`
+  // SELECTs (node-postgres' default `date` parser yields a JS Date at local
+  // midnight). The create_recurring cascade uses the raw-execute path, so a
+  // Date object reaches here — `.split` then threw `str.split is not a
+  // function`, aborting the whole transaction and silently rolling back the
+  // schedule + its fan-out. Reading the local Y/M/D components (matches how
+  // pg parses a bare `date`) normalizes both forms to a clean local-midnight
+  // Date so downstream day-of-week math is stable.
+  if (str instanceof Date) {
+    return new Date(str.getFullYear(), str.getMonth(), str.getDate());
+  }
   const [y, m, d] = str.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
@@ -83,8 +96,9 @@ export interface CadenceInput {
   days_of_week?: number[] | null;
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
-  start_date: string;
-  end_date?: string | null;
+  // string from a Drizzle typed select; Date from a raw pg `date` column.
+  start_date: string | Date;
+  end_date?: string | Date | null;
 }
 
 export function generateCadenceDates(
