@@ -5210,11 +5210,81 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 }
 
 // ─── Main Profile Page ─────────────────────────────────────────────────────────
+// [client-activity 2026-06-04] One chronological audit feed for the client —
+// every recorded action (job created/edited/rescheduled/cancelled/deleted,
+// price changes, tech reassignments, client edits, messages) with who + when.
+// Reads the aggregated GET /api/clients/:id/activity endpoint.
+function ActivityTab({ clientId }: { clientId: number }) {
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ["client-activity", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/activity?limit=200`),
+  });
+  const events: any[] = data?.events || [];
+  const FF2 = "'Plus Jakarta Sans', sans-serif";
+  const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
+  const META: Record<string, { label: string; color: string; bg: string }> = {
+    job_created:     { label: "Job created",    color: "#0A6E5A", bg: "#E6F8F2" },
+    job_edit:        { label: "Job edited",     color: "#1D4ED8", bg: "#EAF0FE" },
+    job_rescheduled: { label: "Rescheduled",    color: "#92400E", bg: "#FEF3C7" },
+    job_cancelled:   { label: "Cancelled",      color: "#B91C1C", bg: "#FEECEC" },
+    job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
+    client_edit:     { label: "Client edited",  color: "#5B21B6", bg: "#F1ECFD" },
+    client_created:  { label: "Client created", color: "#0A6E5A", bg: "#E6F8F2" },
+    communication:   { label: "Message",        color: "#374151", bg: "#F3F4F6" },
+  };
+  const label = (f: string | null) => (f ? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "");
+  const fmtVal = (v: any) => (v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  const describe = (e: any): string => {
+    const nv = e.new_value || {}, ov = e.old_value || {};
+    switch (e.event_type) {
+      case "job_edit":        return `${label(e.field_name)}: ${fmtVal(ov?.value ?? ov)} → ${fmtVal(nv?.value ?? nv)}`;
+      case "job_rescheduled": return `${label(e.field_name)}${nv.reason ? ` · ${nv.reason}` : ""}`;
+      case "job_cancelled":   return `${label(e.field_name) || "Cancelled"}${nv.reason ? ` · ${nv.reason}` : ""}${nv.charge ? ` · charged $${Number(nv.charge).toFixed(2)}` : ""}`;
+      case "job_deleted":     return `Job #${ov.job_id ?? ""}${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
+      case "communication":   return `${nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || ""}${nv.summary ? ` · ${nv.summary}` : nv.subject ? ` · ${nv.subject}` : ""}`;
+      case "client_edit":     return `${label(e.field_name)}: ${fmtVal(ov)} → ${fmtVal(nv)}`;
+      case "job_created":     return `Job #${e.related_job_id ?? ""} created`;
+      case "client_created":  return "Client created";
+      default:                return label(e.field_name);
+    }
+  };
+  return (
+    <div>
+      <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 14, fontFamily: FF2 }}>
+        Every recorded action on this client — jobs, reschedules, cancellations, price changes, messages — with who and when.
+      </div>
+      {isLoading ? (
+        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading…</div>
+      ) : events.length === 0 ? (
+        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No recorded activity yet.</div>
+      ) : (
+        <div>
+          {events.map((e, i) => {
+            const m = META[e.event_type] || { label: e.event_type, color: "#374151", bg: "#F3F4F6" };
+            return (
+              <div key={i} style={{ display: "flex", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                <span style={{ flexShrink: 0, alignSelf: "flex-start", fontSize: 11, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 6, padding: "3px 9px", fontFamily: FF2, whiteSpace: "nowrap" }}>{m.label}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, color: "#1A1917", fontFamily: FF2, wordBreak: "break-word" }}>{describe(e)}</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF2 }}>
+                    {fmtWhen(e.occurred_at)}{e.user_name ? ` · ${e.user_name}` : ""}{e.related_job_id ? ` · Job #${e.related_job_id}` : ""}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const PROFILE_TABS = [
   { id: "client",        label: "Client"        },
   { id: "property",      label: "Property"      },
   { id: "jobs",          label: "Jobs"          },
   { id: "admin",         label: "Admin"         },
+  { id: "activity",      label: "Activity"      },
   { id: "profitability", label: "Profitability" },
 ] as const;
 type ProfileTab = typeof PROFILE_TABS[number]["id"];
@@ -5818,6 +5888,11 @@ export default function CustomerProfilePage() {
       {/* ══════════════════════════════════════════════
           TAB 5: PROFITABILITY — owner/office only
          ══════════════════════════════════════════════ */}
+      {activeTab === "activity" && (
+        <div style={{ padding: "24px 0" }}>
+          <ActivityTab clientId={clientId} />
+        </div>
+      )}
       {activeTab === "profitability" && (
         <div style={{ padding: "24px 0" }}>
           <ProfitabilityTab clientId={clientId} />
@@ -5975,6 +6050,9 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Portal"><PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Tech Preferences"><TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} /></CollapsibleSection>
             </>)}
+            {activeTab === "activity" && (
+              <ActivityTab clientId={clientId} />
+            )}
             {activeTab === "profitability" && (
               <ProfitabilityTab clientId={clientId} />
             )}
