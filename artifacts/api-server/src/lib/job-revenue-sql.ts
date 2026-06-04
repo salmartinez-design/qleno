@@ -15,13 +15,21 @@ import { sql, type SQL } from "drizzle-orm";
 export function jobRevenueExpr(fallback: SQL, jobsAlias = "j", clientsAlias = "c"): SQL {
   const j = sql.raw(jobsAlias);
   const c = sql.raw(clientsAlias);
+  // [commercial-revenue 2026-06-04] Commercial work whose price is NOT a
+  // pinned flat amount bills hourly_rate × allowed_hours (the MaidCentral
+  // model) and this MUST win over the billed_amount cache — that cache goes
+  // stale after a rate/hours edit and silently under-counts (Jaira read the
+  // cached $320 instead of $50 × 8 = $400). The explicit billed_amount only
+  // wins for residential + for commercial jobs the office pinned to a flat
+  // price (manual_rate_override).
   return sql`CASE
-    WHEN ${j}.billed_amount IS NOT NULL AND CAST(${j}.billed_amount AS NUMERIC) > 0
-    THEN CAST(${j}.billed_amount AS NUMERIC)
     WHEN (${j}.account_id IS NOT NULL OR ${c}.client_type = 'commercial')
+         AND ${j}.manual_rate_override IS NOT TRUE
          AND ${j}.hourly_rate IS NOT NULL AND ${j}.allowed_hours IS NOT NULL
          AND CAST(${j}.hourly_rate AS NUMERIC) > 0 AND CAST(${j}.allowed_hours AS NUMERIC) > 0
     THEN CAST(${j}.hourly_rate AS NUMERIC) * CAST(${j}.allowed_hours AS NUMERIC)
+    WHEN ${j}.billed_amount IS NOT NULL AND CAST(${j}.billed_amount AS NUMERIC) > 0
+    THEN CAST(${j}.billed_amount AS NUMERIC)
     ELSE ${fallback}
   END`;
 }

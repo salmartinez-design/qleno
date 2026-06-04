@@ -2642,6 +2642,40 @@ router.patch("/:id", requireAuth, async (req, res) => {
       throw err;
     });
 
+    // [commercial-revenue 2026-06-04] Per Sal's decision, ANY edit that can
+    // move the price — hourly rate, allowed hours, base fee, add-ons,
+    // service type, or the manual-override flag — immediately refreshes the
+    // billed_amount cache so payroll + the weekly chart never read a stale
+    // number (the $320-vs-$420 staleness). Dispatch already computes live, so
+    // this is belt-and-suspenders for the cached consumers. Best-effort: a
+    // recompute hiccup must not fail an otherwise-successful edit.
+    if (!dry_run && (
+      base_fee !== undefined || hourly_rate !== undefined ||
+      allowed_hours !== undefined || addOnsProvided ||
+      service_type !== undefined || manual_rate_override !== undefined
+    )) {
+      // Scope to COMMERCIAL jobs only. Residential billed_amount semantics
+      // (how add-ons fold into the cache) are unchanged here — recomputing
+      // them on a modal edit would drop residential add-ons from the cache.
+      let isCommercialJob = (before as any).account_id != null;
+      if (!isCommercialJob && (before as any).client_id != null) {
+        try {
+          const ctRows = await db.execute(sql`
+            SELECT client_type FROM clients
+            WHERE id = ${(before as any).client_id} AND company_id = ${companyId} LIMIT 1
+          `);
+          isCommercialJob = (ctRows.rows[0] as any)?.client_type === "commercial";
+        } catch { /* fall through — treat as non-commercial */ }
+      }
+      if (isCommercialJob) {
+        try {
+          await recomputeJobBilledAmount(jobId, companyId);
+        } catch (e) {
+          console.warn(`[commercial-revenue] billed_amount recompute failed for job ${jobId}:`, e);
+        }
+      }
+    }
+
     // [PR #27] The post-commit fan-out from PR #25/#26 is removed —
     // the cascade now runs INSIDE the transaction (see the
     // wantsCreateRecurring block above). Atomicity: any failure
@@ -4502,20 +4536,53 @@ router.get("/v2/export", requireAuth, async (req, res) => {
 // pushing the post-mod total there flows through automatically.
 
 async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
-  const [job] = await db
-    .select({ base_fee: jobsTable.base_fee })
-    .from(jobsTable)
-    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
-    .limit(1);
+  // [commercial-revenue 2026-06-04] Keep billed_amount — the cache payroll +
+  // the weekly chart read — in lockstep with how dispatch computes revenue
+  // live, so the two never diverge. Commercial work whose price is NOT a
+  // pinned flat amount bills hourly_rate × allowed_hours + add-ons + rate-mods
+  // (the MaidCentral model). Everything else keeps the legacy base_fee + mods
+  // behavior untouched (residential price semantics aren't in scope here).
+  const rows = await db.execute(sql`
+    SELECT j.base_fee, j.hourly_rate, j.allowed_hours, j.account_id,
+           j.manual_rate_override, c.client_type
+    FROM jobs j
+    LEFT JOIN clients c ON c.id = j.client_id
+    WHERE j.id = ${jobId} AND j.company_id = ${companyId}
+    LIMIT 1
+  `);
+  const job = rows.rows[0] as any;
   if (!job) return 0;
   const base = parseFloat(String(job.base_fee || "0"));
   const sumRows = await db.execute(sql`
-    SELECT COALESCE(SUM(amount), 0)::numeric AS total
+    SELECT COALESCE(SUM(amount), 0)::numeric AS total,
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total
     FROM job_rate_mods
     WHERE job_id = ${jobId} AND company_id = ${companyId}
   `);
   const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
-  const newBilled = base + modsTotal;
+  const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
+
+  const isCommercial = job.account_id != null || job.client_type === "commercial";
+  const override = job.manual_rate_override === true;
+  const rate = parseFloat(String(job.hourly_rate || "0"));
+  const hrs = parseFloat(String(job.allowed_hours || "0"));
+
+  let newBilled: number;
+  if (isCommercial && !override && rate > 0 && hrs > 0) {
+    // Commercial: rate × allowed_hours + add-ons + FLAT mods only. 'time' mods
+    // already grew allowed_hours (PR #307), so they're in rate × hrs — adding
+    // their amount again would double-count the added time.
+    const addOnRows = await db.execute(sql`
+      SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
+      FROM job_add_ons
+      WHERE job_id = ${jobId}
+    `);
+    const addOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.total ?? "0"));
+    newBilled = rate * hrs + flatModsTotal + addOnsTotal;
+  } else {
+    newBilled = base + modsTotal;
+  }
+
   await db
     .update(jobsTable)
     .set({ billed_amount: newBilled.toFixed(2) })

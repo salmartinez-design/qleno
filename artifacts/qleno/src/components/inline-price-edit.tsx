@@ -15,6 +15,8 @@ export function InlinePriceEdit({
   billingMethod,
   hourlyRate,
   estimatedHours,
+  allowedHours,
+  rateDriven,
   canEdit,
   onUpdated,
 }: {
@@ -23,6 +25,12 @@ export function InlinePriceEdit({
   billingMethod?: string | null;
   hourlyRate?: number | null;
   estimatedHours?: number | null;
+  // [commercial-revenue 2026-06-04] When the job's revenue is hourly_rate ×
+  // allowed_hours (a commercial job the office hasn't pinned to a flat price),
+  // the panel passes rateDriven + allowedHours so we always show "$50/hr × 8h"
+  // next to the total — the office could never see the billing rate before.
+  allowedHours?: number | null;
+  rateDriven?: boolean;
   canEdit: boolean;
   onUpdated?: () => void;
 }) {
@@ -32,7 +40,10 @@ export function InlinePriceEdit({
   const [err, setErr] = useState<string | null>(null);
 
   const isHourly = billingMethod === "hourly" && hourlyRate != null;
-  const display = isHourly
+  const showRate = rateDriven && hourlyRate != null && allowedHours != null && allowedHours > 0;
+  const display = showRate
+    ? `$${Number(hourlyRate).toFixed(2)}/hr × ${Number(allowedHours)}h · $${Number(price).toFixed(2)}`
+    : isHourly
     ? `$${Number(hourlyRate).toFixed(2)}/hr · Hourly${estimatedHours ? ` · est. ${estimatedHours}h` : ""} · $${Number(price).toFixed(2)}`
     : `$${Number(price).toFixed(2)}`;
 
@@ -97,7 +108,7 @@ export function InlinePriceEdit({
           <X size={14} />
         </button>
       </div>
-      {isHourly && <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>Sets this visit's total price (overrides hours × rate for this visit only).</p>}
+      {(isHourly || showRate) && <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>Sets this visit's total price (overrides hours × rate for this visit only).</p>}
       {err && <p style={{ margin: 0, fontSize: 11, color: "#DC2626" }}>{err}</p>}
     </div>
   );
