@@ -481,6 +481,27 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, re
       }
     }
 
+    // [inactive-tech-unassigned 2026-06-04] Release this tech's open (not-yet-
+    // completed) jobs so they fall to Unassigned on the dispatch board instead
+    // of disappearing with the deactivated user. Completed jobs keep their
+    // assignment (payroll/history). The dispatch board also guards defensively,
+    // but clearing the source here keeps the data clean (assignment-mirror
+    // invariant: jobs.assigned_user_id is the dispatch source of truth).
+    const released = await db.execute(sql`
+      UPDATE jobs SET assigned_user_id = NULL
+      WHERE assigned_user_id = ${userId}
+        AND company_id = ${req.auth!.companyId}
+        AND status <> 'complete'
+    `);
+    try {
+      await db.execute(sql`
+        DELETE FROM job_technicians jt
+        USING jobs j
+        WHERE jt.job_id = j.id AND jt.user_id = ${userId}
+          AND j.company_id = ${req.auth!.companyId} AND j.status <> 'complete'
+      `);
+    } catch (e) { console.error("[deactivate] job_technicians cleanup skipped:", (e as any)?.message); }
+
     await db
       .update(usersTable)
       .set({ is_active: false })
@@ -488,7 +509,9 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, re
         eq(usersTable.id, userId),
         eq(usersTable.company_id, req.auth!.companyId)
       ));
-    logAudit(req, "DELETE_EMPLOYEE", "employee", userId, null, { is_active: false });
+    logAudit(req, "DELETE_EMPLOYEE", "employee", userId, null, {
+      is_active: false, jobs_released_to_unassigned: (released as any)?.rowCount ?? undefined,
+    });
     return res.json({ success: true, message: "User deactivated" });
   } catch (err) {
     console.error("Delete user error:", err);

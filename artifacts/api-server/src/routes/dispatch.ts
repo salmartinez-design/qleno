@@ -711,6 +711,14 @@ router.get("/", requireAuth, async (req, res) => {
             const hrs = j.allowed_hours ? parseFloat(j.allowed_hours) : 0;
             if (rate > 0 && hrs > 0) return rate * hrs + mods + addOns;
           }
+          // [revenue-billed 2026-06-04] When the office set an explicit price
+          // (billed_amount — e.g. via "Change price"), THAT is what's actually
+          // billed and is the source of truth (matches MaidCentral and the
+          // commission engine, both of which use billed_amount || base_fee).
+          // Reconstruct from base_fee + add-ons only when no explicit price was
+          // set, so price changes stop under-counting daily revenue.
+          const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
+          if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods + addOns;
         })(),
@@ -805,6 +813,11 @@ router.get("/", requireAuth, async (req, res) => {
 
     const jobsByEmployee = new Map<number, typeof mappedJobs>();
     const unassigned: typeof mappedJobs = [];
+    // [inactive-tech-unassigned 2026-06-04] A job assigned to a tech who is no
+    // longer active (deactivated/removed) must fall into Unassigned, not vanish.
+    // `employees` is already filtered to active techs, so any assigned user_id
+    // not in this set is treated as unassigned below.
+    const activeEmployeeIds = new Set(employees.map(e => e.id));
 
     // [hotfix iter 2] Two-level dedupe. The first level (seenIds) catches
     // the case where the same job.id appears twice via a JOIN fan-out.
@@ -865,12 +878,15 @@ router.get("/", requireAuth, async (req, res) => {
       // the full job value on the chip — that's what the operator wants
       // to see. assigned_user_id stays — still drives drag-and-drop and
       // the chip's tech name badge for the primary.
-      const techsArr: Array<{ user_id: number; is_primary?: boolean; calc_pay?: number }> =
+      const rawTechs: Array<{ user_id: number; is_primary?: boolean; calc_pay?: number }> =
         (Array.isArray((job as any).technicians) && (job as any).technicians.length > 0)
           ? (job as any).technicians
           : (job.assigned_user_id != null
               ? [{ user_id: Number(job.assigned_user_id), is_primary: true, calc_pay: Number((job as any).est_pay_per_tech) || 0 }]
               : []);
+      // Drop assignees who are no longer active techs (removed/deactivated) so
+      // their jobs surface under Unassigned instead of disappearing.
+      const techsArr = rawTechs.filter(t => activeEmployeeIds.has(Number(t.user_id)));
 
       if (techsArr.length === 0) {
         unassigned.push(job);
