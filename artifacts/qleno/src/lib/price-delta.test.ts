@@ -14,7 +14,7 @@ test("Case A: billed_amount is null → no delta, price shows base_fee", () => {
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$250");
+  assert.equal(r.display, "$250.00");
 });
 
 test("Case A (undefined billed): no delta, price shows base_fee", () => {
@@ -25,7 +25,7 @@ test("Case A (undefined billed): no delta, price shows base_fee", () => {
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$180");
+  assert.equal(r.display, "$180.00");
 });
 
 test("Case B: billed_amount === base_fee → no delta, price shows base_fee", () => {
@@ -36,7 +36,7 @@ test("Case B: billed_amount === base_fee → no delta, price shows base_fee", ()
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$200");
+  assert.equal(r.display, "$200.00");
 });
 
 test("Case B (within epsilon): tiny float drift → no delta", () => {
@@ -48,7 +48,7 @@ test("Case B (within epsilon): tiny float drift → no delta", () => {
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$200");
+  assert.equal(r.display, "$200.00");
 });
 
 test("Case C (positive): billed > base_fee → delta renders, price shows billed", () => {
@@ -59,7 +59,7 @@ test("Case C (positive): billed > base_fee → delta renders, price shows billed
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, 45);
-  assert.equal(r.display, "$245");
+  assert.equal(r.display, "$245.00");
 });
 
 test("Case C (negative): billed < base_fee → delta renders negative, price shows billed", () => {
@@ -70,7 +70,7 @@ test("Case C (negative): billed < base_fee → delta renders negative, price sho
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, -20);
-  assert.equal(r.display, "$230");
+  assert.equal(r.display, "$230.00");
 });
 
 test("Case C: half-dollar threshold — $0.50 difference renders delta", () => {
@@ -113,7 +113,7 @@ test("Edge: base_fee 0, billed null → no delta, $0 display", () => {
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$0");
+  assert.equal(r.display, "$0.00");
 });
 
 test("Edge: base_fee 0 with billed set — delta suppressed (no original to compare against)", () => {
@@ -126,5 +126,5 @@ test("Edge: base_fee 0 with billed set — delta suppressed (no original to comp
     billingMethod: null,
   });
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$150"); // shows billed when present
+  assert.equal(r.display, "$150.00"); // shows billed when present
 });

@@ -56,6 +56,14 @@ function refreshTimeline() {
 }
 refreshTimeline();
 
+// [penny-exact 2026-06-04] Dispatch dollar figures are reconciled against
+// MaidCentral/ADP payroll to the cent, so money MUST render with full cents
+// and thousands separators ($1,339.20 — never $1339 or $1.3k). Use this for
+// every revenue / pay / billed amount on the board. `formatRev` (the $1.3k
+// compact form) is for the mobile week-summary chart only, not reconciliation.
+const fmtUSD = (n: number | null | undefined) =>
+  Number(n ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
+
 const STATUS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
   scheduled:   { bg: "#DBEAFE", border: "#93C5FD", text: "#1D4ED8", dot: "#3B82F6" },
   in_progress: { bg: "#FEF3C7", border: "#FCD34D", text: "#92400E", dot: "#F59E0B" },
@@ -1843,8 +1851,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             );
             return (
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <Tile label="Billed" value={`$${Math.round(billed).toLocaleString()}`} />
-                <Tile label="Commission" value={hasComm ? `$${Math.round(commTotal).toLocaleString()}` : "—"} color="#2D9B83" />
+                <Tile label="Billed" value={fmtUSD(billed)} />
+                <Tile label="Commission" value={hasComm ? fmtUSD(commTotal) : "—"} color="#2D9B83" />
                 <Tile label="Hours" value={allowed != null ? `${allowed.toFixed(1)}h` : "—"} sub="allowed" />
               </div>
             );
@@ -4139,7 +4147,7 @@ function JobChipBody({
                 backgroundColor: deltaAmount > 0 ? "rgba(34,197,94,0.85)" : "rgba(239,68,68,0.85)",
                 color: "#FFFFFF", lineHeight: 1.2, whiteSpace: "nowrap",
               }}>
-                {deltaAmount > 0 ? "↑" : "↓"} ${Math.abs(Math.round(deltaAmount))}
+                {deltaAmount > 0 ? "↑" : "↓"} {fmtUSD(Math.abs(deltaAmount))}
               </span>
             )}
           </div>
@@ -4342,7 +4350,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
           </div>
           <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.role}</div>
           <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1 }}>
-            {employee.jobs.length}j · {Math.floor(totalMins / 60)}h · ${revenue.toFixed(0)} · ${pay != null ? pay.toFixed(0) : "0"}
+            {employee.jobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)} · {fmtUSD(pay)}
           </div>
         </div>
       </div>
