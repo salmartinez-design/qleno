@@ -292,10 +292,12 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     description: "Job finished and payment is in.",
     swatch: "#A78BFA",
     stripe: null,
-    // [2026-06-04] No body dimming — keep the card readable. Completion
-    // reads from the muted bar fill + green checkmark instead.
+    // [2026-06-04] No body dimming — keep the card readable. Completion reads
+    // from the green checkmark. fillMuted is OFF: draining the fill washed out
+    // the MaidCentral-matched zone colors (every job on a finished day looked
+    // grey/recolored). Zone hue stays exact; the checkmark is the done signal.
     bodyOpacity: 1,
-    fillMuted: true,
+    fillMuted: false,
     showCheckmark: true,
     showNoShowBadge: false,
     strikethrough: false,
@@ -309,7 +311,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     swatch: "#BA7517",
     stripe: null,
     bodyOpacity: 1,
-    fillMuted: true,
+    fillMuted: false,
     showCheckmark: true,
     showNoShowBadge: false,
     strikethrough: false,
