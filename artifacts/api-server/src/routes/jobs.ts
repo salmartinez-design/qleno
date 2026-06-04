@@ -4035,9 +4035,19 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId!;
     const userId = req.auth!.userId!;
-    const { address, city, state, zip, mode: requestedMode } = (req.body ?? {}) as {
+    const { address, city, state, zip, mode: requestedMode, cascade_future, preview } = (req.body ?? {}) as {
       address?: string; city?: string; state?: string; zip?: string;
       mode?: "client" | "job";
+      // [address-cascade 2026-06-04] How far an "apply to all future" change
+      // reaches into jobs already on the calendar. The office picks this via a
+      // prompt (Sal's call). "all" = every upcoming job that carries its own
+      // saved address; "matching" = only those still at the OLD client address
+      // (leaves deliberate one-off sites alone); "none" = client record only,
+      // upcoming jobs without an override inherit it automatically.
+      cascade_future?: "none" | "matching" | "all";
+      // When true, don't write anything — return how many upcoming jobs would
+      // be affected so the frontend can render the cascade prompt.
+      preview?: boolean;
     };
 
     if (!address || !address.trim()) {
@@ -4058,6 +4068,40 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
     `);
     if (!ctx.rows.length) return res.status(404).json({ error: "Job not found" });
     const r = ctx.rows[0] as any;
+
+    // [address-cascade 2026-06-04] Preview: count UPCOMING jobs for this client
+    // (excluding the one being edited) that carry their OWN saved address —
+    // those are the only ones a client-level change won't fix automatically.
+    // Split into "same" (still at the old client address — safe to move) vs
+    // "different" (a deliberate one-off site). Jobs without an override aren't
+    // counted: they inherit the client address the moment it changes.
+    if (preview === true) {
+      const counts = await db.execute(sql`
+        SELECT
+          COUNT(*) FILTER (WHERE has_override)                AS override_total,
+          COUNT(*) FILTER (WHERE has_override AND is_same)    AS same_count,
+          COUNT(*) FILTER (WHERE has_override AND NOT is_same) AS diff_count
+        FROM (
+          SELECT
+            (j.address_street IS NOT NULL AND btrim(j.address_street) <> '') AS has_override,
+            (lower(btrim(coalesce(j.address_street, ''))) = lower(btrim(coalesce(${r.c_addr ?? ""}, '')))
+             AND coalesce(j.address_zip, '') = coalesce(${r.c_zip ?? ""}, '')) AS is_same
+          FROM jobs j
+          WHERE j.company_id = ${companyId}
+            AND j.client_id = ${r.client_id}
+            AND j.id <> ${jobId}
+            AND j.scheduled_date >= CURRENT_DATE
+            AND j.status IN ('scheduled', 'in_progress')
+        ) t
+      `);
+      const c = (counts.rows[0] as any) ?? {};
+      return res.json({
+        preview: true,
+        future_override_total: Number(c.override_total ?? 0),
+        future_same: Number(c.same_count ?? 0),
+        future_different: Number(c.diff_count ?? 0),
+      });
+    }
 
     // Mode resolution. Frontend now sends an explicit mode (the popover's
     // "permanent change" checkbox controls it: unchecked = job, checked =
@@ -4108,6 +4152,14 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
       });
     }
 
+    // Cascade scope only applies to a client-level change. Defaults to "none"
+    // (existing behavior) for any caller that doesn't send it.
+    const scope: "none" | "matching" | "all" =
+      (mode === "client" && (cascade_future === "all" || cascade_future === "matching"))
+        ? cascade_future
+        : "none";
+    let cascadedCount = 0;
+
     const before = {
       mode,
       address: r.j_addr ?? r.c_addr ?? null,
@@ -4150,6 +4202,38 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
           UPDATE jobs SET zone_id = ${newZoneId}
           WHERE id = ${jobId} AND company_id = ${companyId}
         `);
+
+        // [address-cascade 2026-06-04] Rewrite the address on upcoming jobs
+        // that carry their OWN saved address, per the scope the office chose
+        // in the prompt. Jobs without an override already inherit the client
+        // change above, so they're untouched. "matching" leaves deliberate
+        // one-off sites (different from the old client address) alone.
+        if (scope === "all" || scope === "matching") {
+          const sameOnly = scope === "matching"
+            ? sql`AND lower(btrim(coalesce(address_street, ''))) = lower(btrim(coalesce(${r.c_addr ?? ""}, '')))
+                  AND coalesce(address_zip, '') = coalesce(${r.c_zip ?? ""}, '')`
+            : sql``;
+          const cascaded = await tx.execute(sql`
+            UPDATE jobs SET
+              address_street   = ${address},
+              address_city     = ${city ?? null},
+              address_state    = ${state ?? null},
+              address_zip      = ${zip ?? null},
+              address_lat      = ${String(coords.lat)},
+              address_lng      = ${String(coords.lng)},
+              address_verified = true,
+              zone_id          = ${newZoneId}
+            WHERE company_id = ${companyId}
+              AND client_id = ${r.client_id}
+              AND id <> ${jobId}
+              AND scheduled_date >= CURRENT_DATE
+              AND status IN ('scheduled', 'in_progress')
+              AND address_street IS NOT NULL AND btrim(address_street) <> ''
+              ${sameOnly}
+            RETURNING id
+          `);
+          cascadedCount = cascaded.rows.length;
+        }
       }
 
       // Audit row.
@@ -4164,6 +4248,8 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
         address, city: city ?? null, state: state ?? null, zip: zip ?? null,
         zone_id: newZoneId,
         lat: String(coords.lat), lng: String(coords.lng),
+        cascade_future: scope,
+        cascaded_jobs: cascadedCount,
       };
       await tx.execute(sql`
         INSERT INTO job_audit_log
@@ -4184,6 +4270,8 @@ router.patch("/:id/address", requireAuth, async (req, res) => {
         address, city, state, zip,
         lat: coords.lat, lng: coords.lng,
         zone_id: newZoneId,
+        cascade_future: scope,
+        cascaded_jobs: cascadedCount,
       },
     });
   } catch (err) {
