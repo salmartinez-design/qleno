@@ -251,6 +251,46 @@
   `recurring_schedules.service_address` or `recurring_schedules.zip`,
   flag it — those don't exist; the carrier is `jobs.address_*`.
 
+## Mileage / Drive Time — Decisions Locked
+*(Source of truth for the time-clock build. 2A compute+park and 2B
+review+apply are already built & merged — #200, #202 corrective, #203.
+Honor this so the clocks stay consistent with how mileage reads from them.)*
+
+- **Core model**: mileage = driving distance between the **client
+  addresses in a tech's job sequence for the day**, via a mapping API.
+  NOT manual entry, NOT straight-line distance.
+- **What counts**: client-to-client legs only (drive from one job to the
+  next). **Excluded**: the commute bookends — home→first-job and
+  last-job→home are never reimbursed. Home AND office are both
+  non-reimbursable waypoints; any leg touching home or office is excluded
+  (Sal does not track office/supply stops in-system). Each tech computed
+  independently.
+- **Rate source**: a dated, owner-editable `mileage_rates` table
+  (`company_id`, `rate`, `effective_date`, optional `end_date`). The rate
+  for a given day is the row whose `effective_date` is the latest on or
+  before that day. **Never hardcode the rate.** A past period computes at
+  the rate in effect *then*, not today's. Mirrors `employee_pay_rates`.
+- **No money until reviewed (load-bearing)**: computed mileage does NOT
+  flow into pay automatically. It lives on `mileage_legs` with a status
+  lifecycle `computed → reviewed → applied → (or discarded)`. It becomes a
+  `pay_adjustment` ONLY when the office explicitly applies it at the
+  review gate (2B). The bridge is `applied_pay_adjustment_id` on the leg,
+  so every paid mileage dollar traces back to its leg.
+- **Distance caching**: driving distance cached per address pair
+  (`distance_cache`, company-scoped, unique on from/to coords) so recompute
+  doesn't re-hit the mapping API for a measured pair. Cache preserves
+  `source` + `is_estimated` for audit. Force-refresh available if an
+  address changes.
+- **Provider neutrality**: the mapping/distance provider is behind a single
+  interface, not hardcoded at the route. Swappable (same principle as the
+  vendor-neutral payroll export).
+- **THE HOOK — preserve `from_job_id`**: drive legs come from the
+  clock/job-sequence data. The on-my-way event stores `from_job_id` (the
+  client-to-client leg), which feeds the mileage compute. The time clock is
+  the source signal for mileage. **Any code that writes on-my-way / clock
+  events MUST preserve `from_job_id`** — it's the hook the whole mileage
+  chain hangs on. (Field-app "On My Way" wiring that sets this: #291.)
+
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
 - Square is for existing Phes clients only — new bookings always use Stripe
