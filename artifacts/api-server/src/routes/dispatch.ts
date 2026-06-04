@@ -170,6 +170,12 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         billed_hours: jobsTable.billed_hours,
         billed_amount: jobsTable.billed_amount,
+        // [commercial-revenue 2026-06-04] Distinguishes an explicit flat
+        // "Change price" / "Override rate" (true) from a normal commercial
+        // job whose revenue is hourly_rate × allowed_hours (false). The
+        // amount computation below branches on it so the hourly rate the
+        // office sees ALWAYS reconciles with the billed total.
+        manual_rate_override: jobsTable.manual_rate_override,
         // [AI.6.2] Drives the cascade prompt in the edit modal. Without this
         // field surfaced, every recurring job's edit modal silently submits
         // as cascade_scope='this_job' — operators never see the
@@ -486,15 +492,24 @@ router.get("/", requireAuth, async (req, res) => {
     // showed 340 = 320 + 20 parking, not the correct 420). One aggregated
     // query keyed by job_id avoids N+1 round trips.
     const rateModSumByJob = new Map<number, number>();
+    // [commercial-revenue 2026-06-04] Flat-only mod total. Commercial revenue
+    // is rate × allowed_hours, and a 'time' mod already grew allowed_hours
+    // (PR #307), so re-adding its dollar amount would double-count the added
+    // time. Commercial therefore adds only 'flat' mods; residential keeps the
+    // all-mods total.
+    const flatModSumByJob = new Map<number, number>();
     if (idList.length > 0) {
       const modRows = await db.execute(sql`
-        SELECT job_id, COALESCE(SUM(amount), 0)::numeric AS total
+        SELECT job_id,
+               COALESCE(SUM(amount), 0)::numeric AS total,
+               COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total
           FROM job_rate_mods
          WHERE job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
          GROUP BY job_id
       `);
       for (const r of modRows.rows as any[]) {
         rateModSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
+        flatModSumByJob.set(Number(r.job_id), parseFloat(String(r.flat_total ?? "0")));
       }
     }
 
@@ -698,24 +713,43 @@ router.get("/", requireAuth, async (req, res) => {
         amount: (() => {
           const mods = rateModSumByJob.get(j.id) ?? 0;
           const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
-          // [revenue-billed 2026-06-04] An explicit billed price (e.g. via
-          // "Change price") is what's ACTUALLY charged and is the source of
-          // truth for EVERY job type — commercial AND residential — matching
-          // MaidCentral + the commission engine. It wins over the rate×hours /
-          // base_fee reconstructions below, so a price change on a commercial
-          // job (billed $578.40 instead of rate×hours) stops under-counting
-          // daily revenue.
-          const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
-          if (billed != null && billed > 0) return billed;
-          // [revenue-reconciliation 2026-06-03] No explicit billed price:
-          // commercial work bills hourly_rate × allowed_hours (matching MC),
-          // NOT a flat base_fee; fall back to base_fee only when the hourly
-          // inputs are missing. Residential uses base_fee + add-ons.
+          const override = (j as any).manual_rate_override === true;
+          // [commercial-revenue 2026-06-04] Commercial revenue = the SERVICE
+          // amount + add-ons + rate-mods, computed LIVE so the hourly rate the
+          // office sees always reconciles with the billed total (the
+          // "$50/hr × 8h but billed $320" confusion). The service amount is:
+          //   • hourly_rate × allowed_hours  — the normal MC model, when the
+          //     office hasn't pinned a flat price. This is authoritative even
+          //     if a stale billed_amount cache disagrees (Jaira: $50×8 + $20
+          //     parking = $420, not the cached $320).
+          //   • base_fee                     — when the office EXPLICITLY set a
+          //     flat price via "Override rate" / "Change price"
+          //     (manual_rate_override=true), e.g. a flat-contract commercial
+          //     account billed $578.40 regardless of hours.
+          // We compute live rather than trust billed_amount because that cache
+          // isn't refreshed on a rate/hours edit and silently throws revenue
+          // off. The recompute helper keeps billed_amount fresh for payroll,
+          // but dispatch never depends on it being fresh.
           if (isCommercialPay) {
             const rate = j.hourly_rate ? parseFloat(j.hourly_rate) : 0;
             const hrs = j.allowed_hours ? parseFloat(j.allowed_hours) : 0;
-            if (rate > 0 && hrs > 0) return rate * hrs + mods + addOns;
+            if (!override && rate > 0 && hrs > 0) {
+              // Auto MC model: hourly service + add-ons + FLAT rate-mods only
+              // ('time' mods already live in allowed_hours → rate × hrs).
+              const flatMods = flatModSumByJob.get(j.id) ?? 0;
+              return rate * hrs + flatMods + addOns;
+            }
+            // Pinned flat price ("Change price"/"Override rate") or no hourly
+            // inputs: base_fee carries the all-in amount the office set, so
+            // add-ons are considered included — don't double-add them. Mirrors
+            // recomputeJobBilledAmount's else branch exactly.
+            const base = j.base_fee ? parseFloat(j.base_fee) : 0;
+            return base + mods;
           }
+          // Residential: unchanged. An explicit billed price (e.g. manual
+          // "Change price") wins; otherwise base_fee + add-ons + rate-mods.
+          const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
+          if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods + addOns;
         })(),
@@ -745,6 +779,10 @@ router.get("/", requireAuth, async (req, res) => {
         recurring_schedule_days_of_week: (j as any).recurring_schedule_days_of_week ?? null,
         billing_method: j.billing_method ?? null,
         hourly_rate: j.hourly_rate ? parseFloat(j.hourly_rate) : null,
+        // [commercial-revenue 2026-06-04] Lets the FE show "$50/hr × 8h" on
+        // commercial jobs whose revenue is rate-driven, and suppress the
+        // rate label when the office pinned a flat price.
+        manual_rate_override: (j as any).manual_rate_override === true,
         estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,
         actual_hours: j.actual_hours ? parseFloat(j.actual_hours) : null,
         billed_hours: j.billed_hours ? parseFloat(j.billed_hours) : null,
