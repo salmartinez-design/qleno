@@ -344,7 +344,21 @@ export default function PayrollPage() {
   const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
   const { data, isLoading } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
   const employees = data?.data || [];
-  const billableEmployees = employees.filter((e: any) => e.role !== 'owner');
+  // Payroll only includes ACTIVE, real employees. Excludes owners, QA/sandbox
+  // fixtures, archived/terminated/inactive accounts, and non-production test
+  // logins (e.g. *.internal, @phes-test.*, *.former@) so test auditors and
+  // former staff don't clutter the run.
+  const billableEmployees = employees.filter((e: any) => {
+    if (e.role === 'owner') return false;
+    if (e.is_sandbox) return false;
+    if (e.is_active === false) return false;
+    if (e.hr_status === 'inactive') return false;
+    if (e.archived_at) return false;
+    if (e.termination_date) return false;
+    const email = String(e.email || '').toLowerCase();
+    if (/@phes-test\.|\.internal$|\.former@/.test(email)) return false;
+    return true;
+  });
 
   // Real payroll for the current bi-weekly period (Sun..Sat, 14 days) — same
   // source as the detail view and the Earnings panel. Replaces the old stub
@@ -356,6 +370,11 @@ export default function PayrollPage() {
     const ymd = (d: Date) => d.toISOString().slice(0, 10);
     return { start: ymd(start), end: ymd(end) };
   }, []);
+  const periodLabel = useMemo(() => {
+    const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const yr = new Date(`${payPeriod.end}T00:00:00`).getFullYear();
+    return `${fmt(payPeriod.start)} – ${fmt(payPeriod.end)}, ${yr}`;
+  }, [payPeriod]);
   const { data: payData } = useQuery({
     queryKey: ['payroll-overview', payPeriod.start, payPeriod.end, activeBranchId],
     queryFn: () => apiFetch(`/payroll/detail?pay_period_start=${payPeriod.start}&pay_period_end=${payPeriod.end}${activeBranchId !== 'all' ? `&branch_id=${activeBranchId}` : ''}`),
@@ -441,18 +460,23 @@ export default function PayrollPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
         <PreflightBanner from={payPeriod.start} to={payPeriod.end} />
         <OvertimeBanner from={payPeriod.start} to={payPeriod.end} />
-        {/* View Toggle */}
-        <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8, width: 'fit-content' }}>
-          {[{ key: 'weekly-detail', label: 'By Employee' }, { key: 'overview', label: 'Summary' }].map(v => (
-            <button key={v.key} onClick={() => setActiveView(v.key as any)}
-              style={{ padding: '6px 16px', borderRadius: 6, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
-                background: activeView === v.key ? '#fff' : 'transparent',
-                color: activeView === v.key ? '#1A1917' : '#9E9B94',
-                boxShadow: activeView === v.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-              }}>
-              {v.label}
-            </button>
-          ))}
+        {/* View Toggle + current pay period */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8, width: 'fit-content' }}>
+            {[{ key: 'weekly-detail', label: 'By Employee' }, { key: 'overview', label: 'Summary' }].map(v => (
+              <button key={v.key} onClick={() => setActiveView(v.key as any)}
+                style={{ padding: '6px 16px', borderRadius: 6, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  background: activeView === v.key ? '#fff' : 'transparent',
+                  color: activeView === v.key ? '#1A1917' : '#9E9B94',
+                  boxShadow: activeView === v.key ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                }}>
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 13, color: '#6B7280', fontWeight: 500, fontFamily: 'inherit' }}>
+            Pay period: <span style={{ color: '#1A1917', fontWeight: 700 }}>{periodLabel}</span>
+          </div>
         </div>
 
         {activeView === 'weekly-detail' && <WeeklyDetailView />}
@@ -462,7 +486,7 @@ export default function PayrollPage() {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
           <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: '8px', backgroundColor: 'transparent', color: '#6B7280', fontSize: '13px', cursor: 'pointer', fontFamily:'inherit' }}>
             <Calendar size={14} strokeWidth={1.5} />
-            Current Period
+            {periodLabel}
           </button>
           <button
             onClick={() => {
@@ -540,7 +564,7 @@ export default function PayrollPage() {
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: 0 }}>Employee Payroll Summary</p>
-            <span style={{ fontSize: '12px', color: '#6B7280' }}>Current bi-weekly period</span>
+            <span style={{ fontSize: '12px', color: '#6B7280' }}>Bi-weekly · {periodLabel}</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
