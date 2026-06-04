@@ -16,10 +16,12 @@ export function jobRevenueExpr(fallback: SQL, jobsAlias = "j", clientsAlias = "c
   const j = sql.raw(jobsAlias);
   const c = sql.raw(clientsAlias);
   return sql`CASE
+    WHEN ${j}.billed_amount IS NOT NULL AND CAST(${j}.billed_amount AS NUMERIC) > 0
+    THEN CAST(${j}.billed_amount AS NUMERIC)
     WHEN (${j}.account_id IS NOT NULL OR ${c}.client_type = 'commercial')
          AND ${j}.hourly_rate IS NOT NULL AND ${j}.allowed_hours IS NOT NULL
          AND CAST(${j}.hourly_rate AS NUMERIC) > 0 AND CAST(${j}.allowed_hours AS NUMERIC) > 0
     THEN CAST(${j}.hourly_rate AS NUMERIC) * CAST(${j}.allowed_hours AS NUMERIC)
-    ELSE COALESCE(NULLIF(CAST(${j}.billed_amount AS NUMERIC), 0), ${fallback})
+    ELSE ${fallback}
   END`;
 }

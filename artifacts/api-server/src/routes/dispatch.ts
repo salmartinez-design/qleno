@@ -698,27 +698,24 @@ router.get("/", requireAuth, async (req, res) => {
         amount: (() => {
           const mods = rateModSumByJob.get(j.id) ?? 0;
           const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
-          // [revenue-reconciliation 2026-06-03] Commercial work bills
-          // hourly_rate × allowed_hours (matching MaidCentral), NOT a flat
-          // base_fee. allowed_hours is team-aggregated — the same total MC
-          // invoices against. This closes the variance where an imported
-          // commercial job carried a flat base_fee that didn't equal the
-          // contracted rate × hours. Fall back to base_fee only when the
-          // hourly inputs are missing (un-migrated commercial job), so
-          // nothing regresses to $0. Residential is unchanged.
+          // [revenue-billed 2026-06-04] An explicit billed price (e.g. via
+          // "Change price") is what's ACTUALLY charged and is the source of
+          // truth for EVERY job type — commercial AND residential — matching
+          // MaidCentral + the commission engine. It wins over the rate×hours /
+          // base_fee reconstructions below, so a price change on a commercial
+          // job (billed $578.40 instead of rate×hours) stops under-counting
+          // daily revenue.
+          const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
+          if (billed != null && billed > 0) return billed;
+          // [revenue-reconciliation 2026-06-03] No explicit billed price:
+          // commercial work bills hourly_rate × allowed_hours (matching MC),
+          // NOT a flat base_fee; fall back to base_fee only when the hourly
+          // inputs are missing. Residential uses base_fee + add-ons.
           if (isCommercialPay) {
             const rate = j.hourly_rate ? parseFloat(j.hourly_rate) : 0;
             const hrs = j.allowed_hours ? parseFloat(j.allowed_hours) : 0;
             if (rate > 0 && hrs > 0) return rate * hrs + mods + addOns;
           }
-          // [revenue-billed 2026-06-04] When the office set an explicit price
-          // (billed_amount — e.g. via "Change price"), THAT is what's actually
-          // billed and is the source of truth (matches MaidCentral and the
-          // commission engine, both of which use billed_amount || base_fee).
-          // Reconstruct from base_fee + add-ons only when no explicit price was
-          // set, so price changes stop under-counting daily revenue.
-          const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
-          if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods + addOns;
         })(),
