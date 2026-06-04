@@ -829,6 +829,18 @@ export default function MyJobsPage() {
   const jobs: Job[] = data?.data || [];
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
   const upcomingJobs = jobs.filter(j => j.status === "scheduled" && !j.time_clock_entry);
+  // [day-complete 2026-06-04] The day is DERIVED, never a button: it's done
+  // when every non-cancelled job today is checked out. No clock-out tap — this
+  // is a closure STATE. Job hours come from the tech's own check-in/out spans.
+  const completedToday = jobs.filter(j => j.status !== "cancelled" && (j.status === "complete" || !!j.time_clock_entry?.clock_out_at));
+  const dayComplete = jobs.length > 0 && activeJobs.length === 0 && completedToday.length > 0;
+  const dayJobHours = completedToday.reduce((sum, j) => {
+    const e = j.time_clock_entry;
+    if (e?.clock_in_at && e?.clock_out_at) {
+      return sum + Math.max(0, (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000);
+    }
+    return sum + (j.estimated_hours ?? 0);
+  }, 0);
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
@@ -887,6 +899,32 @@ export default function MyJobsPage() {
             </div>
           ) : (
             <>
+              {dayComplete && (
+                <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand, #2D9B83)", borderRadius: 12, padding: 18, marginBottom: 14 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: 15, background: "var(--brand-dim, #ECFDF5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Check size={17} color="var(--brand, #2D9B83)" />
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", margin: 0 }}>Day complete</p>
+                      <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>{today}</p>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 10 }}>
+                    <div style={{ flex: 1, background: "#F7F6F3", borderRadius: 10, padding: "10px 12px" }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>Jobs done</p>
+                      <p style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", margin: 0 }}>{completedToday.length}</p>
+                    </div>
+                    <div style={{ flex: 1, background: "#F7F6F3", borderRadius: 10, padding: "10px 12px" }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>Job hours</p>
+                      <p style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", margin: 0 }}>{dayJobHours.toFixed(1)}h</p>
+                    </div>
+                  </div>
+                  <p style={{ fontSize: 12, color: "#6B6860", margin: "10px 0 0", lineHeight: 1.5 }}>
+                    Drive mileage between your jobs is calculated automatically. Pay and mileage finalize after office review.
+                  </p>
+                </div>
+              )}
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
                   prevJobId={i > 0 ? activeJobs[i - 1].id : null} />
