@@ -25,6 +25,7 @@ interface CardData {
   todays_status: { in_progress: number; scheduled: number; complete: number; flagged: number; unassigned: number };
   unassigned_jobs: number; techs_today: number; next_7_days_jobs: number; next_7_days_revenue: number;
   leads: number; quotes: number; closed_quotes: number; close_rate: number; monthly_revenue: number;
+  quotes_today: number; closed_quotes_today: number; close_rate_today: number;
   avg_bill: number; active_clients: number; rate_trend: number; avg_bill_12mo: number; retention: number;
   payroll_pct: number; payroll_window: string;
 }
@@ -67,6 +68,9 @@ const LIBRARY: LibCard[] = [
         <span style={{ fontSize: 13, color: MUTE, fontFamily: FF }}>{d.next_7_days_jobs} jobs</span>
       </div>
     ) },
+  { key: "quotes_today",         label: "Quotes Today",         sub: "created today",          render: d => <Big t={String(d.quotes_today)} /> },
+  { key: "closed_quotes_today",  label: "Closed Today",         sub: "won, of today's quotes", render: d => <Big t={String(d.closed_quotes_today)} /> },
+  { key: "close_rate_today",     label: "Close Rate Today",     sub: "closed / total, today",  render: d => <Big t={`${d.close_rate_today}%`} c={MINT} /> },
   { key: "leads",                label: "Leads",                sub: "this month",             render: d => <Big t={String(d.leads)} /> },
   { key: "quotes",               label: "Quotes",               sub: "this month",             render: d => <Big t={String(d.quotes)} /> },
   { key: "closed_quotes",        label: "Closed Quotes",        sub: "won this month",         render: d => <Big t={String(d.closed_quotes)} /> },
@@ -82,7 +86,7 @@ const LIB_KEYS = LIBRARY.map(l => l.key);
 const cardDef = (k: string) => LIBRARY.find(l => l.key === k);
 
 // Default sets shown before any customization.
-const OWNER_DEFAULT = ["daily_revenue", "jobs_today", "revenue_booked_today", "leads", "quotes", "closed_quotes", "close_rate"];
+const OWNER_DEFAULT = ["daily_revenue", "jobs_today", "revenue_booked_today", "quotes_today", "closed_quotes_today", "close_rate_today", "leads", "quotes", "closed_quotes", "close_rate"];
 const OFFICE_DEFAULT = ["jobs_scheduled_today", "late_clockins", "todays_status", "unassigned_jobs", "techs_today", "next_7_days"];
 const roleDefault = (role: string) => (role === "owner" ? OWNER_DEFAULT : OFFICE_DEFAULT);
 

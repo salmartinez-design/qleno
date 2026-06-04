@@ -1306,6 +1306,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
     // "Today" / month boundaries in Central time (Phes), not UTC.
     const today = sql`(now() AT TIME ZONE 'America/Chicago')::date`;
     const monthStart = sql`date_trunc('month', (now() AT TIME ZONE 'America/Chicago'))`;
+    const todayStart = sql`date_trunc('day', (now() AT TIME ZONE 'America/Chicago'))`;
     // Revenue: completed/booked use base_fee; rollups use billed_amount fallback.
     const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
     const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
@@ -1370,10 +1371,14 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
         SELECT COUNT(*)::int AS v FROM leads
         WHERE company_id = ${companyId} AND created_at >= ${monthStart}
       `),
-      // Quotes + closed (won) this month (company-wide). Closed = booked / converted.
+      // Quotes + closed (won) this month AND today (company-wide). Closed =
+      // booked / converted. Today's cohort mirrors the monthly one: quotes
+      // created today, and of those how many are closed.
       db.execute(sql`
         SELECT COUNT(*)::int AS total,
-               COUNT(*) FILTER (WHERE status = 'booked' OR booked_job_id IS NOT NULL)::int AS closed
+               COUNT(*) FILTER (WHERE status = 'booked' OR booked_job_id IS NOT NULL)::int AS closed,
+               COUNT(*) FILTER (WHERE created_at >= ${todayStart})::int AS total_today,
+               COUNT(*) FILTER (WHERE (status = 'booked' OR booked_job_id IS NOT NULL) AND created_at >= ${todayStart})::int AS closed_today
         FROM quotes WHERE company_id = ${companyId} AND created_at >= ${monthStart}
       `),
       // Active clients (branch-aware)
@@ -1389,6 +1394,8 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
     const q: any = (quotesRows as any).rows[0] ?? {};
     const quotesTotal = Number(q.total ?? 0);
     const quotesClosed = Number(q.closed ?? 0);
+    const quotesTotalToday = Number(q.total_today ?? 0);
+    const quotesClosedToday = Number(q.closed_today ?? 0);
     const num = (v: any) => Math.round(Number(v ?? 0) * 100) / 100;
 
     return res.json({
@@ -1413,6 +1420,9 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       quotes: quotesTotal,
       closed_quotes: quotesClosed,
       close_rate: quotesTotal > 0 ? Math.round((quotesClosed / quotesTotal) * 100) : 0,
+      quotes_today: quotesTotalToday,
+      closed_quotes_today: quotesClosedToday,
+      close_rate_today: quotesTotalToday > 0 ? Math.round((quotesClosedToday / quotesTotalToday) * 100) : 0,
       monthly_revenue: num((monthRev as any).rows[0]?.v),
       // Avg bill, rate trend, retention from the shared job_history calc.
       avg_bill: bh.avg_bill_12mo,
