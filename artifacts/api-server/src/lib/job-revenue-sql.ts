@@ -20,6 +20,6 @@ export function jobRevenueExpr(fallback: SQL, jobsAlias = "j", clientsAlias = "c
          AND ${j}.hourly_rate IS NOT NULL AND ${j}.allowed_hours IS NOT NULL
          AND CAST(${j}.hourly_rate AS NUMERIC) > 0 AND CAST(${j}.allowed_hours AS NUMERIC) > 0
     THEN CAST(${j}.hourly_rate AS NUMERIC) * CAST(${j}.allowed_hours AS NUMERIC)
-    ELSE ${fallback}
+    ELSE COALESCE(NULLIF(CAST(${j}.billed_amount AS NUMERIC), 0), ${fallback})
   END`;
 }

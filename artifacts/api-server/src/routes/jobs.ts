@@ -4,7 +4,7 @@ import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, in
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { notifyUserAsync } from "../lib/push.js";
-import { logAudit } from "../lib/audit.js";
+import { logAudit, logClientActivity } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
@@ -4660,17 +4660,34 @@ router.delete("/:id", requireAuth, async (req, res) => {
       const detach: [string, string][] = [
         ["additional_pay", "job_id"], ["communication_log", "job_id"], ["contact_tickets", "job_id"],
         ["form_submissions", "job_id"], ["hr_logs", "job_id"], ["loyalty", "job_id"], ["invoices", "job_id"],
+        // [delete-always-works 2026-06-04] quotes.booked_job_id was the missing
+        // FK that made delete fail (409 "can't delete") for any job created from
+        // a converted quote. Detach it so delete always succeeds.
+        ["quotes", "booked_job_id"],
         ["mileage", "from_job_id"], ["mileage", "to_job_id"],
         ["mileage_requests", "from_job_id"], ["mileage_requests", "to_job_id"],
         ["cancellation_log", "rescheduled_to_job_id"],
       ];
-      for (const [t, c] of detach) await tx.execute(sql.raw(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ${jobId}`));
+      for (const [t, c] of detach) {
+        // Tolerate tables/columns that don't exist in a given tenant — a single
+        // missing detach target must never block the delete.
+        try { await tx.execute(sql.raw(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ${jobId}`)); }
+        catch (e) { console.error(`[delete-job] detach ${t}.${c} skipped:`, (e as any)?.message); }
+      }
       await tx.execute(sql.raw(`DELETE FROM jobs WHERE id = ${jobId}`));
     });
+    // Global audit trail.
     logAudit(req, "DELETE", "job", jobId, null, {
       client_id: job.client_id, scheduled_date: job.scheduled_date,
       service_type: job.service_type, base_fee: job.base_fee,
     });
+    // Cascade to the client's own audit trail so all activity within a client
+    // is auditable in one place.
+    logClientActivity(req, job.client_id, "job_deleted", {
+      job_id: jobId, scheduled_date: job.scheduled_date,
+      service_type: job.service_type, base_fee: job.base_fee,
+      billed_amount: job.billed_amount, status: job.status,
+    }, null);
     return res.json({ ok: true });
   } catch (err) {
     console.error("Delete job error:", err);
