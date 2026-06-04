@@ -51,7 +51,9 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       `Use cleaning-industry vocabulary that a Mexican-Spanish-speaking technician would understand naturally.`;
 
     const response = await client.messages.create({
-      model: "claude-opus-4-7",
+      // Haiku — note translation is a simple task; Haiku is far cheaper and
+      // faster than Opus with no quality loss for short job notes.
+      model: "claude-haiku-4-5",
       max_tokens: 4096,
       system,
       messages: [{ role: "user", content: text }],
