@@ -291,6 +291,61 @@ Honor this so the clocks stay consistent with how mileage reads from them.)*
   events MUST preserve `from_job_id`** — it's the hook the whole mileage
   chain hangs on. (Field-app "On My Way" wiring that sets this: #291.)
 
+## Time Clock — Workflow Model (Locked)
+*(Canonical design for the clock/payroll build. Goal: keep MaidCentral's
+insight — separate meters for pay, job cost, and the drive/idle gap — while
+removing its confusion: too many buttons, an auto-added drive-pay line on a
+commission shop, and the word "Efficiency" meaning three different formulas.)*
+
+- **ONE clock pair, at the house.** The tech checks in / out at **each
+  house** (the existing per-job `timeclock` clock-in/out). This is the
+  load-bearing meter — it feeds commission, allowed-vs-actual, billing, and
+  the multi-tech split (each tech runs their own pair per house, so labor
+  splits by actual minutes). **There is NO separate day/shift clock.** Do
+  NOT introduce a second "Check In/Out" pair or a day clock — one pair, one
+  name, used at the house. The MaidCentral two-pair muddle (Clock In *and*
+  Check In at the first house) is explicitly designed out.
+- **The day is DERIVED, never a button.** "Paid day" = first check-in →
+  last check-out. Checking out of the last house ends the day automatically
+  because there's no more clock activity — not because checkout fires a
+  clock-out. A surprise add-on after the "last" job just self-extends the
+  day to the new last check-out. This also *enforces* the mileage rule:
+  nothing after the last check-out counts, so last-job→home commute can
+  never be paid (a manual day clock-out would invite clocking out at home).
+- **"Day complete" is a closure STATE, not a tap.** After the last
+  check-out, show a derived end-of-day summary (jobs, job hours, miles) with
+  a "Start another job" affordance that just extends the day. Never a
+  required clock-out button.
+- **Idle = record, not pay.** Idle/gap = (day span) − job time − drive time.
+  It's a *visibility* number, not a pay line. Bona-fide meal breaks (30+
+  min, fully relieved) are excluded; on-duty waiting counts as hours worked
+  but only matters for the rare >40hr OT week.
+- **capturing ≠ paying (the rule that protects both ways).** Record every
+  minute (job, drive, idle) for visibility + the OT check, but the only
+  dollars that move are **commission + mileage reimbursement**. Phes pays
+  commission + mileage, NOT hourly and NOT drive-time-as-hours. Therefore:
+  **`pay_drive_time` defaults OFF** — drive *hours* show as a record, never
+  as an auto-added pay line (the MaidCentral annoyance). The drive *expense*
+  is covered by the mileage engine (2A/2B) only.
+- **Payroll summary is dollars-first.** Lead with Commission $ + Mileage $ =
+  Total Pay. Show hours (job / drive / idle / total-on-clock) underneath,
+  clearly labeled "for records — not paid hourly," plus a quiet flag only
+  when total hours cross 40 in a week (the one real OT exposure).
+- **ONE canonical efficiency definition.** Primary metric =
+  **`Allowed Hours ÷ Actual Job Hours`** (>100% = under budget = good). If a
+  day-level utilization metric is ever shown (job time ÷ paid time), it gets
+  its OWN distinct name ("Utilization") — the word "Efficiency" maps to
+  exactly one formula everywhere. Never repeat MaidCentral's three-denominator
+  confusion.
+- **Anti-gaming is structural, not punitive.** The comp model removes the
+  incentive to milk: commission/allowed-hours means slow = *less* effective
+  pay + a red efficiency score, not more money; idle/drive aren't paid so
+  inflating them earns $0; mileage is the mapping API's fixed point-to-point
+  distance (route-independent, can't be padded by driving around); GPS at
+  check-in/out + the geofence flag catches off-site punches; the derived day
+  can't be padded into overtime. Captured idle/drive/efficiency data is the
+  office's coaching radar, not a pay obligation.
+
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
 - Square is for existing Phes clients only — new bookings always use Stripe
