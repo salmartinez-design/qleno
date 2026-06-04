@@ -4075,6 +4075,18 @@ function JobChipBody({
           </div>
         </>
       )}
+      {/* [address-on-bar 2026-06-04] Address (incl. any unit/suite/apt embedded
+          in the street) on every chip — narrow + wide — so dispatch reads the
+          location off the bar. Truncates with ellipsis; full address in the
+          panel/hover. */}
+      {job.address && (
+        <div style={{ display: "flex", alignItems: "center", gap: 3, minWidth: 0 }}>
+          <MapPin size={9} style={{ color: tokens.icon, flexShrink: 0 }} />
+          <span style={{ fontSize: 9, fontWeight: 500, color: tokens.secondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>
+            {job.address}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
