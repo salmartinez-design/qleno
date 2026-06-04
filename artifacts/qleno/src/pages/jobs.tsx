@@ -5786,7 +5786,7 @@ export default function JobsPage() {
                 { label: `${stats.total} jobs`, color: "#1A1917", bg: "#F7F6F3" },
                 { label: `${stats.complete} done`, color: "#16A34A", bg: "#DCFCE7" },
                 ...(stats.inProgress > 0 ? [{ label: `${stats.inProgress} active`, color: "#D97706", bg: "#FEF3C7" }] : []),
-                { label: `$${stats.revenue.toFixed(0)} rev`, color: "var(--brand)", bg: "var(--brand-dim)" },
+                { label: `$${stats.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} rev`, color: "var(--brand)", bg: "var(--brand-dim)" },
                 ...(stats.unassigned > 0 ? [{ label: `${stats.unassigned} unassigned`, color: "#DC2626", bg: "#FEE2E2" }] : []),
               ].map(s => (
                 <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>
@@ -5922,7 +5922,7 @@ export default function JobsPage() {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF" }}>
                   {[
                     { label: "JOBS TODAY", value: stats.total },
-                    { label: "REVENUE TODAY", value: `$${stats.revenue.toFixed(0)}` },
+                    { label: "REVENUE TODAY", value: `$${stats.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
                     { label: "UNASSIGNED", value: stats.unassigned },
                     { label: "TECHS WORKING", value: techsWorking },
                     { label: "AVG UTILIZATION", value: `${utilization}%` },
