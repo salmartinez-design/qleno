@@ -41,15 +41,13 @@ const PAY_GROUPS = [
 ];
 
 function getDefaultPeriod() {
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(today.getDate() - today.getDay());
-  const end = new Date(start);
-  end.setDate(start.getDate() + 6);
-  return {
-    start: start.toISOString().slice(0, 10),
-    end: end.toISOString().slice(0, 10),
-  };
+  // Match the Overview bi-weekly window (Sun..Sat, 14 days ending this Saturday)
+  // so switching tabs shows the same period.
+  const t = new Date();
+  const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
+  const start = new Date(end); start.setDate(end.getDate() - 13);
+  const ymd = (d: Date) => d.toISOString().slice(0, 10);
+  return { start: ymd(start), end: ymd(end) };
 }
 
 function WeeklyDetailView() {
@@ -111,6 +109,7 @@ function WeeklyDetailView() {
         const timeOffAmt = sumK('sick_pay', 'holiday_pay', 'vacation_pay');
         const hoursWorked = Number(emp.totals?.hrs_worked ?? 0);
         const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        const eff = Number(emp.totals?.hrs_worked) > 0 ? Math.round((Number(emp.totals?.hrs_scheduled || 0) / Number(emp.totals.hrs_worked)) * 100) : null;
         const rollup: any[] = [
           { label: 'Hours', value: hoursWorked.toFixed(1) },
           { label: 'Commission', value: money(emp.totals.commission), accent: true },
@@ -140,84 +139,107 @@ function WeeklyDetailView() {
             </div>
 
             {isOpen && (
-              <div style={{ padding: '0 20px 16px' }}>
+              <div style={{ padding: '16px 20px 18px' }}>
+                {/* Total pay hero */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', background: '#F0FDF9', border: '1px solid #99E6D3', borderRadius: 12, padding: '16px 18px' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#0A6E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Total pay</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: '#04241d', lineHeight: 1 }}>{money(emp.totals.grand_total)}</div>
+                    <div style={{ marginTop: 10 }}>
+                      {[
+                        { label: 'Commission', v: emp.totals.commission, show: true },
+                        { label: 'Tips', v: tipsAmt, show: tipsAmt > 0 },
+                        { label: 'Mileage', v: mileageAmt, show: mileageAmt > 0 },
+                        { label: 'Time Off', v: timeOffAmt, show: timeOffAmt > 0 },
+                      ].filter(p => p.show).map(p => (
+                        <span key={p.label} style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, color: '#0A6E5A', background: '#D7F5EC', borderRadius: 999, padding: '3px 10px', marginRight: 6, marginBottom: 5 }}>
+                          {p.label} {money(p.v)}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Hours & efficiency — for records */}
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Hours &amp; efficiency · for records</p>
+                <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
+                  {[
+                    { k: 'Hours worked', v: `${emp.totals.hrs_worked.toFixed(1)}` },
+                    { k: 'Allowed', v: `${emp.totals.hrs_scheduled.toFixed(1)}` },
+                    ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
+                  ].map(s => (
+                    <div key={s.k}>
+                      <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#1A1917' }}>{s.v}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: '#9E9B94', marginTop: 6 }}>Hours shown for records — paid on commission + mileage, not hourly.</div>
+
+                {/* Per-client breakdown */}
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 2px' }}>Per-client breakdown</p>
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr>
-                        {['Date', 'Client', 'Scope', 'Branch', 'Job Total', 'Commission', 'Hrs Sched', 'Hrs Worked', 'Eff. Rate'].map(h => (
-                          <th key={h} style={th}>{h}</th>
-                        ))}
+                        <th style={th}>Date</th>
+                        <th style={th}>Client</th>
+                        <th style={th}>Scope</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Allowed</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Done</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Pay</th>
                       </tr>
                     </thead>
                     <tbody>
                       {emp.jobs.map((job: any) => (
                         <tr key={job.job_id}>
-                          <td style={td}>{job.date}</td>
-                          <td style={td}>{job.client}</td>
-                          <td style={{ ...td, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
-                          <td style={{ ...td, color: '#6B6860', fontSize: 11 }}>{job.branch_name || '—'}</td>
-                          <td style={td}>${job.job_total.toFixed(2)}</td>
-                          <td style={{ ...td, color: 'var(--brand)', fontWeight: 600 }}>${job.commission.toFixed(2)}</td>
-                          <td style={{ ...td, color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
-                          <td style={{ ...td, color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled hours — job not clocked yet' : 'Clocked hours'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
-                          <td style={{ ...td, color: '#9E9B94', fontSize: 11 }}>{job.effective_rate != null ? `$${job.effective_rate.toFixed(2)}/hr` : '—'}</td>
+                          <td style={{ ...td, color: '#6B6860', whiteSpace: 'nowrap' }}>{job.date}</td>
+                          <td style={{ ...td, fontWeight: 600 }}>{job.client || '—'}</td>
+                          <td style={{ ...td, color: '#6B6860', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
+                          <td style={{ ...td, textAlign: 'right', color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
+                          <td style={{ ...td, textAlign: 'right', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
+                          <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--brand)' }}>${job.commission.toFixed(2)}</td>
                         </tr>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#FAFAF8' }}>
-                        <td style={{ ...td, fontWeight: 700 }} colSpan={4}>Subtotal</td>
-                        <td style={{ ...td, fontWeight: 700 }}>${emp.totals.job_total.toFixed(2)}</td>
-                        <td style={{ ...td, fontWeight: 700, color: 'var(--brand)' }}>${emp.totals.commission.toFixed(2)}</td>
-                        <td style={{ ...td, fontWeight: 700 }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
-                        <td style={{ ...td, fontWeight: 700 }}>{emp.totals.hrs_worked.toFixed(1)}h</td>
-                        <td style={td}></td>
+                      <tr>
+                        <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }} colSpan={3}>{emp.totals.job_count} jobs</td>
+                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
+                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked.toFixed(1)}h</td>
+                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', color: 'var(--brand)', borderTop: '2px solid #E5E2DC' }}>${emp.totals.commission.toFixed(2)}</td>
                       </tr>
-                    </tfoot>
+                    </tbody>
                   </table>
                 </div>
 
+                {/* Additional pay & reimbursements */}
+                {addlEntries.length > 0 && (
+                  <>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Additional pay &amp; reimbursements</p>
+                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                      {addlEntries.map(([type, amount]) => (
+                        <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>
+                          {PAY_TYPE_LABELS[type] || type}: <b style={{ color: (amount as number) < 0 ? '#EF4444' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                {/* Commission by branch */}
                 {Array.isArray(emp.commission_by_branch) && emp.commission_by_branch.length > 1 && (
-                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid #F4F3F0' }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>
-                      Commission by Branch
-                    </p>
+                  <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #F4F3F0' }}>
+                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>Commission by Branch</p>
                     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                       {emp.commission_by_branch.map((b: any) => (
-                        <div key={b.branch_id ?? 'none'} style={{
-                          padding: '8px 12px', borderRadius: 8, background: '#F7F6F3',
-                          border: '1px solid #E5E2DC', fontSize: 12,
-                        }}>
+                        <div key={b.branch_id ?? 'none'} style={{ padding: '8px 12px', borderRadius: 8, background: '#F7F6F3', border: '1px solid #E5E2DC', fontSize: 12 }}>
                           <span style={{ color: '#6B6860', fontWeight: 600 }}>{b.branch_name}:</span>{' '}
                           <span style={{ fontWeight: 700, color: 'var(--brand)' }}>${b.commission.toFixed(2)}</span>
-                          <span style={{ color: '#9E9B94', marginLeft: 6 }}>
-                            ({b.jobs} job{b.jobs !== 1 ? 's' : ''}, {b.hrs_worked.toFixed(1)}h)
-                          </span>
+                          <span style={{ color: '#9E9B94', marginLeft: 6 }}>({b.jobs} job{b.jobs !== 1 ? 's' : ''}, {b.hrs_worked.toFixed(1)}h)</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
-
-                {addlEntries.length > 0 && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #F4F3F0' }}>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px' }}>Additional Pay</p>
-                    <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                      {addlEntries.map(([type, amount]) => (
-                        <div key={type} style={{ fontSize: 12 }}>
-                          <span style={{ color: '#9E9B94' }}>{PAY_TYPE_LABELS[type] || type}:</span>{' '}
-                          <span style={{ fontWeight: 600, color: (amount as number) < 0 ? '#EF4444' : '#1A1917' }}>${(amount as number).toFixed(2)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '2px solid #E5E2DC', display: 'flex', justifyContent: 'flex-end', gap: 4, alignItems: 'center' }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1A1917' }}>Period Grand Total:</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: 'var(--brand)', marginLeft: 8 }}>${emp.totals.grand_total.toFixed(2)}</span>
-                </div>
               </div>
             )}
           </div>
@@ -357,7 +379,7 @@ export default function PayrollPage() {
   const totalHours = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.hours ?? 0), 0);
 
   const isOwnerAdmin = ['owner','admin'].includes(getTokenRole() || '');
-  const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('overview');
+  const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('weekly-detail');
   const [expandedOverview, setExpandedOverview] = useState<number[]>([]);
 
   // Templates
@@ -421,7 +443,7 @@ export default function PayrollPage() {
         <OvertimeBanner from={payPeriod.start} to={payPeriod.end} />
         {/* View Toggle */}
         <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8, width: 'fit-content' }}>
-          {[{ key: 'overview', label: 'Overview' }, { key: 'weekly-detail', label: 'Weekly Detail' }].map(v => (
+          {[{ key: 'weekly-detail', label: 'By Employee' }, { key: 'overview', label: 'Summary' }].map(v => (
             <button key={v.key} onClick={() => setActiveView(v.key as any)}
               style={{ padding: '6px 16px', borderRadius: 6, border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
                 background: activeView === v.key ? '#fff' : 'transparent',
