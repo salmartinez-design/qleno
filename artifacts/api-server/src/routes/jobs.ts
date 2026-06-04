@@ -2989,7 +2989,17 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // activity (typical for MaidCentral imports and one-tap "Mark complete"
     // workflows where the operator never ran the field-app timer), stamp
     // an estimated clock pair for each assigned tech so the payroll
-    // report has hours to sum. Real punches always win — this only fires
+    // report has hours to sum.
+    //
+    // [PRODUCT INTENT 2026-06-04] FOR NOW — until Phes manages all clocks
+    // inside Qleno — the daily clocks are meant to MATCH the assigned job
+    // times. That's exactly what this estimate does (clock_in = scheduled
+    // start, clock_out = scheduled start + allowed_hours, in Central time),
+    // so it is deliberate, not a stopgap to rip out. Do NOT remove this
+    // fallback or decouple it from the scheduled time until real field-app
+    // punches are the source of truth for the whole fleet.
+    //
+    // Real punches always win — this only fires
     // when ZERO timeclock rows exist for this job; future real punches
     // would just create new rows that the payroll engine prefers via
     // ORDER BY source='punched' DESC if/when we add the tiebreaker.
