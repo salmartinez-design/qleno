@@ -801,27 +801,17 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           branch_id: selectedBranchOverride !== "all" ? selectedBranchOverride : undefined,
         };
       }
+      // [multi-tech-create 2026-06-04] Send the FULL team in the create call.
+      // The server writes every selected tech to job_technicians atomically
+      // (primary = index 0, mirrored to assigned_user_id). Previously this was
+      // a best-effort follow-up PATCH that silently dropped the 2nd cleaner.
+      if (selectedEmployees.length > 0) body.team_user_ids = selectedEmployees;
       const r = await fetch(`${API}/api/jobs`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Failed"); }
-      // Persist the full team when more than one tech was picked. The job was
-      // created with the primary (selectedEmployees[0]); PATCH writes the rest
-      // into job_technicians (canonical multi-tech path + assignment mirror).
-      if (selectedEmployees.length > 1) {
-        try {
-          const created = await r.json();
-          if (created?.id) {
-            await fetch(`${API}/api/jobs/${created.id}`, {
-              method: "PATCH",
-              headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-              body: JSON.stringify({ team_user_ids: selectedEmployees }),
-            });
-          }
-        } catch { /* primary is assigned; team patch is best-effort */ }
-      }
       onCreated();
       onClose();
     } catch (e: any) {

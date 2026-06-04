@@ -177,15 +177,27 @@ router.post("/", requireAuth, async (req, res) => {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
-      branch_id, add_ons,
+      branch_id, add_ons, team_user_ids,
     } = req.body;
+
+    // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
+    // Persist the WHOLE team to job_technicians here, atomically with the job,
+    // instead of relying on a best-effort follow-up PATCH (which silently
+    // dropped the 2nd cleaner — Maribel could pick two but only the first was
+    // scheduled). The primary is element 0 and is mirrored onto
+    // jobs.assigned_user_id per the assignment-mirror invariant. Older callers
+    // that send only assigned_user_id keep working.
+    const teamIds: number[] = Array.isArray(team_user_ids)
+      ? team_user_ids.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x))
+      : [];
+    const primaryTechId = teamIds.length > 0 ? teamIds[0] : (assigned_user_id ?? null);
 
     const newJob = await db
       .insert(jobsTable)
       .values({
         company_id: req.auth!.companyId,
         client_id: client_id || null,
-        assigned_user_id,
+        assigned_user_id: primaryTechId,
         service_type,
         scheduled_date,
         scheduled_time,
@@ -204,6 +216,20 @@ router.post("/", requireAuth, async (req, res) => {
 
     const jobId = newJob[0].id;
     logAudit(req, "CREATE", "job", jobId, null, newJob[0]);
+
+    // [multi-tech-create 2026-06-04] Write every selected tech to
+    // job_technicians (primary = index 0). assigned_user_id was already set to
+    // the primary in the insert above, so the dispatch grid + the per-tech
+    // fan-out both render every assigned cleaner — not just the first.
+    if (teamIds.length > 0) {
+      for (let i = 0; i < teamIds.length; i++) {
+        await db.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${teamIds[i]}, ${req.auth!.companyId}, ${i === 0})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+        `);
+      }
+    }
 
     // Persist add-ons (Parking Fee, etc.) selected in the create wizard.
     // base_fee already carries the all-in total (service + add-on subtotals,
@@ -272,11 +298,11 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
-    // Get assigned user name
-    if (assigned_user_id) {
+    // Get assigned user name (the primary tech)
+    if (primaryTechId) {
       const [emp] = await db
         .select({ name: sql<string>`concat(${usersTable.first_name}, ' ', ${usersTable.last_name})` })
-        .from(usersTable).where(eq(usersTable.id, assigned_user_id)).limit(1);
+        .from(usersTable).where(eq(usersTable.id, primaryTechId)).limit(1);
       displayAssignedName = emp?.name || null;
     }
 
