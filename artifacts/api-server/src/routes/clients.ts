@@ -1086,6 +1086,83 @@ router.post("/geocode-all", requireAuth, requireRole("owner", "admin"), async (r
   return res.json({ geocoded: updated, total: clients.length });
 });
 
+// ─── CLIENT ACTIVITY FEED ────────────────────────────────────────────────────
+// [client-activity 2026-06-04] One chronological audit feed of ALL activity for
+// a client — job created/edited/rescheduled/cancelled/deleted, price changes,
+// tech reassignments, client field edits, and communications. Aggregates the
+// audit tables Qleno already writes (so it shows history retroactively) rather
+// than dual-writing everywhere. Each source is independently try/caught so a
+// missing table never blanks the feed. Office-only; scoped to client + company.
+router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const clientId = parseInt(req.params.id);
+  if (isNaN(clientId)) return res.status(400).json({ error: "Invalid id" });
+  const companyId = req.auth!.companyId;
+  const limit = Math.min(parseInt(String(req.query.limit ?? "200")) || 200, 500);
+
+  type Ev = { event_type: string; occurred_at: string; user_name: string | null; field_name: string | null; old_value: any; new_value: any; related_job_id: number | null; action: string | null };
+  const events: Ev[] = [];
+
+  // 1. Per-field job edits (price changes, reschedule-by-edit, reassignments…)
+  try {
+    const r = await db.execute(sql`
+      SELECT jal.edited_at, jal.user_name, jal.field_name, jal.old_value, jal.new_value, jal.job_id, jal.cascade_scope
+      FROM job_audit_log jal JOIN jobs j ON jal.job_id = j.id
+      WHERE j.client_id = ${clientId} AND jal.company_id = ${companyId}
+      ORDER BY jal.edited_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "job_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.cascade_scope ?? null });
+  } catch (e) { console.error("[client-activity] job_audit_log:", (e as any)?.message); }
+
+  // 2. Client field edits + job deletions (delete writes here via logClientActivity)
+  try {
+    const r = await db.execute(sql`
+      SELECT edited_at, user_name, field_name, old_value, new_value
+      FROM client_audit_log
+      WHERE client_id = ${clientId} AND company_id = ${companyId}
+      ORDER BY edited_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: x.field_name === "job_deleted" ? "job_deleted" : "client_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.old_value?.job_id ?? null, action: null });
+  } catch (e) { console.error("[client-activity] client_audit_log:", (e as any)?.message); }
+
+  // 3. Cancellations / reschedules / lockouts
+  try {
+    const r = await db.execute(sql`
+      SELECT cl.cancelled_at, cl.cancel_action, cl.cancel_reason, cl.customer_charge_amount, cl.notes, cl.job_id,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
+      FROM cancellation_log cl LEFT JOIN users u ON cl.cancelled_by = u.id
+      WHERE cl.customer_id = ${clientId} AND cl.company_id = ${companyId}
+      ORDER BY cl.cancelled_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: (x.cancel_action === "move" || x.cancel_action === "bump") ? "job_rescheduled" : "job_cancelled", occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.cancel_action });
+  } catch (e) { console.error("[client-activity] cancellation_log:", (e as any)?.message); }
+
+  // 4. Communications (SMS / email / calls / notes)
+  try {
+    const r = await db.execute(sql`
+      SELECT com.logged_at, com.channel, com.direction, com.summary, com.subject, com.job_id,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
+      FROM communication_log com LEFT JOIN users u ON com.logged_by = u.id
+      WHERE com.customer_id = ${clientId} AND com.company_id = ${companyId}
+      ORDER BY com.logged_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject }, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.direction });
+  } catch (e) { console.error("[client-activity] communication_log:", (e as any)?.message); }
+
+  // 5. Creations (job + client) from the global audit log
+  try {
+    const r = await db.execute(sql`
+      SELECT aal.performed_at, aal.action, aal.target_type, aal.target_id, aal.new_value,
+             NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
+      FROM app_audit_log aal
+      LEFT JOIN users au ON aal.performed_by = au.id
+      LEFT JOIN jobs jj ON aal.target_type = 'job' AND aal.target_id ~ '^[0-9]+$' AND aal.target_id::int = jj.id
+      WHERE aal.company_id = ${companyId} AND aal.action = 'CREATE'
+        AND ((aal.target_type = 'client' AND aal.target_id = ${String(clientId)})
+          OR (aal.target_type = 'job' AND jj.client_id = ${clientId}))
+      ORDER BY aal.performed_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: x.target_type === "job" ? "job_created" : "client_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: x.target_type === "job" ? Number(x.target_id) : null, action: x.action });
+  } catch (e) { console.error("[client-activity] app_audit_log:", (e as any)?.message); }
+
+  events.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  return res.json({ events: events.slice(0, limit) });
+});
+
 // ─── GET JOB HISTORY (from job_history table, mc_import + future sources) ─────
 router.get("/:id/job-history", requireAuth, async (req, res) => {
   try {
