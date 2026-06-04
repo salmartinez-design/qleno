@@ -284,3 +284,40 @@ describe("Recurring engine — start_date and end_date boundaries", () => {
     }
   });
 });
+
+describe("Recurring engine — Date-object start/end inputs (cascade path)", () => {
+  // The create_recurring cascade (PATCH /api/jobs/:id) reads the schedule via
+  // raw `tx.execute`, where node-postgres returns a `date` column as a JS Date
+  // object — not a "YYYY-MM-DD" string. parseDate() previously called
+  // `.split("-")` unconditionally and threw `str.split is not a function`,
+  // aborting the whole transaction so the schedule saved-then-rolled-back with
+  // zero future jobs and no visible error. These guard that regression.
+  it("accepts a Date object for start_date without throwing", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "weekly", day_of_week: "wednesday", start_date: new Date(2026, 5, 3) as any }),
+      WINDOW_START, WINDOW_END,
+    );
+    assert.ok(dates.length >= 12, `Expected ≥12 Wednesdays from a Date start_date, got ${dates.length}`);
+    for (const d of dates) assert.equal(dowOf(d), "Wed");
+  });
+
+  it("matches the string result when start_date is the equivalent Date object", () => {
+    const fromStr = generateOccurrences(
+      mkSchedule({ frequency: "weekly", day_of_week: "monday", start_date: "2026-06-15" }),
+      WINDOW_START, WINDOW_END,
+    ).map(isoOf);
+    const fromDate = generateOccurrences(
+      mkSchedule({ frequency: "weekly", day_of_week: "monday", start_date: new Date(2026, 5, 15) as any }),
+      WINDOW_START, WINDOW_END,
+    ).map(isoOf);
+    assert.deepEqual(fromDate, fromStr);
+  });
+
+  it("accepts a Date object for end_date", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "weekly", day_of_week: "monday", start_date: "2026-06-01", end_date: new Date(2026, 5, 30) as any }),
+      WINDOW_START, WINDOW_END,
+    );
+    for (const d of dates) assert.ok(d <= new Date(2026, 5, 30), `${isoOf(d)} is after end_date`);
+  });
+});

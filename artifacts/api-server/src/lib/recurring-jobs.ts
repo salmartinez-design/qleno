@@ -234,8 +234,8 @@ export function generateOccurrences(
     days_of_week?: number[] | null;
     days_of_month?: number[] | null;
     custom_frequency_weeks?: number | null;
-    start_date: string;
-    end_date?: string | null;
+    start_date: string | Date;
+    end_date?: string | Date | null;
   },
   fromDate: Date,
   toDate: Date
@@ -258,8 +258,9 @@ type ScheduleInput = {
   // 0 = "last day of month" — engine resolves per-month.
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
-  start_date: string;
-  end_date?: string | null;
+  // string from a Drizzle typed select; Date from a raw pg `date` column.
+  start_date: string | Date;
+  end_date?: string | Date | null;
   assigned_employee_id: number | null;
   service_type: string | null;
   // Time-of-day for the recurring visit ("HH:MM:SS"). Stamped onto each
