@@ -271,7 +271,8 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
   // Step 3 — Assign
   const [employees, setEmployees] = useState<any[]>([]);
-  const [selectedEmployee, setSelectedEmployee] = useState<number | null>(null);
+  const [selectedEmployees, setSelectedEmployees] = useState<number[]>([]);
+  const toggleEmployee = (id: number) => setSelectedEmployees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -363,7 +364,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setManualBillingMethod("hourly"); setManualRate("");
       setCommercialScheduledDate(todayStr()); setCommercialScheduledTime("09:00");
       setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialNotes("");
-      setSelectedEmployee(null); setSubmitting(false); setError("");
+      setSelectedEmployees([]); setSubmitting(false); setError("");
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
       setSelectedAddons(new Map()); setAddonPriceOverrides(new Map());
     } else {
@@ -768,7 +769,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           add_ons: buildAddOnsPayload(),
           frequency: commercialFrequency,
           notes: commercialNotes || undefined,
-          assigned_user_id: selectedEmployee || undefined,
+          assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
           billing_method: billingMethod,
           hourly_rate: billingMethod === "hourly" ? effectiveRate : undefined,
@@ -795,7 +796,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           add_ons: buildAddOnsPayload(),
           frequency,
           notes: notes || undefined,
-          assigned_user_id: selectedEmployee || undefined,
+          assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
           branch_id: selectedBranchOverride !== "all" ? selectedBranchOverride : undefined,
         };
@@ -806,6 +807,21 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
         body: JSON.stringify(body),
       });
       if (!r.ok) { const d = await r.json(); throw new Error(d.error || "Failed"); }
+      // Persist the full team when more than one tech was picked. The job was
+      // created with the primary (selectedEmployees[0]); PATCH writes the rest
+      // into job_technicians (canonical multi-tech path + assignment mirror).
+      if (selectedEmployees.length > 1) {
+        try {
+          const created = await r.json();
+          if (created?.id) {
+            await fetch(`${API}/api/jobs/${created.id}`, {
+              method: "PATCH",
+              headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+              body: JSON.stringify({ team_user_ids: selectedEmployees }),
+            });
+          }
+        } catch { /* primary is assigned; team patch is best-effort */ }
+      }
       onCreated();
       onClose();
     } catch (e: any) {
@@ -1851,7 +1867,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                             display: "flex", alignItems: "center", gap: 12, padding: "11px 14px",
                             borderLeft: isTop ? "3px solid var(--brand, #00C9A0)" : "3px solid transparent",
                             borderBottom: i < suggestions.length - 1 ? "1px solid #F3F4F6" : "none",
-                            background: selectedEmployee === s.employee_id ? "var(--brand-dim, #EBF4FF)" : "#fff",
+                            background: selectedEmployees.includes(s.employee_id) ? "var(--brand-dim, #EBF4FF)" : "#fff",
                           }}>
                             {s.avatar_url
                               ? <img src={s.avatar_url} style={{ width: 34, height: 34, borderRadius: 17, objectFit: "cover", flexShrink: 0 }}/>
@@ -1875,9 +1891,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                                 {s.reason}
                               </span>
                             </div>
-                            <button onClick={() => setSelectedEmployee(selectedEmployee === s.employee_id ? null : s.employee_id)}
-                              style={{ padding: "6px 14px", border: `1.5px solid ${selectedEmployee === s.employee_id ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: selectedEmployee === s.employee_id ? "var(--brand, #00C9A0)" : "#fff", color: selectedEmployee === s.employee_id ? "#fff" : "#6B7280", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-                              {selectedEmployee === s.employee_id ? "Assigned" : "Assign"}
+                            <button onClick={() => toggleEmployee(s.employee_id)}
+                              style={{ padding: "6px 14px", border: `1.5px solid ${selectedEmployees.includes(s.employee_id) ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: selectedEmployees.includes(s.employee_id) ? "var(--brand, #00C9A0)" : "#fff", color: selectedEmployees.includes(s.employee_id) ? "#fff" : "#6B7280", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                              {selectedEmployees.includes(s.employee_id) ? "Assigned" : "Assign"}
                             </button>
                           </div>
                         );
@@ -1890,11 +1906,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               {/* Full employee list */}
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                  {suggestions.length > 0 && !suggestionsDismissed ? "All Technicians" : "Choose Assignee (optional)"}
+                  {suggestions.length > 0 && !suggestionsDismissed ? "All Technicians" : "Choose Assignee(s) — optional"}
                 </p>
                 {suggestions.length > 0 && !suggestionsDismissed && (
                   <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 10px", lineHeight: 1.3 }}>
-                    Assign anyone here — your pick overrides the suggestion above.
+                    Assign anyone here — pick more than one to send a team (first is primary).
                   </p>
                 )}
                 {employees.length === 0 && (
@@ -1902,8 +1918,8 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 )}
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   {employees.map((e: any) => (
-                    <button key={e.id} onClick={() => setSelectedEmployee(selectedEmployee === e.id ? null : e.id)}
-                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: `2px solid ${selectedEmployee === e.id ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 10, background: selectedEmployee === e.id ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                    <button key={e.id} onClick={() => toggleEmployee(e.id)}
+                      style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: `2px solid ${selectedEmployees.includes(e.id) ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 10, background: selectedEmployees.includes(e.id) ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
                       {e.avatar_url
                         ? <img src={e.avatar_url} style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", flexShrink: 0 }}/>
                         : <div style={{ width: 36, height: 36, borderRadius: 18, background: "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#6B7280", flexShrink: 0 }}>
@@ -1922,7 +1938,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <MapPin size={10}/> Suggested
                         </span>
                       )}
-                      {selectedEmployee === e.id && <Check size={16} color="var(--brand, #00C9A0)"/>}
+                      {selectedEmployees.includes(e.id) && <Check size={16} color="var(--brand, #00C9A0)"/>}
                     </button>
                   ))}
                 </div>
@@ -1951,7 +1967,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   },
                   { label: "Scheduled", value: `${formatDate(commercialScheduledDate)} · ${formatTime(commercialScheduledTime)}` },
                   { label: "Frequency", value: FREQ_OPTIONS.find(f => f.value === commercialFrequency)?.label || commercialFrequency },
-                  { label: "Team", value: employees.find(e => e.id === selectedEmployee)?.first_name ? `${employees.find(e => e.id === selectedEmployee)?.first_name} ${employees.find(e => e.id === selectedEmployee)?.last_name}` : "Unassigned" },
+                  { label: "Team", value: selectedEmployees.length ? selectedEmployees.map(id => { const e = employees.find((x: any) => x.id === id); return e ? `${e.first_name} ${e.last_name}` : null; }).filter(Boolean).join(", ") : "Unassigned" },
                   { label: "Payment", value: selectedAccount?.payment_method === "card_on_file" ? "Card on file — auto-charge on completion" : selectedAccount?.payment_method === "invoice_only" ? `Invoice only` : (selectedAccount?.payment_method || "").replace(/_/g, " ") },
                 ].map(row => (
                   <div key={row.label} style={{ display: "flex", gap: 16, justifyContent: "space-between" }}>
