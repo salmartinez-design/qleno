@@ -25,6 +25,12 @@ async function runBookingSchemaGuard(): Promise<void> {
   const guards: Array<{ label: string; stmt: string }> = [
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [recurring-reschedule 2026-06-05] Stable cadence-slot identity for the
+    // recurrence dedup (see lib/recurring-jobs.ts). Column add then a one-time
+    // backfill so existing recurring jobs get occurrence_date = scheduled_date
+    // (their slot before any move). Idempotent: the UPDATE only fills NULLs.
+    { label: "jobs.occurrence_date", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS occurrence_date DATE" },
+    { label: "jobs.occurrence_date backfill", stmt: "UPDATE jobs SET occurrence_date = scheduled_date WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL" },
     { label: "jobs.condition_multiplier",  stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS condition_multiplier NUMERIC(5,3)" },
     { label: "jobs.applied_bundle_id",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applied_bundle_id INTEGER" },
     { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
