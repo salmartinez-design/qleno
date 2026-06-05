@@ -48,6 +48,8 @@ function fmtSchedTime(t: string | null) {
 type Row = {
   job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
+  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
+  pay_deduction_pct: string | null; pay_deduction_flat: string | null;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
@@ -58,6 +60,68 @@ const inputStyle: React.CSSProperties = {
   width: 92, height: 30, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6,
   fontSize: 13, fontFamily: FF, color: "#1A1917", outline: "none",
 };
+
+// Per-tech pay-type override. "" = inherit the job's smart default
+// (commercial → Allowed Hours; residential → Fee Split). Set Hourly / a
+// non-default rate / a breakage deduction here to match MaidCentral exactly.
+function PayEditor({ emp, row, onChanged, toastFn }: {
+  emp: Emp; row: Row; onChanged: () => void; toastFn: (t: { title: string }) => void;
+}) {
+  const initialPct = row.commission_pct != null ? String(Math.round(parseFloat(row.commission_pct) * 10000) / 100) : "";
+  const initialRate = row.hourly_rate != null ? String(parseFloat(row.hourly_rate)) : "";
+  const [payType, setPayType] = useState<string>(row.pay_type ?? "");
+  const [rate, setRate] = useState<string>(row.pay_type === "fee_split" ? initialPct : initialRate);
+  const [ded, setDed] = useState<string>(row.pay_deduction_flat != null ? String(parseFloat(row.pay_deduction_flat)) : "");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    setPayType(row.pay_type ?? "");
+    setRate(row.pay_type === "fee_split" ? initialPct : initialRate);
+    setDed(row.pay_deduction_flat != null ? String(parseFloat(row.pay_deduction_flat)) : "");
+  }, [row.pay_type, row.hourly_rate, row.commission_pct, row.pay_deduction_flat]);
+
+  const unit = payType === "fee_split" ? "%" : payType === "" ? "" : "$/hr";
+  async function savePay() {
+    setBusy(true);
+    try {
+      const body: any = { pay_type: payType || null, hourly_rate: null, commission_pct: null,
+        pay_deduction_flat: ded ? parseFloat(ded) : null, pay_deduction_pct: null };
+      if (payType === "fee_split") body.commission_pct = rate ? parseFloat(rate) / 100 : null;
+      else if (payType === "allowed_hours" || payType === "hourly") body.hourly_rate = rate ? parseFloat(rate) : null;
+      const r = await api(`/api/timeclock/office/job/${row.job_id}/tech/${emp.user_id}/pay`, { method: "PUT", body: JSON.stringify(body) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Failed");
+      onChanged();
+    } catch (e: any) { toastFn({ title: e.message || "Pay save failed" }); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px 9px 14px", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, minWidth: 28 }}>PAY</span>
+      <select value={payType} onChange={e => setPayType(e.target.value)}
+        style={{ height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#fff", padding: "0 6px" }}>
+        <option value="">Default</option>
+        <option value="fee_split">Fee Split</option>
+        <option value="allowed_hours">Allowed Hours</option>
+        <option value="hourly">Hourly</option>
+      </select>
+      {payType !== "" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+          <input value={rate} onChange={e => setRate(e.target.value)} placeholder={payType === "fee_split" ? "35" : "20"}
+            inputMode="decimal" style={{ width: 56, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 7px", textAlign: "right" }} />
+          <span style={{ fontSize: 11, color: "#9E9B94" }}>{unit}</span>
+        </div>
+      )}
+      <span style={{ fontSize: 11, color: "#9E9B94", marginLeft: 4 }}>Breakage −$</span>
+      <input value={ded} onChange={e => setDed(e.target.value)} placeholder="0" inputMode="decimal"
+        style={{ width: 50, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 7px", textAlign: "right" }} />
+      <button onClick={savePay} disabled={busy}
+        style={{ fontSize: 11, fontWeight: 700, padding: "5px 9px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: busy ? "default" : "pointer", fontFamily: FF, color: "#2D9B83", background: "#fff", opacity: busy ? 0.6 : 1 }}>
+        Save pay
+      </button>
+    </div>
+  );
+}
 
 function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   emp: Emp; row: Row; dateStr: string; onChanged: () => void; toastFn: (t: { title: string }) => void;
@@ -109,7 +173,8 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", borderTop: "1px solid #F4F3F0" }}>
+    <div style={{ borderTop: "1px solid #F4F3F0" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px 4px 14px" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.client_name}</div>
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
@@ -134,6 +199,8 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: "1px solid #F3D2D2", background: row.entry_id ? "#FEF2F2" : "#F7F6F3", color: row.entry_id ? "#B91C1C" : "#D4D1CB", cursor: row.entry_id && !busy ? "pointer" : "default" }}>
         <Trash2 size={13} />
       </button>
+    </div>
+    <PayEditor emp={emp} row={row} onChanged={onChanged} toastFn={toastFn} />
     </div>
   );
 }

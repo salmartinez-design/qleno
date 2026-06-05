@@ -564,6 +564,67 @@ router.post("/office/clock-out", requireRole("owner", "admin", "office"), async 
   }
 });
 
+// [paytype-parity 2026-06-05] Per-tech pay-type override. The office sets a
+// timesheet's pay type (fee_split | allowed_hours | hourly) + rate/% and an
+// optional breakage deduction; the parity engine (lib/commission-paytype.ts)
+// reads these off job_technicians. NULL = inherit the job's smart default
+// (commercial → allowed_hours; residential → fee_split). Upserts the
+// job_technicians row; only edits an existing assignment or the primary tech.
+router.put("/office/job/:jobId/tech/:userId/pay", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.jobId);
+    const userId = parseInt(req.params.userId);
+    if (!jobId || !userId) return res.status(400).json({ error: "jobId and userId are required" });
+
+    const payType = req.body?.pay_type ?? null;
+    if (payType !== null && !["fee_split", "allowed_hours", "hourly"].includes(payType))
+      return res.status(400).json({ error: "pay_type must be fee_split, allowed_hours, hourly, or null" });
+
+    const numOrNull = (v: any): number | null => {
+      if (v === null || v === undefined || v === "") return null;
+      const n = parseFloat(String(v));
+      return Number.isFinite(n) ? n : NaN as any;
+    };
+    const hourlyRate = numOrNull(req.body?.hourly_rate);
+    const commissionPct = numOrNull(req.body?.commission_pct);
+    const dedPct = numOrNull(req.body?.pay_deduction_pct);
+    const dedFlat = numOrNull(req.body?.pay_deduction_flat);
+    for (const [k, v] of Object.entries({ hourly_rate: hourlyRate, commission_pct: commissionPct, pay_deduction_pct: dedPct, pay_deduction_flat: dedFlat }))
+      if (Number.isNaN(v)) return res.status(400).json({ error: `${k} must be a number or null` });
+
+    const [job] = await db.select({ id: jobsTable.id, assigned_user_id: jobsTable.assigned_user_id })
+      .from(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId))).limit(1);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+
+    const existing = (await db.execute(
+      sql`SELECT id FROM job_technicians WHERE company_id = ${companyId} AND job_id = ${jobId} AND user_id = ${userId} LIMIT 1`,
+    )).rows[0] as any;
+
+    if (existing) {
+      await db.execute(sql`
+        UPDATE job_technicians
+           SET pay_type = ${payType}, hourly_rate = ${hourlyRate}, commission_pct = ${commissionPct},
+               pay_deduction_pct = ${dedPct}, pay_deduction_flat = ${dedFlat}
+         WHERE id = ${existing.id}`);
+    } else if (job.assigned_user_id === userId) {
+      // Primary tech with no row yet — create it (already mirrors assigned_user_id).
+      await db.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary, pay_type, hourly_rate, commission_pct, pay_deduction_pct, pay_deduction_flat)
+        VALUES (${jobId}, ${userId}, ${companyId}, true, ${payType}, ${hourlyRate}, ${commissionPct}, ${dedPct}, ${dedFlat})`);
+    } else {
+      return res.status(404).json({ error: "Tech is not assigned to this job" });
+    }
+
+    logAudit(req, "TIMECLOCK_PAYTYPE", "job_technicians", jobId,
+      null, { user_id: userId, pay_type: payType, hourly_rate: hourlyRate, commission_pct: commissionPct, pay_deduction_pct: dedPct, pay_deduction_flat: dedFlat });
+    return res.json({ ok: true, job_id: jobId, user_id: userId, pay_type: payType, hourly_rate: hourlyRate, commission_pct: commissionPct, pay_deduction_pct: dedPct, pay_deduction_flat: dedFlat });
+  } catch (err) {
+    console.error("PUT /timeclock/office/job/:jobId/tech/:userId/pay error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── Time Clock portal: whole-day grid + office edit/delete ───────────────────
 // The office reconciles Qleno's per-job clock times against MaidCentral so
 // commission (proportional by actual minutes) and hourly pay match. /day pulls
@@ -600,10 +661,14 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
 
     const techRows = inList ? ((await db.execute(sql`
       SELECT jt.job_id, jt.user_id, jt.is_primary,
+             jt.pay_type, jt.hourly_rate, jt.commission_pct,
+             jt.pay_deduction_pct, jt.pay_deduction_flat,
              TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
       FROM job_technicians jt JOIN users u ON u.id = jt.user_id
       WHERE jt.job_id IN (${inList})
     `)).rows as any[]) : [];
+    const payByJobUser = new Map<string, any>();
+    for (const t of techRows) payByJobUser.set(`${Number(t.job_id)}:${Number(t.user_id)}`, t);
 
     const clockRows = inList ? ((await db.execute(sql`
       SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged,
@@ -627,7 +692,19 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
 
     type Row = { job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
-                 flagged: boolean; minutes: number | null };
+                 flagged: boolean; minutes: number | null;
+                 pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
+                 pay_deduction_pct: string | null; pay_deduction_flat: string | null };
+    const payOf = (jid: number, uid: number) => {
+      const p = payByJobUser.get(`${jid}:${uid}`);
+      return {
+        pay_type: p?.pay_type ?? null,
+        hourly_rate: p?.hourly_rate != null ? String(p.hourly_rate) : null,
+        commission_pct: p?.commission_pct != null ? String(p.commission_pct) : null,
+        pay_deduction_pct: p?.pay_deduction_pct != null ? String(p.pay_deduction_pct) : null,
+        pay_deduction_flat: p?.pay_deduction_flat != null ? String(p.pay_deduction_flat) : null,
+      };
+    };
     const emp = new Map<number, { user_id: number; name: string; rows: Row[] }>();
     const ensureEmp = (uid: number) => {
       if (!emp.has(uid)) emp.set(uid, { user_id: uid, name: nameByUser.get(uid) || "Tech", rows: [] });
@@ -649,6 +726,7 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
           job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
+          ...payOf(jid, t.user_id),
         });
       }
     }
@@ -660,6 +738,7 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
         job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
+        ...payOf(Number(e.job_id), Number(e.user_id)),
       });
     }
 
