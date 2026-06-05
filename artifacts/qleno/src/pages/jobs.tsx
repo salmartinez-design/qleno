@@ -298,6 +298,9 @@ function isDarkHex(hex?: string | null): boolean {
 }
 function useIsMobile() { const [m, setM] = useState(window.innerWidth < 1024); useEffect(() => { const h = () => setM(window.innerWidth < 1024); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return m; }
 function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return "12 AM"; return h < 12 ? `${h} AM` : `${h - 12} PM`; }
+// [card-polish 2026-06-05] Minutes-since-midnight -> "9:00 AM" / "2:30 PM".
+// Used to render a job's full shift range (start–end) on the mobile card.
+function fmtMins(mins: number) { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ampm = h % 24 < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr}:${String(m).padStart(2, "0")} ${ampm}`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
 // Honest labels: the count is total jobs booked that hour across the whole
@@ -3097,14 +3100,16 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   const visual = STATUS_VISUALS[getJobVisualStatus(job)];
   return (
     <div onClick={onClick} style={{
-      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
-      padding: "14px 16px", marginBottom: 10, cursor: "pointer", position: "relative",
-      // [schedule-views 2026-06-05] Left stripe = the job's ZONE color (same
-      // source the desktop Gantt chip fills with), not the status-blue sc.dot.
-      // This closes the desktop/mobile color variance — a job that's purple on
-      // the board is now purple on mobile. Special-state overrides (late red,
-      // unpaid amber, no-show dark-red) and the animated active stripe still win.
-      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? job.zone_color ?? sc.dot}`,
+      backgroundColor: "#FFFFFF", borderRadius: 12,
+      padding: "13px 15px", marginBottom: 10, cursor: "pointer", position: "relative",
+      // [schedule-views 2026-06-05] FULL-CARD border in the job's ZONE color —
+      // same source the desktop Gantt chip fills with — so the whole card
+      // outlines in the color that's on the board (a purple-zone job reads
+      // purple on both). 2px for prominence. No-zone falls back to GRAY
+      // (#9CA3AF, desktop's ZONE_FALLBACK), NOT status-blue. Special-state
+      // overrides (late red, unpaid amber, no-show dark-red) still win; the
+      // animated active stripe rides inside the border.
+      border: `2px solid ${visual.borderOverride ?? job.zone_color ?? "#9CA3AF"}`,
       fontFamily: FF, opacity: visual.bodyOpacity,
       filter: visual.desaturate ? "grayscale(1)" : "none", overflow: "hidden",
     }}>
@@ -3163,15 +3168,27 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           {job.status.replace("_", " ")}
         </span>
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        {job.scheduled_time && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280" }}>
-            <Clock size={12} style={{ color: "#9E9B94" }} />
-            {fmtTime(job.scheduled_time)}
-            <span style={{ color: "#C4C0BB" }}>·</span>
-            {Math.floor(job.duration_minutes / 60)}h{job.duration_minutes % 60 > 0 ? ` ${job.duration_minutes % 60}m` : ""}
+      {/* [card-polish 2026-06-05] Prominent full SHIFT range (start–end), e.g.
+          "9:00 AM – 2:00 PM", on its own line above the meta row. Replaces the
+          smaller "9:00 AM · 4h" inline chip — the shift window is what
+          dispatchers scan for. Duration trails small for reference. */}
+      {job.scheduled_time && (() => {
+        const startM = timeToMins(job.scheduled_time);
+        const endM = startM + (job.duration_minutes || 0);
+        const dm = job.duration_minutes || 0;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+            <Clock size={15} style={{ color: "#1A1917" }} />
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", letterSpacing: "-0.01em" }}>
+              {fmtMins(startM)} – {fmtMins(endM)}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94" }}>
+              {Math.floor(dm / 60)}h{dm % 60 > 0 ? ` ${dm % 60}m` : ""}
+            </span>
           </div>
-        )}
+        );
+      })()}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {job.frequency && job.frequency !== "on_demand" && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 7px", borderRadius: 4 }}>
             <Repeat size={9} />{job.frequency.replace(/_/g, " ")}
