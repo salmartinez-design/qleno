@@ -3221,6 +3221,37 @@ export async function runPhesDataMigration(): Promise<void> {
       SET minimum_bill = 210.00
       WHERE company_id = ${PHES} AND name = 'Recurring Cleaning - Every 4 Weeks' AND minimum_bill != 210.00
     `);
+
+    // ── MaidCentral-parity base hourly rates (confirmed by Sal, 2026-06-05) ───
+    // The scope INSERTs above are insert-only (WHERE NOT EXISTS), so they never
+    // correct an existing row's rate. Production scopes seeded at the old
+    // defaults (Deep Clean $70, One-Time $60, Recurring $55/$60) stayed stale,
+    // so quotes priced BELOW MaidCentral — a hard problem when onboarding
+    // existing clients who must be quoted at the exact price they already pay
+    // in MC. These idempotent UPDATEs enforce the canonical MC rates:
+    //   Deep Clean / Move In-Out / Hourly Deep Clean ...... $80/hr
+    //   One-Time Standard / Hourly Standard ............... $65/hr
+    //   Recurring (Weekly / Every 2 Weeks / Every 4 Weeks)  $65/hr flat
+    // Recurring price still fluctuates by cadence — but that comes ENTIRELY
+    // from the per-cadence tier hours (already MC-matched above), NOT the rate,
+    // exactly like MC's single-rate recurring model. The `!= rate` guard makes
+    // this a no-op once correct.
+    const mcParityRates: Array<{ name: string; rate: string }> = [
+      { name: "Deep Clean",                          rate: "80.00" },
+      { name: "Move In / Move Out",                  rate: "80.00" },
+      { name: "Hourly Deep Clean",                   rate: "80.00" },
+      { name: "One-Time Standard Clean",             rate: "65.00" },
+      { name: "Hourly Standard Cleaning",            rate: "65.00" },
+      { name: "Recurring Cleaning - Weekly",         rate: "65.00" },
+      { name: "Recurring Cleaning - Every 2 Weeks",  rate: "65.00" },
+      { name: "Recurring Cleaning - Every 4 Weeks",  rate: "65.00" },
+    ];
+    for (const { name, rate } of mcParityRates) {
+      await db.execute(sql`
+        UPDATE pricing_scopes SET hourly_rate = ${rate}
+        WHERE company_id = ${PHES} AND name = ${name} AND hourly_rate != ${rate}
+      `);
+    }
     // These were seeded before scope_group existed, so they defaulted to
     // 'Residential' — which both hid them from commercial clients AND showed
     // commercial work to residential ones. Reclassify to 'Commercial'.
