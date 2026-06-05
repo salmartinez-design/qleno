@@ -207,7 +207,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
 export default function TimeClockPage() {
   const { toast } = useToast();
   const [date, setDate] = useState(new Date());
-  const [data, setData] = useState<{ date: string; employees: Emp[] } | null>(null);
+  const [data, setData] = useState<{ date: string; employees: Emp[]; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
   const [loading, setLoading] = useState(true);
   const dk = dateKey(date);
   const isToday = dk === dateKey(new Date());
@@ -273,6 +273,13 @@ export default function TimeClockPage() {
             <Clock size={30} color="#D0CEC9" style={{ marginBottom: 10 }} />
             <div style={{ fontSize: 14, fontWeight: 700, color: "#6B7280" }}>No jobs scheduled this day</div>
             <div style={{ fontSize: 12, color: "#9E9B94" }}>Pick another date to reconcile its clocks.</div>
+            {data?.diagnostics && (
+              <div style={{ marginTop: 12, fontSize: 11, fontFamily: "monospace", color: data.diagnostics.error ? "#B91C1C" : "#9E9B94" }}>
+                {data.diagnostics.error
+                  ? `server error: ${data.diagnostics.error}`
+                  : `diagnostics — jobs found: ${data.diagnostics.jobCount ?? "?"} · tech rows: ${data.diagnostics.techRows ?? "?"} · clock rows: ${data.diagnostics.clockRows ?? "?"}`}
+              </div>
+            )}
           </div>
         ) : (
           employees.map(emp => {
