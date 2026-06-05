@@ -549,8 +549,12 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
     const companyId = req.auth!.companyId;
     const date = String(req.query.date || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date=YYYY-MM-DD required" });
-    const branchId = req.query.branch_id && req.query.branch_id !== "all" ? parseInt(String(req.query.branch_id)) : null;
-
+    // [timeclock-show-jobs 2026-06-05] Show EVERY job scheduled that day for the
+    // company — NO branch filter. The portal was filtering by the selected
+    // branch and hiding the day's jobs (today had 15 scheduled but the portal
+    // showed 0) because many jobs carry a null/mismatched branch_id from the MC
+    // import. Reconciliation is company-wide anyway; a branch filter can return
+    // once branch_id is reliably stamped on every job.
     const jobsRes = await db.execute(sql`
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
@@ -561,7 +565,6 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
       WHERE j.company_id = ${companyId}
         AND j.scheduled_date = ${date}
         AND j.status <> 'cancelled'
-        ${branchId !== null ? sql`AND j.branch_id = ${branchId}` : sql``}
       ORDER BY j.scheduled_time NULLS LAST, j.id
     `);
     const jobs = jobsRes.rows as any[];
