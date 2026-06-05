@@ -25,6 +25,9 @@ async function runBookingSchemaGuard(): Promise<void> {
   const guards: Array<{ label: string; stmt: string }> = [
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
+    // recurring occurrence the office removed isn't regenerated next run.
+    { label: "recurring_schedules.skipped_dates", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS skipped_dates DATE[] DEFAULT '{}'" },
     // [recurring-reschedule 2026-06-05] Stable cadence-slot identity for the
     // recurrence dedup (see lib/recurring-jobs.ts). Column add then a one-time
     // backfill so existing recurring jobs get occurrence_date = scheduled_date
@@ -1388,47 +1391,24 @@ async function runScopeVisibility(): Promise<void> {
 //
 // Cancelled jobs can still coexist with active ones (cancel + rebook).
 async function runJobsDedupeAndConstraint(): Promise<void> {
-  // Step 1: dedupe. Partition collapses NULL scheduled_time into the
-  // sentinel '00:00:00' so two NULL-time rows for the same client/date
-  // are caught. Order by created_at DESC, id DESC to keep the latest
-  // row — operator edits land via PATCH which doesn't change `id` but
-  // does bump `updated_at` indirectly via the row itself; if both
-  // share created_at, lowest id wins as a stable tiebreak.
-  const deleted = await db.execute(sql`
-    WITH dupes AS (
-      SELECT id,
-             ROW_NUMBER() OVER (
-               PARTITION BY company_id, client_id, scheduled_date,
-                            COALESCE(scheduled_time::text, '00:00:00')
-               ORDER BY created_at DESC NULLS LAST, id DESC
-             ) AS rn
-      FROM jobs
-      WHERE status NOT IN ('cancelled')
-    )
-    DELETE FROM jobs
-    WHERE id IN (SELECT id FROM dupes WHERE rn > 1)
-    RETURNING id
-  `);
-  const removed = (deleted.rows ?? []).length;
-  // [iter 2 logging] Always log — distinguishes "ran, found nothing"
-  // from "didn't run at all" when staring at Railway logs.
-  console.log(`[jobs-dedupe] Migration ran. Removed ${removed} duplicate job row(s).`);
-
-  // Step 2: replace the old index with the COALESCE-keyed version.
-  // Drop-then-create is safe because the dedupe in step 1 just ran;
-  // no transient duplicates to trip the new index. IF EXISTS guards
-  // first-run when the old name was never created.
+  // [overnight-job-loss 2026-06-05] CRITICAL FIX. This used to DELETE every
+  // non-cancelled job that shared (company_id, client_id, scheduled_date,
+  // scheduled_time) with another — keeping one — and enforce a UNIQUE index on
+  // that key. That "no double-book" assumption is WRONG for commercial
+  // accounts: a single client legitimately has multiple jobs the same day at
+  // the same time (KMA's Office + Common Areas, Daniel Walter's multiple PPM
+  // turnovers, multi-unit common areas, etc.). Running on EVERY cold-start
+  // (every deploy/restart), the sweep silently deleted those real jobs and the
+  // index blocked re-creating them — the office's "we scheduled jobs, woke up
+  // and they're gone / revenue is wrong again" report, and the Tuesday
+  // MC-vs-Qleno shortfall (Hilda's 3 PPM jobs collapsed to 1).
+  //
+  // Fix: NEVER auto-delete jobs here, and DROP the bad index so multiple
+  // same-client / same-day / same-time jobs can coexist. True recurrence
+  // duplicates are prevented at generation time by the engine's occurrence_date
+  // dedup (lib/recurring-jobs.ts) — not by a destructive nightly DB sweep.
   await db.execute(sql`DROP INDEX IF EXISTS uq_jobs_no_double_book`);
-  await db.execute(sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_no_double_book
-      ON jobs (
-        company_id,
-        client_id,
-        scheduled_date,
-        (COALESCE(scheduled_time::text, '00:00:00'))
-      )
-      WHERE status NOT IN ('cancelled')
-  `);
+  console.log("[jobs-dedupe] Destructive same-day dedupe REMOVED; dropped uq_jobs_no_double_book (commercial clients legitimately have multiple same-day jobs).");
 }
 
 // [pay-matrix 2026-04-29] Backfill the per-employee pay matrix and
