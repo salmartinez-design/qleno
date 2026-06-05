@@ -4,6 +4,9 @@ import { timeclockTable, usersTable, jobsTable, clientsTable, companiesTable, jo
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { parseResRatesRow } from "../lib/commission-rates.js";
+import type { CommissionInputJob } from "../lib/commission-compute.js";
 
 const router = Router();
 
@@ -646,6 +649,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     const jobsRes = await db.execute(sql`
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
+             j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
                       c.company_name, 'Client') AS client_name
       FROM jobs j
@@ -709,11 +713,54 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     for (const t of techRows) if (t.name) nameByUser.set(Number(t.user_id), t.name);
     for (const e of clockRows) if (e.name) nameByUser.set(Number(e.user_id), e.name);
 
+    // Commission per (job, tech) using the SAME engine the Payroll period-lock
+    // uses (lib/commission-paytype.ts) — so the portal's pay numbers match the
+    // Payroll screen by construction. Pay flows: clock + pay-type here →
+    // computePerTechCommissionRows → shown here AND applied at period-lock.
+    const payByKey = new Map<string, number>();
+    try {
+      let comp: any = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32, commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" };
+      try {
+        const cr = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+        if (cr.rows[0]) comp = cr.rows[0];
+      } catch { /* tiered columns absent — keep defaults */ }
+      const resRates = parseResRatesRow(comp);
+      const commercial = {
+        commercial_hourly_rate: parseFloat(String(comp.commercial_hourly_rate ?? 20)),
+        commercial_comp_mode: (comp.commercial_comp_mode === "actual_hours" ? "actual_hours" : "allowed_hours") as "actual_hours" | "allowed_hours",
+      };
+      const serviceTypePctBySlug = new Map<string, number>();
+      try {
+        const svc = await db.execute(sql`SELECT slug, commission_pct FROM service_types WHERE company_id = ${companyId} AND commission_pct IS NOT NULL`);
+        for (const r of svc.rows as any[]) { const p = parseFloat(String(r.commission_pct)); if (Number.isFinite(p)) serviceTypePctBySlug.set(String(r.slug).toLowerCase(), p); }
+      } catch { /* per-service column absent */ }
+      const techHoursByKey = new Map<string, number>();
+      for (const e of clockRows) {
+        if (!e.clock_out_at || !e.clock_in_at) continue;
+        const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
+        if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
+      }
+      const jobTechsForCalc: JobTechRow[] = techRows.map((t: any) => ({
+        job_id: Number(t.job_id), user_id: Number(t.user_id), is_primary: t.is_primary === true,
+        pay_type: t.pay_type ?? null, hourly_rate: t.hourly_rate ?? null, commission_pct: t.commission_pct ?? null,
+        pay_deduction_pct: t.pay_deduction_pct ?? null, pay_deduction_flat: t.pay_deduction_flat ?? null,
+      }));
+      const jobsForCalc = jobs.map((j: any) => ({
+        id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
+        service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
+        billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
+        branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date,
+      })) as CommissionInputJob[];
+      for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
+        payByKey.set(`${r.job_id}:${r.user_id}`, r.amount);
+      }
+    } catch (e) { console.error("[TC-DAY] pay compute error:", e); }
+
     type Row = { job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
-                 pay_deduction_pct: string | null; pay_deduction_flat: string | null };
+                 pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null };
     const payOf = (jid: number, uid: number) => {
       const p = payByJobUser.get(`${jid}:${uid}`);
       return {
@@ -745,7 +792,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
-          ...payOf(jid, t.user_id),
+          ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null,
         });
       }
     }
@@ -757,7 +804,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
-        ...payOf(Number(e.job_id), Number(e.user_id)),
+        ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null,
       });
     }
 
@@ -765,10 +812,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const worked = ev.rows.reduce((s, r) => s + (r.minutes ?? 0), 0);
       const ins = ev.rows.map(r => r.clock_in_at).filter(Boolean) as string[];
       const outs = ev.rows.map(r => r.clock_out_at).filter(Boolean) as string[];
+      const payTotal = ev.rows.reduce((s, r) => s + (r.pay ?? 0), 0);
       return {
         ...ev,
         rows: ev.rows.sort((a, b) => String(a.scheduled_time || "~").localeCompare(String(b.scheduled_time || "~"))),
         worked_minutes: worked,
+        pay_total: Math.round(payTotal * 100) / 100,
         day_start: ins.length ? ins.reduce((a, b) => (a < b ? a : b)) : null,
         day_end: outs.length ? outs.reduce((a, b) => (a > b ? a : b)) : null,
         open: ev.rows.some(r => r.clock_in_at && !r.clock_out_at),
