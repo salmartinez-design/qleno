@@ -659,14 +659,32 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
     const jobIds = jobs.map(j => Number(j.job_id)).filter(n => Number.isFinite(n));
     const inList = jobIds.length ? sql.raw(jobIds.join(",")) : null;
 
-    const techRows = inList ? ((await db.execute(sql`
-      SELECT jt.job_id, jt.user_id, jt.is_primary,
-             jt.pay_type, jt.hourly_rate, jt.commission_pct,
-             jt.pay_deduction_pct, jt.pay_deduction_flat,
-             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
-      FROM job_technicians jt JOIN users u ON u.id = jt.user_id
-      WHERE jt.job_id IN (${inList})
-    `)).rows as any[]) : [];
+    // Pay-type columns are newer than the rest of job_technicians. If the
+    // cold-start migration that adds them hasn't applied on this DB yet,
+    // selecting them throws and would 500 the WHOLE day (hiding every job).
+    // Try the full SELECT, fall back to base columns so the day always loads.
+    let techRows: any[] = [];
+    if (inList) {
+      try {
+        techRows = (await db.execute(sql`
+          SELECT jt.job_id, jt.user_id, jt.is_primary,
+                 jt.pay_type, jt.hourly_rate, jt.commission_pct,
+                 jt.pay_deduction_pct, jt.pay_deduction_flat,
+                 TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
+          FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+          WHERE jt.job_id IN (${inList})
+        `)).rows as any[];
+      } catch {
+        techRows = (await db.execute(sql`
+          SELECT jt.job_id, jt.user_id, jt.is_primary,
+                 NULL::text AS pay_type, NULL::numeric AS hourly_rate, NULL::numeric AS commission_pct,
+                 NULL::numeric AS pay_deduction_pct, NULL::numeric AS pay_deduction_flat,
+                 TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
+          FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+          WHERE jt.job_id IN (${inList})
+        `)).rows as any[];
+      }
+    }
     const payByJobUser = new Map<string, any>();
     for (const t of techRows) payByJobUser.set(`${Number(t.job_id)}:${Number(t.user_id)}`, t);
 
