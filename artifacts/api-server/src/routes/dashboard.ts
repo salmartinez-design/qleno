@@ -1497,4 +1497,48 @@ router.delete("/card-prefs", requireAuth, async (req, res) => {
   }
 });
 
+// ── Recent activity feed (main dashboard, under the revenue forecast) ─────────
+// HCP-style stream of business events drawn from app_audit_log. Company-scoped,
+// business events only — auth/LMS/smoke-test noise is filtered out so the card
+// reads like "what happened to my jobs/quotes/invoices/clients lately", with a
+// link back to each record. Raw fields go to the client; the dashboard maps
+// them to a friendly label + route (the frontend owns the route table).
+router.get("/recent-activity", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const limit = Math.min(parseInt(String(req.query.limit ?? "15")) || 15, 50);
+    const r = await db.execute(sql`
+      SELECT aal.id, aal.action, aal.target_type, aal.target_id,
+             aal.new_value, aal.performed_at,
+             NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
+      FROM app_audit_log aal
+      LEFT JOIN users au ON aal.performed_by = au.id
+      WHERE aal.company_id = ${companyId}
+        AND aal.performed_at >= NOW() - INTERVAL '30 days'
+        AND aal.target_type IN ('job','quote','invoice','client','employee')
+        AND aal.action NOT LIKE 'lms_%'
+        AND aal.action NOT IN (
+          'login_success','login_failed','logout','password_changed',
+          'password_reset','company_switch','user_companies_grant',
+          'user_companies_revoke','SMOKE_TEST'
+        )
+      ORDER BY aal.performed_at DESC
+      LIMIT ${limit}
+    `);
+    const activities = (r.rows as any[]).map((x) => ({
+      id: Number(x.id),
+      action: String(x.action),
+      target_type: String(x.target_type),
+      target_id: x.target_id != null ? String(x.target_id) : null,
+      new_value: x.new_value ?? null,
+      performed_at: x.performed_at,
+      user_name: x.user_name ?? null,
+    }));
+    return res.json({ activities });
+  } catch (err) {
+    console.error("Recent activity error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
