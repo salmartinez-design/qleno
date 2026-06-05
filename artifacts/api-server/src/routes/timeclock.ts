@@ -694,7 +694,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     for (const t of techRows) payByJobUser.set(`${Number(t.job_id)}:${Number(t.user_id)}`, t);
 
     const clockRows = inList ? ((await db.execute(sql`
-      SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged,
+      SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged, t.source,
              TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
       FROM timeclock t JOIN users u ON u.id = t.user_id
       WHERE t.company_id = ${companyId} AND t.job_id IN (${inList})
@@ -734,9 +734,13 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         const svc = await db.execute(sql`SELECT slug, commission_pct FROM service_types WHERE company_id = ${companyId} AND commission_pct IS NOT NULL`);
         for (const r of svc.rows as any[]) { const p = parseFloat(String(r.commission_pct)); if (Number.isFinite(p)) serviceTypePctBySlug.set(String(r.slug).toLowerCase(), p); }
       } catch { /* per-service column absent */ }
+      // Only REAL punches drive pay — exactly what the Payroll period-lock
+      // counts (source='punched'). Synthetic 'estimated' pre-seeds show as a
+      // row but contribute $0 until the office enters/verifies a real time
+      // (which flips them to punched via PATCH).
       const techHoursByKey = new Map<string, number>();
       for (const e of clockRows) {
-        if (!e.clock_out_at || !e.clock_in_at) continue;
+        if (e.source !== "punched" || !e.clock_out_at || !e.clock_in_at) continue;
         const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
         if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
       }
@@ -760,7 +764,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
-                 pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null };
+                 pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
+                 source: string | null };
     const payOf = (jid: number, uid: number) => {
       const p = payByJobUser.get(`${jid}:${uid}`);
       return {
@@ -792,7 +797,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
-          ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null,
+          ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null, source: e?.source ?? null,
         });
       }
     }
@@ -804,7 +809,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
-        ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null,
+        ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null, source: e.source ?? null,
       });
     }
 
@@ -864,6 +869,11 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const outAt = set.clock_out_at !== undefined ? set.clock_out_at : existing.clock_out_at;
     if (inAt && outAt && new Date(outAt).getTime() < new Date(inAt).getTime())
       return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
+
+    // An office edit is a verified real time — promote a synthetic 'estimated'
+    // punch to 'punched' so it counts in payroll (period-lock uses punched
+    // only) and matches what the portal shows.
+    set.source = "punched";
 
     const [updated] = await db.update(timeclockTable).set(set).where(eq(timeclockTable.id, id)).returning();
     await recomputeJobActualHours(existing.job_id, companyId);
