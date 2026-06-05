@@ -3099,7 +3099,12 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
     <div onClick={onClick} style={{
       backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
       padding: "14px 16px", marginBottom: 10, cursor: "pointer", position: "relative",
-      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? sc.dot}`,
+      // [schedule-views 2026-06-05] Left stripe = the job's ZONE color (same
+      // source the desktop Gantt chip fills with), not the status-blue sc.dot.
+      // This closes the desktop/mobile color variance — a job that's purple on
+      // the board is now purple on mobile. Special-state overrides (late red,
+      // unpaid amber, no-show dark-red) and the animated active stripe still win.
+      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? job.zone_color ?? sc.dot}`,
       fontFamily: FF, opacity: visual.bodyOpacity,
       filter: visual.desaturate ? "grayscale(1)" : "none", overflow: "hidden",
     }}>
@@ -5126,6 +5131,10 @@ export default function JobsPage() {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [dayDataCache, setDayDataCache] = useState<Map<string, DispatchData>>(new Map());
   const [dayDataLoading, setDayDataLoading] = useState<Set<string>>(new Set());
+  // [schedule-views 2026-06-05] Mobile focal-day view mode: Time list / By
+  // Employee groups / Time-grid. Three selectable views so the office can try
+  // each and keep whichever earns its place. Generic — applies to every tenant.
+  const [mobileViewMode, setMobileViewMode] = useState<"time" | "team" | "grid">("time");
 
   const load = useCallback(async () => {
     const id = ++refreshRef.current;
@@ -5682,6 +5691,24 @@ export default function JobsPage() {
               <Info size={11} />
               Legend
             </button>
+          </div>
+
+          {/* [schedule-views 2026-06-05] Focal-day VIEW SWITCHER — Time list /
+              By Employee / Time-grid. Affects only the focal-day section below;
+              the week summary, risk strip, and Upcoming list are shared chrome. */}
+          <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "8px 14px" }}>
+            <div style={{ display: "flex", background: "#F1EFEA", borderRadius: 9, padding: 3, gap: 3 }}>
+              {([["time", "Time"], ["team", "Team"], ["grid", "Grid"]] as const).map(([val, label]) => (
+                <button key={val} onClick={() => setMobileViewMode(val)} style={{
+                  flex: 1, textAlign: "center", border: "none", cursor: "pointer", fontFamily: FF,
+                  fontSize: 12, fontWeight: 700, padding: "7px 0", borderRadius: 7,
+                  backgroundColor: mobileViewMode === val ? "#FFFFFF" : "transparent",
+                  color: mobileViewMode === val ? "#1A1917" : "#6B7280",
+                  boxShadow: mobileViewMode === val ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                  transition: "background 0.15s",
+                }}>{label}</button>
+              ))}
+            </div>
           </div>
 
           {/* [AI.7] FOCAL DAY (TODAY) — full job cards. Heading carries the
