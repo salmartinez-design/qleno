@@ -61,6 +61,20 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.residential_pay_rate", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "users.commercial_pay_type",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_type  TEXT DEFAULT 'hourly'" },
     { label: "users.commercial_pay_rate",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    // [paytype-parity 2026-06-05] Per-tech pay-type override for MaidCentral
+    // parity (lib/commission-paytype.ts). All NULL = inherit the job's smart
+    // default. pay_type ∈ fee_split|allowed_hours|hourly. Plus an editable
+    // breakage deduction (default off — a customer credit doesn't dock the
+    // cleaner unless the office sets a % and/or flat $ here).
+    { label: "job_technicians.pay_type",           stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_type TEXT" },
+    { label: "job_technicians.hourly_rate",        stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(8,4)" },
+    { label: "job_technicians.commission_pct",     stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(8,6)" },
+    { label: "job_technicians.pay_deduction_pct",  stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_deduction_pct NUMERIC(6,4)" },
+    { label: "job_technicians.pay_deduction_flat", stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_deduction_flat NUMERIC(10,2)" },
+    // Per-service-type fee-split % (NULL = company tier). Both the unified
+    // service_types table and the legacy commercial_service_types table.
+    { label: "service_types.commission_pct",            stmt: "ALTER TABLE service_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(6,4)" },
+    { label: "commercial_service_types.commission_pct", stmt: "ALTER TABLE commercial_service_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(6,4)" },
     // [phes-chicago23 2026-05-12] One-shot password reset gate. NULL means
     // this user has not yet had their password set to Chicago23 by the
     // cold-start runPhesPasswordResetChicago23() function below. After that

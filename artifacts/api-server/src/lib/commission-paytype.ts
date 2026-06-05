@@ -59,12 +59,26 @@ export interface TechPayInput {
   hourlyRate: number;
   /** Decimal share (0.32 = 32%) for fee_split. Ignored otherwise. */
   scopePct: number;
+  /**
+   * Optional breakage/damage deduction the office applies to THIS tech's
+   * pay. Default OFF — a customer breakage credit does NOT dock the cleaner
+   * (audit decision 2026-06-05). When the office decides the tech shares the
+   * cost, they set a percent (0.10 = 10% of computed pay) and/or a flat $.
+   * Applied after the pay-type computation; final pay floored at $0.
+   */
+  deductionPct?: number;
+  deductionFlat?: number;
 }
 
 export interface TechPayRow {
   user_id: number;
   payType: PayType;
+  /** Final pay after any deduction (what actually pays). */
   amount: number;
+  /** Pay before the breakage deduction (the earned commission). */
+  grossAmount: number;
+  /** Dollars removed by the deduction (0 when none). */
+  deduction: number;
   /** The effective inputs, for audit/UI display ("Fee Split: 16%"). */
   effectivePct: number; // hour-weighted fee-split %, else 0
   effectiveHours: number; // hours the rate was applied to (allowed/hourly)
@@ -89,25 +103,31 @@ export function computeTechPay(ctx: JobPayContext, tech: TechPayInput): TechPayR
   const total = ctx.totalTechHours > 0 ? ctx.totalTechHours : tech.techHours;
   const share = total > 0 ? tech.techHours / total : 1;
 
+  let grossAmount: number;
+  let effectivePct = 0;
+  let effectiveHours = round2(tech.techHours);
+
   if (tech.payType === "hourly") {
-    const amount = round2(tech.techHours * tech.hourlyRate);
-    return { user_id: tech.user_id, payType: "hourly", amount, effectivePct: 0, effectiveHours: round2(tech.techHours) };
+    grossAmount = round2(tech.techHours * tech.hourlyRate);
+  } else if (tech.payType === "allowed_hours") {
+    const payHours = Math.max(ctx.allowedHours * share, tech.techHours);
+    grossAmount = round2(payHours * tech.hourlyRate);
+    effectiveHours = round2(payHours);
+  } else {
+    // fee_split — gross base × scope% × hour-weighted share.
+    // MC rounds the effective % to 2 decimals (e.g. 17.53%) and multiplies
+    // that, so we round the rate to 4 dp BEFORE applying it to match the
+    // displayed paycheck to the penny.
+    effectivePct = Math.round(tech.scopePct * share * 10000) / 10000;
+    grossAmount = round2(ctx.baseFee * effectivePct);
   }
 
-  if (tech.payType === "allowed_hours") {
-    const allowedShare = ctx.allowedHours * share;
-    const payHours = Math.max(allowedShare, tech.techHours);
-    const amount = round2(payHours * tech.hourlyRate);
-    return { user_id: tech.user_id, payType: "allowed_hours", amount, effectivePct: 0, effectiveHours: round2(payHours) };
-  }
+  // Optional breakage deduction (default off). Percent applies to the
+  // computed pay; flat is dollars. Final pay never goes negative.
+  const deduction = round2(grossAmount * num(tech.deductionPct) + num(tech.deductionFlat));
+  const amount = Math.max(0, round2(grossAmount - deduction));
 
-  // fee_split — gross base × scope% × hour-weighted share.
-  // MC rounds the effective % to 2 decimals (e.g. 17.53%) and multiplies
-  // that, so we round the rate to 4 dp BEFORE applying it to match the
-  // displayed paycheck to the penny.
-  const effectivePct = Math.round(tech.scopePct * share * 10000) / 10000;
-  const amount = round2(ctx.baseFee * effectivePct);
-  return { user_id: tech.user_id, payType: "fee_split", amount, effectivePct, effectiveHours: round2(tech.techHours) };
+  return { user_id: tech.user_id, payType: tech.payType, amount, grossAmount, deduction, effectivePct, effectiveHours };
 }
 
 /** Compute every tech's pay for one job. Sum of independent per-tech rows. */
