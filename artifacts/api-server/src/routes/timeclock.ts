@@ -19,6 +19,32 @@ function calculateDistanceFt(lat1: number, lon1: number, lat2: number, lon2: num
   return Math.round(R * c);
 }
 
+// [timeclock-cohesion 2026-06-05] Recompute jobs.actual_hours from the job's
+// COMPLETED clock entries: earliest clock-in → latest clock-out = the job's
+// actual on-site span (matches MC's single-tech case; for simultaneous
+// multi-tech it's the job duration, not summed labor). This is the wire that
+// makes a clock edit flow into reporting — it drives the allowed-vs-actual
+// efficiency metric and the 'actual_hours' commission mode (under the default
+// 'allowed_hours' mode it doesn't change commission $, so it's safe). Called
+// after every office clock write so the clock and pay stay in sync. NULL when
+// no entry is closed yet (actual isn't known until clock-out).
+async function recomputeJobActualHours(jobId: number, companyId: number): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE jobs SET actual_hours = sub.h
+      FROM (
+        SELECT ROUND(GREATEST(
+                 EXTRACT(EPOCH FROM (MAX(clock_out_at) - MIN(clock_in_at))) / 3600.0, 0)::numeric, 2) AS h
+        FROM timeclock
+        WHERE job_id = ${jobId} AND company_id = ${companyId} AND clock_out_at IS NOT NULL
+      ) sub
+      WHERE jobs.id = ${jobId} AND jobs.company_id = ${companyId}
+    `);
+  } catch (err) {
+    console.error("[timeclock] recomputeJobActualHours failed:", err);
+  }
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { user_id, job_id, flagged, date_from, date_to, branch_id } = req.query;
@@ -530,6 +556,7 @@ router.post("/office/clock-out", requireRole("owner", "admin", "office"), async 
     const [updated] = await db.update(timeclockTable)
       .set({ clock_out_at: clockOutAt })
       .where(eq(timeclockTable.id, open.id)).returning();
+    await recomputeJobActualHours(job_id, companyId);
     return res.json(updated);
   } catch (err) {
     console.error("POST /timeclock/office/clock-out error:", err);
@@ -688,6 +715,7 @@ router.patch("/:id", requireRole("owner", "admin", "office"), async (req, res) =
       return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
 
     const [updated] = await db.update(timeclockTable).set(set).where(eq(timeclockTable.id, id)).returning();
+    await recomputeJobActualHours(existing.job_id, companyId);
     logAudit(req, "TIMECLOCK_EDIT", "timeclock", id,
       { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at },
       { clock_in_at: updated.clock_in_at, clock_out_at: updated.clock_out_at });
@@ -707,6 +735,7 @@ router.delete("/:id", requireRole("owner", "admin", "office"), async (req, res) 
       .where(and(eq(timeclockTable.id, id), eq(timeclockTable.company_id, companyId))).limit(1);
     if (!existing) return res.status(404).json({ error: "Not found" });
     await db.delete(timeclockTable).where(eq(timeclockTable.id, id));
+    await recomputeJobActualHours(existing.job_id, companyId);
     logAudit(req, "TIMECLOCK_DELETE", "timeclock", id,
       { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at, job_id: existing.job_id, user_id: existing.user_id }, null);
     return res.json({ success: true });
