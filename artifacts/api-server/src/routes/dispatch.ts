@@ -121,6 +121,14 @@ router.get("/", requireAuth, async (req, res) => {
         //   3. clients.zip → service_zones.zip_codes
         //   4. account_properties.zip → service_zones.zip_codes (NEW)
         //   5. regex-extracted 5-digit zip from any address text
+        // [zone-determinism 2026-06-05] When a zip lives in MORE THAN ONE zone
+        // (overlapping coverage), the LIMIT 1 used to pick an ARBITRARY zone —
+        // non-deterministic, and color vs name (separate subqueries) could even
+        // resolve to DIFFERENT zones. ORDER BY sort_order, id makes the pick
+        // stable AND identical across color/name/id. Note: this only makes the
+        // choice deterministic — if a zip is in two zones, the office still must
+        // remove it from the wrong one in Settings → Zones to match the intended
+        // (e.g. MaidCentral) zone. A zip should live in exactly one zone.
         zone_color: sql<string | null>`COALESCE(
           ${serviceZonesTable.color},
           (SELECT z.color FROM service_zones z
@@ -134,6 +142,7 @@ router.get("/", requireAuth, async (req, res) => {
                  OR SUBSTRING(NULLIF(${clientsTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                  OR SUBSTRING(NULLIF(${accountPropertiesTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
+             ORDER BY z.sort_order ASC, z.id ASC
              LIMIT 1)
         )`,
         zone_name: sql<string | null>`COALESCE(
@@ -149,6 +158,7 @@ router.get("/", requireAuth, async (req, res) => {
                  OR SUBSTRING(NULLIF(${clientsTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                  OR SUBSTRING(NULLIF(${accountPropertiesTable.address}, '') FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                )
+             ORDER BY z.sort_order ASC, z.id ASC
              LIMIT 1)
         )`,
         // [Q2] New: branch name from branches JOIN
@@ -1119,6 +1129,7 @@ router.get("/zone-coverage-audit", requireAuth, async (req, res) => {
                OR SUBSTRING(NULLIF(c.address, '')      FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
                OR SUBSTRING(NULLIF(ap.address, '')     FROM '\\y(\\d{5})\\y') = ANY(z.zip_codes)
              )
+           ORDER BY z.sort_order ASC, z.id ASC
            LIMIT 1) AS resolved_zone_id
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
