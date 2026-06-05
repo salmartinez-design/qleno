@@ -774,10 +774,13 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
-    return res.json({ date, employees });
-  } catch (err) {
+    return res.json({ date, employees, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
+  } catch (err: any) {
+    // Surface the failure to the UI instead of a silent 500 → empty screen.
+    // The Time Clock empty-state renders this so we can diagnose without
+    // DevTools. 200 keeps the front-end from swallowing it.
     console.error("GET /timeclock/day error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(200).json({ date: String(req.query.date || "").slice(0, 10), employees: [], diagnostics: { error: String(err?.message || err) } });
   }
 });
 
