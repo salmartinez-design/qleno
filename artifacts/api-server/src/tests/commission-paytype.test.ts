@@ -16,8 +16,11 @@ import {
   computeJobTechPays,
   defaultPayForJob,
   resolveTechPayInput,
+  computePerTechCommissionRows,
   type JobPayContext,
+  type JobTechRow,
 } from "../lib/commission-paytype.js";
+import { type CommissionInputJob } from "../lib/commission-compute.js";
 
 describe("pay-type engine — MaidCentral June 1 parity", () => {
   it("fee_split: single tech, full scope % (Ward $186 × 35%)", () => {
@@ -131,5 +134,82 @@ describe("pay-type engine — smart defaults + override resolution", () => {
     });
     assert.equal(input.payType, "fee_split");
     assert.equal(input.scopePct, 0.35);
+  });
+});
+
+describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
+  const resRates = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32 };
+  const commercial = { commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" as const };
+
+  function job(p: Partial<CommissionInputJob> & { id: number }): CommissionInputJob {
+    return {
+      id: p.id, assigned_user_id: p.assigned_user_id ?? 1, service_type: p.service_type ?? "standard_clean",
+      account_id: "account_id" in p ? p.account_id! : null, base_fee: p.base_fee ?? "0",
+      billed_amount: "billed_amount" in p ? p.billed_amount! : null, allowed_hours: p.allowed_hours ?? "0",
+      actual_hours: p.actual_hours ?? "0", branch_id: 1, scheduled_date: "2026-06-01",
+    };
+  }
+  const tech = (job_id: number, user_id: number, o: Partial<JobTechRow> = {}): JobTechRow => ({
+    job_id, user_id, is_primary: o.is_primary ?? false, pay_type: o.pay_type ?? null,
+    hourly_rate: o.hourly_rate ?? null, commission_pct: o.commission_pct ?? null,
+    pay_deduction_pct: o.pay_deduction_pct ?? null, pay_deduction_flat: o.pay_deduction_flat ?? null,
+  });
+
+  it("GUARD: no clocked hours → legacy single-basis fallback (primary only)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 10, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
+      jobTechs: [tech(10, 1, { is_primary: true }), tech(10, 2)],
+      techHoursByKey: new Map(),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].user_id, 1);
+    assert.equal(rows[0].amount, 70.0);
+  });
+
+  it("clocked: Cusimano mixed pay types reproduce MC ($94.66 + $63.40)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 20, base_fee: "540", billed_amount: "540", allowed_hours: "9", service_type: "standard_clean" })],
+      jobTechs: [
+        tech(20, 1, { is_primary: true, pay_type: "fee_split" }),
+        tech(20, 2, { pay_type: "hourly", hourly_rate: "20" }),
+      ],
+      techHoursByKey: new Map([["20:1", 3.18], ["20:2", 3.17]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.find((r) => r.user_id === 1)!.amount, 94.66);
+    assert.equal(rows.find((r) => r.user_id === 2)!.amount, 63.4);
+  });
+
+  it("clocked: breakage on gross base (Deep Clean $628.40 gross, not $578.40 net)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 30, base_fee: "628.40", billed_amount: "578.40", allowed_hours: "8.2", service_type: "deep_clean" })],
+      jobTechs: [tech(30, 1, { is_primary: true }), tech(30, 2)],
+      techHoursByKey: new Map([["30:1", 3.28], ["30:2", 3.28]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.find((r) => r.user_id === 1)!.amount, 100.54);
+    assert.equal(rows.find((r) => r.user_id === 2)!.amount, 100.54);
+  });
+
+  it("clocked: per-service-type % overrides the global tier (deep clean paid 35%)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 40, base_fee: "210", billed_amount: "210", allowed_hours: "3", service_type: "deep_clean" })],
+      jobTechs: [tech(40, 1, { is_primary: true })],
+      techHoursByKey: new Map([["40:1", 3.0]]),
+      serviceTypePctBySlug: new Map([["deep_clean", 0.35]]), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 73.5);
+  });
+
+  it("clocked commercial: allowed-hours default pays the budget (Halper $70)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 50, account_id: 9, base_fee: "0", allowed_hours: "3.5" })],
+      jobTechs: [tech(50, 1, { is_primary: true })],
+      techHoursByKey: new Map([["50:1", 1.77]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 70.0);
+    assert.equal(rows[0].basis, "commercial_hourly");
   });
 });

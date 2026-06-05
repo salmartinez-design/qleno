@@ -37,6 +37,13 @@
  * and persists the result.
  */
 
+import {
+  computeCommissionRows,
+  type CommissionInputJob,
+  type CommissionRow,
+} from "./commission-compute.js";
+import { resolveResidentialPayPct, type CompanyResRates } from "./commission-rates.js";
+
 export type PayType = "fee_split" | "allowed_hours" | "hourly";
 
 export const PAY_TYPES: readonly PayType[] = ["fee_split", "allowed_hours", "hourly"];
@@ -191,4 +198,128 @@ export function resolveTechPayInput(args: {
     hourlyRate,
     scopePct: Number.isFinite(scopePct) ? scopePct : args.defaults.scopePct,
   };
+}
+
+// ── DB bridge: per-tech commission rows for the period-lock payroll path ────
+
+/** A job_technicians row carrying the optional per-tech pay overrides. */
+export interface JobTechRow {
+  job_id: number;
+  user_id: number;
+  is_primary: boolean;
+  pay_type: string | null;
+  hourly_rate: string | number | null;
+  commission_pct: string | number | null;
+  pay_deduction_pct: string | number | null;
+  pay_deduction_flat: string | number | null;
+}
+
+function n(v: string | number | null | undefined): number | null {
+  if (v === null || v === undefined) return null;
+  const x = typeof v === "number" ? v : parseFloat(String(v));
+  return Number.isFinite(x) ? x : null;
+}
+
+function asPayType(v: string | null): PayType | null {
+  return v === "fee_split" || v === "allowed_hours" || v === "hourly" ? v : null;
+}
+
+/**
+ * Turn (completed jobs, their job_technicians rows, per-tech clocked hours)
+ * into per-tech commission rows using the pay-type parity engine.
+ *
+ * SAFETY GUARD — a job with NO per-tech clocked hours falls back to the
+ * legacy single-basis computeCommissionRows (primary tech gets the job
+ * commission). This guarantees we never zero out a real paycheck just
+ * because the clocks aren't entered yet — un-clocked jobs behave exactly
+ * as they do today; only clocked jobs get the MC-exact per-tech split.
+ *
+ * Fee-split runs on the GROSS base (jobs.base_fee, falling back to
+ * billed_amount) so a breakage credit doesn't dock the cleaner. scopePct
+ * resolves per service type (serviceTypePctBySlug) before the company tier.
+ * A per-tech final_pay override (hand-set in the editor) always wins.
+ */
+export function computePerTechCommissionRows(input: {
+  jobs: ReadonlyArray<CommissionInputJob>;
+  jobTechs: ReadonlyArray<JobTechRow>;
+  /** "job_id:user_id" → clocked hours. */
+  techHoursByKey: ReadonlyMap<string, number>;
+  /** service_type slug → per-service fee-split % (0.35), if configured. */
+  serviceTypePctBySlug: ReadonlyMap<string, number>;
+  resRates: CompanyResRates;
+  commercial: { commercial_hourly_rate: number; commercial_comp_mode: "allowed_hours" | "actual_hours" };
+  /** "user_id:job_id" → final_pay override (dollars). */
+  overrides?: ReadonlyMap<string, number>;
+}): CommissionRow[] {
+  const overrides = input.overrides ?? new Map();
+  const techsByJob = new Map<number, JobTechRow[]>();
+  for (const t of input.jobTechs) {
+    const arr = techsByJob.get(t.job_id) ?? [];
+    arr.push(t);
+    techsByJob.set(t.job_id, arr);
+  }
+
+  const out: CommissionRow[] = [];
+  for (const j of input.jobs) {
+    const isCommercial = j.account_id != null;
+    let techs = techsByJob.get(j.id) ?? [];
+    if (techs.length === 0 && j.assigned_user_id != null) {
+      techs = [{ job_id: j.id, user_id: j.assigned_user_id, is_primary: true,
+        pay_type: null, hourly_rate: null, commission_pct: null, pay_deduction_pct: null, pay_deduction_flat: null }];
+    }
+    const totalTechHours = techs.reduce((s, t) => s + (input.techHoursByKey.get(`${j.id}:${t.user_id}`) ?? 0), 0);
+
+    // GUARD: no clocked hours → legacy single-basis fallback (no regression).
+    if (totalTechHours <= 0) {
+      for (const r of computeCommissionRows({ jobs: [j], resRates: input.resRates, commercial: input.commercial, overrides })) {
+        out.push(r);
+      }
+      continue;
+    }
+
+    const servicePct = input.serviceTypePctBySlug.get((j.service_type ?? "").toLowerCase());
+    const scopePct = servicePct ?? resolveResidentialPayPct(j.service_type, input.resRates);
+    const defaults = defaultPayForJob({
+      isCommercial,
+      serviceType: j.service_type,
+      commercialHourlyRate: input.commercial.commercial_hourly_rate,
+      scopePct,
+    });
+    const ctx: JobPayContext = {
+      baseFee: (n(j.base_fee) ?? 0) || (n(j.billed_amount) ?? 0),
+      allowedHours: n(j.allowed_hours) ?? 0,
+      totalTechHours,
+    };
+
+    for (const t of techs) {
+      const overrideKey = `${t.user_id}:${j.id}`;
+      const techHours = input.techHoursByKey.get(`${j.id}:${t.user_id}`) ?? 0;
+      let amount: number;
+      if (overrides.has(overrideKey)) {
+        amount = Math.round((overrides.get(overrideKey) as number) * 100) / 100;
+      } else {
+        const payInput = resolveTechPayInput({
+          user_id: t.user_id,
+          techHours,
+          overridePayType: asPayType(t.pay_type),
+          overrideHourlyRate: n(t.hourly_rate),
+          overridePct: n(t.commission_pct),
+          defaults,
+        });
+        payInput.deductionPct = n(t.pay_deduction_pct) ?? 0;
+        payInput.deductionFlat = n(t.pay_deduction_flat) ?? 0;
+        amount = computeTechPay(ctx, payInput).amount;
+      }
+      if (amount === 0) continue;
+      out.push({
+        user_id: t.user_id,
+        job_id: j.id,
+        amount,
+        basis: isCommercial ? "commercial_hourly" : "residential_pool",
+        branch_id: j.branch_id,
+        scheduled_date: j.scheduled_date,
+      });
+    }
+  }
+  return out;
 }
