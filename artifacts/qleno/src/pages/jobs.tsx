@@ -916,6 +916,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cascadePrompt, setCascadePrompt] = useState<null | "open">(null);
+  // [cascade-confirm 2026-06-05] Series-wide scopes (this_and_future / all) can
+  // remove + recreate future occurrences; require an explicit confirm step.
+  const [pendingScope, setPendingScope] = useState<null | "this_and_future" | "all">(null);
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState(startH24);
   const [durationH, setDurationH] = useState<number>(initialDurationH);
@@ -1106,6 +1109,24 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
           }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 6 }}>Apply this change to:</div>
             <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 14 }}>This is a recurring job. Pick how broadly the time change should apply.</div>
+            {pendingScope && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12 }}>
+                <AlertTriangle size={16} color="#B91C1C" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>
+                  This applies to <strong>{pendingScope === "all" ? "every visit (past + future)" : "every future visit"}</strong> of this recurring job. If you changed the day, occurrences that no longer match are <strong>removed</strong> and recreated. Continue?
+                </span>
+              </div>
+            )}
+            {pendingScope ? (
+              <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                <button type="button" onClick={() => setPendingScope(null)} disabled={saving}
+                  style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Back</button>
+                <button type="button" onClick={() => submit(pendingScope)} disabled={saving}
+                  style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#DC2626", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                  {saving ? "Applying…" : "Yes, apply to the series"}
+                </button>
+              </div>
+            ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
               {([
                 { v: "this_job",        label: "Just this visit",                  sub: "Default. Updates this occurrence; other visits unchanged." },
@@ -1113,7 +1134,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
                 { v: "all",             label: "All visits in the series",         sub: "Backfills past + future. Paid past jobs are skipped." },
                 { v: "remove_this",     label: "Skip this visit only",             sub: "Mark this visit as one-off; schedule template stays intact." },
               ] as const).map(opt => (
-                <button key={opt.v} type="button" onClick={() => submit(opt.v)} disabled={saving}
+                <button key={opt.v} type="button"
+                  onClick={() => { if (opt.v === "this_and_future" || opt.v === "all") setPendingScope(opt.v); else submit(opt.v); }}
+                  disabled={saving}
                   style={{
                     textAlign: "left", padding: "12px 14px", borderRadius: 10,
                     border: "1.5px solid #E5E2DC", background: "#F7F6F3",
@@ -1124,7 +1147,8 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
                 </button>
               ))}
             </div>
-            <button onClick={() => setCascadePrompt(null)} disabled={saving}
+            )}
+            <button onClick={() => { setPendingScope(null); setCascadePrompt(null); }} disabled={saving}
               style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
               Cancel
             </button>
