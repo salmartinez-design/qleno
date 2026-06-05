@@ -2804,6 +2804,30 @@ router.delete("/:id", requireAuth, async (req, res) => {
     const role = req.auth!.role;
     const force = req.query.force === "true";
 
+    // [recurring-delete-skip 2026-06-05] Capture the recurring linkage BEFORE
+    // deleting so we can tombstone the occurrence's cadence slot on the
+    // schedule. Without this, the generator regenerates the deleted occurrence
+    // next run and it "keeps coming back". Skip the cadence slot
+    // (occurrence_date, falling back to scheduled_date) — the same key the
+    // engine dedups on.
+    const recurInfo = ((await db.execute(sql`
+      SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `)).rows[0]) as any;
+    async function tombstoneOccurrence() {
+      const sid = recurInfo?.recurring_schedule_id;
+      const skipDate = recurInfo?.occ ?? recurInfo?.sched;
+      if (sid != null && skipDate) {
+        await db.execute(sql`
+          UPDATE recurring_schedules
+          SET skipped_dates = ARRAY(
+            SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
+          )
+          WHERE id = ${sid} AND company_id = ${companyId}
+        `);
+      }
+    }
+
     // Force-delete branch: admin/owner can wipe a completed job's clock entries
     // and then delete the job in a single transaction.
     if (force) {
@@ -2866,6 +2890,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
           .delete(jobsTable)
           .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
       });
+      await tombstoneOccurrence();
       logAudit(req, "DELETE", "job", jobId, null, { force: true });
       return res.json({ success: true, message: "Job and dependent records cleaned up" });
     }
@@ -2876,6 +2901,7 @@ router.delete("/:id", requireAuth, async (req, res) => {
         eq(jobsTable.id, jobId),
         eq(jobsTable.company_id, companyId)
       ));
+    await tombstoneOccurrence();
     logAudit(req, "DELETE", "job", jobId, null, null);
     return res.json({ success: true, message: "Job deleted" });
   } catch (err) {

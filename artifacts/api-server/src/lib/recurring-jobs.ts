@@ -321,7 +321,18 @@ export async function computeOccurrencesForSchedule(
 
   const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
-  const toInsert = occurrences.filter(d => !existingDates.has(toDateStr(d)));
+  // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
+  // purpose. The generator must NOT regenerate them — otherwise a deleted
+  // recurring occurrence "keeps coming back". Stored as YYYY-MM-DD on the
+  // schedule; normalize to a date string and exclude from the insert set.
+  const skipSet = new Set(
+    (((schedule as any).skipped_dates ?? []) as (string | Date)[]).map(x => String(x).slice(0, 10))
+  );
+
+  const toInsert = occurrences.filter(d => {
+    const ds = toDateStr(d);
+    return !existingDates.has(ds) && !skipSet.has(ds);
+  });
   const skipped = occurrences.length - toInsert.length;
 
   if (!toInsert.length) return { rows: [], skipped };
