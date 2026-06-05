@@ -866,6 +866,7 @@ async function computeAndApplyCommission(
               FROM timeclock
              WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
                AND clock_out_at IS NOT NULL
+               AND source = 'punched'
              GROUP BY job_id, user_id`,
       );
       for (const r of hourRows.rows as any[]) {
