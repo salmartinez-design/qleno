@@ -14,8 +14,10 @@ into Qleno in that browser. Read the "Before you start" notes first.
   - Carpet Cleaning (Juliana) → **Hourly @ $25/hr**
   - Cusimano / Hourly Standard (Jose Ardila) → **Hourly @ $20/hr**
   - Hundt / Hourly Deep Clean (Guadalupe) → **Fee Split at 35%** (not 32%)
-  If the Time Clock screen doesn't yet expose a per-tech "Pay type" control,
-  those three will stay off until that UI ships — tell me, don't guess.
+  Each job row in the Time Clock screen now has a **PAY** control (a "Pay type"
+  dropdown — Default / Fee Split / Allowed Hours / Hourly — plus a rate field
+  and a "Breakage −$" field, then **Save pay**). Use it for those three. Leave
+  it on **Default** for everything else.
 
 ---
 
@@ -37,9 +39,10 @@ a name not found, a field you can't set).
    **June 1, 2026**.
 2. For each row in the table below: find the job (by customer name), and for
    the named tech enter the **Clock In** and **Clock Out** times exactly.
-3. Where the **Pay type** column says something other than the default, set
-   the tech's pay type / rate to match (Hourly $/hr, or Fee Split %). If you
-   can't find a control to set pay type, note it and continue.
+3. Where the **Pay type** column says something other than the default, use
+   that row's **PAY** control: pick the pay type, type the rate (Hourly →
+   $/hr; Fee Split → the % like `35`), set Breakage −$ if noted, then click
+   **Save pay**. Leave every other row on **Default**.
 4. After all rows are entered, open the commission/payroll view for June 1
    (or trigger "compute commission") and read each tech's computed pay.
 5. Produce a table: Tech · Job · MaidCentral pay · Qleno pay · match? Flag
