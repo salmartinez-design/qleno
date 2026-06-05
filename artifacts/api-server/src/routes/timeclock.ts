@@ -498,7 +498,7 @@ router.patch("/:id/override", requireAuth, requireRole("owner", "admin", "office
 // Writes the legacy timeclock table (the one payroll + commission read), not
 // the GPS job_clock_events model. from_job_id is NOT a timeclock column — the
 // mileage hook lives on on_my_way_events and is untouched here.
-router.post("/office/clock-in", requireRole("owner", "admin", "office"), async (req, res) => {
+router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const job_id = parseInt(String(req.body?.job_id));
@@ -536,7 +536,7 @@ router.post("/office/clock-in", requireRole("owner", "admin", "office"), async (
   }
 });
 
-router.post("/office/clock-out", requireRole("owner", "admin", "office"), async (req, res) => {
+router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const job_id = parseInt(String(req.body?.job_id));
@@ -570,7 +570,7 @@ router.post("/office/clock-out", requireRole("owner", "admin", "office"), async 
 // reads these off job_technicians. NULL = inherit the job's smart default
 // (commercial → allowed_hours; residential → fee_split). Upserts the
 // job_technicians row; only edits an existing assignment or the primary tech.
-router.put("/office/job/:jobId/tech/:userId/pay", requireRole("owner", "admin", "office"), async (req, res) => {
+router.put("/office/job/:jobId/tech/:userId/pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const jobId = parseInt(req.params.jobId);
@@ -632,7 +632,7 @@ router.put("/office/job/:jobId/tech/:userId/pay", requireRole("owner", "admin", 
 // by employee — so missing/short/extra punches are obvious and MC's exact times
 // can be keyed in. The create path is the existing /office/clock-in|out; these
 // add EDIT and DELETE. Every correction is audit-logged.
-router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => {
+router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const date = String(req.query.date || "").slice(0, 10);
@@ -786,7 +786,7 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
   }
 });
 
-router.patch("/:id", requireRole("owner", "admin", "office"), async (req, res) => {
+router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id);
@@ -828,7 +828,7 @@ router.patch("/:id", requireRole("owner", "admin", "office"), async (req, res) =
   }
 });
 
-router.delete("/:id", requireRole("owner", "admin", "office"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id);
