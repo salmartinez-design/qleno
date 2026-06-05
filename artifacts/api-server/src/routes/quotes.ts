@@ -385,6 +385,23 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       } catch { /* column may not exist */ }
     }
 
+    // [quote-convert-assignment-mirror] When the office assigns a tech on the
+    // Review step, the INSERT above already mirrors onto jobs.assigned_user_id,
+    // but the convert previously NEVER wrote job_technicians. That split-brain
+    // left the chip in the dispatch Unassigned row ("job needs assignment")
+    // even though a tech was chosen in the quote tool. Per the assignment-mirror
+    // invariant, every code path that assigns a tech MUST write both. Promote
+    // the chosen tech to primary (is_primary=true) so the dispatch grid and the
+    // per-tech fan-out recognize the assignment.
+    const assignedTechId = assigned_user_id ? parseInt(String(assigned_user_id)) : NaN;
+    if (jobId && !isNaN(assignedTechId)) {
+      await db.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        VALUES (${jobId}, ${assignedTechId}, ${companyId}, true)
+        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+      `);
+    }
+
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
 
     // Stop quote_followup enrollment (non-blocking)
