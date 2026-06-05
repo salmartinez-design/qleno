@@ -3247,6 +3247,21 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   );
 }
 
+// [schedule-views 2026-06-05] Decorative, stable avatar color derived from a
+// tech's name. Job colors in this app are ZONE-based (not per-tech), so this is
+// purely to visually distinguish people in the By-Employee grouping. Hashing the
+// name keeps each tech on one color across renders. Tenant-generic.
+const TECH_AVATAR_COLORS = ["#0FA3A3", "#8B3FBF", "#2D6BE0", "#D2691E", "#2D9B83", "#C2410C", "#6D28D9", "#0E7490", "#B45309", "#9D174D"];
+function techAvatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return TECH_AVATAR_COLORS[h % TECH_AVATAR_COLORS.length];
+}
+function techInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()) || "?";
+}
+
 // ─── MINI CALENDAR ─────────────────────────────────────────────────────────────
 function MiniCalendar({ value, onChange, jobDates }: { value: Date; onChange: (d: Date) => void; jobDates: Set<string> }) {
   const [month, setMonth] = useState(new Date(value.getFullYear(), value.getMonth(), 1));
@@ -5740,6 +5755,41 @@ export default function JobsPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#6B7280", marginBottom: 4 }}>No jobs {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? " in this zone" : ""}</div>
                 <div style={{ fontSize: 12, color: "#9E9B94" }}>Tap "+ New Job" to schedule one</div>
               </div>
+            ) : mobileViewMode === "team" ? (
+              /* [schedule-views] BY EMPLOYEE — group the focal day's jobs under
+                 each assigned tech (Unassigned floats to the top so nothing
+                 hides). Header shows the tech, their job count, and total job
+                 hours. Cards keep their zone color so they still match desktop. */
+              (() => {
+                const groups = new Map<string, DispatchJob[]>();
+                for (const j of allJobs) {
+                  const key = j.assigned_user_name || "Unassigned";
+                  if (!groups.has(key)) groups.set(key, []);
+                  groups.get(key)!.push(j);
+                }
+                const ordered = [...groups.entries()].sort((a, b) => {
+                  if (a[0] === "Unassigned") return -1;
+                  if (b[0] === "Unassigned") return 1;
+                  return a[0].localeCompare(b[0]);
+                });
+                return ordered.map(([name, jobs]) => {
+                  const mins = jobs.reduce((s, j) => s + (j.duration_minutes || 0), 0);
+                  const hrs = mins % 60 === 0 ? String(mins / 60) : (mins / 60).toFixed(1);
+                  const isUn = name === "Unassigned";
+                  return (
+                    <div key={name} style={{ marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
+                          {isUn ? "?" : techInitials(name)}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{jobs.length} {jobs.length !== 1 ? "jobs" : "job"} · {hrs}h</div>
+                      </div>
+                      {jobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                    </div>
+                  );
+                });
+              })()
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
