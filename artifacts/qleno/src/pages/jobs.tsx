@@ -301,6 +301,10 @@ function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return 
 // [card-polish 2026-06-05] Minutes-since-midnight -> "9:00 AM" / "2:30 PM".
 // Used to render a job's full shift range (start–end) on the mobile card.
 function fmtMins(mins: number) { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ampm = h % 24 < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr}:${String(m).padStart(2, "0")} ${ampm}`; }
+// [office-clock 2026-06-05] Format an ISO timestamp as wall-clock time and a
+// clock-in -> clock-out span, for the desktop Time Clock panel.
+function fmtClock(iso: string) { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function clockDuration(a: string, b: string) { const ms = new Date(b).getTime() - new Date(a).getTime(); if (isNaN(ms) || ms < 0) return "—"; const mins = Math.round(ms / 60000); const h = Math.floor(mins / 60), m = mins % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
 // Honest labels: the count is total jobs booked that hour across the whole
@@ -1237,6 +1241,50 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
 
+  // [office-clock 2026-06-05] Desktop office clock in/out. The field-app tech
+  // clock isn't shipped, so the office clocks the team in/out from the board to
+  // start collecting real clocked minutes — which feed payroll hours and the
+  // proportional-by-minutes commission split (Sal: "starting today we clock the
+  // team in and out"). Per-tech clock state for THIS job loads from the legacy
+  // timeclock table; writes go through the role-gated office endpoints.
+  const canClock = (userRole === "owner" || userRole === "admin" || userRole === "office");
+  const [clockMap, setClockMap] = useState<Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }>>({});
+  const [clockBusy, setClockBusy] = useState<number | null>(null);
+  const loadClocks = useCallback(async () => {
+    try {
+      const r = await fetch(`${_API3}/api/timeclock?job_id=${job.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      // Rows come newest-first; keep the most recent entry per tech as their
+      // current state (open if clock_out_at is null, else completed).
+      const m: Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }> = {};
+      for (const e of (d.data ?? [])) {
+        if (!m[e.user_id]) m[e.user_id] = { id: e.id, clock_in_at: e.clock_in_at, clock_out_at: e.clock_out_at };
+      }
+      setClockMap(m);
+    } catch {}
+  }, [job.id, token, _API3]);
+  useEffect(() => { if (canClock) loadClocks(); }, [canClock, loadClocks]);
+
+  async function handleOfficeClock(user_id: number, dir: "in" | "out") {
+    setClockBusy(user_id);
+    try {
+      const r = await fetch(`${_API3}/api/timeclock/office/clock-${dir}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, user_id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Clock action failed");
+      await loadClocks();
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: err.message || "Clock action failed" });
+    } finally {
+      setClockBusy(null);
+    }
+  }
+
   // Header overflow (•••) menu — home for rare/destructive actions so they
   // stay out of the everyday content flow.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -2172,6 +2220,56 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </button>
             </PS>
           )}
+
+          {/* [office-clock 2026-06-05] Time Clock — office clocks each assigned
+              tech in/out on this job. Real punches feed payroll hours and the
+              actual-minutes commission split. Owner/admin/office only. */}
+          {canClock && (() => {
+            const techList: { user_id: number; name: string }[] = commTechs.length > 0
+              ? commTechs.map(t => ({ user_id: t.user_id, name: t.name }))
+              : (job.assigned_user_id ? [{ user_id: job.assigned_user_id, name: assignedEmp?.name || job.assigned_user_name || "Tech" }] : []);
+            if (techList.length === 0) return null;
+            return (
+              <PS label="Time Clock">
+                {techList.map(t => {
+                  const entry = clockMap[t.user_id];
+                  const clockedIn = !!entry && !entry.clock_out_at;
+                  const done = !!entry && !!entry.clock_out_at;
+                  const busy = clockBusy === t.user_id;
+                  return (
+                    <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#16A34A" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
+                          {clockedIn
+                            ? `On the clock since ${fmtClock(entry!.clock_in_at)}`
+                            : done
+                              ? `${fmtClock(entry!.clock_in_at)}–${fmtClock(entry!.clock_out_at!)} · ${clockDuration(entry!.clock_in_at, entry!.clock_out_at!)}`
+                              : "Not clocked in"}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleOfficeClock(t.user_id, clockedIn ? "out" : "in")}
+                        disabled={busy || done}
+                        title={done ? "Shift complete" : clockedIn ? "Clock out" : "Clock in"}
+                        style={{
+                          flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
+                          padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
+                          cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
+                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#2D9B83",
+                        }}>
+                        <Clock size={12} />
+                        {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
+                      </button>
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 2 }}>
+                  Office clock — feeds payroll hours and the actual-minutes commission split.
+                </div>
+              </PS>
+            );
+          })()}
 
           {/* Add Tech Modal */}
           {addTechOpen && (
