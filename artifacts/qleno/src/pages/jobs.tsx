@@ -4431,16 +4431,26 @@ function JobChipBody({
                 {Math.round((allowedMin / 60) * 10) / 10}h
               </span>
             )}
-            {addOnCount > 0 && isWide && (
-              <span style={{
-                flexShrink: 0, fontSize: 9, fontWeight: 700,
-                padding: "1px 5px", borderRadius: 4,
-                backgroundColor: tokens.pillBg, color: tokens.primary,
-                lineHeight: 1.2, whiteSpace: "nowrap",
-              }}>
-                +{addOnCount}
-              </span>
-            )}
+            {/* [addons-on-bar 2026-06-05] Show the add-ons on the chip itself
+                (Sal: "add-on emblems or text need to show on the job bar so we
+                have full scope"). Wide chips render the names (truncated, full
+                list in the tooltip); medium chips show "+N add-ons"; narrow
+                chips drop it (the panel still lists them). */}
+            {addOnCount > 0 && !isNarrow && (() => {
+              const names = (job.add_ons ?? []).map(a => a.name).filter(Boolean).join(", ");
+              return (
+                <span title={names || `${addOnCount} add-on${addOnCount > 1 ? "s" : ""}`} style={{
+                  flexShrink: 0, fontSize: 9, fontWeight: 700,
+                  padding: "1px 5px", borderRadius: 4,
+                  backgroundColor: tokens.pillBg, color: tokens.primary,
+                  lineHeight: 1.2, whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis",
+                  maxWidth: isWide ? 150 : 78,
+                }}>
+                  {isWide && names ? `+ ${names}` : `+${addOnCount} add-on${addOnCount > 1 ? "s" : ""}`}
+                </span>
+              );
+            })()}
           </div>
         </>
       )}
