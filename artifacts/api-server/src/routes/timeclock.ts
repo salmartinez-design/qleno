@@ -651,8 +651,8 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       WHERE j.company_id = ${companyId}
-        AND j.scheduled_date = ${date}
-        AND j.status <> 'cancelled'
+        AND j.scheduled_date::date = ${date}::date
+        AND j.status IS DISTINCT FROM 'cancelled'
       ORDER BY j.scheduled_time NULLS LAST, j.id
     `);
     const jobs = jobsRes.rows as any[];

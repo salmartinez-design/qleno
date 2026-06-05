@@ -2,8 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { useBranch } from "@/contexts/branch-context";
-import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays } from "lucide-react";
 
 // [time-clock-portal 2026-06-05] Office Time Clock portal. The office reconciles
 // Qleno's per-job clock times against MaidCentral so commission (proportional by
@@ -207,7 +206,6 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
 
 export default function TimeClockPage() {
   const { toast } = useToast();
-  const { activeBranchId } = useBranch();
   const [date, setDate] = useState(new Date());
   const [data, setData] = useState<{ date: string; employees: Emp[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -217,12 +215,13 @@ export default function TimeClockPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const qs = `?date=${dk}` + (activeBranchId && activeBranchId !== "all" ? `&branch_id=${activeBranchId}` : "");
-      const r = await api(`/api/timeclock/day${qs}`);
+      // Reconciliation is company-wide — no branch filter (a job's branch_id
+      // is often null/mismatched on MC imports, which would hide it).
+      const r = await api(`/api/timeclock/day?date=${dk}`);
       setData(r.ok ? await r.json() : { date: dk, employees: [] });
     } catch { setData({ date: dk, employees: [] }); }
     setLoading(false);
-  }, [dk, activeBranchId]);
+  }, [dk]);
   useEffect(() => { load(); }, [load]);
 
   const employees = data?.employees ?? [];
@@ -242,12 +241,19 @@ export default function TimeClockPage() {
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={() => setDate(d => addDays(d, -1))} style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
-            <div style={{ textAlign: "center", minWidth: 150 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{isToday ? "Today" : date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
-              <div style={{ fontSize: 11, color: "#9E9B94" }}>{date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
-            </div>
-            <button onClick={() => setDate(d => addDays(d, 1))} style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
+            <button onClick={() => setDate(d => addDays(d, -1))} aria-label="Previous day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
+            {/* Calendar jump — native date picker layered over the date label */}
+            <label style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 8, minWidth: 168, justifyContent: "center", border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>
+              <CalendarDays size={15} color="#6B7280" />
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", lineHeight: 1.15 }}>{isToday ? "Today" : date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
+                <div style={{ fontSize: 11, color: "#9E9B94" }}>{date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
+              </div>
+              <input type="date" value={dk}
+                onChange={e => { if (e.target.value) setDate(new Date(`${e.target.value}T00:00:00`)); }}
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }} />
+            </label>
+            <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
             {!isToday && <button onClick={() => setDate(new Date())} style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF }}>Today</button>}
           </div>
         </div>
