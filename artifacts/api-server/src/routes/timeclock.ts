@@ -656,6 +656,7 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
       ORDER BY j.scheduled_time NULLS LAST, j.id
     `);
     const jobs = jobsRes.rows as any[];
+    console.log(`[TC-DAY] company=${companyId} date=${date} jobsRes=${jobs.length} auth_user=${req.auth?.userId ?? "?"} auth_role=${req.auth?.role ?? "?"}`);
     const jobIds = jobs.map(j => Number(j.job_id)).filter(n => Number.isFinite(n));
     const inList = jobIds.length ? sql.raw(jobIds.join(",")) : null;
 
@@ -774,6 +775,7 @@ router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => 
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
+    console.log(`[TC-DAY] company=${companyId} date=${date} RESULT jobs=${jobs.length} techRows=${techRows.length} clockRows=${clockRows.length} employees=${employees.length}`);
     return res.json({ date, employees, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
   } catch (err: any) {
     // Surface the failure to the UI instead of a silent 500 → empty screen.
