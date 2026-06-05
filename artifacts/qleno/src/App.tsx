@@ -20,6 +20,7 @@ const InvoicesPage        = lazy(() => import("@/pages/invoices"));
 const CompanyPage         = lazy(() => import("@/pages/company"));
 const LoyaltyPage         = lazy(() => import("@/pages/loyalty"));
 const PayrollPage         = lazy(() => import("@/pages/payroll"));
+const TimeClockPage       = lazy(() => import("@/pages/time-clock"));
 const MileageReviewPage   = lazy(() => import("@/pages/mileage-review"));
 const LeaveReviewPage     = lazy(() => import("@/pages/leave-review"));
 const LeaveRequestPage    = lazy(() => import("@/pages/leave-request"));
@@ -133,6 +134,7 @@ function Router() {
         <Route path="/customers" component={CustomersPage} />
         <Route path="/invoices/:id" component={InvoiceDetailPage} />
         <Route path="/invoices" component={InvoicesPage} />
+        <Route path="/time-clock" component={TimeClockPage} />
         <Route path="/payroll" component={PayrollPage} />
         <Route path="/payroll/mileage-review" component={MileageReviewPage} />
         <Route path="/payroll/leave-review" component={LeaveReviewPage} />
