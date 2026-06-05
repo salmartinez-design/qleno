@@ -195,6 +195,11 @@ export async function insertJobFromSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(date),
+      // [recurring-reschedule 2026-06-05] Stamp the cadence slot. scheduled_date
+      // and occurrence_date start equal; the office can later move
+      // scheduled_date, but occurrence_date stays so dedup still sees this slot
+      // as filled and the cron won't regenerate it.
+      occurrence_date: toDateStr(date) as any,
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
@@ -295,19 +300,26 @@ export async function computeOccurrencesForSchedule(
   const fromStr = toDateStr(fromDate);
   const toStr = toDateStr(toDate);
 
-  const existingRows = await db
-    .select({ scheduled_date: jobsTable.scheduled_date })
-    .from(jobsTable)
-    .where(
-      and(
-        eq(jobsTable.company_id, schedule.company_id),
-        eq((jobsTable as any).recurring_schedule_id, schedule.id),
-        gte(jobsTable.scheduled_date, fromStr),
-        lte(jobsTable.scheduled_date, toStr)
-      )
-    );
+  // [recurring-reschedule 2026-06-05] Dedup on the job's OCCURRENCE date (the
+  // cadence slot it was born from), not its scheduled_date. When the office
+  // moves a recurring occurrence off its day, scheduled_date changes but
+  // occurrence_date does not — so the slot still reads as filled and this run
+  // won't regenerate a duplicate on the original day (the "appears again on
+  // Monday 8th" bug). COALESCE falls back to scheduled_date for legacy rows
+  // generated before occurrence_date existed (backfilled on migration, but the
+  // fallback keeps a fresh deploy correct before the backfill lands). Matching
+  // on the coalesced occurrence date also catches a job that was moved OUT of
+  // the [from,to] window — its slot is still inside the window and stays filled.
+  const existing = await db.execute(sql`
+    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    FROM jobs
+    WHERE company_id = ${schedule.company_id}
+      AND recurring_schedule_id = ${schedule.id}
+      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
+      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+  `);
 
-  const existingDates = new Set(existingRows.map(r => String(r.scheduled_date)));
+  const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
   const toInsert = occurrences.filter(d => !existingDates.has(toDateStr(d)));
   const skipped = occurrences.length - toInsert.length;
@@ -331,6 +343,7 @@ export async function computeOccurrencesForSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(d),
+      occurrence_date: toDateStr(d),
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
