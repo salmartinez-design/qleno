@@ -24,12 +24,19 @@ function dateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function addDays(d: Date, n: number) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+// Clock times are WALL-CLOCK, treated as plain strings end-to-end — never run
+// through Date()/toISOString()/getHours(), which silently shift by the browser
+// or server UTC offset (the +5h bug). isoToHHMM slices "HH:MM" straight out of
+// whatever timestamp string the API returns ("...T09:16:00", "...Z", or
+// "... 09:16:00"); hhmmToISO sends back a naive local datetime (no Z) so the
+// server stores exactly what was typed. What you type == what's stored == what
+// shows, in any timezone.
 function isoToHHMM(iso: string | null): string {
   if (!iso) return "";
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const m = String(iso).match(/[T ](\d{2}):(\d{2})/);
+  return m ? `${m[1]}:${m[2]}` : "";
 }
-function hhmmToISO(dateStr: string, hhmm: string): string { return new Date(`${dateStr}T${hhmm}:00`).toISOString(); }
+function hhmmToISO(dateStr: string, hhmm: string): string { return `${dateStr}T${hhmm}:00`; }
 // Typed-time parsing so the field is a plain text box ("9:16 AM") instead of
 // the native time-wheel — reliable to type for humans and trivial for an
 // automation agent to fill. Accepts "9:16 AM", "9:16am", "13:05", "09:16".
@@ -61,9 +68,8 @@ function hh24ToDisplay(hhmm: string): string {
 function isoToDisplay(iso: string | null): string { return hh24ToDisplay(isoToHHMM(iso)); }
 function fmtHrs(min: number) { const h = Math.floor(min / 60), m = min % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function fmtClock(iso: string | null) {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const hhmm = isoToHHMM(iso);
+  return hhmm ? hh24ToDisplay(hhmm) : "—";
 }
 function fmtSvc(s: string) { return (s || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 function fmtSchedTime(t: string | null) {
@@ -78,7 +84,7 @@ type Row = {
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
-  pay?: number | null;
+  pay?: number | null; source?: string | null;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
@@ -215,6 +221,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.client_name}</div>
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
           {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedTime(row.scheduled_time)}` : ""}
+          {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
         </div>
       </div>
@@ -273,7 +280,7 @@ export default function TimeClockPage() {
 
   const employees = data?.employees ?? [];
   const totalWorked = employees.reduce((s, e) => s + e.worked_minutes, 0);
-  const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.entry_id).length, 0);
+  const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.source === "punched").length, 0);
   const totalRows = employees.reduce((s, e) => s + e.rows.length, 0);
   const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
 
@@ -332,7 +339,7 @@ export default function TimeClockPage() {
           </div>
         ) : (
           employees.map(emp => {
-            const punched = emp.rows.filter(r => r.entry_id).length;
+            const punched = emp.rows.filter(r => r.source === "punched").length;
             return (
               <div key={emp.user_id} style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", background: "#FAFAF8", borderBottom: "1px solid #EEECE7" }}>
