@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { timeclockTable, usersTable, jobsTable, clientsTable, companiesTable, jobPhotosTable, clockInAttemptsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -532,6 +533,182 @@ router.post("/office/clock-out", requireRole("owner", "admin", "office"), async 
     return res.json(updated);
   } catch (err) {
     console.error("POST /timeclock/office/clock-out error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Time Clock portal: whole-day grid + office edit/delete ───────────────────
+// The office reconciles Qleno's per-job clock times against MaidCentral so
+// commission (proportional by actual minutes) and hourly pay match. /day pulls
+// every job for a date with its assigned tech(s) and the clock on each, grouped
+// by employee — so missing/short/extra punches are obvious and MC's exact times
+// can be keyed in. The create path is the existing /office/clock-in|out; these
+// add EDIT and DELETE. Every correction is audit-logged.
+router.get("/day", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const date = String(req.query.date || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: "date=YYYY-MM-DD required" });
+    const branchId = req.query.branch_id && req.query.branch_id !== "all" ? parseInt(String(req.query.branch_id)) : null;
+
+    const jobsRes = await db.execute(sql`
+      SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
+             j.service_type::text AS service_type, j.address_street,
+             COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+                      c.company_name, 'Client') AS client_name
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.company_id = ${companyId}
+        AND j.scheduled_date = ${date}
+        AND j.status <> 'cancelled'
+        ${branchId !== null ? sql`AND j.branch_id = ${branchId}` : sql``}
+      ORDER BY j.scheduled_time NULLS LAST, j.id
+    `);
+    const jobs = jobsRes.rows as any[];
+    const jobIds = jobs.map(j => Number(j.job_id)).filter(n => Number.isFinite(n));
+    const inList = jobIds.length ? sql.raw(jobIds.join(",")) : null;
+
+    const techRows = inList ? ((await db.execute(sql`
+      SELECT jt.job_id, jt.user_id, jt.is_primary,
+             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
+      FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+      WHERE jt.job_id IN (${inList})
+    `)).rows as any[]) : [];
+
+    const clockRows = inList ? ((await db.execute(sql`
+      SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged,
+             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
+      FROM timeclock t JOIN users u ON u.id = t.user_id
+      WHERE t.company_id = ${companyId} AND t.job_id IN (${inList})
+    `)).rows as any[]) : [];
+
+    const jobById = new Map<number, any>(jobs.map(j => [Number(j.job_id), j]));
+    const techsByJob = new Map<number, { user_id: number; name: string; is_primary: boolean }[]>();
+    for (const t of techRows) {
+      const arr = techsByJob.get(Number(t.job_id)) || [];
+      arr.push({ user_id: Number(t.user_id), name: t.name || "Tech", is_primary: !!t.is_primary });
+      techsByJob.set(Number(t.job_id), arr);
+    }
+    const entryByJobUser = new Map<string, any>();
+    for (const e of clockRows) entryByJobUser.set(`${e.job_id}:${e.user_id}`, e);
+    const nameByUser = new Map<number, string>();
+    for (const t of techRows) if (t.name) nameByUser.set(Number(t.user_id), t.name);
+    for (const e of clockRows) if (e.name) nameByUser.set(Number(e.user_id), e.name);
+
+    type Row = { job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
+                 entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
+                 flagged: boolean; minutes: number | null };
+    const emp = new Map<number, { user_id: number; name: string; rows: Row[] }>();
+    const ensureEmp = (uid: number) => {
+      if (!emp.has(uid)) emp.set(uid, { user_id: uid, name: nameByUser.get(uid) || "Tech", rows: [] });
+      return emp.get(uid)!;
+    };
+    const minutesOf = (a: string | null, b: string | null) =>
+      a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000)) : null;
+
+    const seen = new Set<string>();
+    for (const j of jobs) {
+      const jid = Number(j.job_id);
+      let techs = techsByJob.get(jid) || [];
+      if (techs.length === 0 && j.assigned_user_id != null) techs = [{ user_id: Number(j.assigned_user_id), name: nameByUser.get(Number(j.assigned_user_id)) || "Tech", is_primary: true }];
+      for (const t of techs) {
+        const key = `${jid}:${t.user_id}`;
+        seen.add(key);
+        const e = entryByJobUser.get(key) || null;
+        ensureEmp(t.user_id).rows.push({
+          job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
+          entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
+          flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
+        });
+      }
+    }
+    for (const e of clockRows) {
+      const key = `${e.job_id}:${e.user_id}`;
+      if (seen.has(key)) continue;
+      const j = jobById.get(Number(e.job_id));
+      ensureEmp(Number(e.user_id)).rows.push({
+        job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
+        scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
+        clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
+      });
+    }
+
+    const employees = [...emp.values()].map(ev => {
+      const worked = ev.rows.reduce((s, r) => s + (r.minutes ?? 0), 0);
+      const ins = ev.rows.map(r => r.clock_in_at).filter(Boolean) as string[];
+      const outs = ev.rows.map(r => r.clock_out_at).filter(Boolean) as string[];
+      return {
+        ...ev,
+        rows: ev.rows.sort((a, b) => String(a.scheduled_time || "~").localeCompare(String(b.scheduled_time || "~"))),
+        worked_minutes: worked,
+        day_start: ins.length ? ins.reduce((a, b) => (a < b ? a : b)) : null,
+        day_end: outs.length ? outs.reduce((a, b) => (a > b ? a : b)) : null,
+        open: ev.rows.some(r => r.clock_in_at && !r.clock_out_at),
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+
+    return res.json({ date, employees });
+  } catch (err) {
+    console.error("GET /timeclock/day error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.patch("/:id", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const [existing] = await db.select().from(timeclockTable)
+      .where(and(eq(timeclockTable.id, id), eq(timeclockTable.company_id, companyId))).limit(1);
+    if (!existing) return res.status(404).json({ error: "Not found" });
+
+    const set: Record<string, any> = {};
+    if (req.body?.clock_in_at !== undefined) {
+      const d = new Date(req.body.clock_in_at);
+      if (isNaN(d.getTime())) return res.status(400).json({ error: "Invalid clock_in_at" });
+      set.clock_in_at = d;
+    }
+    if (req.body?.clock_out_at !== undefined) {
+      if (req.body.clock_out_at === null) set.clock_out_at = null;
+      else {
+        const d = new Date(req.body.clock_out_at);
+        if (isNaN(d.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
+        set.clock_out_at = d;
+      }
+    }
+    if (Object.keys(set).length === 0) return res.status(400).json({ error: "Nothing to update" });
+
+    const inAt = set.clock_in_at ?? existing.clock_in_at;
+    const outAt = set.clock_out_at !== undefined ? set.clock_out_at : existing.clock_out_at;
+    if (inAt && outAt && new Date(outAt).getTime() < new Date(inAt).getTime())
+      return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
+
+    const [updated] = await db.update(timeclockTable).set(set).where(eq(timeclockTable.id, id)).returning();
+    logAudit(req, "TIMECLOCK_EDIT", "timeclock", id,
+      { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at },
+      { clock_in_at: updated.clock_in_at, clock_out_at: updated.clock_out_at });
+    return res.json(updated);
+  } catch (err) {
+    console.error("PATCH /timeclock/:id error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/:id", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    if (!id) return res.status(400).json({ error: "Invalid id" });
+    const [existing] = await db.select().from(timeclockTable)
+      .where(and(eq(timeclockTable.id, id), eq(timeclockTable.company_id, companyId))).limit(1);
+    if (!existing) return res.status(404).json({ error: "Not found" });
+    await db.delete(timeclockTable).where(eq(timeclockTable.id, id));
+    logAudit(req, "TIMECLOCK_DELETE", "timeclock", id,
+      { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at, job_id: existing.job_id, user_id: existing.user_id }, null);
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /timeclock/:id error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

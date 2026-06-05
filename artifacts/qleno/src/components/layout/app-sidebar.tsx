@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap,
+  UserPlus, GraduationCap, Clock,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -70,6 +70,7 @@ const NAV_SECTIONS = [
     label: "Team",
     items: [
       { title: "Employees", url: "/employees", icon: UserCheck },
+      { title: "Time Clock", url: "/time-clock", icon: Clock, roles: ["owner", "admin", "office"] },
       { title: "Payroll",   url: "/payroll",   icon: DollarSign, roles: ["owner", "admin"] },
     ],
   },
