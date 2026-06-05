@@ -462,4 +462,78 @@ router.patch("/:id/override", requireAuth, requireRole("owner", "admin", "office
   }
 });
 
+// ── Office-initiated clock in/out (desktop dispatch board) ───────────────────
+// The field-app tech clock locks to req.auth.userId, so it can't cover the
+// office clocking the team in/out on the tech's behalf from the board. These
+// role-gated endpoints stamp a SPECIFIC tech's clock pair on a job — no
+// GPS/geofence (office override), source stays 'punched' so payroll and the
+// proportional-by-minutes commission split treat it as real clocked time.
+// Writes the legacy timeclock table (the one payroll + commission read), not
+// the GPS job_clock_events model. from_job_id is NOT a timeclock column — the
+// mileage hook lives on on_my_way_events and is untouched here.
+router.post("/office/clock-in", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const job_id = parseInt(String(req.body?.job_id));
+    const user_id = parseInt(String(req.body?.user_id));
+    if (!job_id || !user_id) return res.status(400).json({ error: "job_id and user_id are required" });
+    const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : new Date();
+    if (isNaN(clockInAt.getTime())) return res.status(400).json({ error: "Invalid clock_in_at" });
+
+    const [jobRow] = await db.select({ id: jobsTable.id, branch_id: jobsTable.branch_id })
+      .from(jobsTable).where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, companyId))).limit(1);
+    if (!jobRow) return res.status(404).json({ error: "Job not found" });
+    const [techRow] = await db.select({ id: usersTable.id })
+      .from(usersTable).where(and(eq(usersTable.id, user_id), eq(usersTable.company_id, companyId))).limit(1);
+    if (!techRow) return res.status(404).json({ error: "Employee not found" });
+
+    // Idempotent: if this tech already has an OPEN entry on this job, return it
+    // instead of stacking a second open punch.
+    const [open] = await db.select().from(timeclockTable).where(and(
+      eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
+      eq(timeclockTable.user_id, user_id), sql`${timeclockTable.clock_out_at} IS NULL`
+    )).limit(1);
+    if (open) return res.json({ ...open, already_open: true });
+
+    const [entry] = await db.insert(timeclockTable).values({
+      job_id, user_id, company_id: companyId,
+      branch_id: jobRow.branch_id ?? 1,
+      clock_in_at: clockInAt,
+      override_approved: true,
+      source: "punched",
+    }).returning();
+    return res.json(entry);
+  } catch (err) {
+    console.error("POST /timeclock/office/clock-in error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/office/clock-out", requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const job_id = parseInt(String(req.body?.job_id));
+    const user_id = parseInt(String(req.body?.user_id));
+    if (!job_id || !user_id) return res.status(400).json({ error: "job_id and user_id are required" });
+    const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : new Date();
+    if (isNaN(clockOutAt.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
+
+    const [open] = await db.select().from(timeclockTable).where(and(
+      eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
+      eq(timeclockTable.user_id, user_id), sql`${timeclockTable.clock_out_at} IS NULL`
+    )).orderBy(desc(timeclockTable.clock_in_at)).limit(1);
+    if (!open) return res.status(400).json({ error: "No open clock-in for this employee on this job" });
+    if (clockOutAt.getTime() < new Date(open.clock_in_at).getTime())
+      return res.status(400).json({ error: "Clock-out cannot be before clock-in" });
+
+    const [updated] = await db.update(timeclockTable)
+      .set({ clock_out_at: clockOutAt })
+      .where(eq(timeclockTable.id, open.id)).returning();
+    return res.json(updated);
+  } catch (err) {
+    console.error("POST /timeclock/office/clock-out error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;
