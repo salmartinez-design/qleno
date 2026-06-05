@@ -3247,14 +3247,6 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   );
 }
 
-// [schedule-views 2026-06-05] Hour label for the mobile time-grid gutter.
-function fmtHour(h: number): string {
-  if (h >= 24) return "12 AM";
-  const ampm = h < 12 ? "AM" : "PM";
-  const hr = h % 12 === 0 ? 12 : h % 12;
-  return `${hr} ${ampm}`;
-}
-
 // [schedule-views 2026-06-05] MOBILE TIME-GRID (HCP-style). Renders the focal
 // day's jobs on an hour grid: vertical position = start time, height =
 // duration, concurrent jobs packed into PARALLEL COLUMNS. Column packing is
