@@ -213,3 +213,51 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
     assert.equal(rows[0].basis, "commercial_hourly");
   });
 });
+
+describe("pay-type engine — gross guard + commercial-by-service-type", () => {
+  const resRates = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32 };
+  const commercial = { commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" as const };
+  const job = (p: any): CommissionInputJob => ({
+    id: p.id, assigned_user_id: p.assigned_user_id ?? 1, service_type: p.service_type ?? "standard_clean",
+    account_id: "account_id" in p ? p.account_id : null, base_fee: p.base_fee ?? "0",
+    billed_amount: "billed_amount" in p ? p.billed_amount : null, allowed_hours: p.allowed_hours ?? "0",
+    actual_hours: "0", branch_id: 1, scheduled_date: "2026-06-01",
+  });
+  const tech = (job_id: number, user_id: number, o: Partial<JobTechRow> = {}): JobTechRow => ({
+    job_id, user_id, is_primary: o.is_primary ?? false, pay_type: o.pay_type ?? null,
+    hourly_rate: o.hourly_rate ?? null, commission_pct: o.commission_pct ?? null,
+    pay_deduction_pct: o.pay_deduction_pct ?? null, pay_deduction_flat: o.pay_deduction_flat ?? null,
+  });
+
+  it("ADD-ON raises the base: base 578.40 + $50 add-on (billed 628.40) → $100.54/tech, not $92.54", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 1, base_fee: "578.40", billed_amount: "628.40", allowed_hours: "8.2", service_type: "deep_clean" })],
+      jobTechs: [tech(1, 1, { is_primary: true }), tech(1, 2)],
+      techHoursByKey: new Map([["1:1", 3.28], ["1:2", 3.28]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.find(r => r.user_id === 1)!.amount, 100.54);
+    assert.equal(rows.find(r => r.user_id === 2)!.amount, 100.54);
+  });
+
+  it("CREDIT never docks: base 628.40, $50 credit (billed 578.40) → still $100.54 (max ignores the lower billed)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 2, base_fee: "628.40", billed_amount: "578.40", allowed_hours: "8.2", service_type: "deep_clean" })],
+      jobTechs: [tech(2, 1, { is_primary: true }), tech(2, 2)],
+      techHoursByKey: new Map([["2:1", 3.28], ["2:2", 3.28]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.find(r => r.user_id === 1)!.amount, 100.54);
+  });
+
+  it("commercial by SERVICE TYPE with no account → Allowed Hours, not fee split (Common Areas $60)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 3, account_id: null, service_type: "common_areas", base_fee: "195", allowed_hours: "3" })],
+      jobTechs: [tech(3, 1, { is_primary: true })],
+      techHoursByKey: new Map([["3:1", 1.52]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 60.0);
+    assert.equal(rows[0].basis, "commercial_hourly");
+  });
+});
