@@ -48,6 +48,21 @@ export type PayType = "fee_split" | "allowed_hours" | "hourly";
 
 export const PAY_TYPES: readonly PayType[] = ["fee_split", "allowed_hours", "hourly"];
 
+// A job is commercial when it's tied to an account OR its service type is one
+// of the commercial scopes. Some commercial jobs (e.g. a one-off "Common
+// Areas") aren't linked to an account, but they're still paid Allowed Hours,
+// not a residential fee split. Without this they'd default to fee_split and
+// pay the wrong way (the Nitzsche Common Areas $68.25-vs-$60 mismatch).
+const COMMERCIAL_SERVICE_SLUGS = new Set([
+  "office_cleaning", "common_areas", "ppm_turnover", "commercial_cleaning",
+  "commercial", "post_construction", "janitorial",
+]);
+export function isCommercialJob(account_id: number | string | null | undefined, service_type: string | null | undefined): boolean {
+  if (account_id != null) return true;
+  const s = (service_type ?? "").toLowerCase();
+  return COMMERCIAL_SERVICE_SLUGS.has(s);
+}
+
 export interface JobPayContext {
   /** GROSS service base before customer credits/breakage (jobs.base_fee). */
   baseFee: number;
@@ -261,7 +276,7 @@ export function computePerTechCommissionRows(input: {
 
   const out: CommissionRow[] = [];
   for (const j of input.jobs) {
-    const isCommercial = j.account_id != null;
+    const isCommercial = isCommercialJob(j.account_id, j.service_type);
     let techs = techsByJob.get(j.id) ?? [];
     if (techs.length === 0 && j.assigned_user_id != null) {
       techs = [{ job_id: j.id, user_id: j.assigned_user_id, is_primary: true,
@@ -285,8 +300,14 @@ export function computePerTechCommissionRows(input: {
       commercialHourlyRate: input.commercial.commercial_hourly_rate,
       scopePct,
     });
+    // Commission base = max(base_fee, billed_amount). billed_amount =
+    // base_fee + SUM(job mods), so add-ons RAISE it (they're commissionable —
+    // MC pays on the add-on-inclusive total) while a customer credit/discount
+    // LOWERS billed below base, and max() ignores it so the credit never docks
+    // the tech (locked rule). For a plain job base==billed → unchanged, so
+    // every job that already matched stays matched.
     const ctx: JobPayContext = {
-      baseFee: (n(j.base_fee) ?? 0) || (n(j.billed_amount) ?? 0),
+      baseFee: Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0),
       allowedHours: n(j.allowed_hours) ?? 0,
       totalTechHours,
     };
