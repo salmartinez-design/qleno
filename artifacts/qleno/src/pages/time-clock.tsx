@@ -237,7 +237,7 @@ export default function TimeClockPage() {
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", margin: 0 }}>Time Clock</h1>
             <p style={{ fontSize: 13, color: "#6B6860", margin: "4px 0 0" }}>
-              Edit each tech's in/out to match MaidCentral — feeds payroll hours and the actual-minutes commission split.
+              Reconcile each tech's in/out — feeds payroll hours and the actual-minutes commission split.
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
