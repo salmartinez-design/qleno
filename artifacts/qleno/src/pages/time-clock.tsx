@@ -30,6 +30,35 @@ function isoToHHMM(iso: string | null): string {
   return isNaN(d.getTime()) ? "" : `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 function hhmmToISO(dateStr: string, hhmm: string): string { return new Date(`${dateStr}T${hhmm}:00`).toISOString(); }
+// Typed-time parsing so the field is a plain text box ("9:16 AM") instead of
+// the native time-wheel — reliable to type for humans and trivial for an
+// automation agent to fill. Accepts "9:16 AM", "9:16am", "13:05", "09:16".
+// Returns 24h "HH:MM" or null when unparseable.
+function parseTimeInput(raw: string): string | null {
+  const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)?$/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (min > 59) return null;
+  const mer = m[3] ? m[3][0] : "";
+  if (mer) {
+    if (h < 1 || h > 12) return null;
+    if (mer === "p" && h !== 12) h += 12;
+    if (mer === "a" && h === 12) h = 0;
+  } else if (h > 23) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+function hh24ToDisplay(hhmm: string): string {
+  if (!hhmm) return "";
+  const [h, m] = hhmm.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return "";
+  const ap = h < 12 ? "AM" : "PM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${String(m).padStart(2, "0")} ${ap}`;
+}
+function isoToDisplay(iso: string | null): string { return hh24ToDisplay(isoToHHMM(iso)); }
 function fmtHrs(min: number) { const h = Math.floor(min / 60), m = min % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function fmtClock(iso: string | null) {
   if (!iso) return "—";
@@ -49,10 +78,11 @@ type Row = {
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
+  pay?: number | null;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
-  day_start: string | null; day_end: string | null; open: boolean;
+  day_start: string | null; day_end: string | null; open: boolean; pay_total?: number;
 };
 
 const inputStyle: React.CSSProperties = {
@@ -125,34 +155,41 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
 function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   emp: Emp; row: Row; dateStr: string; onChanged: () => void; toastFn: (t: { title: string }) => void;
 }) {
-  const [inVal, setInVal] = useState(isoToHHMM(row.clock_in_at));
-  const [outVal, setOutVal] = useState(isoToHHMM(row.clock_out_at));
+  const [inVal, setInVal] = useState(isoToDisplay(row.clock_in_at));
+  const [outVal, setOutVal] = useState(isoToDisplay(row.clock_out_at));
   const [busy, setBusy] = useState(false);
-  useEffect(() => { setInVal(isoToHHMM(row.clock_in_at)); setOutVal(isoToHHMM(row.clock_out_at)); }, [row.clock_in_at, row.clock_out_at, row.entry_id]);
+  useEffect(() => { setInVal(isoToDisplay(row.clock_in_at)); setOutVal(isoToDisplay(row.clock_out_at)); }, [row.clock_in_at, row.clock_out_at, row.entry_id]);
 
-  const dirty = inVal !== isoToHHMM(row.clock_in_at) || outVal !== isoToHHMM(row.clock_out_at);
-  const liveMins = inVal && outVal
-    ? Math.max(0, Math.round((new Date(`${dateStr}T${outVal}:00`).getTime() - new Date(`${dateStr}T${inVal}:00`).getTime()) / 60000))
+  const parsedIn = parseTimeInput(inVal);   // 24h "HH:MM" or null
+  const parsedOut = parseTimeInput(outVal);
+  const inInvalid = inVal.trim() !== "" && parsedIn === null;
+  const outInvalid = outVal.trim() !== "" && parsedOut === null;
+  const storedIn = isoToHHMM(row.clock_in_at);
+  const storedOut = isoToHHMM(row.clock_out_at);
+  const dirty = !inInvalid && !outInvalid && ((parsedIn ?? "") !== storedIn || (parsedOut ?? "") !== storedOut);
+  const liveMins = parsedIn && parsedOut
+    ? Math.max(0, Math.round((new Date(`${dateStr}T${parsedOut}:00`).getTime() - new Date(`${dateStr}T${parsedIn}:00`).getTime()) / 60000))
     : null;
 
   async function save() {
+    if (inInvalid || outInvalid) { toastFn({ title: "Enter a time like 9:16 AM" }); return; }
     setBusy(true);
     try {
       let entryId = row.entry_id;
       if (!entryId) {
-        if (!inVal) { toastFn({ title: "Set a clock-in time first" }); setBusy(false); return; }
-        const r = await api(`/api/timeclock/office/clock-in`, { method: "POST", body: JSON.stringify({ job_id: row.job_id, user_id: emp.user_id, clock_in_at: hhmmToISO(dateStr, inVal) }) });
+        if (!parsedIn) { toastFn({ title: "Set a clock-in time first" }); setBusy(false); return; }
+        const r = await api(`/api/timeclock/office/clock-in`, { method: "POST", body: JSON.stringify({ job_id: row.job_id, user_id: emp.user_id, clock_in_at: hhmmToISO(dateStr, parsedIn) }) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "Failed");
         entryId = d.id;
-        if (outVal) {
-          const r2 = await api(`/api/timeclock/${entryId}`, { method: "PATCH", body: JSON.stringify({ clock_out_at: hhmmToISO(dateStr, outVal) }) });
+        if (parsedOut) {
+          const r2 = await api(`/api/timeclock/${entryId}`, { method: "PATCH", body: JSON.stringify({ clock_out_at: hhmmToISO(dateStr, parsedOut) }) });
           if (!r2.ok) { const e = await r2.json().catch(() => ({})); throw new Error(e.error || "Failed"); }
         }
       } else {
         const body: any = {};
-        if (inVal) body.clock_in_at = hhmmToISO(dateStr, inVal);
-        body.clock_out_at = outVal ? hhmmToISO(dateStr, outVal) : null;
+        if (parsedIn) body.clock_in_at = hhmmToISO(dateStr, parsedIn);
+        body.clock_out_at = parsedOut ? hhmmToISO(dateStr, parsedOut) : null;
         const r = await api(`/api/timeclock/${entryId}`, { method: "PATCH", body: JSON.stringify(body) });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error || "Failed");
@@ -183,12 +220,22 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700 }}>IN</span>
-        <input type="time" value={inVal} onChange={e => setInVal(e.target.value)} style={inputStyle} />
+        <input type="text" inputMode="text" placeholder="9:16 AM" aria-label="Clock in"
+          value={inVal} onChange={e => setInVal(e.target.value)}
+          onBlur={() => { const p = parseTimeInput(inVal); if (p) setInVal(hh24ToDisplay(p)); }}
+          style={{ ...inputStyle, borderColor: inInvalid ? "#EF4444" : "#E5E2DC" }} />
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, marginLeft: 4 }}>OUT</span>
-        <input type="time" value={outVal} onChange={e => setOutVal(e.target.value)} style={inputStyle} />
+        <input type="text" inputMode="text" placeholder="12:33 PM" aria-label="Clock out"
+          value={outVal} onChange={e => setOutVal(e.target.value)}
+          onBlur={() => { const p = parseTimeInput(outVal); if (p) setOutVal(hh24ToDisplay(p)); }}
+          style={{ ...inputStyle, borderColor: outInvalid ? "#EF4444" : "#E5E2DC" }} />
       </div>
-      <div style={{ width: 64, textAlign: "right", fontSize: 12, fontWeight: 700, color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
-        {liveMins != null ? fmtHrs(liveMins) : (inVal && !outVal ? "open" : "—")}
+      <div style={{ width: 56, textAlign: "right", fontSize: 12, fontWeight: 700, color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
+        {liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}
+      </div>
+      <div style={{ width: 70, textAlign: "right", fontSize: 13, fontWeight: 800, color: row.pay != null && row.pay > 0 ? "#0A7C66" : "#C4C0BB" }}
+        title="Commission for this timesheet (same engine as Payroll)">
+        {row.pay != null ? `$${row.pay.toFixed(2)}` : "—"}
       </div>
       <button onClick={save} disabled={busy || !dirty}
         style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "none", cursor: busy || !dirty ? "default" : "pointer", fontFamily: FF, color: "#fff", background: dirty ? "#2D9B83" : "#D4D1CB", opacity: busy ? 0.6 : 1 }}>
@@ -228,6 +275,7 @@ export default function TimeClockPage() {
   const totalWorked = employees.reduce((s, e) => s + e.worked_minutes, 0);
   const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.entry_id).length, 0);
   const totalRows = employees.reduce((s, e) => s + e.rows.length, 0);
+  const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
 
   return (
     <DashboardLayout>
@@ -264,6 +312,7 @@ export default function TimeClockPage() {
           <Stat label="Jobs" value={String(totalRows)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
+          <Stat label="Commission" value={`$${totalPay.toFixed(2)}`} accent="#0A7C66" />
         </div>
 
         {loading && !data ? (
@@ -292,6 +341,7 @@ export default function TimeClockPage() {
                     {emp.day_start && <span>{fmtClock(emp.day_start)} – {emp.open ? "on clock" : fmtClock(emp.day_end)}</span>}
                     <span style={{ color: punched < emp.rows.length ? "#B45309" : "#16A34A", fontWeight: 700 }}>{punched}/{emp.rows.length} punched</span>
                     <span style={{ fontWeight: 800, color: "#1A1917" }}>{fmtHrs(emp.worked_minutes)}</span>
+                    {emp.pay_total != null && <span style={{ fontWeight: 800, color: "#0A7C66" }}>${emp.pay_total.toFixed(2)}</span>}
                   </div>
                 </div>
                 {emp.rows.map(row => (
