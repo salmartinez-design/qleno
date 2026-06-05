@@ -3221,6 +3221,44 @@ export async function runPhesDataMigration(): Promise<void> {
       SET minimum_bill = 210.00
       WHERE company_id = ${PHES} AND name = 'Recurring Cleaning - Every 4 Weeks' AND minimum_bill != 210.00
     `);
+
+    // ── MaidCentral-parity base hourly rates (confirmed by Sal, 2026-06-05) ───
+    // The scope INSERTs above are insert-only (WHERE NOT EXISTS), so they never
+    // correct an existing row's rate. Production scopes seeded at the old
+    // defaults (Deep Clean $70, One-Time $60, Recurring $55/$60) stayed stale,
+    // so quotes priced BELOW MaidCentral — a hard problem when onboarding
+    // existing clients who must be quoted at the exact price they already pay.
+    // Target MC rates:
+    //   Deep Clean / Move In-Out / Hourly Deep Clean ...... $80/hr
+    //   One-Time Standard / Hourly Standard ............... $65/hr
+    //   Recurring (Weekly / Every 2 Weeks / Every 4 Weeks)  $65/hr flat
+    // Recurring price still fluctuates by cadence — but that comes ENTIRELY
+    // from the per-cadence tier hours (already MC-matched above), NOT the rate.
+    //
+    // ONE-TIME correction, not perpetual enforcement: each UPDATE is guarded on
+    // the *old stale seed value* (`hourly_rate = <from>`), so it bumps a scope
+    // off the old default exactly once and then NEVER fires again. This is
+    // deliberate — base rate + minimum are owner-managed in Settings → Pricing
+    // (pricing.tsx), so the migration must not clobber a deliberate UI edit on
+    // the next cold-start. A scope already at the target (or any custom value)
+    // is left untouched.
+    const mcParityRates: Array<{ name: string; from: string; to: string }> = [
+      { name: "Deep Clean",                          from: "70.00", to: "80.00" },
+      { name: "Move In / Move Out",                  from: "70.00", to: "80.00" },
+      { name: "Hourly Deep Clean",                   from: "70.00", to: "80.00" },
+      { name: "One-Time Standard Clean",             from: "60.00", to: "65.00" },
+      { name: "Hourly Standard Cleaning",            from: "60.00", to: "65.00" },
+      { name: "Recurring Cleaning - Weekly",         from: "55.00", to: "65.00" },
+      { name: "Recurring Cleaning - Every 2 Weeks",  from: "60.00", to: "65.00" },
+      // Recurring Every 4 Weeks was already seeded at $65 — no correction.
+    ];
+    for (const { name, from, to } of mcParityRates) {
+      await db.execute(sql`
+        UPDATE pricing_scopes SET hourly_rate = ${to}
+        WHERE company_id = ${PHES} AND name = ${name}
+          AND hourly_rate::numeric = ${from}::numeric
+      `);
+    }
     // These were seeded before scope_group existed, so they defaulted to
     // 'Residential' — which both hid them from commercial clients AND showed
     // commercial work to residential ones. Reclassify to 'Commercial'.

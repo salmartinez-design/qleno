@@ -3099,7 +3099,12 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
     <div onClick={onClick} style={{
       backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
       padding: "14px 16px", marginBottom: 10, cursor: "pointer", position: "relative",
-      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? sc.dot}`,
+      // [schedule-views 2026-06-05] Left stripe = the job's ZONE color (same
+      // source the desktop Gantt chip fills with), not the status-blue sc.dot.
+      // This closes the desktop/mobile color variance — a job that's purple on
+      // the board is now purple on mobile. Special-state overrides (late red,
+      // unpaid amber, no-show dark-red) and the animated active stripe still win.
+      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? job.zone_color ?? sc.dot}`,
       fontFamily: FF, opacity: visual.bodyOpacity,
       filter: visual.desaturate ? "grayscale(1)" : "none", overflow: "hidden",
     }}>
@@ -3240,6 +3245,127 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       </div>
     </div>
   );
+}
+
+// [schedule-views 2026-06-05] MOBILE TIME-GRID (HCP-style). Renders the focal
+// day's jobs on an hour grid: vertical position = start time, height =
+// duration, concurrent jobs packed into PARALLEL COLUMNS. Column packing is
+// per-overlap-cluster (a "connected component" of mutually overlapping jobs),
+// so a lone job stays full-width while a 9 AM pile-up splits into N columns —
+// same idea as the desktop Gantt's packLanes, rotated to a vertical grid.
+// Blocks fill with the job's zone color (matches desktop); text flips to dark
+// on light zones via luminance. Jobs with no scheduled time list below.
+function MobileTimeGrid({ jobs, onJobClick }: { jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void }) {
+  const PX_PER_MIN = 1.15;
+  const GUTTER = 46;
+  const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
+  const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
+  const untimed = jobs.filter(j => timeToMins(j.scheduled_time) <= 0);
+
+  let body: React.ReactNode = null;
+  if (timed.length > 0) {
+    const minStart = Math.min(...timed.map(j => timeToMins(j.scheduled_time)));
+    const maxEnd = Math.max(...timed.map(j => timeToMins(j.scheduled_time) + dur(j)));
+    const startHour = Math.max(0, Math.min(8, Math.floor(minStart / 60)));
+    const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
+    const dayStart = startHour * 60;
+    const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
+
+    // Per-cluster greedy column packing.
+    type Placed = { job: DispatchJob; col: number; cols: number; start: number; end: number };
+    const sorted = [...timed].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time) || a.id - b.id);
+    const placed: Placed[] = [];
+    let cluster: Placed[] = [];
+    let clusterEnd = -1;
+    let colEnds: number[] = [];
+    const flush = () => {
+      const cols = colEnds.length;
+      for (const p of cluster) p.cols = cols;
+      placed.push(...cluster);
+      cluster = []; colEnds = []; clusterEnd = -1;
+    };
+    for (const j of sorted) {
+      const s = timeToMins(j.scheduled_time), e = s + dur(j);
+      if (clusterEnd !== -1 && s >= clusterEnd) flush();
+      let col = colEnds.findIndex(end => end <= s);
+      if (col === -1) { col = colEnds.length; colEnds.push(e); } else colEnds[col] = e;
+      cluster.push({ job: j, col, cols: 0, start: s, end: e });
+      clusterEnd = Math.max(clusterEnd, e);
+    }
+    flush();
+
+    const hours: number[] = [];
+    for (let h = startHour; h <= endHour; h++) hours.push(h);
+
+    body = (
+      <div style={{ position: "relative", marginLeft: GUTTER, height: gridH, borderTop: "1px solid #F0EEE9" }}>
+        {hours.map(h => {
+          const top = (h * 60 - dayStart) * PX_PER_MIN;
+          return (
+            <div key={h} style={{ position: "absolute", left: -GUTTER, right: 0, top, borderTop: "1px solid #F2F0EB" }}>
+              <span style={{ position: "absolute", left: 0, top: -7, width: GUTTER - 8, textAlign: "right", fontSize: 10, color: "#9E9B94", fontWeight: 600 }}>{fmtHour(h)}</span>
+            </div>
+          );
+        })}
+        {placed.map(p => {
+          const j = p.job;
+          const visual = STATUS_VISUALS[getJobVisualStatus(j)];
+          const color = j.zone_color || "#9CA3AF";
+          const onDark = (zoneLuminance(color) / 255) < 0.62;
+          const top = (p.start - dayStart) * PX_PER_MIN;
+          const height = Math.max((p.end - p.start) * PX_PER_MIN, 36);
+          const widthPct = 100 / p.cols;
+          const leftPct = p.col * widthPct;
+          return (
+            <div key={j.id} onClick={() => onJobClick(j)} style={{
+              position: "absolute", top, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
+              height: height - 3, backgroundColor: color, borderRadius: 8, padding: "5px 7px",
+              cursor: "pointer", overflow: "hidden", fontFamily: FF, boxSizing: "border-box",
+              color: onDark ? "#FFFFFF" : "#1A1917", opacity: visual.bodyOpacity,
+              filter: visual.desaturate ? "grayscale(1)" : "none",
+              boxShadow: visual.stripe ? `inset 0 0 0 2px rgba(255,255,255,0.55), 0 0 0 2px ${visual.stripe}` : "none",
+            }}>
+              <div style={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.15, textDecoration: visual.strikethrough ? "line-through" : "none", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                {j.display_name ?? j.client_name}
+              </div>
+              {height >= 46 && (
+                <div style={{ fontSize: 9.5, opacity: 0.92, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                  {fmtTime(j.scheduled_time)}{j.assigned_user_name ? ` · ${j.assigned_user_name}` : ""}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {body}
+      {untimed.length > 0 && (
+        <div style={{ marginTop: body ? 14 : 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 2px 6px" }}>No time set</div>
+          {untimed.map(j => <MobileJobCard key={j.id} job={j} onClick={() => onJobClick(j)} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// [schedule-views 2026-06-05] Decorative, stable avatar color derived from a
+// tech's name. Job colors in this app are ZONE-based (not per-tech), so this is
+// purely to visually distinguish people in the By-Employee grouping. Hashing the
+// name keeps each tech on one color across renders. Tenant-generic.
+const TECH_AVATAR_COLORS = ["#0FA3A3", "#8B3FBF", "#2D6BE0", "#D2691E", "#2D9B83", "#C2410C", "#6D28D9", "#0E7490", "#B45309", "#9D174D"];
+function techAvatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return TECH_AVATAR_COLORS[h % TECH_AVATAR_COLORS.length];
+}
+function techInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return (((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()) || "?";
 }
 
 // ─── MINI CALENDAR ─────────────────────────────────────────────────────────────
@@ -5126,6 +5252,10 @@ export default function JobsPage() {
   const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [dayDataCache, setDayDataCache] = useState<Map<string, DispatchData>>(new Map());
   const [dayDataLoading, setDayDataLoading] = useState<Set<string>>(new Set());
+  // [schedule-views 2026-06-05] Mobile focal-day view mode: Time list / By
+  // Employee groups / Time-grid. Three selectable views so the office can try
+  // each and keep whichever earns its place. Generic — applies to every tenant.
+  const [mobileViewMode, setMobileViewMode] = useState<"time" | "team" | "grid">("time");
 
   const load = useCallback(async () => {
     const id = ++refreshRef.current;
@@ -5684,6 +5814,24 @@ export default function JobsPage() {
             </button>
           </div>
 
+          {/* [schedule-views 2026-06-05] Focal-day VIEW SWITCHER — Time list /
+              By Employee / Time-grid. Affects only the focal-day section below;
+              the week summary, risk strip, and Upcoming list are shared chrome. */}
+          <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "8px 14px" }}>
+            <div style={{ display: "flex", background: "#F1EFEA", borderRadius: 9, padding: 3, gap: 3 }}>
+              {([["time", "Time"], ["team", "Team"], ["grid", "Grid"]] as const).map(([val, label]) => (
+                <button key={val} onClick={() => setMobileViewMode(val)} style={{
+                  flex: 1, textAlign: "center", border: "none", cursor: "pointer", fontFamily: FF,
+                  fontSize: 12, fontWeight: 700, padding: "7px 0", borderRadius: 7,
+                  backgroundColor: mobileViewMode === val ? "#FFFFFF" : "transparent",
+                  color: mobileViewMode === val ? "#1A1917" : "#6B7280",
+                  boxShadow: mobileViewMode === val ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+                  transition: "background 0.15s",
+                }}>{label}</button>
+              ))}
+            </div>
+          </div>
+
           {/* [AI.7] FOCAL DAY (TODAY) — full job cards. Heading carries the
               day's job count + revenue so the operator orients without
               cross-checking the bar chart above. */}
@@ -5713,6 +5861,43 @@ export default function JobsPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#6B7280", marginBottom: 4 }}>No jobs {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? " in this zone" : ""}</div>
                 <div style={{ fontSize: 12, color: "#9E9B94" }}>Tap "+ New Job" to schedule one</div>
               </div>
+            ) : mobileViewMode === "grid" ? (
+              <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
+            ) : mobileViewMode === "team" ? (
+              /* [schedule-views] BY EMPLOYEE — group the focal day's jobs under
+                 each assigned tech (Unassigned floats to the top so nothing
+                 hides). Header shows the tech, their job count, and total job
+                 hours. Cards keep their zone color so they still match desktop. */
+              (() => {
+                const groups = new Map<string, DispatchJob[]>();
+                for (const j of allJobs) {
+                  const key = j.assigned_user_name || "Unassigned";
+                  if (!groups.has(key)) groups.set(key, []);
+                  groups.get(key)!.push(j);
+                }
+                const ordered = [...groups.entries()].sort((a, b) => {
+                  if (a[0] === "Unassigned") return -1;
+                  if (b[0] === "Unassigned") return 1;
+                  return a[0].localeCompare(b[0]);
+                });
+                return ordered.map(([name, jobs]) => {
+                  const mins = jobs.reduce((s, j) => s + (j.duration_minutes || 0), 0);
+                  const hrs = mins % 60 === 0 ? String(mins / 60) : (mins / 60).toFixed(1);
+                  const isUn = name === "Unassigned";
+                  return (
+                    <div key={name} style={{ marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
+                          {isUn ? "?" : techInitials(name)}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{jobs.length} {jobs.length !== 1 ? "jobs" : "job"} · {hrs}h</div>
+                      </div>
+                      {jobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                    </div>
+                  );
+                });
+              })()
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}

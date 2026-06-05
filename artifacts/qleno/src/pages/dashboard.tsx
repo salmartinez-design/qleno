@@ -149,6 +149,128 @@ function useWeeklyForecast() {
   return { data, loading, error };
 }
 
+// ── Recent Activity (HCP-style stream, under the revenue forecast) ────────────
+type ActivityRow = {
+  id: number; action: string; target_type: string; target_id: string | null;
+  new_value: any; performed_at: string; user_name: string | null;
+};
+
+function useRecentActivity() {
+  const [data, setData] = useState<ActivityRow[] | null>(null);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const r = await apiFetch('/api/dashboard/recent-activity?limit=12');
+        if (r.ok) { const j = await r.json(); setData(j.activities || []); }
+      } catch {}
+    };
+    load();
+    const iv = setInterval(load, 60000);
+    return () => clearInterval(iv);
+  }, []);
+  return data;
+}
+
+function relTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (isNaN(then)) return '';
+  const min = Math.floor((Date.now() - then) / 60000);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function actMoney(v: any): string | null {
+  const n = parseFloat(String(v ?? ''));
+  return isNaN(n) ? null : `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Map a raw audit row to a human label + in-app route. The frontend owns the
+// route table, so links stay correct if routes move.
+function describeActivity(a: ActivityRow): { label: string; link: string | null } {
+  const id = a.target_id;
+  const nv = a.new_value || {};
+  const amt = actMoney(nv.total_price ?? nv.amount ?? nv.total);
+  const verb = a.action.toLowerCase().replace(/_/g, ' ');
+  switch (a.target_type) {
+    case 'quote':
+      if (a.action === 'CONVERTED') return { label: `Quote #${id} converted to a job`, link: id ? `/quotes/${id}` : null };
+      if (a.action === 'CREATE') return { label: `Quote #${id} created${amt ? ` — ${amt}` : ''}`, link: id ? `/quotes/${id}` : null };
+      if (a.action === 'DELETE') return { label: `Quote #${id} deleted`, link: null };
+      return { label: `Quote #${id} ${verb}`, link: id ? `/quotes/${id}` : null };
+    case 'job':
+      if (a.action === 'CREATE') return { label: `New job created${amt ? ` — ${amt}` : ''}`, link: '/dispatch' };
+      if (a.action === 'UPDATE') return { label: `Job #${id} updated`, link: '/dispatch' };
+      if (a.action === 'DELETE') return { label: `Job #${id} deleted`, link: null };
+      if (a.action === 'SET_ZONE') return { label: `Job #${id} zone set`, link: '/dispatch' };
+      return { label: `Job #${id} ${verb}`, link: '/dispatch' };
+    case 'invoice':
+      if (a.action === 'PAYMENT_CHARGED') return { label: `Payment charged${amt ? ` — ${amt}` : ''}`, link: id ? `/invoices/${id}` : '/invoices' };
+      if (a.action === 'CREATE') return { label: `Invoice created${amt ? ` — ${amt}` : ''}`, link: id ? `/invoices/${id}` : '/invoices' };
+      return { label: `Invoice #${id} ${verb}`, link: id ? `/invoices/${id}` : '/invoices' };
+    case 'client':
+      if (a.action === 'CREATE') return { label: 'New client added', link: id ? `/customers/${id}` : '/customers' };
+      return { label: `Client ${verb}`, link: id ? `/customers/${id}` : '/customers' };
+    case 'employee': {
+      const map: Record<string, string> = {
+        CREATE: 'Employee added', CREATE_EMPLOYEE: 'Employee added',
+        DELETE: 'Employee removed', DELETE_EMPLOYEE: 'Employee removed',
+        ACTIVATE_EMPLOYEE: 'Employee activated', DEACTIVATE_EMPLOYEE: 'Employee deactivated',
+        UPDATE: 'Employee updated',
+      };
+      return { label: map[a.action] || `Employee ${verb}`, link: id ? `/employees/${id}` : '/employees' };
+    }
+    default:
+      return { label: `${a.target_type} ${verb}`, link: null };
+  }
+}
+
+function RecentActivitySection() {
+  const activities = useRecentActivity();
+  const [, setLocation] = useLocation();
+  return (
+    <div>
+      <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px', fontFamily: FF }}>Recent Activity</p>
+      <div style={{ ...CARD, padding: '6px 0' }}>
+        {activities == null ? (
+          <p style={{ fontSize: 13, color: '#9E9B94', fontFamily: FF, padding: '14px 24px', margin: 0 }}>Loading…</p>
+        ) : activities.length === 0 ? (
+          <p style={{ fontSize: 13, color: '#9E9B94', fontFamily: FF, padding: '14px 24px', margin: 0 }}>No recent activity in the last 30 days.</p>
+        ) : (
+          activities.map((a, i) => {
+            const { label, link } = describeActivity(a);
+            return (
+              <div
+                key={a.id}
+                onClick={() => link && setLocation(link)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+                  padding: '11px 24px',
+                  borderTop: i === 0 ? 'none' : '0.5px solid #F0EEE9',
+                  cursor: link ? 'pointer' : 'default',
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 13, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</p>
+                  <p style={{ fontSize: 11, color: '#9E9B94', margin: '2px 0 0', fontFamily: FF }}>{a.user_name || 'System'}</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: '#9E9B94', fontFamily: FF }}>{relTime(a.performed_at)}</span>
+                  {link && <ChevronRight size={14} color="#C9C5BD" />}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── WeeklyForecastSection component ──────────────────────────────────────────
 function fmtWF(n: number) {
   return '$' + Math.round(n).toLocaleString('en-US');
@@ -730,6 +852,9 @@ export default function Dashboard() {
 
         {/* ── Weekly Revenue Forecast ── */}
         <WeeklyForecastSection />
+
+        {/* ── Recent Activity (under the revenue forecast) ── */}
+        <RecentActivitySection />
 
         {/* ── Commercial Alerts ── */}
         {canAdmin && <CommercialAlertsBanner />}

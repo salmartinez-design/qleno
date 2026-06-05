@@ -2548,6 +2548,15 @@ export default function QuoteBuilderPage() {
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B6860" }}>
                         <span>Base</span><span>${s.calc.base_price.toFixed(2)}</span>
                       </div>
+                      {/* [min-applied 2026-06-05] When hours × rate falls below the
+                          scope's Minimum Bill, the floor takes over and Base shows the
+                          minimum. Surface it so the office knows the price was floored
+                          (not mis-computed) — minimum applies regardless of sq ft. */}
+                      {s.calc.minimum_applied && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: -2 }}>
+                          <span>Minimum applied</span><span>${s.calc.minimum_bill.toFixed(2)} floor</span>
+                        </div>
+                      )}
                       {s.calc.addon_breakdown.map(a => (
                         <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#6B6860" }}>
                           <span>{a.name}</span><span>{a.amount < 0 ? `-$${Math.abs(a.amount).toFixed(2)}` : `+$${a.amount.toFixed(2)}`}</span>
