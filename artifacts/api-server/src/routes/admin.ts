@@ -501,39 +501,20 @@ router.post("/jobs-dedupe-run", ...isSuperAdmin, async (_req, res) => {
     `);
     const previewRows = preview.rows as any[];
 
-    const deleted = await db.execute(sql`
-      WITH dupes AS (
-        SELECT id,
-               ROW_NUMBER() OVER (
-                 PARTITION BY company_id, client_id, scheduled_date,
-                              COALESCE(scheduled_time::text, '00:00:00')
-                 ORDER BY created_at DESC NULLS LAST, id DESC
-               ) AS rn
-        FROM jobs
-        WHERE status NOT IN ('cancelled')
-      )
-      DELETE FROM jobs
-      WHERE id IN (SELECT id FROM dupes WHERE rn > 1)
-      RETURNING id
-    `);
-
+    // [overnight-job-loss 2026-06-05] DISABLED the destructive half. Commercial
+    // clients legitimately have multiple same-day / same-time jobs, so deleting
+    // "duplicates" by (client, date, time) and recreating the unique index
+    // wiped real jobs (same bug as phes-data-migration's runJobsDedupeAndConstraint).
+    // This endpoint now only DROPS the bad index and reports the rows the old
+    // logic WOULD have deleted — for inspection only. Nothing is deleted.
     await db.execute(sql`DROP INDEX IF EXISTS uq_jobs_no_double_book`);
-    await db.execute(sql`
-      CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_no_double_book
-        ON jobs (
-          company_id,
-          client_id,
-          scheduled_date,
-          (COALESCE(scheduled_time::text, '00:00:00'))
-        )
-        WHERE status NOT IN ('cancelled')
-    `);
 
     return res.json({
-      deleted_count: (deleted.rows ?? []).length,
-      deleted_ids: (deleted.rows as any[]).map(r => r.id),
+      deleted_count: 0,
+      deleted_ids: [],
       preview_rows: previewRows,
-      index: "uq_jobs_no_double_book recreated",
+      index: "uq_jobs_no_double_book dropped — destructive dedupe disabled",
+      note: "Destructive same-day dedupe is permanently disabled (commercial clients legitimately have multiple same-day jobs). No jobs were deleted.",
     });
   } catch (err: any) {
     console.error("[admin] jobs-dedupe-run error:", err);
