@@ -38,6 +38,11 @@ export interface CommissionInputJob {
   actual_hours: string | number | null;
   branch_id: number | null;
   scheduled_date: string;
+  // [commercial-client 2026-06-06] client_type='commercial' marks a commercial
+  // client even when the job's service_type reads residential (e.g. a condo's
+  // "Deep Clean"). Optional so existing callers compile; commercial routing
+  // treats it the same as an account link.
+  client_type?: string | null;
 }
 
 export interface CompanyCommercialConfig {

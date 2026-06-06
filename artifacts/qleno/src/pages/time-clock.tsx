@@ -133,7 +133,14 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px 9px 14px", flexWrap: "wrap" }}>
       <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, minWidth: 28 }}>PAY</span>
-      <select value={payType} onChange={e => setPayType(e.target.value)}
+      <select value={payType} onChange={e => {
+          const v = e.target.value;
+          setPayType(v);
+          // Commercial pay is $20/hr — pre-fill the rate so the office doesn't
+          // type it every time (still editable). Only when switching to a
+          // $/hr type with no rate yet; fee_split keeps its % handling.
+          if ((v === "allowed_hours" || v === "hourly") && !rate.trim()) setRate("20");
+        }}
         style={{ height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#fff", padding: "0 6px" }}>
         <option value="">Default</option>
         <option value="fee_split">Fee Split</option>

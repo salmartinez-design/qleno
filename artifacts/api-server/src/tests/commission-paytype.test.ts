@@ -261,3 +261,23 @@ describe("pay-type engine — gross guard + commercial-by-service-type", () => {
     assert.equal(rows[0].basis, "commercial_hourly");
   });
 });
+
+describe("pay-type engine — commercial CLIENT routing", () => {
+  const resRates = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32 };
+  const commercial = { commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" as const };
+
+  it("commercial client_type with residential service_type → Allowed Hours $20, not fee split (Heritage)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [{
+        id: 1, assigned_user_id: 1, service_type: "deep_clean", account_id: null,
+        base_fee: "300", billed_amount: "300", allowed_hours: "2", actual_hours: "0",
+        branch_id: 1, scheduled_date: "2026-06-01", client_type: "commercial",
+      }],
+      jobTechs: [{ job_id: 1, user_id: 1, is_primary: true, pay_type: null, hourly_rate: null, commission_pct: null, pay_deduction_pct: null, pay_deduction_flat: null }],
+      techHoursByKey: new Map([["1:1", 1.45]]),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].basis, "commercial_hourly");
+    assert.equal(rows[0].amount, 40.0); // 2h allowed × $20
+  });
+});
