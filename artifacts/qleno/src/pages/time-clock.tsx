@@ -289,6 +289,13 @@ export default function TimeClockPage() {
   const totalWorked = employees.reduce((s, e) => s + e.worked_minutes, 0);
   const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.source === "punched").length, 0);
   const totalRows = employees.reduce((s, e) => s + e.rows.length, 0);
+  // JOBS counts DISTINCT jobs — NOT tech-rows. A 2-tech job produces 2 rows
+  // but is still 1 job, so totalRows over-counts multi-tech jobs (14 jobs
+  // rendered as 16). Use the server's per-unique-job count (the same `jobs`
+  // array it sums revenue over, so JOBS and REVENUE stay reconciled with the
+  // dispatch day). Fall back to distinct job_ids from the rows if absent.
+  const jobCount = data?.diagnostics?.jobCount
+    ?? new Set(employees.flatMap(e => e.rows.map(r => r.job_id))).size;
   const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
   // Business metrics for the summary bar. Revenue + allowed hours come from the
   // API (summed per unique job). Labor % = commission ÷ revenue (the number a
@@ -332,7 +339,7 @@ export default function TimeClockPage() {
         {/* Day summary */}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 24px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
           <Stat label="People" value={String(employees.length)} />
-          <Stat label="Jobs" value={String(totalRows)} />
+          <Stat label="Jobs" value={String(jobCount)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
           <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
