@@ -289,6 +289,13 @@ export default function TimeClockPage() {
   const totalWorked = employees.reduce((s, e) => s + e.worked_minutes, 0);
   const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.source === "punched").length, 0);
   const totalRows = employees.reduce((s, e) => s + e.rows.length, 0);
+  // JOBS counts DISTINCT jobs — NOT tech-rows. A 2-tech job produces 2 rows
+  // but is still 1 job, so totalRows over-counts multi-tech jobs (14 jobs
+  // rendered as 16). Use the server's per-unique-job count (the same `jobs`
+  // array it sums revenue over, so JOBS and REVENUE stay reconciled with the
+  // dispatch day). Fall back to distinct job_ids from the rows if absent.
+  const jobCount = data?.diagnostics?.jobCount
+    ?? new Set(employees.flatMap(e => e.rows.map(r => r.job_id))).size;
   const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
   // Business metrics for the summary bar. Revenue + allowed hours come from the
   // API (summed per unique job). Labor % = commission ÷ revenue (the number a
@@ -325,14 +332,23 @@ export default function TimeClockPage() {
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }} />
             </label>
             <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
-            {!isToday && <button onClick={() => setDate(new Date())} style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF }}>Today</button>}
+            {/* Always render the Today button so its slot is reserved — when
+                isToday it's hidden but still occupies width, so the date box +
+                chevrons don't slide sideways switching today ↔ any other day. */}
+            <button onClick={() => setDate(new Date())} aria-hidden={isToday} tabIndex={isToday ? -1 : 0}
+              style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: isToday ? "default" : "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF, visibility: isToday ? "hidden" : "visible" }}>Today</button>
           </div>
         </div>
 
-        {/* Day summary */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 24px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
+        {/* Day summary — CSS grid with fixed-size columns so every stat sits in
+            an identical cell regardless of its value. A flex row with per-stat
+            minWidth still let a stat grow past the floor to fit a wider value
+            ($4793.60 vs $2044.00, 50h 24m vs 0m), shoving every following stat
+            and shifting columns day to day. Grid tracks are content-independent,
+            so placement is static across days at a given width. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: "14px 20px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
           <Stat label="People" value={String(employees.length)} />
-          <Stat label="Jobs" value={String(totalRows)} />
+          <Stat label="Jobs" value={String(jobCount)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
           <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
@@ -389,10 +405,11 @@ export default function TimeClockPage() {
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  // Fixed min-width so each metric holds its own column — the bar no longer
-  // reflows/shifts as dollar values change width from day to day.
+  // The parent grid owns the column width (fixed, content-independent), so each
+  // metric always lands in the same place day to day. minWidth:0 lets the cell
+  // be governed by the grid track rather than the stat's own content width.
   return (
-    <div style={{ minWidth: 92 }}>
+    <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800, color: accent ?? "#1A1917", marginTop: 2, whiteSpace: "nowrap" }}>{value}</div>
     </div>
