@@ -48,19 +48,23 @@ export type PayType = "fee_split" | "allowed_hours" | "hourly";
 
 export const PAY_TYPES: readonly PayType[] = ["fee_split", "allowed_hours", "hourly"];
 
-// A job is commercial when it's tied to an account OR its service type is one
-// of the commercial scopes. Some commercial jobs (e.g. a one-off "Common
-// Areas") aren't linked to an account, but they're still paid Allowed Hours,
-// not a residential fee split. Without this they'd default to fee_split and
-// pay the wrong way (the Nitzsche Common Areas $68.25-vs-$60 mismatch).
-const COMMERCIAL_SERVICE_SLUGS = new Set([
-  "office_cleaning", "common_areas", "ppm_turnover", "commercial_cleaning",
-  "commercial", "post_construction", "janitorial",
-]);
+// A job is commercial when it's tied to an account OR its service type reads
+// commercial. Match by KEYWORD (substring) so every variant counts —
+// "ppm_common_areas", "office_cleaning", "commercial_cleaning",
+// "ppm_turnover", "post_construction", etc. — not just an exact slug list
+// (which #340 under-covered). Residential slugs (standard_clean, deep_clean,
+// move_in_out, recurring, carpet) contain none of these, so they stay
+// residential. Without this, a commercial job with no account link defaults
+// to a residential fee split and pays the wrong way (Common Areas $68.25 vs
+// the correct Allowed-Hours $60).
+const COMMERCIAL_KEYWORDS = [
+  "commercial", "ppm", "common_area", "office", "janitor", "facility",
+  "post_construction", "turnover", "build_out", "buildout",
+];
 export function isCommercialJob(account_id: number | string | null | undefined, service_type: string | null | undefined): boolean {
   if (account_id != null) return true;
   const s = (service_type ?? "").toLowerCase();
-  return COMMERCIAL_SERVICE_SLUGS.has(s);
+  return COMMERCIAL_KEYWORDS.some(k => s.includes(k));
 }
 
 export interface JobPayContext {
