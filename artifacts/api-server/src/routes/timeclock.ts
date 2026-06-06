@@ -830,8 +830,14 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       };
     }).sort((a, b) => a.name.localeCompare(b.name));
 
+    // Day-level business metrics for the summary bar. Revenue is summed per
+    // UNIQUE job (not per tech-row, which would double-count multi-tech jobs).
+    const pf = (v: any) => { const n = parseFloat(String(v)); return Number.isFinite(n) ? n : 0; };
+    const revenue = Math.round(jobs.reduce((s, j: any) => s + (pf(j.billed_amount) || pf(j.base_fee)), 0) * 100) / 100;
+    const allowedHoursTotal = Math.round(jobs.reduce((s, j: any) => s + pf(j.allowed_hours), 0) * 100) / 100;
+
     console.log(`[TC-DAY] company=${companyId} date=${date} RESULT jobs=${jobs.length} techRows=${techRows.length} clockRows=${clockRows.length} employees=${employees.length}`);
-    return res.json({ date, employees, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
+    return res.json({ date, employees, revenue, allowed_hours_total: allowedHoursTotal, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
   } catch (err: any) {
     // Surface the failure to the UI instead of a silent 500 → empty screen.
     // The Time Clock empty-state renders this so we can diagnose without
