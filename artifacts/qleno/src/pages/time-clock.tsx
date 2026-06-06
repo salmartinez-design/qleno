@@ -268,7 +268,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
 export default function TimeClockPage() {
   const { toast } = useToast();
   const [date, setDate] = useState(new Date());
-  const [data, setData] = useState<{ date: string; employees: Emp[]; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
+  const [data, setData] = useState<{ date: string; employees: Emp[]; revenue?: number; allowed_hours_total?: number; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
   const [loading, setLoading] = useState(true);
   const dk = dateKey(date);
   const isToday = dk === dateKey(new Date());
@@ -290,6 +290,15 @@ export default function TimeClockPage() {
   const totalPunches = employees.reduce((s, e) => s + e.rows.filter(r => r.source === "punched").length, 0);
   const totalRows = employees.reduce((s, e) => s + e.rows.length, 0);
   const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
+  // Business metrics for the summary bar. Revenue + allowed hours come from the
+  // API (summed per unique job). Labor % = commission ÷ revenue (the number a
+  // service business lives on). Efficiency = allowed ÷ actual hours (>100% =
+  // under budget = good — the canonical comp-model metric).
+  const revenue = data?.revenue ?? 0;
+  const laborPct = revenue > 0 ? (totalPay / revenue) * 100 : null;
+  const actualHours = totalWorked / 60;
+  const allowedTotal = data?.allowed_hours_total ?? 0;
+  const efficiency = actualHours > 0 ? (allowedTotal / actualHours) * 100 : null;
 
   return (
     <DashboardLayout>
@@ -321,12 +330,17 @@ export default function TimeClockPage() {
         </div>
 
         {/* Day summary */}
-        <div style={{ display: "flex", gap: 18, padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 24px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
           <Stat label="People" value={String(employees.length)} />
           <Stat label="Jobs" value={String(totalRows)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
+          <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
           <Stat label="Commission" value={`$${totalPay.toFixed(2)}`} accent="#0A7C66" />
+          <Stat label="Labor %" value={laborPct != null ? `${laborPct.toFixed(1)}%` : "—"}
+            accent={laborPct == null ? undefined : laborPct <= 40 ? "#16A34A" : laborPct <= 50 ? "#B45309" : "#B91C1C"} />
+          <Stat label="Efficiency" value={efficiency != null ? `${efficiency.toFixed(0)}%` : "—"}
+            accent={efficiency == null ? undefined : efficiency >= 100 ? "#16A34A" : efficiency >= 85 ? "#B45309" : "#B91C1C"} />
         </div>
 
         {loading && !data ? (
@@ -375,10 +389,12 @@ export default function TimeClockPage() {
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  // Fixed min-width so each metric holds its own column — the bar no longer
+  // reflows/shifts as dollar values change width from day to day.
   return (
-    <div>
-      <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 800, color: accent ?? "#1A1917", marginTop: 2 }}>{value}</div>
+    <div style={{ minWidth: 92 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 800, color: accent ?? "#1A1917", marginTop: 2, whiteSpace: "nowrap" }}>{value}</div>
     </div>
   );
 }
