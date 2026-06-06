@@ -340,8 +340,13 @@ export default function TimeClockPage() {
           </div>
         </div>
 
-        {/* Day summary */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "14px 24px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
+        {/* Day summary — CSS grid with fixed-size columns so every stat sits in
+            an identical cell regardless of its value. A flex row with per-stat
+            minWidth still let a stat grow past the floor to fit a wider value
+            ($4793.60 vs $2044.00, 50h 24m vs 0m), shoving every following stat
+            and shifting columns day to day. Grid tracks are content-independent,
+            so placement is static across days at a given width. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: "14px 20px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
           <Stat label="People" value={String(employees.length)} />
           <Stat label="Jobs" value={String(jobCount)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
@@ -400,10 +405,11 @@ export default function TimeClockPage() {
 }
 
 function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  // Fixed min-width so each metric holds its own column — the bar no longer
-  // reflows/shifts as dollar values change width from day to day.
+  // The parent grid owns the column width (fixed, content-independent), so each
+  // metric always lands in the same place day to day. minWidth:0 lets the cell
+  // be governed by the grid track rather than the stat's own content width.
   return (
-    <div style={{ minWidth: 92 }}>
+    <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800, color: accent ?? "#1A1917", marginTop: 2, whiteSpace: "nowrap" }}>{value}</div>
     </div>
