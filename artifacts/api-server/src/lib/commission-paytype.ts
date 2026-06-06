@@ -61,8 +61,13 @@ const COMMERCIAL_KEYWORDS = [
   "commercial", "ppm", "common_area", "office", "janitor", "facility",
   "post_construction", "turnover", "build_out", "buildout",
 ];
-export function isCommercialJob(account_id: number | string | null | undefined, service_type: string | null | undefined): boolean {
+export function isCommercialJob(
+  account_id: number | string | null | undefined,
+  service_type: string | null | undefined,
+  client_type?: string | null | undefined,
+): boolean {
   if (account_id != null) return true;
+  if ((client_type ?? "").toLowerCase() === "commercial") return true;
   const s = (service_type ?? "").toLowerCase();
   return COMMERCIAL_KEYWORDS.some(k => s.includes(k));
 }
@@ -280,7 +285,7 @@ export function computePerTechCommissionRows(input: {
 
   const out: CommissionRow[] = [];
   for (const j of input.jobs) {
-    const isCommercial = isCommercialJob(j.account_id, j.service_type);
+    const isCommercial = isCommercialJob(j.account_id, j.service_type, j.client_type);
     let techs = techsByJob.get(j.id) ?? [];
     if (techs.length === 0 && j.assigned_user_id != null) {
       techs = [{ job_id: j.id, user_id: j.assigned_user_id, is_primary: true,

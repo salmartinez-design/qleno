@@ -650,6 +650,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
              j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             c.client_type,
              COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
                       c.company_name, 'Client') AS client_name
       FROM jobs j
@@ -753,7 +754,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
         service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
         billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
-        branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date,
+        branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date, client_type: j.client_type ?? null,
       })) as CommissionInputJob[];
       for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
         payByKey.set(`${r.job_id}:${r.user_id}`, r.amount);

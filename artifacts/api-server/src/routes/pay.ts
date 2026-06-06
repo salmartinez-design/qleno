@@ -801,8 +801,13 @@ async function computeAndApplyCommission(
       actual_hours: jobsTable.actual_hours,
       branch_id: jobsTable.branch_id,
       scheduled_date: jobsTable.scheduled_date,
+      // [commercial-client 2026-06-06] commercial routing also honors a
+      // commercial client_type even when the job's service_type reads
+      // residential (e.g. a condo's Deep Clean).
+      client_type: clientsTable.client_type,
     })
     .from(jobsTable)
+    .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
     .where(
       and(
         eq(jobsTable.company_id, companyId),
