@@ -50,10 +50,10 @@ describe("pay-type engine — MaidCentral June 1 parity", () => {
     assert.equal(r.effectiveHours, 3.5);
   });
 
-  it("allowed_hours: pays actual when over budget (8.18 actual > 8 allowed → $163.60)", () => {
+  it("allowed_hours: HARD CAP at budget even when over (8.18 actual, 8 allowed → $160, not $163.60)", () => {
     const ctx: JobPayContext = { baseFee: 0, allowedHours: 8.0, totalTechHours: 8.18 };
     const r = computeTechPay(ctx, { user_id: 1, techHours: 8.18, payType: "allowed_hours", hourlyRate: 20, scopePct: 0 });
-    assert.equal(r.amount, 163.6);
+    assert.equal(r.amount, 160.0);
   });
 
   it("hourly: flat wage on actual, ignores price/budget (Carpet 2.17 × $25 → $54.25)", () => {

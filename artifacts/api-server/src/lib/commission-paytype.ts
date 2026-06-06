@@ -17,11 +17,13 @@
  *                 breakage) — a goodwill/breakage credit to the client does
  *                 NOT dock the cleaner (audit decision 2026-06-05).
  *
- *   allowed_hours pay = max(allowedShare, techHours) × hourlyRate
+ *   allowed_hours pay = allowedShare × hourlyRate  (HARD CAP at budget)
  *                 allowedShare = allowedHours × (techHours / totalTechHours).
- *                 Single tech → max(allowedHours, techHours) × rate, i.e. the
- *                 budget protects the tech on a fast job but pays actual when
- *                 they run over (MC: Alma 8.18 actual > 8 allowed → 8.18).
+ *                 Single tech → allowedHours × rate. The budget is paid whether
+ *                 the tech is faster OR slower — going over does NOT increase
+ *                 pay (the efficiency incentive). To pay actual on an overage,
+ *                 use Hourly. (Phes policy 2026-06-06 — diverges from MC, which
+ *                 paid actual when over.)
  *
  *   hourly        pay = techHours × hourlyRate
  *                 Flat wage on actual clocked time, independent of the job's
@@ -141,7 +143,13 @@ export function computeTechPay(ctx: JobPayContext, tech: TechPayInput): TechPayR
   if (tech.payType === "hourly") {
     grossAmount = round2(tech.techHours * tech.hourlyRate);
   } else if (tech.payType === "allowed_hours") {
-    const payHours = Math.max(ctx.allowedHours * share, tech.techHours);
+    // HARD CAP at the budget (Phes policy 2026-06-06): a commission job on
+    // Allowed Hours pays the allowed hours whether the tech is faster OR
+    // slower than the budget. Going over does NOT increase pay — that's the
+    // efficiency incentive. To pay actual time on an overage, use the Hourly
+    // pay type (or an hourly job). NOTE: this intentionally diverges from
+    // MaidCentral, which paid actual when over.
+    const payHours = ctx.allowedHours * share;
     grossAmount = round2(payHours * tech.hourlyRate);
     effectiveHours = round2(payHours);
   } else {
