@@ -332,7 +332,11 @@ export default function TimeClockPage() {
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }} />
             </label>
             <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
-            {!isToday && <button onClick={() => setDate(new Date())} style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF }}>Today</button>}
+            {/* Always render the Today button so its slot is reserved — when
+                isToday it's hidden but still occupies width, so the date box +
+                chevrons don't slide sideways switching today ↔ any other day. */}
+            <button onClick={() => setDate(new Date())} aria-hidden={isToday} tabIndex={isToday ? -1 : 0}
+              style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: isToday ? "default" : "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF, visibility: isToday ? "hidden" : "visible" }}>Today</button>
           </div>
         </div>
 
