@@ -291,7 +291,12 @@ export function computePerTechCommissionRows(input: {
       techs = [{ job_id: j.id, user_id: j.assigned_user_id, is_primary: true,
         pay_type: null, hourly_rate: null, commission_pct: null, pay_deduction_pct: null, pay_deduction_flat: null }];
     }
-    const totalTechHours = techs.reduce((s, t) => s + (input.techHoursByKey.get(`${j.id}:${t.user_id}`) ?? 0), 0);
+    // MaidCentral rounds each timesheet's clocked hours to 2 decimals BEFORE
+    // multiplying by the rate (3h10m → 3.17 → ×$20 = $63.40, not 3.1667 →
+    // $63.33). Round per-tech hours here so hourly pay, allowed-actual, and the
+    // fee-split hour-shares all tie to MC to the penny.
+    const hoursOf = (uid: number) => round2(input.techHoursByKey.get(`${j.id}:${uid}`) ?? 0);
+    const totalTechHours = techs.reduce((s, t) => s + hoursOf(t.user_id), 0);
 
     // GUARD: no clocked hours → legacy single-basis fallback (no regression).
     if (totalTechHours <= 0) {
@@ -323,7 +328,7 @@ export function computePerTechCommissionRows(input: {
 
     for (const t of techs) {
       const overrideKey = `${t.user_id}:${j.id}`;
-      const techHours = input.techHoursByKey.get(`${j.id}:${t.user_id}`) ?? 0;
+      const techHours = hoursOf(t.user_id);
       let amount: number;
       if (overrides.has(overrideKey)) {
         amount = Math.round((overrides.get(overrideKey) as number) * 100) / 100;

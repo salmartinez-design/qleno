@@ -281,3 +281,22 @@ describe("pay-type engine — commercial CLIENT routing", () => {
     assert.equal(rows[0].amount, 40.0); // 2h allowed × $20
   });
 });
+
+describe("pay-type engine — MC 2-decimal hours rounding", () => {
+  const resRates = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32 };
+  const commercial = { commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" as const };
+
+  it("hourly: 3h10m exact (3.1667) rounds to 3.17 → $63.40, matching MC (not $63.33)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [{
+        id: 1, assigned_user_id: 1, service_type: "standard_clean", account_id: null,
+        base_fee: "540", billed_amount: "540", allowed_hours: "4.49", actual_hours: "0",
+        branch_id: 1, scheduled_date: "2026-06-01",
+      }],
+      jobTechs: [{ job_id: 1, user_id: 1, is_primary: true, pay_type: "hourly", hourly_rate: "20", commission_pct: null, pay_deduction_pct: null, pay_deduction_flat: null }],
+      techHoursByKey: new Map([["1:1", 190 / 60]]), // 3h10m = 3.16667
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 63.40);
+  });
+});
