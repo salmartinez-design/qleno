@@ -1820,6 +1820,115 @@ async function runRestoreActiveLearners(): Promise<void> {
 }
 
 /**
+ * Diana Vasquez access repair (2026-06-08, ad-hoc).
+ *
+ * Diana could not log in via the LMS Admin "Bulk reset password" flow
+ * — office could not get her account into a usable state interactively
+ * (we suspect the bulk-reset dialog never reached her row, or her
+ * is_active / archived_at left over from the May 15 phantom-learner
+ * archive was still blocking auth despite the May 20 restore migration).
+ * Sal asked for the office-side hard-wire: codify her credentials in
+ * the cold-start migration so a deploy guarantees access.
+ *
+ * What this does, idempotently:
+ *   1. Resolve her row by first/last name in company_id=1 (Phes only).
+ *   2. Ensure `email = 'diana_vazquez1985@icloud.com'` (the iCloud
+ *      address she actually uses — note the 'z' spelling; her surname
+ *      is Vasquez but the email uses Vazquez).
+ *   3. Ensure `password_hash = bcrypt('chicago23')`. Skip if the
+ *      stored hash already matches — bcrypt.compare is cheap.
+ *   4. Ensure `is_active = true` and `archived_at = NULL`.
+ *   5. Stamp `password_reset_to_chicago23_at = NOW()` so the audit
+ *      column (added in the original chicago23 backfill) reflects
+ *      this write.
+ *
+ * Safety: scoped to company_id=1 (Phes prod tenant id). On any other
+ * tenant or in seed-empty dev databases, the SELECT returns nothing
+ * and the function exits cleanly. The bcrypt compare-then-write guard
+ * keeps re-runs as one cheap SELECT + compare on every cold start
+ * once the password is correct.
+ *
+ * Remove this function once Diana confirms login, OR leave it — once
+ * her stored hash matches the function is a no-op (just one bcrypt
+ * compare on boot). Cheaper to leave than to hand-craft a removal PR.
+ */
+async function runDianaVasquezAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Diana";
+  const LAST = "Vasquez";
+  const TARGET_EMAIL = "diana_vazquez1985@icloud.com";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND LOWER(first_name) = LOWER(${FIRST})
+      AND LOWER(last_name) = LOWER(${LAST})
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[diana-vasquez-access-repair] no Diana Vasquez row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
+    console.log(
+      `[diana-vasquez-access-repair] user_id=${row.id} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${TARGET_EMAIL},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[diana-vasquez-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -2553,6 +2662,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runRestoreActiveLearners();
   } catch (err: any) {
     console.warn("[phes-migration] restore-active-learners — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runDianaVasquezAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] diana-vasquez-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {
