@@ -5763,7 +5763,9 @@ export default function JobsPage() {
   })() : [];
 
   const stats = {
-    total: allJobs.length,
+    // [count-rule 2026-06-08] Every job on the board counts EXCEPT office
+    // events / meetings (job_kind). $0 jobs are real jobs and still count.
+    total: allJobs.filter(j => (j as any).job_kind !== "office_event" && (j as any).job_kind !== "meeting").length,
     complete: allJobs.filter(j => j.status === "complete").length,
     inProgress: allJobs.filter(j => j.status === "in_progress").length,
     revenue: allJobs.reduce((s, j) => s + (j.amount || 0), 0),
