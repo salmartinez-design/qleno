@@ -55,6 +55,11 @@ function getDefaultPeriod() {
   return { start: ymd(start), end: ymd(end) };
 }
 
+// Customer-quality score is 0–4 (matches the Scorecards report scale):
+// ≥3.5 green, ≥2.5 amber, else red; muted when nothing's been rated.
+const qualityColor = (q: number | null | undefined) =>
+  q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
+
 function WeeklyDetailView() {
   const [period, setPeriod] = useState(getDefaultPeriod());
   const [expanded, setExpanded] = useState<number[]>([]);
@@ -78,6 +83,9 @@ function WeeklyDetailView() {
     allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
     worked: a.worked + Number(e.totals?.hrs_worked || 0),
   }), { revenue: 0, commission: 0, allowed: 0, worked: 0 });
+  // Company-wide customer-quality avg across every rated job in the period.
+  const allQ = employees.flatMap((e: any) => (e.jobs || []).map((j: any) => j.quality_score).filter((v: any) => v != null));
+  const avgQuality = allQ.length ? allQ.reduce((a: number, b: number) => a + b, 0) / allQ.length : null;
   const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isSingleDay = period.start === period.end;
 
@@ -114,11 +122,12 @@ function WeeklyDetailView() {
             { k: 'Commission', v: money2(dayTotals.commission), accent: true },
             { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
             { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
+            { k: 'Avg Quality', v: avgQuality != null ? `${avgQuality.toFixed(1)}/4` : '—', quality: avgQuality },
             { k: 'Employees', v: String(employees.length) },
-          ].map(s => (
+          ].map((s: any) => (
             <div key={s.k} style={{ minWidth: 104 }}>
               <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF }}>{s.k}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: s.accent ? 'var(--brand)' : '#1A1917', fontFamily: FF }}>{s.v}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'quality' in s ? qualityColor(s.quality) : s.accent ? 'var(--brand)' : '#1A1917', fontFamily: FF }}>{s.v}</div>
             </div>
           ))}
         </div>
@@ -143,8 +152,11 @@ function WeeklyDetailView() {
         const hoursWorked = Number(emp.totals?.hrs_worked ?? 0);
         const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const eff = Number(emp.totals?.hrs_worked) > 0 ? Math.round((Number(emp.totals?.hrs_scheduled || 0) / Number(emp.totals.hrs_worked)) * 100) : null;
+        const effRate = emp.totals?.effective_rate;
         const rollup: any[] = [
           { label: 'Hours', value: hoursWorked.toFixed(1) },
+          ...(eff != null ? [{ label: 'Eff', value: `${eff}%` }] : []),
+          ...(effRate != null ? [{ label: '$/hr', value: money(effRate) }] : []),
           { label: 'Commission', value: money(emp.totals.commission), accent: true },
           ...(tipsAmt > 0 ? [{ label: 'Tips', value: money(tipsAmt) }] : []),
           ...(mileageAmt > 0 ? [{ label: 'Mileage', value: money(mileageAmt) }] : []),
@@ -160,6 +172,14 @@ function WeeklyDetailView() {
                 {isOpen ? <ChevronDown size={14} style={{ color: '#9E9B94' }} /> : <ChevronRight size={14} style={{ color: '#9E9B94' }} />}
                 <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{emp.name}</span>
                 <span style={{ fontSize: 12, color: '#9E9B94' }}>{emp.totals.job_count} jobs</span>
+                {emp.totals.quality_avg != null ? (
+                  <span title={`${emp.totals.quality_count} of ${emp.totals.job_count} jobs rated by customers`}
+                    style={{ fontSize: 11, fontWeight: 800, color: '#fff', background: qualityColor(emp.totals.quality_avg), borderRadius: 999, padding: '2px 9px' }}>
+                    ★ {emp.totals.quality_avg.toFixed(1)}/4
+                  </span>
+                ) : (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#C4C0B8' }}>No quality scores</span>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {rollup.map((s: any) => (
@@ -193,6 +213,24 @@ function WeeklyDetailView() {
                   </div>
                 </div>
 
+                {/* Customer quality — the emphasis: how well the customer was served */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', marginTop: 12, background: '#fff', border: `1px solid ${emp.totals.quality_avg != null ? qualityColor(emp.totals.quality_avg) + '66' : '#E5E2DC'}`, borderRadius: 12, padding: '14px 18px' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Customer quality</div>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                      <span style={{ fontSize: 26, fontWeight: 800, color: qualityColor(emp.totals.quality_avg), lineHeight: 1 }}>
+                        {emp.totals.quality_avg != null ? emp.totals.quality_avg.toFixed(1) : '—'}
+                      </span>
+                      <span style={{ fontSize: 13, color: '#9E9B94', fontWeight: 700 }}>/ 4</span>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B6860', maxWidth: 320 }}>
+                    {emp.totals.quality_count > 0
+                      ? `${emp.totals.quality_count} of ${emp.totals.job_count} job${emp.totals.job_count !== 1 ? 's' : ''} rated by customers this period.`
+                      : 'No customer ratings logged for this period yet.'}
+                  </div>
+                </div>
+
                 {/* Hours & efficiency — for records */}
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Hours &amp; efficiency · for records</p>
                 <div style={{ display: 'flex', gap: 26, flexWrap: 'wrap' }}>
@@ -200,6 +238,7 @@ function WeeklyDetailView() {
                     { k: 'Hours worked', v: `${emp.totals.hrs_worked.toFixed(1)}` },
                     { k: 'Allowed', v: `${emp.totals.hrs_scheduled.toFixed(1)}` },
                     ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
+                    ...(emp.totals?.effective_rate != null ? [{ k: 'Effective $/hr', v: money(emp.totals.effective_rate) }] : []),
                   ].map(s => (
                     <div key={s.k}>
                       <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div>
@@ -218,8 +257,10 @@ function WeeklyDetailView() {
                         <th style={th}>Date</th>
                         <th style={th}>Client</th>
                         <th style={th}>Scope</th>
+                        <th style={th}>Basis</th>
                         <th style={{ ...th, textAlign: 'right' }}>Allowed</th>
                         <th style={{ ...th, textAlign: 'right' }}>Done</th>
+                        <th style={{ ...th, textAlign: 'right' }}>Quality</th>
                         <th style={{ ...th, textAlign: 'right' }}>Pay</th>
                       </tr>
                     </thead>
@@ -229,15 +270,22 @@ function WeeklyDetailView() {
                           <td style={{ ...td, color: '#6B6860', whiteSpace: 'nowrap' }}>{job.date}</td>
                           <td style={{ ...td, fontWeight: 600 }}>{job.client || '—'}</td>
                           <td style={{ ...td, color: '#6B6860', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
+                          <td style={{ ...td, color: '#9E9B94', whiteSpace: 'nowrap' }} title="How this line's pay was computed">{job.pay_basis || '—'}</td>
                           <td style={{ ...td, textAlign: 'right', color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
                           <td style={{ ...td, textAlign: 'right', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            {job.quality_score != null
+                              ? <span style={{ fontWeight: 700, color: qualityColor(job.quality_score) }}>{job.quality_score}/4</span>
+                              : <span style={{ color: '#C4C0B8' }}>—</span>}
+                          </td>
                           <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--brand)' }}>${job.commission.toFixed(2)}</td>
                         </tr>
                       ))}
                       <tr>
-                        <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }} colSpan={3}>{emp.totals.job_count} jobs</td>
+                        <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }} colSpan={4}>{emp.totals.job_count} jobs</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked.toFixed(1)}h</td>
+                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', color: qualityColor(emp.totals.quality_avg) }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', color: 'var(--brand)', borderTop: '2px solid #E5E2DC' }}>${emp.totals.commission.toFixed(2)}</td>
                       </tr>
                     </tbody>

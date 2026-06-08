@@ -567,6 +567,24 @@ router.get("/detail", requireAuth, async (req, res) => {
       .where(and(...jobConditions))
       .orderBy(jobsTable.scheduled_date);
 
+    // [payroll-quality 2026-06-08] Per-job customer quality score (0–4) from the
+    // scorecards table, keyed by job_id. Powers the quality-forward payroll view
+    // (Sal's "emphasis on customer quality"): weekly avg quality per tech + a
+    // per-job rating column. Office-excluded scorecards drop out of the average.
+    // Raw SQL + try/catch so a tenant without the table degrades gracefully.
+    const scoreByJob = new Map<number, { score: number; excluded: boolean }>();
+    {
+      const allJobIds = jobs.map(j => j.id);
+      if (allJobIds.length) {
+        try {
+          const sc = await db.execute(
+            sql`SELECT job_id, score, excluded FROM scorecards WHERE company_id = ${companyId} AND job_id = ANY(${allJobIds}::int[])`,
+          );
+          for (const r of sc.rows as any[]) scoreByJob.set(Number(r.job_id), { score: Number(r.score), excluded: !!r.excluded });
+        } catch { /* scorecards table absent — skip quality */ }
+      }
+    }
+
     // Look up branch names once so the rollup carries a human label, not just id.
     const branchNameMap = new Map<number, string>();
     try {
@@ -699,6 +717,16 @@ router.get("/detail", requireAuth, async (req, res) => {
           : Math.round(jobTotal * jobResPct * 100) / 100;
         const commission = jtMap.has(job.id) ? jtMap.get(job.id)! : calcCommission;
         const effectiveRate = effectiveHrs > 0 ? Math.round((commission / effectiveHrs) * 100) / 100 : null;
+        // [payroll-quality 2026-06-08] Per-job customer rating (0–4, excluded
+        // ones drop) + a human pay-basis string ("35% of $X" / "$20/hr × Yh")
+        // so the office sees HOW each line was paid — the explain-the-math column.
+        const scEntry = scoreByJob.get(job.id);
+        const quality_score = scEntry && !scEntry.excluded ? scEntry.score : null;
+        const pay_basis = jtMap.has(job.id)
+          ? "Manual override"
+          : isCommercialJob
+            ? `$${commercialHourlyRate.toFixed(0)}/hr × ${commercialHours.toFixed(1)}h`
+            : `${Math.round(jobResPct * 100)}% of $${Math.round(jobTotal)}`;
         return {
           job_id: job.id,
           date: job.scheduled_date,
@@ -708,6 +736,9 @@ router.get("/detail", requireAuth, async (req, res) => {
           commission,
           commission_overridden: jtMap.has(job.id),
           commission_basis: isCommercialJob ? "commercial_hourly" : "residential_pool",
+          // [payroll-quality] explain-the-math + customer rating per line.
+          pay_basis,
+          quality_score,
           // [Model A — Step 5] surfaced so the UI's expanded per-employee
           // panel can render a "Branch" column and the rollup below stays in
           // sync with what's shown per job.
@@ -767,6 +798,12 @@ router.get("/detail", requireAuth, async (req, res) => {
       const totalJobTotal = jobRows.reduce((s, j) => s + j.job_total, 0);
       const totalHrsScheduled = jobRows.reduce((s, j) => s + j.hrs_scheduled, 0);
       const totalHrsWorked = jobRows.reduce((s, j) => s + j.hrs_worked, 0);
+      // [payroll-quality 2026-06-08] Weekly customer-quality avg = mean of the
+      // non-excluded per-job ratings. null when nothing was rated this period.
+      const scoredJobs = jobRows.filter(j => j.quality_score != null);
+      const qualityAvg = scoredJobs.length
+        ? Math.round((scoredJobs.reduce((s, j) => s + (j.quality_score as number), 0) / scoredJobs.length) * 100) / 100
+        : null;
       const grandTotal = totalCommission + Object.values(addlByType).reduce((s, v) => s + v, 0);
 
       result.push({
@@ -786,6 +823,8 @@ router.get("/detail", requireAuth, async (req, res) => {
           hrs_worked: Math.round(totalHrsWorked * 100) / 100,
           mileage: Math.round((mileageByUser.get(uid) || 0) * 100) / 100,
           effective_rate: totalHrsWorked > 0 ? Math.round((totalCommission / totalHrsWorked) * 100) / 100 : null,
+          quality_avg: qualityAvg,
+          quality_count: scoredJobs.length,
           grand_total: Math.round(grandTotal * 100) / 100,
         },
       });
