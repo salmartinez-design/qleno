@@ -1265,6 +1265,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [rescheduleSuccess, setRescheduleSuccess] = useState("");
   const [rescheduleCount, setRescheduleCount] = useState<number | null>(null);
+  // [duplicate-job 2026-06-08] HCP-style "copy this job to a new date, same
+  // service" (Maribel). Works the same on mobile + desktop via this shared panel.
+  const [duplicateOpen, setDuplicateOpen] = useState(false);
+  const [duplicateDate, setDuplicateDate] = useState("");
+  const [duplicateTime, setDuplicateTime] = useState("");
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
   const [smsOpen, setSmsOpen] = useState(false);
   const [smsMessage, setSmsMessage] = useState("");
   const [smsBusy, setSmsBusy] = useState(false);
@@ -2560,6 +2566,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             Edit
           </button>
           <button
+            onClick={() => {
+              const base = job.scheduled_date ? new Date(`${job.scheduled_date}T12:00:00`) : new Date();
+              base.setDate(base.getDate() + 7);
+              setDuplicateDate(base.toISOString().slice(0, 10));
+              setDuplicateTime(job.scheduled_time || "");
+              setDuplicateOpen(true);
+            }}
+            style={{ padding: "10px 12px", border: "1px solid #DDD6FE", borderRadius: 8, backgroundColor: "#F5F3FF", color: "#6D28D9", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            Duplicate
+          </button>
+          <button
             disabled={isLocked}
             onClick={() => {
               if (isLocked) return;
@@ -2578,6 +2595,58 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
         </div>
       </div>
+
+      {/* Duplicate Job Modal */}
+      {duplicateOpen && (
+        <>
+          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 299 }} onClick={() => !duplicateBusy && setDuplicateOpen(false)} />
+          <div style={mobile
+            ? { position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 300, backgroundColor: "#FFFFFF", borderRadius: "16px 16px 0 0", padding: "20px 20px 28px", fontFamily: FF }
+            : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 300, backgroundColor: "#FFFFFF", borderRadius: 16, width: "100%", maxWidth: 420, padding: 24, boxShadow: "0 24px 64px rgba(0,0,0,0.25)", fontFamily: FF }
+          }>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Duplicate Job</span>
+              <button onClick={() => !duplicateBusy && setDuplicateOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} type="button"><X size={18} /></button>
+            </div>
+            <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B7280" }}>
+              Creates a new job with the same service, price, tech, and add-ons — just pick the new date.
+            </p>
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New date</label>
+            <input type="date" value={duplicateDate} onChange={e => setDuplicateDate(e.target.value)}
+              style={{ width: "100%", height: 42, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginBottom: 14, boxSizing: "border-box" }} />
+            <label style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Time (optional)</label>
+            <input type="time" value={duplicateTime ? duplicateTime.slice(0, 5) : ""} onChange={e => setDuplicateTime(e.target.value ? `${e.target.value}:00` : "")}
+              style={{ width: "100%", height: 42, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginBottom: 18, boxSizing: "border-box" }} />
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => setDuplicateOpen(false)} disabled={duplicateBusy}
+                style={{ padding: "10px 16px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button type="button" disabled={!duplicateDate || duplicateBusy}
+                onClick={async () => {
+                  if (!duplicateDate) return;
+                  setDuplicateBusy(true);
+                  try {
+                    const r = await fetch(`${_API2}/api/jobs/${job.id}/duplicate`, {
+                      method: "POST",
+                      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+                      body: JSON.stringify({ scheduled_date: duplicateDate, scheduled_time: duplicateTime || job.scheduled_time || null }),
+                    });
+                    if (!r.ok) throw new Error(await r.text());
+                    const fmtNew = new Date(duplicateDate + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                    toast({ title: "Job duplicated", description: `Copied to ${fmtNew}` });
+                    setDuplicateOpen(false);
+                    onUpdate();
+                    onClose();
+                  } catch {
+                    toast({ title: "Error", description: "Could not duplicate job", variant: "destructive" });
+                  } finally { setDuplicateBusy(false); }
+                }}
+                style={{ padding: "10px 18px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: (!duplicateDate || duplicateBusy) ? "not-allowed" : "pointer", fontFamily: FF, opacity: (!duplicateDate || duplicateBusy) ? 0.6 : 1 }}>
+                {duplicateBusy ? "Duplicating…" : "Duplicate"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Charge Confirmation Modal */}
       {chargeOpen && (

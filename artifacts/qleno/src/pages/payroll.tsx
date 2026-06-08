@@ -98,14 +98,20 @@ function WeeklyDetailView() {
   const dayTotals = employees.reduce((a: any, e: any) => ({
     revenue: a.revenue + Number(e.totals?.job_total || 0),
     commission: a.commission + Number(e.totals?.commission || 0),
+    // Total pay (commission + tips + mileage + additional) for the labor-cost ratio.
+    payroll: a.payroll + Number(e.totals?.grand_total ?? e.totals?.commission ?? 0),
     allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
     worked: a.worked + Number(e.totals?.hrs_worked || 0),
-  }), { revenue: 0, commission: 0, allowed: 0, worked: 0 });
+  }), { revenue: 0, commission: 0, payroll: 0, allowed: 0, worked: 0 });
   // Company-wide customer-quality avg across every rated job in the period.
   const allQ = employees.flatMap((e: any) => (e.jobs || []).map((j: any) => j.quality_score).filter((v: any) => v != null));
   const avgQuality = allQ.length ? allQ.reduce((a: number, b: number) => a + b, 0) / allQ.length : null;
   const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isSingleDay = period.start === period.end;
+  // Payroll as % of revenue — the labor-cost target to "stay under" (MC parity).
+  // <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
+  const payrollPct = dayTotals.revenue > 0 ? Math.round((dayTotals.payroll / dayTotals.revenue) * 1000) / 10 : null;
+  const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#16A34A' : payrollPct <= 50 ? '#D97706' : '#DC2626';
 
   const inputStyle: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #E5E2DC', borderRadius: 6, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF };
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
@@ -138,6 +144,7 @@ function WeeklyDetailView() {
           {[
             { k: isSingleDay ? 'Revenue · this day' : 'Revenue', v: money2(dayTotals.revenue), accent: true },
             { k: 'Commission', v: money2(dayTotals.commission), accent: true },
+            { k: 'Payroll % of rev', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor },
             { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
             { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
             { k: 'Avg Quality', v: avgQuality != null ? `${avgQuality.toFixed(1)}/4` : '—', quality: avgQuality },
@@ -145,7 +152,7 @@ function WeeklyDetailView() {
           ].map((s: any) => (
             <div key={s.k} style={{ minWidth: 104 }}>
               <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF }}>{s.k}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'quality' in s ? qualityColor(s.quality) : s.accent ? 'var(--brand)' : '#1A1917', fontFamily: FF }}>{s.v}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.color ?? ('quality' in s ? qualityColor(s.quality) : s.accent ? 'var(--brand)' : '#1A1917'), fontFamily: FF }}>{s.v}</div>
             </div>
           ))}
         </div>
