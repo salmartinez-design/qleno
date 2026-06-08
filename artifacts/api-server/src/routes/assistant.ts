@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, accountsTable, accountPropertiesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, accountsTable, accountPropertiesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, asc, sql } from "drizzle-orm";
 import Anthropic from "@anthropic-ai/sdk";
 import { requireAuth } from "../lib/auth.js";
+import { parseResRatesRow } from "../lib/commission-rates.js";
+import { computeCommissionRows } from "../lib/commission-compute.js";
 
 // [voice-assistant 2026-06-08] Field-tech voice assistant. The mobile app
 // transcribes the tech's spoken question (browser speech-to-text), POSTs it
@@ -54,6 +56,112 @@ router.post("/ask", requireAuth, async (req, res) => {
       return;
     }
 
+    // [assistant-roles 2026-06-08] Office/admin/owner get COMPANY-WIDE answers
+    // (revenue, every tech's schedule, per-tech commission) — data they already
+    // see on dispatch + payroll. Technicians stay hard-scoped to their own jobs.
+    const role = String((req.auth as any)?.role || "");
+    const isOffice = ["owner", "admin", "office", "super_admin"].includes(role);
+    const langName = LANG_NAME[language];
+    let jobs: any[] = [];
+    let system: string;
+
+    if (isOffice) {
+      const orows = await db
+        .select({
+          id: jobsTable.id,
+          tech_first: usersTable.first_name,
+          tech_last: usersTable.last_name,
+          assigned_user_id: jobsTable.assigned_user_id,
+          client_first_name: clientsTable.first_name,
+          client_last_name: clientsTable.last_name,
+          client_company_name: clientsTable.company_name,
+          account_name: accountsTable.account_name,
+          property_name: accountPropertiesTable.property_name,
+          address_street: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.address} ELSE ${clientsTable.address} END`,
+          address_city: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.city} ELSE ${clientsTable.city} END`,
+          address_state: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.state} ELSE ${clientsTable.state} END`,
+          address_zip: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.zip} ELSE ${clientsTable.zip} END`,
+          service_type: jobsTable.service_type,
+          account_id: jobsTable.account_id,
+          branch_id: jobsTable.branch_id,
+          scheduled_date: jobsTable.scheduled_date,
+          scheduled_time: jobsTable.scheduled_time,
+          allowed_hours: jobsTable.allowed_hours,
+          actual_hours: jobsTable.actual_hours,
+          base_fee: jobsTable.base_fee,
+          billed_amount: jobsTable.billed_amount,
+          status: jobsTable.status,
+        })
+        .from(jobsTable)
+        .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
+        .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+        .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
+        .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
+        .where(and(
+          eq(jobsTable.company_id, companyId),
+          eq(jobsTable.scheduled_date, date),
+          sql`${jobsTable.status} <> 'cancelled'`,
+        ))
+        .orderBy(asc(jobsTable.scheduled_time), asc(jobsTable.id));
+
+      // Per-job commission via the canonical engine (+ final_pay overrides), so
+      // the numbers match what the office sees on the payroll screens.
+      let comp: any = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32, commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" };
+      try {
+        const cr = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+        if (cr.rows[0]) comp = cr.rows[0];
+      } catch { /* keep defaults */ }
+      const resRates = parseResRatesRow(comp);
+      const overrides = new Map<string, number>();
+      const ojobIds = orows.map(j => j.id);
+      if (ojobIds.length) {
+        try {
+          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${ojobIds}::int[]) AND final_pay IS NOT NULL`);
+          for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
+        } catch { /* job_technicians absent */ }
+      }
+      const commRows = computeCommissionRows({
+        jobs: orows as any,
+        resRates,
+        commercial: { commercial_hourly_rate: parseFloat(String(comp.commercial_hourly_rate ?? 20)), commercial_comp_mode: String(comp.commercial_comp_mode ?? "allowed_hours") as any },
+        overrides,
+      });
+      const commByJob = new Map<number, number>();
+      for (const cr of commRows) commByJob.set(cr.job_id, (commByJob.get(cr.job_id) ?? 0) + cr.amount);
+
+      jobs = orows.map((r, i) => {
+        const cname = r.account_name || r.client_company_name || `${r.client_first_name ?? ""} ${r.client_last_name ?? ""}`.trim() || "Unknown";
+        const tech = `${r.tech_first ?? ""} ${r.tech_last ?? ""}`.trim() || "Unassigned";
+        const address = fmtAddr(r.address_street, r.address_city, r.address_state, r.address_zip);
+        const revenue = parseFloat(String(r.billed_amount ?? r.base_fee ?? 0)) || 0;
+        return {
+          n: i + 1,
+          tech,
+          client: r.property_name ? `${cname} — ${r.property_name}` : cname,
+          address: address || null,
+          time: r.scheduled_time ? String(r.scheduled_time).slice(0, 5) : null,
+          status: r.status,
+          revenue: Math.round(revenue * 100) / 100,
+          commission: Math.round((commByJob.get(r.id) ?? 0) * 100) / 100,
+          allowed_hours: r.allowed_hours != null ? Number(r.allowed_hours) : null,
+          actual_hours: r.actual_hours != null ? Number(r.actual_hours) : null,
+        };
+      });
+      const totalRevenue = Math.round(jobs.reduce((s, j) => s + j.revenue, 0) * 100) / 100;
+      const totalCommission = Math.round(jobs.reduce((s, j) => s + j.commission, 0) * 100) / 100;
+
+      system =
+        `You are an assistant for the OFFICE/OWNER (role: ${role}) of a residential & commercial cleaning company using Qleno. ` +
+        `Today is ${date}${now ? `, current local time ${now}` : ""}. ` +
+        `You can answer about the WHOLE company's day using ONLY the provided data: total revenue, total commission, each technician's schedule, and per-technician commission. ` +
+        `Use ONLY this data — never invent numbers, jobs, names, or addresses; if it isn't here, say you don't have it. ` +
+        `For a specific technician's commission or schedule, match jobs by that tech's name (case-insensitive) and sum their commission. All money is USD. ` +
+        `Reply in ${langName}, concise and natural for reading aloud (a few sentences; brief lists for schedules). ` +
+        `When asked to navigate / get directions to a job, put that job's exact address in "navigate_to"; otherwise null. ` +
+        `Respond with ONLY a JSON object: {"answer": string, "navigate_to": string|null}. No other text.\n\n` +
+        `Company day for ${date} — totals: revenue $${totalRevenue.toFixed(2)}, commission $${totalCommission.toFixed(2)}, ${jobs.length} jobs.\n` +
+        `Jobs:\n${JSON.stringify(jobs)}`;
+    } else {
     // The tech's OWN jobs for the day (privacy: assigned_user_id = the caller).
     // Address resolves account_property → client, mirroring routes/tech.ts.
     const rows = await db
@@ -87,7 +195,7 @@ router.post("/ask", requireAuth, async (req, res) => {
       ))
       .orderBy(asc(jobsTable.scheduled_time), asc(jobsTable.id));
 
-    const jobs = rows.map((r, i) => {
+    jobs = rows.map((r, i) => {
       const name = r.account_name || r.client_company_name
         || `${r.client_first_name ?? ""} ${r.client_last_name ?? ""}`.trim() || "Unknown";
       const address = fmtAddr(r.address_street, r.address_city, r.address_state, r.address_zip);
@@ -104,8 +212,7 @@ router.post("/ask", requireAuth, async (req, res) => {
       };
     });
 
-    const langName = LANG_NAME[language];
-    const system =
+    system =
       `You are a friendly, concise voice assistant for a house-cleaning technician using the Qleno app. ` +
       `Today is ${date}.${now ? ` The current local time is ${now}; "my next job" / "next stop" means the earliest job scheduled at or after ${now} (or the first job today if none remain).` : ""} You are given ONLY this technician's own jobs for the day as JSON. ` +
       `Answer the technician's question using ONLY that data — never invent jobs, addresses, times, or notes. ` +
@@ -120,6 +227,7 @@ router.post("/ask", requireAuth, async (req, res) => {
       `When the technician asks to navigate / get directions / go to a job, choose the intended job (by client name, or the next upcoming job if unspecified) and put its exact address string in "navigate_to". Otherwise "navigate_to" MUST be null. ` +
       `Respond with ONLY a JSON object: {"answer": string, "navigate_to": string|null}. No other text.\n\n` +
       `Technician's jobs for ${date}:\n${JSON.stringify(jobs)}`;
+    }
 
     const client = new Anthropic();
     const response = await client.messages.create({
