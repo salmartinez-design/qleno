@@ -6439,6 +6439,10 @@ export default function JobsPage() {
             const techsWorking = filteredData?.employees?.filter(e => e.jobs?.length > 0).length ?? 0;
             const totalTechs = filteredData?.employees?.length ?? 0;
             const scheduledHrs = allJobs.reduce((s, j) => s + (j.duration_minutes || 120) / 60, 0);
+            // [labor-hours 2026-06-08] Total scheduled labor for the day (MC's
+            // "59.2h"). jobs.allowed_hours is team-aggregated, so a plain sum
+            // across the day's jobs = total labor hours across all techs.
+            const laborHrs = allJobs.reduce((s, j: any) => s + (j.allowed_hours != null ? Number(j.allowed_hours) : 0), 0);
             const availableHrs = totalTechs * ((DAY_END - DAY_START) / 60);
             const utilization = availableHrs > 0 ? Math.round((scheduledHrs / availableHrs) * 100) : 0;
             const now = new Date();
@@ -6470,15 +6474,16 @@ export default function JobsPage() {
 
             return (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 0, borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 0, borderBottom: "1px solid #E5E2DC", backgroundColor: "#FFFFFF" }}>
                   {[
                     { label: "JOBS TODAY", value: stats.total },
                     { label: "REVENUE TODAY", value: `$${stats.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` },
+                    { label: "LABOR HRS", value: `${laborHrs.toFixed(1)}h` },
                     { label: "UNASSIGNED", value: stats.unassigned },
                     { label: "TECHS WORKING", value: techsWorking },
                     { label: "AVG UTILIZATION", value: `${utilization}%` },
                   ].map((card, i) => (
-                    <div key={i} style={{ padding: "14px 20px", borderRight: i < 4 ? "1px solid #E5E2DC" : "none" }}>
+                    <div key={i} style={{ padding: "14px 20px", borderRight: i < 5 ? "1px solid #E5E2DC" : "none" }}>
                       <div style={{ fontSize: 26, fontWeight: 600, color: "#1A1917", fontFamily: FF, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{card.value}</div>
                       <div style={{ fontSize: 11, fontWeight: 500, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.02em", marginTop: 4 }}>{card.label}</div>
                     </div>
