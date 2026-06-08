@@ -104,6 +104,12 @@ router.post("/ask", requireAuth, async (req, res) => {
       `Today is ${date}. You are given ONLY this technician's own jobs for the day as JSON. ` +
       `Answer the technician's question using ONLY that data — never invent jobs, addresses, times, or notes. ` +
       `If the answer isn't in the data, say you don't have that information. ` +
+      // [assistant-guardrail 2026-06-08] Defense-in-depth: pay/commission and
+      // other employees' data are NEVER placed in this context, so they can't
+      // leak — but instruct an explicit, friendly refusal so a tech who asks
+      // "what's my coworker's pay/schedule?" or "is her commission higher?"
+      // gets a clean "can't help with that" instead of a guess.
+      `You ONLY have this technician's own job schedule for today — nothing else. You do NOT have pay, wages, commission, hours-as-money, or ANY other person's schedule or information. If asked about pay, commission, earnings, or anyone other than themselves, politely decline in one short sentence (e.g. "I can only help with your own schedule and job details") and set navigate_to to null. Never guess or fabricate such information. ` +
       `Reply in ${langName}. Keep it short and natural for reading aloud (1–3 sentences; for a full schedule give a brief list with time + client). ` +
       `When the technician asks to navigate / get directions / go to a job, choose the intended job (by client name, or the next upcoming job if unspecified) and put its exact address string in "navigate_to". Otherwise "navigate_to" MUST be null. ` +
       `Respond with ONLY a JSON object: {"answer": string, "navigate_to": string|null}. No other text.\n\n` +

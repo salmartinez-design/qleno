@@ -7,6 +7,7 @@ import { useGetMe } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { VoiceAssistant } from "@/components/voice-assistant";
 import { GlobalSearch } from "@/components/global-search";
 import { ChatPanel } from "@/components/chat-panel";
 import { KeyboardShortcutsOverlay, useKeyboardShortcuts } from "@/components/keyboard-shortcuts";
@@ -813,6 +814,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             {(isMoreActive || moreOpen) && <div style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'var(--brand)', marginTop: -1 }} />}
           </button>
         </nav>
+        <VoiceAssistant />
       </div>
     );
   }
@@ -1081,6 +1083,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
           </main>
         )}
       </div>
+      <VoiceAssistant />
     </div>
   );
 }
