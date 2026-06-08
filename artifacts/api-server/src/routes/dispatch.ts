@@ -92,6 +92,9 @@ router.get("/", requireAuth, async (req, res) => {
         assigned_user_id: jobsTable.assigned_user_id,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
+        // [count-rule 2026-06-08] job_kind distinguishes real visits ('cleaning')
+        // from office events/meetings so the FE can exclude events from the count.
+        job_kind: jobsTable.job_kind,
         scheduled_date: jobsTable.scheduled_date,
         scheduled_time: jobsTable.scheduled_time,
         frequency: jobsTable.frequency,
@@ -694,6 +697,7 @@ router.get("/", requireAuth, async (req, res) => {
         assigned_user_id: j.assigned_user_id,
         service_type: j.service_type,
         status: j.status,
+        job_kind: (j as any).job_kind ?? "cleaning",
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
         frequency: j.frequency,

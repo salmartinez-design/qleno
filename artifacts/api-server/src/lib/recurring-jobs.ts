@@ -284,6 +284,17 @@ type ScheduleInput = {
   parking_fee_days?: number[] | null;
 };
 
+// [zero-fee-commercial 2026-06-08] Commercial visits are legitimately $0 when
+// the office bills the amount on a sibling job / monthly contract (Sal's
+// split-billing). The engine GENERATES those so they appear on the board +
+// count. Residential $0 stays blocked — that's the misconfigured "phantom $0
+// job" guard (744 cleaned up in Session 1). Detection is by service_type.
+const COMMERCIAL_SERVICE_TYPES = new Set([
+  "office_cleaning", "common_areas", "retail_store", "medical_office",
+  "ppm_turnover", "post_event", "ppm_common_areas",
+  "commercial_cleaning", "recurring_commercial_cleaning",
+]);
+
 // Pure compute: produces insert-ready rows after the dedupe check, but does NOT
 // insert. Returned rows can be handed to db.insert() directly (live run) or
 // serialized into a dry-run response.
@@ -666,8 +677,12 @@ export async function generateRecurringJobs(
       }
 
       const feeNum = parseFloat(feeTrimmed);
-      if (!Number.isFinite(feeNum) || feeNum === 0) {
-        console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0`);
+      // [zero-fee-commercial 2026-06-08] $0 is legitimate for COMMERCIAL
+      // schedules (split-billed / contract visits). Generate those; keep
+      // skipping non-numeric fees and $0 on RESIDENTIAL schedules (phantom guard).
+      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase());
+      if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
+        console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
         skippedZeroFee++;
         if (skippedSchedules.length < SKIPPED_SCHEDULES_CAP) {
           skippedSchedules.push({
