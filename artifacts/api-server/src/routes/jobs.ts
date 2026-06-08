@@ -73,6 +73,84 @@ async function persistJobAddOns(exec: any, jobId: number, companyId: number, add
   }
 }
 
+// [duplicate-job 2026-06-08] Maribel's HouseCall-Pro-style "duplicate this job
+// to a new date, same service" flow (mobile-first). Copies the source job's
+// DEFINITION — client/account, service, fee, allowed hours, tech team, add-ons,
+// address, zone — into a NEW job on the requested date, and RESETS all
+// operational state (status, clock, billing, completion, no-show) so the copy
+// is a clean scheduled visit. The duplicate is standalone: frequency on_demand,
+// no recurring_schedule_id/occurrence_date — it's a single extra visit, not a
+// series (recurring lives on recurring_schedules). Same company scope enforced.
+router.post("/:id/duplicate", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const srcId = parseInt(String(req.params.id));
+    const { scheduled_date, scheduled_time } = req.body;
+    if (!scheduled_date) return res.status(400).json({ error: "scheduled_date required" });
+
+    const srcConds: any[] = [eq(jobsTable.id, srcId), eq(jobsTable.company_id, companyId)];
+    const [src] = await db.select().from(jobsTable).where(and(...srcConds));
+    if (!src) return res.status(404).json({ error: "Job not found" });
+
+    // Copy every definition column, then override date + reset instance state.
+    const { id: _omitId, created_at: _omitCreated, ...rest } = src as any;
+    const [dup] = await db
+      .insert(jobsTable)
+      .values({
+        ...rest,
+        scheduled_date,
+        scheduled_time: scheduled_time ?? src.scheduled_time,
+        status: "scheduled",
+        frequency: "on_demand",
+        recurring_schedule_id: null,
+        occurrence_date: null,
+        // reset all operational / clock / billing / completion / no-show state
+        billed_hours: null,
+        billed_amount: null,
+        actual_hours: null,
+        actual_end_time: null,
+        locked_at: null,
+        completed_by_user_id: null,
+        completion_pdf_url: null,
+        completion_pdf_sent_at: null,
+        charge_attempted_at: null,
+        charge_succeeded_at: null,
+        charge_failed_at: null,
+        charge_failure_reason: null,
+        no_show_marked_by_tech: null,
+        no_show_marked_by_user_id: null,
+        flagged: false,
+      } as any)
+      .returning();
+
+    const newId = dup.id;
+    logAudit(req, "CREATE", "job", newId, null, dup);
+
+    // Carry the tech team over (same per-job assignment + primary).
+    try {
+      await db.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        SELECT ${newId}, user_id, company_id, is_primary FROM job_technicians WHERE job_id = ${srcId}
+        ON CONFLICT (job_id, user_id) DO NOTHING
+      `);
+    } catch (e) { console.error("duplicate job_technicians copy failed for", newId, e); }
+
+    // Carry the add-ons over (Parking Fee, etc.).
+    try {
+      await db.execute(sql`
+        INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+        SELECT ${newId}, add_on_id, quantity, unit_price, subtotal, pricing_addon_id FROM job_add_ons WHERE job_id = ${srcId}
+        ON CONFLICT (job_id, add_on_id) DO NOTHING
+      `);
+    } catch (e) { console.error("duplicate job_add_ons copy failed for", newId, e); }
+
+    return res.status(201).json(dup);
+  } catch (err) {
+    console.error("[jobs duplicate]", err);
+    return res.status(500).json({ error: "Failed to duplicate job" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
