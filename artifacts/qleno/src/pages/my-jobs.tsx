@@ -9,6 +9,7 @@ import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
+import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
 
@@ -956,6 +957,7 @@ export default function MyJobsPage() {
           )}
         </div>
       </div>
+      <VoiceAssistant />
     </div>
   );
 }
