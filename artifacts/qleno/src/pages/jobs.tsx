@@ -4,6 +4,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
+import { mapsDirectionsUrl } from "@/lib/format-address";
 import { JobWizard } from "@/components/job-wizard";
 import EditJobModal from "@/components/edit-job-modal";
 import {
@@ -3819,9 +3820,18 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           </span>
         </div>
         {job.address && (
-          <div style={{ fontSize: 15, fontWeight: 500, color: "#1A1917", lineHeight: 1.35, marginBottom: 8 }}>
-            {job.address}
-          </div>
+          mapsDirectionsUrl(job.address) ? (
+            <a href={mapsDirectionsUrl(job.address)!} target="_blank" rel="noreferrer"
+              title="Tap to navigate in Google Maps"
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 500, color: "#1D4ED8", lineHeight: 1.35, marginBottom: 8, textDecoration: "none" }}>
+              <MapPin size={14} style={{ flexShrink: 0 }} />
+              <span style={{ textDecoration: "underline" }}>{job.address}</span>
+            </a>
+          ) : (
+            <div style={{ fontSize: 15, fontWeight: 500, color: "#1A1917", lineHeight: 1.35, marginBottom: 8 }}>
+              {job.address}
+            </div>
+          )
         )}
         {job.client_phone && (
           <a
