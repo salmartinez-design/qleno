@@ -21,7 +21,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth";
-import { formatAddress } from "@/lib/format-address";
+import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
 import { ChevronLeft, ChevronRight, Check, AlertTriangle, MapPin } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -125,7 +125,7 @@ function mapsHref(item: TodayItem): string | null {
     item.address_zip,
   );
   if (!addr) return null;
-  return `https://maps.google.com/?q=${encodeURIComponent(addr)}`;
+  return mapsDirectionsUrl(addr);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

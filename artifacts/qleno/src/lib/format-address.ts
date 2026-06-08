@@ -66,3 +66,17 @@ export function appendZipIfMissing(addressLine: string | null | undefined, zip?:
   if (a.includes(z)) return a;
   return `${a} ${z}`;
 }
+
+/**
+ * Google Maps turn-by-turn NAVIGATION url for an address. Uses the directions
+ * endpoint (`dir/?api=1&destination=…`) so tapping it launches the Google Maps
+ * app in navigation mode on mobile (and maps.google.com on desktop) — not just
+ * a dropped pin. Single source of truth so "tap the address to navigate"
+ * behaves identically on the dispatch panel and the tech My Day / My Jobs views.
+ * Returns null for an empty address so callers can skip the link.
+ */
+export function mapsDirectionsUrl(address: string | null | undefined): string | null {
+  const a = (address ?? "").trim();
+  if (!a) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(a)}`;
+}
