@@ -1161,6 +1161,16 @@ async function runScopeZoneFix(): Promise<void> {
 // Source: MaidCentral screenshots 2026-04-10.
 // After upserting, runs a SQL pass to remove duplicate zips (first alphabetical
 // zone by name wins any zip that appears in multiple zones).
+// [pay-cadence 2026-06-08] Phes pays WEEKLY. companies.pay_cadence historically
+// seeded 'biweekly', so the existing Phes row read bi-weekly and the payroll
+// page defaulted to a 14-day window. Pin Phes (company 1) to weekly. Idempotent
+// (no-op once weekly). One-directional on purpose — Phes is committed to weekly;
+// if that ever changes, remove this step so the Settings → Pay Cadence choice
+// isn't overridden on boot.
+async function runPhesPayCadenceDefault(): Promise<void> {
+  await db.execute(sql`UPDATE companies SET pay_cadence = 'weekly' WHERE id = ${PHES} AND pay_cadence <> 'weekly'`);
+}
+
 async function runZoneSync(): Promise<void> {
   // Ensure location column exists (idempotent guard)
   await db.execute(sql`ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS location TEXT DEFAULT 'oak_lawn'`);
@@ -2657,6 +2667,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runZoneSync();
   } catch (err: any) {
     console.warn("[phes-migration] zone-sync — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runPhesPayCadenceDefault();
+  } catch (err: any) {
+    console.warn("[phes-migration] pay-cadence-default — non-fatal:", err?.message ?? err);
   }
 
   // [AI.3] Seed PHES commercial service types. Idempotent —

@@ -61,8 +61,8 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       .from(additionalPayTable)
       .where(and(
         eq(additionalPayTable.company_id, req.auth!.companyId),
-        gte(additionalPayTable.created_at, new Date(pay_period_start as string)),
-        lte(additionalPayTable.created_at, new Date(pay_period_end as string))
+        gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
+        lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`))
       ))
       .groupBy(additionalPayTable.user_id, additionalPayTable.type);
 
@@ -597,10 +597,13 @@ router.get("/detail", requireAuth, async (req, res) => {
     } catch { /* branches table not in some seeded tenants; rollup degrades to ids */ }
 
     // Get additional pay for the period (tips, mileage — period level, not per job)
+    // Bucket additional pay by its effective date (created_at), inclusive of the
+    // whole end day in UTC so an entry dated on the last day of the period lands
+    // in the period. [additional-pay-date 2026-06-08]
     const addlPayConditions: any[] = [
       eq(additionalPayTable.company_id, companyId),
-      gte(additionalPayTable.created_at, new Date(pay_period_start as string)),
-      lte(additionalPayTable.created_at, new Date(pay_period_end as string)),
+      gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
+      lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`)),
     ];
     if (filterUserId) addlPayConditions.push(eq(additionalPayTable.user_id, filterUserId));
 

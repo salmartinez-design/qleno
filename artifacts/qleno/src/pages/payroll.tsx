@@ -1,4 +1,4 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,14 +46,26 @@ const PAY_GROUPS = [
 // readable title-case so owner-defined pay categories display cleanly.
 const labelType = (t: string) => PAY_TYPE_LABELS[t] || String(t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-function getDefaultPeriod() {
-  // Match the Overview bi-weekly window (Sun..Sat, 14 days ending this Saturday)
-  // so switching tabs shows the same period.
+// [pay-cadence 2026-06-08] The default pay-period window is sized by the
+// tenant's pay cadence (companies.pay_cadence) — weekly = 7 days, bi-weekly =
+// 14, semi-monthly = 15 — instead of a hardcoded 14. Phes pays weekly.
+const CADENCE_DAYS: Record<string, number> = { weekly: 7, biweekly: 14, semimonthly: 15 };
+const CADENCE_LABEL: Record<string, string> = { weekly: 'Weekly', biweekly: 'Bi-weekly', semimonthly: 'Semi-monthly' };
+
+function periodForCadence(cadence: string) {
+  const days = CADENCE_DAYS[cadence] ?? 7;
   const t = new Date();
-  const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
-  const start = new Date(end); start.setDate(end.getDate() - 13);
+  const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay())); // Saturday of this week
+  const start = new Date(end); start.setDate(end.getDate() - (days - 1));
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
   return { start: ymd(start), end: ymd(end) };
+}
+
+// Tenant pay cadence from companies.pay_cadence. Defaults to 'weekly' while
+// loading / when unset (Phes pays weekly; bi-weekly tenants opt in via Settings).
+function useCadence(): string {
+  const { data } = useQuery<any>({ queryKey: ['company-me-cadence'], queryFn: () => apiFetch('/companies/me') });
+  return data?.pay_cadence || data?.data?.pay_cadence || 'weekly';
 }
 
 // Customer-quality score is 0–4 (matches the Scorecards report scale):
@@ -62,7 +74,12 @@ const qualityColor = (q: number | null | undefined) =>
   q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
 
 function WeeklyDetailView() {
-  const [period, setPeriod] = useState(getDefaultPeriod());
+  const cadence = useCadence();
+  const [period, setPeriod] = useState(() => periodForCadence('weekly'));
+  // Re-seed the default window from the tenant's cadence once it loads, unless
+  // the office has manually picked dates.
+  const [periodEdited, setPeriodEdited] = useState(false);
+  useEffect(() => { if (!periodEdited) setPeriod(periodForCadence(cadence)); }, [cadence, periodEdited]);
   const [expanded, setExpanded] = useState<number[]>([]);
   const FF = "inherit";
   const { activeBranchId } = useBranch();
@@ -99,9 +116,9 @@ function WeeklyDetailView() {
       <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', fontFamily: FF }}>Pay Period:</span>
-          <input type="date" value={period.start} onChange={e => setPeriod(p => ({ ...p, start: e.target.value }))} style={inputStyle} />
+          <input type="date" value={period.start} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, start: e.target.value })); }} style={inputStyle} />
           <span style={{ fontSize: 12, color: '#9E9B94' }}>to</span>
-          <input type="date" value={period.end} onChange={e => setPeriod(p => ({ ...p, end: e.target.value }))} style={inputStyle} />
+          <input type="date" value={period.end} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, end: e.target.value })); }} style={inputStyle} />
           <button onClick={() => refetch()}
             style={{ padding: '7px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
             Load
@@ -516,16 +533,10 @@ export default function PayrollPage() {
     return true;
   });
 
-  // Real payroll for the current bi-weekly period (Sun..Sat, 14 days) — same
-  // source as the detail view and the Earnings panel. Replaces the old stub
-  // that showed everyone a flat 40 hrs × rate.
-  const payPeriod = useMemo(() => {
-    const t = new Date();
-    const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
-    const start = new Date(end); start.setDate(end.getDate() - 13);
-    const ymd = (d: Date) => d.toISOString().slice(0, 10);
-    return { start: ymd(start), end: ymd(end) };
-  }, []);
+  // Real payroll for the current pay period, sized by the tenant's pay cadence
+  // (weekly for Phes) — same source as the detail view and the Earnings panel.
+  const cadence = useCadence();
+  const payPeriod = useMemo(() => periodForCadence(cadence), [cadence]);
   const periodLabel = useMemo(() => {
     const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const yr = new Date(`${payPeriod.end}T00:00:00`).getFullYear();
@@ -730,7 +741,7 @@ export default function PayrollPage() {
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: 0 }}>Employee Payroll Summary</p>
-            <span style={{ fontSize: '12px', color: '#6B7280' }}>Bi-weekly · {periodLabel}</span>
+            <span style={{ fontSize: '12px', color: '#6B7280' }}>{CADENCE_LABEL[cadence] || 'Weekly'} · {periodLabel}</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
