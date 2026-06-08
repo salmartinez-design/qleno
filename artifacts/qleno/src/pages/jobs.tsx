@@ -128,6 +128,20 @@ function fmtTime(t: string | null): string {
 }
 function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 
+// [freq-consistency 2026-06-08] Canonical recurring-frequency label — ONE source
+// of truth so the Gantt chip, hover card, repeat-badge, and panel header never
+// disagree. monthly AND every_4_weeks both read "Monthly" (Sal's call). Returns
+// "" for non-recurring so callers can gate on it.
+const RECURRENCE_LABELS: Record<string, string> = {
+  weekly: "Weekly", biweekly: "Biweekly", every_2_weeks: "Biweekly",
+  every_3_weeks: "Every 3 Weeks", monthly: "Monthly", every_4_weeks: "Monthly",
+  daily: "Daily", weekdays: "Weekdays", custom_days: "Custom Days",
+};
+function recurrenceLabel(f?: string | null): string {
+  if (!f || f === "on_demand") return "";
+  return RECURRENCE_LABELS[f] ?? fmtSvc(f);
+}
+
 // [hotfix 2026-04-29 / closes #4] Walk up the DOM to find the nearest
 // ancestor that establishes a clipping context. Used by JobHoverCard's
 // flip logic so we measure against the actual scroll-container bounds
@@ -154,7 +168,8 @@ function scopeLabel(job: { service_type?: string | null; frequency?: string | nu
     weekly: "Weekly",
     biweekly: "Biweekly",
     every_3_weeks: "Every 3 Weeks",
-    monthly: "Every 4 Weeks",
+    monthly: "Monthly",
+    every_4_weeks: "Monthly",
   };
   if (job.frequency && FREQ[job.frequency]) return FREQ[job.frequency];
   const SVC: Record<string, string> = {
@@ -1868,8 +1883,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <span style={{ fontSize: 12, fontWeight: 700, color: sc.text, textTransform: "capitalize" }}>{job.status.replace("_", " ")}</span>
             </span>
             {(job as any).recurring_schedule_id != null && (() => {
-              const fl: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", every_3_weeks: "Every 3 weeks", monthly: "Monthly", every_4_weeks: "Every 4 weeks", daily: "Daily", weekdays: "Weekdays", custom_days: "Custom days" };
-              const freqLabel = fl[job.frequency] ?? "Recurring";
+              const freqLabel = recurrenceLabel(job.frequency) || "Recurring";
               return (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 20, background: "#EEF4FF" }}>
                   <Repeat size={12} color="#3B6CC9" />
@@ -3313,7 +3327,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {job.frequency && job.frequency !== "on_demand" && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 7px", borderRadius: 4 }}>
-            <Repeat size={9} />{job.frequency.replace(/_/g, " ")}
+            <Repeat size={9} />{recurrenceLabel(job.frequency)}
           </span>
         )}
         {job.address && (
@@ -3774,7 +3788,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         <div style={{ fontSize: 15, fontWeight: 500, color: "#1A1917", lineHeight: 1.3 }}>
           {fmtSvc(job.service_type)}
           <span style={{ color: "#C4C0BB", fontWeight: 500, margin: "0 8px" }}>·</span>
-          {isRecurring ? fmtSvc(job.frequency) : "One Time"}
+          {isRecurring ? recurrenceLabel(job.frequency) : "One Time"}
         </div>
         {lastServiceRelative && (
           <div style={{ fontSize: 12, color: "#6B6860", marginTop: 6 }}>
