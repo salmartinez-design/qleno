@@ -1,10 +1,11 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { quotesTable, clientsTable, quoteScopesTable } from "@workspace/db/schema";
+import { quotesTable, clientsTable, quoteScopesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { getBranchByZip } from "../lib/branchRouter";
+import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 
 const router = Router();
 
@@ -349,6 +350,52 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       "monthly": "monthly", "every_4_weeks": "monthly", "onetime": "on_demand", "one_time": "on_demand",
     };
     const jobFreq = FREQ_MAP[freqRaw] || "on_demand";
+
+    // [recurring-convert-fix 2026-06-05] A recurring quote must create a
+    // recurring_schedule and GENERATE THE SERIES — not a single job. The
+    // convert previously inserted one job with frequency='weekly' and stopped,
+    // so "scheduling a recurrence" only ever produced the first visit
+    // (Maribel's bug). When the quote is recurring and tied to a client, build
+    // the schedule and synchronously generate the next 90 days (first
+    // occurrence included). This calls generateJobsFromSchedule directly, so it
+    // works regardless of the RECURRING_ENGINE_ENABLED cron flag.
+    const isRecurring = jobFreq !== "on_demand";
+    if (isRecurring && q.client_id) {
+      const [sched] = await db.insert(recurringSchedulesTable).values({
+        company_id: companyId,
+        customer_id: q.client_id,
+        frequency: jobFreq,
+        day_of_week: null, // cadence anchors on start_date's weekday when null
+        start_date: jobDate,
+        end_date: null,
+        assigned_employee_id: assigned_user_id ? parseInt(String(assigned_user_id)) : null,
+        service_type: serviceType,
+        scheduled_time: scheduled_time || null,
+        duration_minutes: q.estimated_hours ? Math.round(parseFloat(String(q.estimated_hours)) * 60) : null,
+        base_fee: q.total_price != null ? String(q.total_price) : null,
+        notes: q.internal_memo || null,
+      }).returning();
+
+      let generated = { created: 0, skipped: 0 };
+      try {
+        const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable).where(eq(clientsTable.id, q.client_id)).limit(1);
+        const clientZip = (cl[0]?.zip as any) ?? null;
+        const today = new Date();
+        const horizon = new Date(today.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+        generated = await generateJobsFromSchedule(sched as any, today, horizon, null, clientZip);
+      } catch (genErr: any) {
+        console.warn("[quote convert] recurring generation failed:", genErr?.message ?? genErr);
+      }
+
+      logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", recurring_schedule_id: sched.id, jobs_generated: generated.created });
+      import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
+        stopEnrollmentsForQuote(id, "booked").catch(() => {});
+      });
+      return res.json({
+        success: true, quote: q, recurring_schedule_id: sched.id, jobs_generated: generated.created,
+        message: `Quote converted — recurring schedule created with ${generated.created} visit${generated.created === 1 ? "" : "s"} over the next ${DAYS_AHEAD} days.`,
+      });
+    }
 
     // [addon-hours 2026-06-04] Carry the quote's estimated hours (which now
     // include add-on time-adds) onto the job as BOTH allowed_hours and

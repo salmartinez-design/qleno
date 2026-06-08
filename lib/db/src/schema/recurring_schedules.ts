@@ -55,6 +55,11 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // PATCH endpoint enforces exclusivity; engine warns and prefers
   // days_of_week if both end up populated.
   days_of_week: integer("days_of_week").array(),
+  // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
+  // purpose. The generator skips these so a deleted occurrence stays gone
+  // instead of being regenerated next run (the series otherwise keeps going).
+  // YYYY-MM-DD entries, matched against each occurrence's cadence slot.
+  skipped_dates: date("skipped_dates").array(),
   // [PR #58] Anchor days for monthly + semi_monthly cadences. Stored as an
   // INTEGER[] of day-of-month values (1..31 plus a sentinel 0 for "last day
   // of month" — engine resolves 0 to the actual last day per month).

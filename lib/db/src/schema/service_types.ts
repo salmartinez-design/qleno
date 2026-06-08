@@ -39,6 +39,11 @@ export const serviceTypesTable = pgTable("service_types", {
   is_active: boolean("is_active").notNull().default(true),
   display_order: integer("display_order").notNull().default(100),
   default_allowed_hours: numeric("default_allowed_hours", { precision: 5, scale: 2 }),
+  // [paytype-parity 2026-06-05] Per-service-type fee-split commission %
+  // (0.35 = 35%). NULL falls back to the company tier (res 35 / deep 32 /
+  // move 32). Lets a service set carry its own rate like MaidCentral —
+  // e.g. "Hourly Deep Clean" pays 35%, not the global deep-clean 32%.
+  commission_pct: numeric("commission_pct", { precision: 6, scale: 4 }),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

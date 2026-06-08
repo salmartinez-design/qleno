@@ -298,6 +298,13 @@ function isDarkHex(hex?: string | null): boolean {
 }
 function useIsMobile() { const [m, setM] = useState(window.innerWidth < 1024); useEffect(() => { const h = () => setM(window.innerWidth < 1024); window.addEventListener("resize", h); return () => window.removeEventListener("resize", h); }, []); return m; }
 function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return "12 AM"; return h < 12 ? `${h} AM` : `${h - 12} PM`; }
+// [card-polish 2026-06-05] Minutes-since-midnight -> "9:00 AM" / "2:30 PM".
+// Used to render a job's full shift range (start–end) on the mobile card.
+function fmtMins(mins: number) { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ampm = h % 24 < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr}:${String(m).padStart(2, "0")} ${ampm}`; }
+// [office-clock 2026-06-05] Format an ISO timestamp as wall-clock time and a
+// clock-in -> clock-out span, for the desktop Time Clock panel.
+function fmtClock(iso: string) { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function clockDuration(a: string, b: string) { const ms = new Date(b).getTime() - new Date(a).getTime(); if (isNaN(ms) || ms < 0) return "—"; const mins = Math.round(ms / 60000); const h = Math.floor(mins / 60), m = mins % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
 // Honest labels: the count is total jobs booked that hour across the whole
@@ -909,6 +916,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cascadePrompt, setCascadePrompt] = useState<null | "open">(null);
+  // [cascade-confirm 2026-06-05] Series-wide scopes (this_and_future / all) can
+  // remove + recreate future occurrences; require an explicit confirm step.
+  const [pendingScope, setPendingScope] = useState<null | "this_and_future" | "all">(null);
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState(startH24);
   const [durationH, setDurationH] = useState<number>(initialDurationH);
@@ -1099,6 +1109,24 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
           }}>
             <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 6 }}>Apply this change to:</div>
             <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 14 }}>This is a recurring job. Pick how broadly the time change should apply.</div>
+            {pendingScope && (
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12 }}>
+                <AlertTriangle size={16} color="#B91C1C" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>
+                  This applies to <strong>{pendingScope === "all" ? "every visit (past + future)" : "every future visit"}</strong> of this recurring job. If you changed the day, occurrences that no longer match are <strong>removed</strong> and recreated. Continue?
+                </span>
+              </div>
+            )}
+            {pendingScope ? (
+              <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
+                <button type="button" onClick={() => setPendingScope(null)} disabled={saving}
+                  style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Back</button>
+                <button type="button" onClick={() => submit(pendingScope)} disabled={saving}
+                  style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#DC2626", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                  {saving ? "Applying…" : "Yes, apply to the series"}
+                </button>
+              </div>
+            ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
               {([
                 { v: "this_job",        label: "Just this visit",                  sub: "Default. Updates this occurrence; other visits unchanged." },
@@ -1106,7 +1134,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
                 { v: "all",             label: "All visits in the series",         sub: "Backfills past + future. Paid past jobs are skipped." },
                 { v: "remove_this",     label: "Skip this visit only",             sub: "Mark this visit as one-off; schedule template stays intact." },
               ] as const).map(opt => (
-                <button key={opt.v} type="button" onClick={() => submit(opt.v)} disabled={saving}
+                <button key={opt.v} type="button"
+                  onClick={() => { if (opt.v === "this_and_future" || opt.v === "all") setPendingScope(opt.v); else submit(opt.v); }}
+                  disabled={saving}
                   style={{
                     textAlign: "left", padding: "12px 14px", borderRadius: 10,
                     border: "1.5px solid #E5E2DC", background: "#F7F6F3",
@@ -1117,7 +1147,8 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
                 </button>
               ))}
             </div>
-            <button onClick={() => setCascadePrompt(null)} disabled={saving}
+            )}
+            <button onClick={() => { setPendingScope(null); setCascadePrompt(null); }} disabled={saving}
               style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
               Cancel
             </button>
@@ -1233,6 +1264,50 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [overrideBusy, setOverrideBusy] = useState(false);
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
+
+  // [office-clock 2026-06-05] Desktop office clock in/out. The field-app tech
+  // clock isn't shipped, so the office clocks the team in/out from the board to
+  // start collecting real clocked minutes — which feed payroll hours and the
+  // proportional-by-minutes commission split (Sal: "starting today we clock the
+  // team in and out"). Per-tech clock state for THIS job loads from the legacy
+  // timeclock table; writes go through the role-gated office endpoints.
+  const canClock = (userRole === "owner" || userRole === "admin" || userRole === "office");
+  const [clockMap, setClockMap] = useState<Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }>>({});
+  const [clockBusy, setClockBusy] = useState<number | null>(null);
+  const loadClocks = useCallback(async () => {
+    try {
+      const r = await fetch(`${_API3}/api/timeclock?job_id=${job.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      // Rows come newest-first; keep the most recent entry per tech as their
+      // current state (open if clock_out_at is null, else completed).
+      const m: Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }> = {};
+      for (const e of (d.data ?? [])) {
+        if (!m[e.user_id]) m[e.user_id] = { id: e.id, clock_in_at: e.clock_in_at, clock_out_at: e.clock_out_at };
+      }
+      setClockMap(m);
+    } catch {}
+  }, [job.id, token, _API3]);
+  useEffect(() => { if (canClock) loadClocks(); }, [canClock, loadClocks]);
+
+  async function handleOfficeClock(user_id: number, dir: "in" | "out") {
+    setClockBusy(user_id);
+    try {
+      const r = await fetch(`${_API3}/api/timeclock/office/clock-${dir}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, user_id }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Clock action failed");
+      await loadClocks();
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: err.message || "Clock action failed" });
+    } finally {
+      setClockBusy(null);
+    }
+  }
 
   // Header overflow (•••) menu — home for rare/destructive actions so they
   // stay out of the everyday content flow.
@@ -2170,6 +2245,56 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </PS>
           )}
 
+          {/* [office-clock 2026-06-05] Time Clock — office clocks each assigned
+              tech in/out on this job. Real punches feed payroll hours and the
+              actual-minutes commission split. Owner/admin/office only. */}
+          {canClock && (() => {
+            const techList: { user_id: number; name: string }[] = commTechs.length > 0
+              ? commTechs.map(t => ({ user_id: t.user_id, name: t.name }))
+              : (job.assigned_user_id ? [{ user_id: job.assigned_user_id, name: assignedEmp?.name || job.assigned_user_name || "Tech" }] : []);
+            if (techList.length === 0) return null;
+            return (
+              <PS label="Time Clock">
+                {techList.map(t => {
+                  const entry = clockMap[t.user_id];
+                  const clockedIn = !!entry && !entry.clock_out_at;
+                  const done = !!entry && !!entry.clock_out_at;
+                  const busy = clockBusy === t.user_id;
+                  return (
+                    <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#16A34A" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
+                          {clockedIn
+                            ? `On the clock since ${fmtClock(entry!.clock_in_at)}`
+                            : done
+                              ? `${fmtClock(entry!.clock_in_at)}–${fmtClock(entry!.clock_out_at!)} · ${clockDuration(entry!.clock_in_at, entry!.clock_out_at!)}`
+                              : "Not clocked in"}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleOfficeClock(t.user_id, clockedIn ? "out" : "in")}
+                        disabled={busy || done}
+                        title={done ? "Shift complete" : clockedIn ? "Clock out" : "Clock in"}
+                        style={{
+                          flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
+                          padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
+                          cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
+                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#2D9B83",
+                        }}>
+                        <Clock size={12} />
+                        {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
+                      </button>
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 2 }}>
+                  Office clock — feeds payroll hours and the actual-minutes commission split.
+                </div>
+              </PS>
+            );
+          })()}
+
           {/* Add Tech Modal */}
           {addTechOpen && (
             <>
@@ -3097,14 +3222,16 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   const visual = STATUS_VISUALS[getJobVisualStatus(job)];
   return (
     <div onClick={onClick} style={{
-      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12,
-      padding: "14px 16px", marginBottom: 10, cursor: "pointer", position: "relative",
-      // [schedule-views 2026-06-05] Left stripe = the job's ZONE color (same
-      // source the desktop Gantt chip fills with), not the status-blue sc.dot.
-      // This closes the desktop/mobile color variance — a job that's purple on
-      // the board is now purple on mobile. Special-state overrides (late red,
-      // unpaid amber, no-show dark-red) and the animated active stripe still win.
-      borderLeft: visual.stripe ? "none" : `4px solid ${visual.borderOverride ?? job.zone_color ?? sc.dot}`,
+      backgroundColor: "#FFFFFF", borderRadius: 12,
+      padding: "13px 15px", marginBottom: 10, cursor: "pointer", position: "relative",
+      // [schedule-views 2026-06-05] FULL-CARD border in the job's ZONE color —
+      // same source the desktop Gantt chip fills with — so the whole card
+      // outlines in the color that's on the board (a purple-zone job reads
+      // purple on both). 2px for prominence. No-zone falls back to GRAY
+      // (#9CA3AF, desktop's ZONE_FALLBACK), NOT status-blue. Special-state
+      // overrides (late red, unpaid amber, no-show dark-red) still win; the
+      // animated active stripe rides inside the border.
+      border: `2px solid ${visual.borderOverride ?? job.zone_color ?? "#9CA3AF"}`,
       fontFamily: FF, opacity: visual.bodyOpacity,
       filter: visual.desaturate ? "grayscale(1)" : "none", overflow: "hidden",
     }}>
@@ -3163,15 +3290,27 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           {job.status.replace("_", " ")}
         </span>
       </div>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-        {job.scheduled_time && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280" }}>
-            <Clock size={12} style={{ color: "#9E9B94" }} />
-            {fmtTime(job.scheduled_time)}
-            <span style={{ color: "#C4C0BB" }}>·</span>
-            {Math.floor(job.duration_minutes / 60)}h{job.duration_minutes % 60 > 0 ? ` ${job.duration_minutes % 60}m` : ""}
+      {/* [card-polish 2026-06-05] Prominent full SHIFT range (start–end), e.g.
+          "9:00 AM – 2:00 PM", on its own line above the meta row. Replaces the
+          smaller "9:00 AM · 4h" inline chip — the shift window is what
+          dispatchers scan for. Duration trails small for reference. */}
+      {job.scheduled_time && (() => {
+        const startM = timeToMins(job.scheduled_time);
+        const endM = startM + (job.duration_minutes || 0);
+        const dm = job.duration_minutes || 0;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 7 }}>
+            <Clock size={15} style={{ color: "#1A1917" }} />
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", letterSpacing: "-0.01em" }}>
+              {fmtMins(startM)} – {fmtMins(endM)}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94" }}>
+              {Math.floor(dm / 60)}h{dm % 60 > 0 ? ` ${dm % 60}m` : ""}
+            </span>
           </div>
-        )}
+        );
+      })()}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {job.frequency && job.frequency !== "on_demand" && (
           <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 7px", borderRadius: 4 }}>
             <Repeat size={9} />{job.frequency.replace(/_/g, " ")}
@@ -4292,16 +4431,26 @@ function JobChipBody({
                 {Math.round((allowedMin / 60) * 10) / 10}h
               </span>
             )}
-            {addOnCount > 0 && isWide && (
-              <span style={{
-                flexShrink: 0, fontSize: 9, fontWeight: 700,
-                padding: "1px 5px", borderRadius: 4,
-                backgroundColor: tokens.pillBg, color: tokens.primary,
-                lineHeight: 1.2, whiteSpace: "nowrap",
-              }}>
-                +{addOnCount}
-              </span>
-            )}
+            {/* [addons-on-bar 2026-06-05] Show the add-ons on the chip itself
+                (Sal: "add-on emblems or text need to show on the job bar so we
+                have full scope"). Wide chips render the names (truncated, full
+                list in the tooltip); medium chips show "+N add-ons"; narrow
+                chips drop it (the panel still lists them). */}
+            {addOnCount > 0 && !isNarrow && (() => {
+              const names = (job.add_ons ?? []).map(a => a.name).filter(Boolean).join(", ");
+              return (
+                <span title={names || `${addOnCount} add-on${addOnCount > 1 ? "s" : ""}`} style={{
+                  flexShrink: 0, fontSize: 9, fontWeight: 700,
+                  padding: "1px 5px", borderRadius: 4,
+                  backgroundColor: tokens.pillBg, color: tokens.primary,
+                  lineHeight: 1.2, whiteSpace: "nowrap",
+                  overflow: "hidden", textOverflow: "ellipsis",
+                  maxWidth: isWide ? 150 : 78,
+                }}>
+                  {isWide && names ? `+ ${names}` : `+${addOnCount} add-on${addOnCount > 1 ? "s" : ""}`}
+                </span>
+              );
+            })()}
           </div>
         </>
       )}

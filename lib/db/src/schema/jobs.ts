@@ -84,6 +84,13 @@ export const jobsTable = pgTable("jobs", {
   zone_id: integer("zone_id"),
   branch_id: integer("branch_id").references(() => branchesTable.id),
   recurring_schedule_id: integer("recurring_schedule_id"),
+  // [recurring-reschedule 2026-06-05] The cadence slot this job was generated
+  // from — a stable identity for dedup, separate from scheduled_date (which the
+  // office can move). The recurrence engine dedups on occurrence_date so moving
+  // a recurring occurrence off its day never frees the original slot for the
+  // nightly cron to regenerate (the "appears again on Monday" duplicate bug).
+  // NULL for one-off (non-recurring) jobs.
+  occurrence_date: date("occurrence_date"),
   supply_cost: numeric("supply_cost", { precision: 8, scale: 2 }).default("0.00"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   // ── Booking widget extra fields ─────────────────────────────────────────────

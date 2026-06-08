@@ -2562,6 +2562,16 @@ export default function QuoteBuilderPage() {
                           <span>{a.name}</span><span>{a.amount < 0 ? `-$${Math.abs(a.amount).toFixed(2)}` : `+$${a.amount.toFixed(2)}`}</span>
                         </div>
                       ))}
+                      {/* [bundle-display 2026-06-05] Bundle discounts are subtracted from
+                          the total in the calc but were never shown here — so the line
+                          items summed to MORE than the Total and it looked like broken
+                          addition (Maribel's "the issue is the addition" — a hidden $35).
+                          Render each matched bundle so Base + add-ons − bundle = Total. */}
+                      {(s.calc.bundle_breakdown ?? []).map((b, i) => (
+                        <div key={`bundle-${i}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
+                          <span>{b.name || "Bundle discount"}</span><span>-${b.discount.toFixed(2)}</span>
+                        </div>
+                      ))}
                       {s.calc.discount_amount > 0 && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
                           <span>Discount</span><span>-${s.calc.discount_amount.toFixed(2)}</span>

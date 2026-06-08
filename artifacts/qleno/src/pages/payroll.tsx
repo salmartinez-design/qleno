@@ -130,7 +130,7 @@ function WeeklyDetailView() {
       <p style={{ fontSize: 11, color: '#9E9B94', margin: '-4px 2px 0', fontFamily: FF }}>
         During the transition, hours fall back to a job's <b>scheduled</b> hours (shown with ≈) when it
         hasn't been clocked yet — real clocked time takes over automatically as the team adopts clock-in/out.
-        Set both dates to the same day to reconcile that day against MaidCentral.
+        Set both dates to the same day to reconcile a single day's pay.
       </p>
 
       {employees.length > 0 && (

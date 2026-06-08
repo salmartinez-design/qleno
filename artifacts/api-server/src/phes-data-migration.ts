@@ -25,6 +25,15 @@ async function runBookingSchemaGuard(): Promise<void> {
   const guards: Array<{ label: string; stmt: string }> = [
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
+    // recurring occurrence the office removed isn't regenerated next run.
+    { label: "recurring_schedules.skipped_dates", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS skipped_dates DATE[] DEFAULT '{}'" },
+    // [recurring-reschedule 2026-06-05] Stable cadence-slot identity for the
+    // recurrence dedup (see lib/recurring-jobs.ts). Column add then a one-time
+    // backfill so existing recurring jobs get occurrence_date = scheduled_date
+    // (their slot before any move). Idempotent: the UPDATE only fills NULLs.
+    { label: "jobs.occurrence_date", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS occurrence_date DATE" },
+    { label: "jobs.occurrence_date backfill", stmt: "UPDATE jobs SET occurrence_date = scheduled_date WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL" },
     { label: "jobs.condition_multiplier",  stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS condition_multiplier NUMERIC(5,3)" },
     { label: "jobs.applied_bundle_id",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applied_bundle_id INTEGER" },
     { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
@@ -52,6 +61,20 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.residential_pay_rate", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "users.commercial_pay_type",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_type  TEXT DEFAULT 'hourly'" },
     { label: "users.commercial_pay_rate",  stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    // [paytype-parity 2026-06-05] Per-tech pay-type override for MaidCentral
+    // parity (lib/commission-paytype.ts). All NULL = inherit the job's smart
+    // default. pay_type ∈ fee_split|allowed_hours|hourly. Plus an editable
+    // breakage deduction (default off — a customer credit doesn't dock the
+    // cleaner unless the office sets a % and/or flat $ here).
+    { label: "job_technicians.pay_type",           stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_type TEXT" },
+    { label: "job_technicians.hourly_rate",        stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS hourly_rate NUMERIC(8,4)" },
+    { label: "job_technicians.commission_pct",     stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(8,6)" },
+    { label: "job_technicians.pay_deduction_pct",  stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_deduction_pct NUMERIC(6,4)" },
+    { label: "job_technicians.pay_deduction_flat", stmt: "ALTER TABLE job_technicians ADD COLUMN IF NOT EXISTS pay_deduction_flat NUMERIC(10,2)" },
+    // Per-service-type fee-split % (NULL = company tier). Both the unified
+    // service_types table and the legacy commercial_service_types table.
+    { label: "service_types.commission_pct",            stmt: "ALTER TABLE service_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(6,4)" },
+    { label: "commercial_service_types.commission_pct", stmt: "ALTER TABLE commercial_service_types ADD COLUMN IF NOT EXISTS commission_pct NUMERIC(6,4)" },
     // [phes-chicago23 2026-05-12] One-shot password reset gate. NULL means
     // this user has not yet had their password set to Chicago23 by the
     // cold-start runPhesPasswordResetChicago23() function below. After that
@@ -1392,47 +1415,24 @@ async function runScopeVisibility(): Promise<void> {
 //
 // Cancelled jobs can still coexist with active ones (cancel + rebook).
 async function runJobsDedupeAndConstraint(): Promise<void> {
-  // Step 1: dedupe. Partition collapses NULL scheduled_time into the
-  // sentinel '00:00:00' so two NULL-time rows for the same client/date
-  // are caught. Order by created_at DESC, id DESC to keep the latest
-  // row — operator edits land via PATCH which doesn't change `id` but
-  // does bump `updated_at` indirectly via the row itself; if both
-  // share created_at, lowest id wins as a stable tiebreak.
-  const deleted = await db.execute(sql`
-    WITH dupes AS (
-      SELECT id,
-             ROW_NUMBER() OVER (
-               PARTITION BY company_id, client_id, scheduled_date,
-                            COALESCE(scheduled_time::text, '00:00:00')
-               ORDER BY created_at DESC NULLS LAST, id DESC
-             ) AS rn
-      FROM jobs
-      WHERE status NOT IN ('cancelled')
-    )
-    DELETE FROM jobs
-    WHERE id IN (SELECT id FROM dupes WHERE rn > 1)
-    RETURNING id
-  `);
-  const removed = (deleted.rows ?? []).length;
-  // [iter 2 logging] Always log — distinguishes "ran, found nothing"
-  // from "didn't run at all" when staring at Railway logs.
-  console.log(`[jobs-dedupe] Migration ran. Removed ${removed} duplicate job row(s).`);
-
-  // Step 2: replace the old index with the COALESCE-keyed version.
-  // Drop-then-create is safe because the dedupe in step 1 just ran;
-  // no transient duplicates to trip the new index. IF EXISTS guards
-  // first-run when the old name was never created.
+  // [overnight-job-loss 2026-06-05] CRITICAL FIX. This used to DELETE every
+  // non-cancelled job that shared (company_id, client_id, scheduled_date,
+  // scheduled_time) with another — keeping one — and enforce a UNIQUE index on
+  // that key. That "no double-book" assumption is WRONG for commercial
+  // accounts: a single client legitimately has multiple jobs the same day at
+  // the same time (KMA's Office + Common Areas, Daniel Walter's multiple PPM
+  // turnovers, multi-unit common areas, etc.). Running on EVERY cold-start
+  // (every deploy/restart), the sweep silently deleted those real jobs and the
+  // index blocked re-creating them — the office's "we scheduled jobs, woke up
+  // and they're gone / revenue is wrong again" report, and the Tuesday
+  // MC-vs-Qleno shortfall (Hilda's 3 PPM jobs collapsed to 1).
+  //
+  // Fix: NEVER auto-delete jobs here, and DROP the bad index so multiple
+  // same-client / same-day / same-time jobs can coexist. True recurrence
+  // duplicates are prevented at generation time by the engine's occurrence_date
+  // dedup (lib/recurring-jobs.ts) — not by a destructive nightly DB sweep.
   await db.execute(sql`DROP INDEX IF EXISTS uq_jobs_no_double_book`);
-  await db.execute(sql`
-    CREATE UNIQUE INDEX IF NOT EXISTS uq_jobs_no_double_book
-      ON jobs (
-        company_id,
-        client_id,
-        scheduled_date,
-        (COALESCE(scheduled_time::text, '00:00:00'))
-      )
-      WHERE status NOT IN ('cancelled')
-  `);
+  console.log("[jobs-dedupe] Destructive same-day dedupe REMOVED; dropped uq_jobs_no_double_book (commercial clients legitimately have multiple same-day jobs).");
 }
 
 // [pay-matrix 2026-04-29] Backfill the per-employee pay matrix and
