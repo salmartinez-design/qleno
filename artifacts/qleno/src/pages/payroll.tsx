@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -419,6 +420,80 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
   );
 }
 
+// [payroll-trend 2026-06-08] Company-level weekly Payroll-to-Revenue chart with
+// a YOY overlay (MaidCentral parity). Revenue vs payroll lines for the current
+// window + dashed prior-year lines (hidden until a year of history exists).
+// Headline shows payroll as % of revenue — the labor-cost KPI.
+function PayrollToRevenueChart() {
+  const [weeks, setWeeks] = useState(26);
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ['payroll-revenue-trend', weeks],
+    queryFn: () => apiFetch(`/payroll/revenue-trend?weeks=${weeks}`),
+  });
+  const series: any[] = data?.weeks || [];
+  const hasPrior = !!data?.has_prior_data;
+  const money0 = (n: number) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  const pct = data?.payroll_pct;
+  // Payroll % of revenue: <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
+  const pctColor = pct == null ? '#9E9B94' : pct < 40 ? '#16A34A' : pct <= 50 ? '#D97706' : '#DC2626';
+
+  return (
+    <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: '#1A1917', margin: '0 0 2px' }}>Payroll to Revenue</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>
+            {data ? <>Revenue {money0(data.total_revenue)} · Payroll {money0(data.total_payroll)} · last {weeks} weeks</> : 'Weekly labor cost vs revenue'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {pct != null && (
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Payroll % of rev</p>
+              <p style={{ fontSize: 20, fontWeight: 800, color: pctColor, margin: 0 }}>{pct}%</p>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8 }}>
+            {[13, 26, 52].map(w => (
+              <button key={w} onClick={() => setWeeks(w)}
+                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  background: weeks === w ? '#fff' : 'transparent', color: weeks === w ? '#1A1917' : '#9E9B94',
+                  boxShadow: weeks === w ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>
+                {w}w
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: '60px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>
+      ) : series.length === 0 ? (
+        <div style={{ padding: '60px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>No completed jobs in this window yet.</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9E9B94' }} interval="preserveStartEnd" minTickGap={24} />
+            <YAxis tick={{ fontSize: 11, fill: '#9E9B94' }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} width={44} />
+            <Tooltip formatter={(v: any, name: string) => [money0(Number(v)), name]} labelFormatter={(l: string) => `Week of ${l}`}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E2DC' }} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#5B9BD5" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="payroll" name="Payroll" stroke="#00C9A0" strokeWidth={2} dot={false} />
+            {hasPrior && <Line type="monotone" dataKey="prior_revenue" name="Revenue (last yr)" stroke="#B5D4F4" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
+            {hasPrior && <Line type="monotone" dataKey="prior_payroll" name="Payroll (last yr)" stroke="#9FE9D8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <p style={{ fontSize: 11, color: '#9E9B94', margin: '8px 2px 0' }}>
+        Payroll = commission + tips/additional + applied mileage. Revenue = completed-job totals.
+        {hasPrior ? ' Dashed lines = same weeks last year.' : ' Year-over-year overlay turns on automatically once a year of history exists.'}
+      </p>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const qc = useQueryClient();
   const { activeBranchId } = useBranch();
@@ -608,6 +683,9 @@ export default function PayrollPage() {
             </div>
           ))}
         </div>
+
+        {/* Payroll-to-Revenue trend + YOY */}
+        <PayrollToRevenueChart />
 
         {/* ── Pay Templates ── */}
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
