@@ -78,8 +78,14 @@ export function VoiceAssistant() {
           now: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
         }),
       });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d?.error || "failed");
+      const d = await r.json().catch(() => ({} as any));
+      if (!r.ok) {
+        // Surface the server's actual reason (e.g. "Assistant is not configured
+        // — set ANTHROPIC_API_KEY", auth/rate-limit), with the HTTP status as a
+        // fallback, instead of a generic "something went wrong" that hides it.
+        setAnswer(d?.error ? `${d.error}` : `${t.error} (${r.status})`);
+        return;
+      }
       setAnswer(d.answer || "");
       setNavUrl(d.navigate_url || null);
       if (d.answer) speak(d.answer);
