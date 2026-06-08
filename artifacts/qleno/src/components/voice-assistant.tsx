@@ -20,12 +20,20 @@ const T: Record<Lang, Record<string, string>> = {
     tap: "Tap the mic and ask", navigate: "Navigate", placeholder: "Or type your question…",
     send: "Ask", unsupported: "Voice isn't available on this browser — type your question.",
     error: "Something went wrong — try again.", examples: "Try: “What's my schedule today?” · “Navigate to my next job” · “What are the notes for this job?”",
+    micBlocked: "Microphone is blocked. Allow mic access for this site in your browser settings, then try again.",
+    noSpeech: "Didn't catch that — tap the mic and speak right after, or type below.",
+    noMic: "No microphone found on this device — type your question instead.",
+    netErr: "Couldn't reach the speech service — check your connection or type your question.",
   },
   es: {
     title: "Asistente", listening: "Escuchando…", thinking: "Pensando…",
     tap: "Toca el micrófono y pregunta", navigate: "Navegar", placeholder: "O escribe tu pregunta…",
     send: "Preguntar", unsupported: "La voz no está disponible en este navegador — escribe tu pregunta.",
     error: "Algo salió mal — inténtalo de nuevo.", examples: "Prueba: “¿Cuál es mi horario hoy?” · “Llévame a mi próximo trabajo” · “¿Cuáles son las notas de este trabajo?”",
+    micBlocked: "El micrófono está bloqueado. Permite el acceso al micrófono para este sitio y vuelve a intentar.",
+    noSpeech: "No escuché nada — toca el micrófono y habla, o escribe abajo.",
+    noMic: "No se encontró micrófono en este dispositivo — escribe tu pregunta.",
+    netErr: "No se pudo conectar al servicio de voz — revisa tu conexión o escribe tu pregunta.",
   },
 };
 
@@ -38,7 +46,10 @@ export function VoiceAssistant() {
   const [answer, setAnswer] = useState("");
   const [navUrl, setNavUrl] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
+  const [status, setStatus] = useState("");
   const recRef = useRef<any>(null);
+  const gotResultRef = useRef(false);
+  const hadErrorRef = useRef(false);
   const t = T[lang];
   const supported = !!SR;
 
@@ -58,13 +69,29 @@ export function VoiceAssistant() {
       const r = await fetch(`${API}/api/assistant/ask`, {
         method: "POST",
         headers: { ...(getAuthHeaders() as Record<string, string>), "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, language: lang }),
+        body: JSON.stringify({
+          question: q,
+          language: lang,
+          // Tech's LOCAL date + time so "today" and "my next job" are correct
+          // regardless of server timezone.
+          date: new Date().toLocaleDateString("en-CA"),
+          now: new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }),
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d?.error || "failed");
       setAnswer(d.answer || "");
       setNavUrl(d.navigate_url || null);
       if (d.answer) speak(d.answer);
+      // Navigate on command: when the assistant resolved a destination (e.g.
+      // "take me to my next job"), launch Google Maps directions automatically.
+      // Prefer a new tab; fall back to same-tab nav if the browser blocks it
+      // (keeps the Maps hand-off reliable on mobile). The Navigate button stays
+      // as a manual fallback.
+      if (d.navigate_url) {
+        const w = window.open(d.navigate_url, "_blank");
+        if (!w) window.location.href = d.navigate_url;
+      }
     } catch {
       setAnswer(t.error);
     } finally {
@@ -72,24 +99,52 @@ export function VoiceAssistant() {
     }
   }
 
-  function startListening() {
+  async function startListening() {
     if (!supported || listening || busy) return;
+    setStatus(""); setTranscript(""); setAnswer(""); setNavUrl(null);
+    // Pre-flight the microphone permission so a denial gives a clear message
+    // instead of a silent no-op (the #1 reason "the mic does nothing").
+    try {
+      if (navigator.mediaDevices?.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(tr => tr.stop());
+      }
+    } catch {
+      setStatus(t.micBlocked);
+      return;
+    }
     try {
       const rec = new SR();
       rec.lang = lang === "es" ? "es-MX" : "en-US";
       rec.interimResults = false;
       rec.maxAlternatives = 1;
+      gotResultRef.current = false;
+      hadErrorRef.current = false;
       rec.onresult = (ev: any) => {
         const text = ev?.results?.[0]?.[0]?.transcript ?? "";
-        if (text) ask(text);
+        if (text) { gotResultRef.current = true; ask(text); }
       };
-      rec.onend = () => setListening(false);
-      rec.onerror = () => setListening(false);
+      rec.onerror = (ev: any) => {
+        setListening(false);
+        hadErrorRef.current = true;
+        const code = ev?.error;
+        if (code === "not-allowed" || code === "service-not-allowed") setStatus(t.micBlocked);
+        else if (code === "no-speech") setStatus(t.noSpeech);
+        else if (code === "audio-capture") setStatus(t.noMic);
+        else if (code === "network") setStatus(t.netErr);
+        else if (code !== "aborted") setStatus(t.error);
+      };
+      rec.onend = () => {
+        setListening(false);
+        if (!gotResultRef.current && !hadErrorRef.current) setStatus(t.noSpeech);
+      };
       recRef.current = rec;
-      setTranscript(""); setAnswer(""); setNavUrl(null);
       setListening(true);
       rec.start();
-    } catch { setListening(false); }
+    } catch {
+      setListening(false);
+      setStatus(t.error);
+    }
   }
 
   function stopListening() {
@@ -208,6 +263,9 @@ export function VoiceAssistant() {
               </button>
             </div>
 
+            {status && (
+              <div style={{ fontSize: 12, color: "#92400E", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px" }}>{status}</div>
+            )}
             {!supported && (
               <div style={{ fontSize: 12, color: "#92400E", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px" }}>{t.unsupported}</div>
             )}

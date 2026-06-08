@@ -35,9 +35,15 @@ router.post("/ask", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId as number;
     const question = typeof req.body?.question === "string" ? req.body.question.trim() : "";
     const language = req.body?.language === "es" ? "es" : "en";
+    // Prefer the client's LOCAL date so an evening tech (UTC rollover) still
+    // gets today's jobs, not tomorrow's.
     const date = typeof req.body?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)
       ? req.body.date
       : new Date().toISOString().slice(0, 10);
+    // Client's local time (HH:MM) so "my next job" resolves against now.
+    const now = typeof req.body?.now === "string" && /^\d{1,2}:\d{2}/.test(req.body.now)
+      ? req.body.now.slice(0, 5)
+      : null;
 
     if (!question) { res.status(400).json({ error: "question required" }); return; }
     if (question.length > 1000) { res.status(400).json({ error: "question too long" }); return; }
@@ -101,7 +107,7 @@ router.post("/ask", requireAuth, async (req, res) => {
     const langName = LANG_NAME[language];
     const system =
       `You are a friendly, concise voice assistant for a house-cleaning technician using the Qleno app. ` +
-      `Today is ${date}. You are given ONLY this technician's own jobs for the day as JSON. ` +
+      `Today is ${date}.${now ? ` The current local time is ${now}; "my next job" / "next stop" means the earliest job scheduled at or after ${now} (or the first job today if none remain).` : ""} You are given ONLY this technician's own jobs for the day as JSON. ` +
       `Answer the technician's question using ONLY that data — never invent jobs, addresses, times, or notes. ` +
       `If the answer isn't in the data, say you don't have that information. ` +
       // [assistant-guardrail 2026-06-08] Defense-in-depth: pay/commission and
