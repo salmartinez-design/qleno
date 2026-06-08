@@ -568,63 +568,8 @@ export default function PayrollPage() {
   const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('weekly-detail');
   const [expandedOverview, setExpandedOverview] = useState<number[]>([]);
 
-  // Templates
-  const { data: templatesData, refetch: refetchTemplates } = useQuery({
-    queryKey: ['pay-templates'],
-    queryFn: () => apiFetch('/payroll/templates'),
-  });
-  const templates: any[] = templatesData?.data || [];
-
-  // Apply modal
-  const [applyTemplate, setApplyTemplate] = useState<any | null>(null);
-  const [applyEmpId, setApplyEmpId] = useState('');
-  const [applyNotes, setApplyNotes] = useState('');
-  const [applying, setApplying] = useState(false);
-
-  // New template modal
-  const [newTplModal, setNewTplModal] = useState(false);
-  const [newTpl, setNewTpl] = useState({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
-  const [savingTpl, setSavingTpl] = useState(false);
-
-  async function handleApplyTemplate() {
-    if (!applyTemplate || !applyEmpId) return;
-    setApplying(true);
-    try {
-      await apiFetch(`/users/${applyEmpId}/additional-pay`, {
-        method: 'POST',
-        body: JSON.stringify({ type: applyTemplate.type, amount: applyTemplate.amount, notes: applyNotes || applyTemplate.notes }),
-      });
-      setApplyTemplate(null);
-      setApplyEmpId('');
-      setApplyNotes('');
-    } catch { alert('Failed to apply template'); }
-    setApplying(false);
-  }
-
-  async function handleSaveTpl() {
-    if (!newTpl.name || !newTpl.amount) return;
-    // Custom category → slugify into a reusable additional_pay type, e.g.
-    // "Google Review Bonus" → "google_review_bonus". Lets the office define
-    // their own pay categories (review bonus, birthday, etc.).
-    const resolvedType = newTpl.type === '__custom__'
-      ? (newTpl.customName || newTpl.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-      : newTpl.type;
-    if (!resolvedType) return;
-    setSavingTpl(true);
-    try {
-      await apiFetch('/payroll/templates', { method: 'POST', body: JSON.stringify({ name: newTpl.name, type: resolvedType, amount: newTpl.amount, notes: newTpl.notes }) });
-      setNewTplModal(false);
-      setNewTpl({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
-      refetchTemplates();
-    } catch { alert('Failed to save template'); }
-    setSavingTpl(false);
-  }
-
-  async function handleDeleteTpl(id: number) {
-    if (!confirm('Delete this template?')) return;
-    await apiFetch(`/payroll/templates/${id}`, { method: 'DELETE' });
-    refetchTemplates();
-  }
+  // Pay Templates removed per Sal (2026-06-08): additional pay is added directly
+  // on the employee profile and cascades into the payroll summary by date.
 
   const inputStyle: React.CSSProperties = { height:36,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%',fontFamily:'inherit' };
   const labelStyle: React.CSSProperties = { fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 };
@@ -697,45 +642,6 @@ export default function PayrollPage() {
 
         {/* Payroll-to-Revenue trend + YOY */}
         <PayrollToRevenueChart />
-
-        {/* ── Pay Templates ── */}
-        <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: '0 0 2px 0' }}>Pay Templates</p>
-              <p style={{ fontSize: '12px', color: '#9E9B94', margin: 0 }}>Pre-configured pay types — click Apply to send to an employee</p>
-            </div>
-            {isOwnerAdmin && (
-              <button onClick={() => setNewTplModal(true)}
-                style={{ display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                <Plus size={13}/> New Template
-              </button>
-            )}
-          </div>
-          <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            {templates.length === 0 ? (
-              <div style={{ gridColumn:'1/-1',padding:'32px 0',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No pay templates yet</div>
-            ) : templates.map((t: any) => (
-              <div key={t.id} style={{ border:'1px solid #E5E2DC',borderRadius:10,padding:'16px 18px',display:'flex',flexDirection:'column',gap:8 }}>
-                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start' }}>
-                  <span style={{ fontSize:13,fontWeight:700,color:'#1A1917' }}>{t.name}</span>
-                  {isOwnerAdmin && (
-                    <button onClick={() => handleDeleteTpl(t.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#C4C0B8',padding:0 }} title="Delete"><Trash2 size={13}/></button>
-                  )}
-                </div>
-                <span style={{ fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:10,background:'#DBEAFE',color:'#1E40AF',alignSelf:'flex-start' }}>
-                  {labelType(t.type)}
-                </span>
-                <div style={{ fontSize:22,fontWeight:800,color:'var(--brand)' }}>${parseFloat(t.amount).toFixed(2)}</div>
-                {t.notes && <div style={{ fontSize:11,color:'#9E9B94' }}>{t.notes}</div>}
-                <button onClick={() => { setApplyTemplate(t); setApplyEmpId(''); setApplyNotes(''); }}
-                  style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',marginTop:4 }}>
-                  <Zap size={12}/> Apply
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
 
         {/* Employee Payroll Table */}
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
@@ -841,95 +747,6 @@ export default function PayrollPage() {
       </>}
       </div>
 
-      {/* ── Apply Template Modal ── */}
-      {applyTemplate && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-          <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4 }}>
-              <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>Apply Template</h3>
-              <button onClick={() => setApplyTemplate(null)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
-            </div>
-            <p style={{ margin:'0 0 20px 0',fontSize:12,color:'#9E9B94' }}>
-              <strong style={{ color:'#1A1917' }}>{applyTemplate.name}</strong> — ${parseFloat(applyTemplate.amount).toFixed(2)} · {labelType(applyTemplate.type)}
-            </p>
-            <div style={{ display:'flex',flexDirection:'column',gap:12,marginBottom:20 }}>
-              <div>
-                <label style={labelStyle}>Employee</label>
-                <select value={applyEmpId} onChange={e => setApplyEmpId(e.target.value)} style={inputStyle}>
-                  <option value="">Select an employee…</option>
-                  {billableEmployees.map((e: any) => (
-                    <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Notes (optional)</label>
-                <input value={applyNotes} onChange={e => setApplyNotes(e.target.value)} placeholder={applyTemplate.notes || 'Override note…'} style={inputStyle}/>
-              </div>
-            </div>
-            <div style={{ display:'flex',gap:10,justifyContent:'flex-end' }}>
-              <button onClick={() => setApplyTemplate(null)}
-                style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-              <button onClick={handleApplyTemplate} disabled={!applyEmpId || applying}
-                style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:(!applyEmpId||applying)?0.5:1 }}>
-                <Zap size={13}/> {applying ? 'Applying…' : 'Apply Pay Entry'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── New Template Modal ── */}
-      {newTplModal && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-          <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20 }}>
-              <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>New Pay Template</h3>
-              <button onClick={() => setNewTplModal(false)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
-            </div>
-            <div style={{ display:'flex',flexDirection:'column',gap:12,marginBottom:20 }}>
-              <div>
-                <label style={labelStyle}>Template Name</label>
-                <input value={newTpl.name} onChange={e => setNewTpl(p => ({...p,name:e.target.value}))} placeholder="e.g. Holiday Pay" style={inputStyle}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Category</label>
-                <select value={newTpl.type} onChange={e => setNewTpl(p => ({...p,type:e.target.value}))} style={inputStyle}>
-                  {PAY_GROUPS.map(g => (
-                    <optgroup key={g.label} label={g.label}>
-                      {g.types.map(t => <option key={t} value={t}>{PAY_TYPE_LABELS[t]}</option>)}
-                    </optgroup>
-                  ))}
-                  <option value="__custom__">+ Custom category…</option>
-                </select>
-              </div>
-              {newTpl.type === '__custom__' && (
-                <div>
-                  <label style={labelStyle}>Custom category name</label>
-                  <input value={newTpl.customName} onChange={e => setNewTpl(p => ({...p,customName:e.target.value}))} placeholder="e.g. Google Review Bonus, Birthday Pay" style={inputStyle}/>
-                  <p style={{ fontSize:11,color:'#9E9B94',margin:'4px 0 0' }}>Reusable pay category — e.g. $10 per Google/FB review, birthday pay. Techs see it in their tips &amp; bonuses.</p>
-                </div>
-              )}
-              <div>
-                <label style={labelStyle}>Default Amount ($)</label>
-                <input type="number" value={newTpl.amount} onChange={e => setNewTpl(p => ({...p,amount:e.target.value}))} placeholder="0.00" style={inputStyle}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Notes (optional)</label>
-                <input value={newTpl.notes} onChange={e => setNewTpl(p => ({...p,notes:e.target.value}))} placeholder="Description…" style={inputStyle}/>
-              </div>
-            </div>
-            <div style={{ display:'flex',gap:10,justifyContent:'flex-end' }}>
-              <button onClick={() => setNewTplModal(false)}
-                style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-              <button onClick={handleSaveTpl} disabled={!newTpl.name || !newTpl.amount || savingTpl}
-                style={{ padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:(!newTpl.name||!newTpl.amount||savingTpl)?0.5:1 }}>
-                {savingTpl ? 'Saving…' : 'Save Template'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }

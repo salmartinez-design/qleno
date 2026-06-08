@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
+import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
@@ -61,6 +61,7 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       .from(additionalPayTable)
       .where(and(
         eq(additionalPayTable.company_id, req.auth!.companyId),
+        ne(additionalPayTable.status, "voided"),
         gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
         lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`))
       ))
@@ -602,6 +603,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     // in the period. [additional-pay-date 2026-06-08]
     const addlPayConditions: any[] = [
       eq(additionalPayTable.company_id, companyId),
+      ne(additionalPayTable.status, "voided"),
       gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
       lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`)),
     ];
@@ -926,7 +928,7 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
       try {
         const ap = await db.execute(sql`
           SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS wk, COALESCE(SUM(amount),0) AS total
-          FROM additional_pay WHERE company_id = ${companyId} AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
+          FROM additional_pay WHERE company_id = ${companyId} AND status <> 'voided' AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
           GROUP BY wk`);
         for (const r of ap.rows as any[]) touch(String(r.wk)).payroll += parseFloat(String(r.total || 0));
       } catch { /* additional_pay absent — skip */ }
