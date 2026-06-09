@@ -24,6 +24,7 @@ import reportsRouter from "./reports.js";
 import notificationsRouter from "./notifications.js";
 import jobSmsRouter from "./job-sms.js";
 import quotesRouter from "./quotes.js";
+import estimatesRouter from "./estimates.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
 import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
@@ -120,6 +121,7 @@ router.use("/messages", messagesRouter);
 router.use("/reports", reportsRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/quotes", quotesRouter);
+router.use("/estimates", estimatesRouter);
 router.use("/payments", paymentsRouter);
 router.use("/attachments", attachmentsRouter);
 // [translate-job-notes 2026-05-27] Office-only translation endpoint —

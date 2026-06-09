@@ -147,3 +147,8 @@ export * from "./attendance_proposals";
 // Push-notification device tokens (Capacitor native app). One user → many
 // devices; sender lives in api-server/src/lib/push.ts, gated by COMMS_ENABLED.
 export * from "./device_tokens";
+
+// [commercial-estimate-tool 2026-06-09] Commercial / common-area estimate
+// builder: estimates + line items + reusable templates. Separate from the
+// residential quotes builder.
+export * from "./estimates";
