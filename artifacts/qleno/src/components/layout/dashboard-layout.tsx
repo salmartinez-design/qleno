@@ -566,7 +566,19 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
   const { data: user, isLoading, isError, error } = useGetMe({
     request: { headers: getAuthHeaders() },
-    query: { enabled: !!token, retry: false },
+    // Ride through transient /me failures instead of instantly destroying the
+    // session. A rolling deploy, a brief 5xx, or a replica mid-secret-rotation
+    // can reject a freshly-signed token for a second or two; without a retry
+    // that single 401 nukes the token and bounces the user back to /login,
+    // trapping them in a login loop on every attempt. We retry a few times
+    // with a short capped backoff before trusting the error. A genuinely bad
+    // token only delays logout by ~3s; a transient blip no longer locks anyone
+    // out. Logout still only fires after the retries are exhausted (below).
+    query: {
+      enabled: !!token,
+      retry: 3,
+      retryDelay: (attempt) => Math.min(500 * 2 ** attempt, 2000),
+    },
   });
 
   const isManager = user?.role === 'owner' || user?.role === 'office';
