@@ -8,7 +8,8 @@ import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign } from "lucide
 import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
-import { formatAddress } from "@/lib/format-address";
+import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
+import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
 
@@ -565,7 +566,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
       )}
       {job.address && (
         <a
-          href={`https://maps.apple.com/?address=${encodeURIComponent(formatAddress(job.address, job.city, job.state, job.zip))}`}
+          href={mapsDirectionsUrl(formatAddress(job.address, job.city, job.state, job.zip)) ?? "#"}
           target="_blank"
           rel="noreferrer"
           style={{
@@ -956,6 +957,7 @@ export default function MyJobsPage() {
           )}
         </div>
       </div>
+      <VoiceAssistant />
     </div>
   );
 }

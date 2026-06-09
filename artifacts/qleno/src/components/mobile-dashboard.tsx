@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import type { ReactNode, CSSProperties } from "react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Settings2, ArrowUp, ArrowDown, X, RotateCcw } from "lucide-react";
+import { useLocation } from "wouter";
+import { Settings2, ArrowUp, ArrowDown, X, RotateCcw, ChevronRight } from "lucide-react";
 
 // Role-based, user-customizable MOBILE dashboard. Each user picks which cards
 // to show and in what order; defaults differ by role but every card is in the
@@ -90,8 +91,23 @@ const OWNER_DEFAULT = ["daily_revenue", "jobs_today", "revenue_booked_today", "q
 const OFFICE_DEFAULT = ["jobs_scheduled_today", "late_clockins", "todays_status", "unassigned_jobs", "techs_today", "next_7_days"];
 const roleDefault = (role: string) => (role === "owner" ? OWNER_DEFAULT : OFFICE_DEFAULT);
 
+// Tap a metric card to open the underlying list/report it summarizes.
+const CARD_HREF: Record<string, string> = {
+  leads: "/leads",
+  quotes: "/quotes", closed_quotes: "/quotes", close_rate: "/quotes",
+  quotes_today: "/quotes", closed_quotes_today: "/quotes", close_rate_today: "/quotes",
+  daily_revenue: "/reports/revenue", revenue_booked_today: "/reports/revenue",
+  monthly_revenue: "/reports/revenue", avg_bill: "/reports/revenue", rate_trend: "/reports/revenue",
+  jobs_today: "/dispatch", jobs_scheduled_today: "/dispatch", unassigned_jobs: "/dispatch",
+  todays_status: "/dispatch", late_clockins: "/dispatch", techs_today: "/dispatch", next_7_days: "/dispatch",
+  active_clients: "/customers",
+  retention: "/reports/satisfaction",
+  payroll_pct: "/reports/payroll-to-revenue",
+};
+
 export default function MobileDashboard() {
   const { activeBranchId } = useBranch();
+  const [, setLocation] = useLocation();
   const role = getTokenRole() || "office";
 
   const [data, setData] = useState<CardData | null>(null);
@@ -209,10 +225,13 @@ export default function MobileDashboard() {
           const def = cardDef(k);
           if (!def || !data) return null;
           return (
-            <div key={k} style={{ ...CARD, padding: 16 }}>
+            <div key={k}
+              onClick={CARD_HREF[k] ? () => setLocation(CARD_HREF[k]) : undefined}
+              style={{ ...CARD, padding: 16, position: "relative", cursor: CARD_HREF[k] ? "pointer" : "default" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em" }}>{def.label}</div>
               <div style={{ marginTop: 6 }}>{def.render(data)}</div>
               {def.sub && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>{def.sub}</div>}
+              {CARD_HREF[k] && <ChevronRight size={16} style={{ position: "absolute", top: 16, right: 14, color: "#C4C0B8" }} />}
             </div>
           );
         })

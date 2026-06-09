@@ -195,6 +195,11 @@ export async function insertJobFromSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(date),
+      // [recurring-reschedule 2026-06-05] Stamp the cadence slot. scheduled_date
+      // and occurrence_date start equal; the office can later move
+      // scheduled_date, but occurrence_date stays so dedup still sees this slot
+      // as filled and the cron won't regenerate it.
+      occurrence_date: toDateStr(date) as any,
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
@@ -279,6 +284,17 @@ type ScheduleInput = {
   parking_fee_days?: number[] | null;
 };
 
+// [zero-fee-commercial 2026-06-08] Commercial visits are legitimately $0 when
+// the office bills the amount on a sibling job / monthly contract (Sal's
+// split-billing). The engine GENERATES those so they appear on the board +
+// count. Residential $0 stays blocked — that's the misconfigured "phantom $0
+// job" guard (744 cleaned up in Session 1). Detection is by service_type.
+const COMMERCIAL_SERVICE_TYPES = new Set([
+  "office_cleaning", "common_areas", "retail_store", "medical_office",
+  "ppm_turnover", "post_event", "ppm_common_areas",
+  "commercial_cleaning", "recurring_commercial_cleaning",
+]);
+
 // Pure compute: produces insert-ready rows after the dedupe check, but does NOT
 // insert. Returned rows can be handed to db.insert() directly (live run) or
 // serialized into a dry-run response.
@@ -295,21 +311,39 @@ export async function computeOccurrencesForSchedule(
   const fromStr = toDateStr(fromDate);
   const toStr = toDateStr(toDate);
 
-  const existingRows = await db
-    .select({ scheduled_date: jobsTable.scheduled_date })
-    .from(jobsTable)
-    .where(
-      and(
-        eq(jobsTable.company_id, schedule.company_id),
-        eq((jobsTable as any).recurring_schedule_id, schedule.id),
-        gte(jobsTable.scheduled_date, fromStr),
-        lte(jobsTable.scheduled_date, toStr)
-      )
-    );
+  // [recurring-reschedule 2026-06-05] Dedup on the job's OCCURRENCE date (the
+  // cadence slot it was born from), not its scheduled_date. When the office
+  // moves a recurring occurrence off its day, scheduled_date changes but
+  // occurrence_date does not — so the slot still reads as filled and this run
+  // won't regenerate a duplicate on the original day (the "appears again on
+  // Monday 8th" bug). COALESCE falls back to scheduled_date for legacy rows
+  // generated before occurrence_date existed (backfilled on migration, but the
+  // fallback keeps a fresh deploy correct before the backfill lands). Matching
+  // on the coalesced occurrence date also catches a job that was moved OUT of
+  // the [from,to] window — its slot is still inside the window and stays filled.
+  const existing = await db.execute(sql`
+    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    FROM jobs
+    WHERE company_id = ${schedule.company_id}
+      AND recurring_schedule_id = ${schedule.id}
+      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
+      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+  `);
 
-  const existingDates = new Set(existingRows.map(r => String(r.scheduled_date)));
+  const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
-  const toInsert = occurrences.filter(d => !existingDates.has(toDateStr(d)));
+  // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
+  // purpose. The generator must NOT regenerate them — otherwise a deleted
+  // recurring occurrence "keeps coming back". Stored as YYYY-MM-DD on the
+  // schedule; normalize to a date string and exclude from the insert set.
+  const skipSet = new Set(
+    (((schedule as any).skipped_dates ?? []) as (string | Date)[]).map(x => String(x).slice(0, 10))
+  );
+
+  const toInsert = occurrences.filter(d => {
+    const ds = toDateStr(d);
+    return !existingDates.has(ds) && !skipSet.has(ds);
+  });
   const skipped = occurrences.length - toInsert.length;
 
   if (!toInsert.length) return { rows: [], skipped };
@@ -331,6 +365,7 @@ export async function computeOccurrencesForSchedule(
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
       scheduled_date: toDateStr(d),
+      occurrence_date: toDateStr(d),
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
@@ -642,8 +677,12 @@ export async function generateRecurringJobs(
       }
 
       const feeNum = parseFloat(feeTrimmed);
-      if (!Number.isFinite(feeNum) || feeNum === 0) {
-        console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0`);
+      // [zero-fee-commercial 2026-06-08] $0 is legitimate for COMMERCIAL
+      // schedules (split-billed / contract visits). Generate those; keep
+      // skipping non-numeric fees and $0 on RESIDENTIAL schedules (phantom guard).
+      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase());
+      if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
+        console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
         skippedZeroFee++;
         if (skippedSchedules.length < SKIPPED_SCHEDULES_CAP) {
           skippedSchedules.push({

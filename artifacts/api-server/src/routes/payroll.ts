@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
+import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
@@ -61,8 +61,9 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       .from(additionalPayTable)
       .where(and(
         eq(additionalPayTable.company_id, req.auth!.companyId),
-        gte(additionalPayTable.created_at, new Date(pay_period_start as string)),
-        lte(additionalPayTable.created_at, new Date(pay_period_end as string))
+        ne(additionalPayTable.status, "voided"),
+        gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
+        lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`))
       ))
       .groupBy(additionalPayTable.user_id, additionalPayTable.type);
 
@@ -597,10 +598,14 @@ router.get("/detail", requireAuth, async (req, res) => {
     } catch { /* branches table not in some seeded tenants; rollup degrades to ids */ }
 
     // Get additional pay for the period (tips, mileage — period level, not per job)
+    // Bucket additional pay by its effective date (created_at), inclusive of the
+    // whole end day in UTC so an entry dated on the last day of the period lands
+    // in the period. [additional-pay-date 2026-06-08]
     const addlPayConditions: any[] = [
       eq(additionalPayTable.company_id, companyId),
-      gte(additionalPayTable.created_at, new Date(pay_period_start as string)),
-      lte(additionalPayTable.created_at, new Date(pay_period_end as string)),
+      ne(additionalPayTable.status, "voided"),
+      gte(additionalPayTable.created_at, new Date(`${String(pay_period_start)}T00:00:00Z`)),
+      lte(additionalPayTable.created_at, new Date(`${String(pay_period_end)}T23:59:59Z`)),
     ];
     if (filterUserId) addlPayConditions.push(eq(additionalPayTable.user_id, filterUserId));
 
@@ -834,6 +839,149 @@ router.get("/detail", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Payroll detail error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get payroll detail" });
+  }
+});
+
+// ── Payroll-to-Revenue trend (weekly, with YOY overlay) ───────────────────────
+// [payroll-trend 2026-06-08] Company-level weekly revenue vs payroll for the
+// Payroll summary chart (MaidCentral "Payroll to Revenue" parity + a YOY
+// overlay). Revenue = completed-job totals by week; payroll = commission
+// (canonical engine) + additional_pay + applied pay_adjustments by week. The
+// prior-year series is the same weeks shifted −364 days (52 wks — keeps the
+// Monday alignment); it's plumbed in even though Phes has no pre-cutover data
+// yet, so it lights up automatically once a year of history exists. Office-only.
+router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const weeks = Math.min(Math.max(parseInt(String(req.query.weeks ?? "26"), 10) || 26, 4), 104);
+
+    const addDays = (ymd: string, n: number) => {
+      const d = new Date(`${ymd}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    };
+    const curWeekMon = mondayOf(new Date().toISOString().slice(0, 10));
+    const curStart = addDays(curWeekMon, -(weeks - 1) * 7);
+    const curEnd = addDays(curWeekMon, 6); // Sunday of the current week
+    const priorStart = addDays(curStart, -364);
+    const priorEnd = addDays(curEnd, -364);
+
+    // Company comp settings (same resolution as the rest of the payroll build).
+    let comp: any = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32, commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" };
+    try {
+      const cr = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+      if (cr.rows[0]) comp = cr.rows[0];
+    } catch { /* keep defaults */ }
+    const resRates = parseResRatesRow(comp);
+    const commercial = {
+      commercial_hourly_rate: parseFloat(String(comp.commercial_hourly_rate ?? 20)),
+      commercial_comp_mode: String(comp.commercial_comp_mode ?? "allowed_hours") as "allowed_hours" | "actual_hours",
+    };
+
+    // Build a week(MondayYMD) → {revenue, payroll} map for one [from,to] window.
+    const buildWindow = async (from: string, to: string) => {
+      const bucket = new Map<string, { revenue: number; payroll: number }>();
+      const touch = (wk: string) => {
+        let b = bucket.get(wk);
+        if (!b) { b = { revenue: 0, payroll: 0 }; bucket.set(wk, b); }
+        return b;
+      };
+
+      // any[] conditions array (matches /detail) so drizzle's and()/where()
+      // overload inference stays happy.
+      const trendConds: any[] = [
+        eq(jobsTable.company_id, companyId),
+        eq(jobsTable.status, "complete"),
+        gte(jobsTable.scheduled_date, from),
+        lte(jobsTable.scheduled_date, to),
+      ];
+      const cJobs = await db
+        .select({
+          id: jobsTable.id, assigned_user_id: jobsTable.assigned_user_id,
+          service_type: jobsTable.service_type, account_id: jobsTable.account_id,
+          base_fee: jobsTable.base_fee, billed_amount: jobsTable.billed_amount,
+          allowed_hours: jobsTable.allowed_hours, actual_hours: jobsTable.actual_hours,
+          branch_id: jobsTable.branch_id, scheduled_date: jobsTable.scheduled_date,
+        })
+        .from(jobsTable)
+        .where(and(...trendConds));
+
+      // Revenue = every completed job's total by week (incl. unassigned).
+      for (const j of cJobs) {
+        const total = parseFloat(String(j.billed_amount ?? j.base_fee ?? 0)) || 0;
+        touch(mondayOf(j.scheduled_date)).revenue += total;
+      }
+
+      // Commission via the canonical engine (+ per-job final_pay overrides).
+      const overrides = new Map<string, number>();
+      const jobIds = cJobs.map(j => j.id);
+      if (jobIds.length) {
+        try {
+          const ov = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL`);
+          for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
+        } catch { /* job_technicians absent */ }
+      }
+      const rows = computeCommissionRows({ jobs: cJobs as any, resRates, commercial, overrides });
+      for (const row of rows) touch(mondayOf(row.scheduled_date)).payroll += row.amount;
+
+      // Additional pay + applied pay_adjustments by their created_at week.
+      try {
+        const ap = await db.execute(sql`
+          SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS wk, COALESCE(SUM(amount),0) AS total
+          FROM additional_pay WHERE company_id = ${companyId} AND status <> 'voided' AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
+          GROUP BY wk`);
+        for (const r of ap.rows as any[]) touch(String(r.wk)).payroll += parseFloat(String(r.total || 0));
+      } catch { /* additional_pay absent — skip */ }
+      try {
+        const adj = await db.execute(sql`
+          SELECT to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS wk, COALESCE(SUM(amount),0) AS total
+          FROM pay_adjustments WHERE company_id = ${companyId} AND created_at >= ${from} AND created_at <= ${to + " 23:59:59"}
+          GROUP BY wk`);
+        for (const r of adj.rows as any[]) touch(String(r.wk)).payroll += parseFloat(String(r.total || 0));
+      } catch { /* pay_adjustments absent — skip */ }
+
+      return bucket;
+    };
+
+    const [cur, prior] = await Promise.all([
+      buildWindow(curStart, curEnd),
+      buildWindow(priorStart, priorEnd),
+    ]);
+
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const labelFmt = (ymd: string) => { const d = new Date(`${ymd}T00:00:00Z`); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+
+    const series = [];
+    for (let i = 0; i < weeks; i++) {
+      const wk = addDays(curStart, i * 7);
+      const c = cur.get(wk) || { revenue: 0, payroll: 0 };
+      const p = prior.get(addDays(wk, -364)) || { revenue: 0, payroll: 0 };
+      series.push({
+        week_start: wk,
+        label: labelFmt(wk),
+        revenue: round2(c.revenue),
+        payroll: round2(c.payroll),
+        ratio: c.revenue > 0 ? Math.round((c.payroll / c.revenue) * 1000) / 10 : null,
+        prior_revenue: round2(p.revenue),
+        prior_payroll: round2(p.payroll),
+      });
+    }
+
+    const totRev = series.reduce((s, w) => s + w.revenue, 0);
+    const totPay = series.reduce((s, w) => s + w.payroll, 0);
+
+    return res.json({
+      weeks: series,
+      from: curStart,
+      to: curEnd,
+      total_revenue: round2(totRev),
+      total_payroll: round2(totPay),
+      payroll_pct: totRev > 0 ? Math.round((totPay / totRev) * 1000) / 10 : null,
+      has_prior_data: series.some(w => w.prior_revenue > 0 || w.prior_payroll > 0),
+    });
+  } catch (err) {
+    console.error("Payroll revenue-trend error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to get revenue trend" });
   }
 });
 

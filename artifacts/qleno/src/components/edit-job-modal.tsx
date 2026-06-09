@@ -377,6 +377,11 @@ export default function EditJobModal({
   type CascadeChoice = "this_job" | "this_and_future" | "all" | "remove_this" | "create_recurring";
   const [cascadePromptOpen, setCascadePromptOpen] = useState(false);
   const [cascadeChoice, setCascadeChoice] = useState<CascadeChoice>("this_job");
+  // [cascade-confirm 2026-06-05] Second-step confirm before a series-wide apply
+  // (this_and_future / all). These scopes can REMOVE future occurrences (when
+  // the day pattern changed) and recreate them — Sal asked for an explicit
+  // "are you sure" so a broad edit can't surprise anyone.
+  const [cascadeConfirm, setCascadeConfirm] = useState(false);
   // [PR / 2026-04-30] Set true when onSaveClick detected a mixed edit
   // (BOTH template + occurrence fields changed). Renders a footnote in
   // the cascade prompt explaining what "Just this visit" will and
@@ -2242,7 +2247,7 @@ export default function EditJobModal({
                     const sel = cascadeChoice === opt.v;
                     return (
                       <div key={opt.v}>
-                        <button type="button" onClick={() => setCascadeChoice(opt.v)}
+                        <button type="button" onClick={() => { setCascadeChoice(opt.v); setCascadeConfirm(false); }}
                           style={{
                             width: "100%",
                             textAlign: "left", padding: "12px 14px", borderRadius: 10,
@@ -2290,16 +2295,42 @@ export default function EditJobModal({
                 </div>
               );
             })()}
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setCascadePromptOpen(false); setMixedEditWarning(null); }} disabled={saving}
-                style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                Cancel
-              </button>
-              <button onClick={() => submit(cascadeChoice)} disabled={saving}
-                style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
-                {saving ? "Applying…" : "Apply changes"}
-              </button>
-            </div>
+            {(() => {
+              const isSeriesWide = cascadeChoice === "this_and_future" || cascadeChoice === "all";
+              return (
+                <>
+                  {isSeriesWide && cascadeConfirm && (
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 10 }}>
+                      <AlertTriangle size={16} color="#B91C1C" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>
+                        This applies to <strong>{cascadeChoice === "all" ? "every visit (past + future)" : "every future visit"}</strong> of this recurring job. If you changed the day, occurrences that no longer match are <strong>removed</strong> and recreated on the new day. Make sure that's intended.
+                      </span>
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => {
+                        if (isSeriesWide && cascadeConfirm) { setCascadeConfirm(false); return; }
+                        setCascadePromptOpen(false); setMixedEditWarning(null); setCascadeConfirm(false);
+                      }}
+                      disabled={saving}
+                      style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      {isSeriesWide && cascadeConfirm ? "Back" : "Cancel"}
+                    </button>
+                    <button
+                      onClick={() => {
+                        // First click on a series-wide scope arms the confirm; second click commits.
+                        if (isSeriesWide && !cascadeConfirm) { setCascadeConfirm(true); return; }
+                        submit(cascadeChoice);
+                      }}
+                      disabled={saving}
+                      style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (isSeriesWide && cascadeConfirm) ? "#DC2626" : "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                      {saving ? "Applying…" : (isSeriesWide && cascadeConfirm) ? "Yes, apply to the series" : "Apply changes"}
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </>
       )}

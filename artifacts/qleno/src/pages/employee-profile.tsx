@@ -676,10 +676,10 @@ export default function EmployeeProfilePage() {
   }
 
   const [payModal, setPayModal] = useState(false);
-  const [newPay, setNewPay] = useState({ type: 'bonus', amount: '', notes: '' });
+  const [newPay, setNewPay] = useState({ type: 'bonus', amount: '', notes: '', date: new Date().toISOString().slice(0, 10) });
   async function addPay() {
     await apiFetch(`/users/${userId}/additional-pay`, { method: 'POST', body: JSON.stringify(newPay) });
-    setPayModal(false); setNewPay({ type: 'bonus', amount: '', notes: '' });
+    setPayModal(false); setNewPay({ type: 'bonus', amount: '', notes: '', date: new Date().toISOString().slice(0, 10) });
     refetchPay();
     showToast('Pay entry added');
   }
@@ -1803,6 +1803,9 @@ export default function EmployeeProfilePage() {
                     ))}
                   </select>
                 </Field>
+                <Field label="Date">
+                  <Input type="date" value={newPay.date} onChange={v=>setNewPay(p=>({...p,date:v}))}/>
+                </Field>
                 <Field label="Amount ($)">
                   <Input type="number" value={newPay.amount} onChange={v=>setNewPay(p=>({...p,amount:v}))} placeholder="0.00"/>
                 </Field>
@@ -1811,7 +1814,7 @@ export default function EmployeeProfilePage() {
                 </Field>
               </div>
               <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-                <button onClick={() => { setPayModal(false); setNewPay({ type:'bonus', amount:'', notes:'' }); }}
+                <button onClick={() => { setPayModal(false); setNewPay({ type:'bonus', amount:'', notes:'', date: new Date().toISOString().slice(0, 10) }); }}
                   style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                 <button onClick={addPay} disabled={!newPay.amount}
                   style={{ padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:!newPay.amount?0.5:1 }}>

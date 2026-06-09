@@ -72,10 +72,13 @@ import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
 import { getDistanceProvider } from "../lib/distance-provider-factory.js";
 import type { DistanceProvider } from "../lib/distance-provider.js";
 import {
-  computeCommissionRows,
   reconcileCommissionRows,
   type CommissionInputJob,
 } from "../lib/commission-compute.js";
+import {
+  computePerTechCommissionRows,
+  type JobTechRow,
+} from "../lib/commission-paytype.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { additionalPayTable } from "@workspace/db/schema";
 
@@ -798,8 +801,13 @@ async function computeAndApplyCommission(
       actual_hours: jobsTable.actual_hours,
       branch_id: jobsTable.branch_id,
       scheduled_date: jobsTable.scheduled_date,
+      // [commercial-client 2026-06-06] commercial routing also honors a
+      // commercial client_type even when the job's service_type reads
+      // residential (e.g. a condo's Deep Clean).
+      client_type: clientsTable.client_type,
     })
     .from(jobsTable)
+    .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
     .where(
       and(
         eq(jobsTable.company_id, companyId),
@@ -809,37 +817,93 @@ async function computeAndApplyCommission(
       ),
     );
 
-  // Per-job final_pay overrides on job_technicians — when set, the office
-  // hand-modified commission via the per-job editor and we honor it.
   const jobIds = jobs.map((j) => j.id);
+  const commercialCfg = {
+    commercial_hourly_rate: parseFloat(String(compSettings.commercial_hourly_rate ?? 20)),
+    commercial_comp_mode: (compSettings.commercial_comp_mode === "actual_hours"
+      ? "actual_hours"
+      : "allowed_hours") as "actual_hours" | "allowed_hours",
+  };
+
+  // Per-tech pay-type rows (job_technicians) + per-job final_pay overrides.
+  // The parity engine pays each tech by THEIR pay type (fee_split /
+  // allowed_hours / hourly) so two techs on one job can differ (MC parity);
+  // jobs with no clocked hours fall back to the legacy single-basis path
+  // inside computePerTechCommissionRows (no regression).
   const overrides = new Map<string, number>();
+  let jobTechs: JobTechRow[] = [];
+  const techHoursByKey = new Map<string, number>();
+  const serviceTypePctBySlug = new Map<string, number>();
   if (jobIds.length > 0) {
     try {
-      const overrideRows = await db.execute(
-        sql`SELECT job_id, user_id, final_pay FROM job_technicians
-            WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
-              AND final_pay IS NOT NULL`,
+      const techRows = await db.execute(
+        sql`SELECT job_id, user_id, is_primary, pay_type, hourly_rate, commission_pct,
+                   pay_deduction_pct, pay_deduction_flat, final_pay
+              FROM job_technicians
+             WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])`,
       );
-      for (const r of overrideRows.rows as any[]) {
+      jobTechs = (techRows.rows as any[]).map((r) => ({
+        job_id: Number(r.job_id),
+        user_id: Number(r.user_id),
+        is_primary: r.is_primary === true,
+        pay_type: r.pay_type ?? null,
+        hourly_rate: r.hourly_rate ?? null,
+        commission_pct: r.commission_pct ?? null,
+        pay_deduction_pct: r.pay_deduction_pct ?? null,
+        pay_deduction_flat: r.pay_deduction_flat ?? null,
+      }));
+      for (const r of techRows.rows as any[]) {
         const pay = parseFloat(String(r.final_pay));
-        if (Number.isFinite(pay)) {
+        if (r.final_pay != null && Number.isFinite(pay)) {
           overrides.set(`${r.user_id}:${r.job_id}`, pay);
         }
       }
     } catch {
-      // job_technicians may be absent on freshly-seeded tenants.
+      // job_technicians (or the pay-type columns) may be absent on a
+      // freshly-seeded tenant — empty jobTechs falls back to legacy.
+    }
+
+    // Per-tech clocked hours (the split denominator + hourly basis).
+    try {
+      const hourRows = await db.execute(
+        sql`SELECT job_id, user_id,
+                   SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0) AS hours
+              FROM timeclock
+             WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
+               AND clock_out_at IS NOT NULL
+               AND source = 'punched'
+             GROUP BY job_id, user_id`,
+      );
+      for (const r of hourRows.rows as any[]) {
+        const h = parseFloat(String(r.hours));
+        if (Number.isFinite(h) && h > 0) techHoursByKey.set(`${r.job_id}:${r.user_id}`, h);
+      }
+    } catch {
+      // No timeclock data → every job falls back to legacy single-basis.
     }
   }
 
-  const computed = computeCommissionRows({
+  // Per-service fee-split % (service_types.commission_pct), NULL = company tier.
+  try {
+    const svcRows = await db.execute(
+      sql`SELECT slug, commission_pct FROM service_types
+           WHERE company_id = ${companyId} AND commission_pct IS NOT NULL`,
+    );
+    for (const r of svcRows.rows as any[]) {
+      const pct = parseFloat(String(r.commission_pct));
+      if (Number.isFinite(pct)) serviceTypePctBySlug.set(String(r.slug).toLowerCase(), pct);
+    }
+  } catch {
+    // service_types.commission_pct column absent — fall back to tiers.
+  }
+
+  const computed = computePerTechCommissionRows({
     jobs: jobs as CommissionInputJob[],
+    jobTechs,
+    techHoursByKey,
+    serviceTypePctBySlug,
     resRates,
-    commercial: {
-      commercial_hourly_rate: parseFloat(String(compSettings.commercial_hourly_rate ?? 20)),
-      commercial_comp_mode: (compSettings.commercial_comp_mode === "actual_hours"
-        ? "actual_hours"
-        : "allowed_hours"),
-    },
+    commercial: commercialCfg,
     overrides,
   });
 

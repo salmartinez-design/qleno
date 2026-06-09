@@ -7,6 +7,7 @@ import { useGetMe } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { VoiceAssistant } from "@/components/voice-assistant";
 import { GlobalSearch } from "@/components/global-search";
 import { ChatPanel } from "@/components/chat-panel";
 import { KeyboardShortcutsOverlay, useKeyboardShortcuts } from "@/components/keyboard-shortcuts";
@@ -825,6 +826,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             {(isMoreActive || moreOpen) && <div style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'var(--brand)', marginTop: -1 }} />}
           </button>
         </nav>
+        <VoiceAssistant />
       </div>
     );
   }
@@ -1087,12 +1089,13 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             {children}
           </div>
         ) : (
-          <main style={{ flex: 1, overflowY: 'auto', backgroundColor: '#F7F6F3', display: 'flex', flexDirection: 'column' }}>
+          <main style={{ flex: 1, overflowY: 'auto', scrollbarGutter: 'stable', backgroundColor: '#F7F6F3', display: 'flex', flexDirection: 'column' }}>
             <CommsPausedBanner />
             <div style={{ padding: '28px 28px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>{children}</div>
           </main>
         )}
       </div>
+      <VoiceAssistant />
     </div>
   );
 }

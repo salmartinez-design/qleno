@@ -25,7 +25,7 @@ export const companiesTable = pgTable("companies", {
   subscription_status: subscriptionStatusEnum("subscription_status").notNull().default("trialing"),
   plan: planEnum("plan").notNull().default("starter"),
   employee_count: integer("employee_count").notNull().default(0),
-  pay_cadence: payCadenceEnum("pay_cadence").notNull().default("biweekly"),
+  pay_cadence: payCadenceEnum("pay_cadence").notNull().default("weekly"),
   geo_fence_threshold_ft: integer("geo_fence_threshold_ft").notNull().default(500),
   geofence_enabled: boolean("geofence_enabled").notNull().default(true),
   geofence_clockin_radius_ft: integer("geofence_clockin_radius_ft").notNull().default(500),

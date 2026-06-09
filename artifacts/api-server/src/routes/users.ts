@@ -588,7 +588,14 @@ router.get("/:id/additional-pay", requireAuth, async (req, res) => {
 router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
-    const { amount, type, notes, job_id } = req.body;
+    const { amount, type, notes, job_id, date } = req.body;
+
+    // [additional-pay-date 2026-06-08] Honor the entry's effective date so it
+    // lands in the right pay period. created_at is the field the payroll summary
+    // buckets/filters by (and how migrated entries already carry their date), so
+    // stamping created_at to the chosen date wires the entry straight into the
+    // correct period. Falls back to now() when no date is provided.
+    const createdAt = date ? new Date(`${String(date)}T12:00:00Z`) : undefined;
 
     const record = await db
       .insert(additionalPayTable)
@@ -600,6 +607,7 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
         notes,
         job_id,
         status: "pending",
+        ...(createdAt ? { created_at: createdAt } : {}),
       })
       .returning();
 

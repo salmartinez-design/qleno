@@ -73,6 +73,84 @@ async function persistJobAddOns(exec: any, jobId: number, companyId: number, add
   }
 }
 
+// [duplicate-job 2026-06-08] Maribel's HouseCall-Pro-style "duplicate this job
+// to a new date, same service" flow (mobile-first). Copies the source job's
+// DEFINITION — client/account, service, fee, allowed hours, tech team, add-ons,
+// address, zone — into a NEW job on the requested date, and RESETS all
+// operational state (status, clock, billing, completion, no-show) so the copy
+// is a clean scheduled visit. The duplicate is standalone: frequency on_demand,
+// no recurring_schedule_id/occurrence_date — it's a single extra visit, not a
+// series (recurring lives on recurring_schedules). Same company scope enforced.
+router.post("/:id/duplicate", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const srcId = parseInt(String(req.params.id));
+    const { scheduled_date, scheduled_time } = req.body;
+    if (!scheduled_date) return res.status(400).json({ error: "scheduled_date required" });
+
+    const srcConds: any[] = [eq(jobsTable.id, srcId), eq(jobsTable.company_id, companyId)];
+    const [src] = await db.select().from(jobsTable).where(and(...srcConds));
+    if (!src) return res.status(404).json({ error: "Job not found" });
+
+    // Copy every definition column, then override date + reset instance state.
+    const { id: _omitId, created_at: _omitCreated, ...rest } = src as any;
+    const [dup] = await db
+      .insert(jobsTable)
+      .values({
+        ...rest,
+        scheduled_date,
+        scheduled_time: scheduled_time ?? src.scheduled_time,
+        status: "scheduled",
+        frequency: "on_demand",
+        recurring_schedule_id: null,
+        occurrence_date: null,
+        // reset all operational / clock / billing / completion / no-show state
+        billed_hours: null,
+        billed_amount: null,
+        actual_hours: null,
+        actual_end_time: null,
+        locked_at: null,
+        completed_by_user_id: null,
+        completion_pdf_url: null,
+        completion_pdf_sent_at: null,
+        charge_attempted_at: null,
+        charge_succeeded_at: null,
+        charge_failed_at: null,
+        charge_failure_reason: null,
+        no_show_marked_by_tech: null,
+        no_show_marked_by_user_id: null,
+        flagged: false,
+      } as any)
+      .returning();
+
+    const newId = dup.id;
+    logAudit(req, "CREATE", "job", newId, null, dup);
+
+    // Carry the tech team over (same per-job assignment + primary).
+    try {
+      await db.execute(sql`
+        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+        SELECT ${newId}, user_id, company_id, is_primary FROM job_technicians WHERE job_id = ${srcId}
+        ON CONFLICT (job_id, user_id) DO NOTHING
+      `);
+    } catch (e) { console.error("duplicate job_technicians copy failed for", newId, e); }
+
+    // Carry the add-ons over (Parking Fee, etc.).
+    try {
+      await db.execute(sql`
+        INSERT INTO job_add_ons (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+        SELECT ${newId}, add_on_id, quantity, unit_price, subtotal, pricing_addon_id FROM job_add_ons WHERE job_id = ${srcId}
+        ON CONFLICT (job_id, add_on_id) DO NOTHING
+      `);
+    } catch (e) { console.error("duplicate job_add_ons copy failed for", newId, e); }
+
+    return res.status(201).json(dup);
+  } catch (err) {
+    console.error("[jobs duplicate]", err);
+    return res.status(500).json({ error: "Failed to duplicate job" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
@@ -2802,81 +2880,86 @@ router.delete("/:id", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
     const role = req.auth!.role;
-    const force = req.query.force === "true";
 
-    // Force-delete branch: admin/owner can wipe a completed job's clock entries
-    // and then delete the job in a single transaction.
-    if (force) {
-      if (role !== "owner" && role !== "admin") {
-        return res.status(403).json({
-          error: "Forbidden",
-          message: "Only owner or admin can force-delete a job",
-        });
+    // [recurring-delete-skip 2026-06-05] Capture the recurring linkage BEFORE
+    // deleting so we can tombstone the occurrence's cadence slot on the
+    // schedule. Without this, the generator regenerates the deleted occurrence
+    // next run and it "keeps coming back". Skip the cadence slot
+    // (occurrence_date, falling back to scheduled_date) — the same key the
+    // engine dedups on.
+    const recurInfo = ((await db.execute(sql`
+      SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `)).rows[0]) as any;
+    async function tombstoneOccurrence() {
+      const sid = recurInfo?.recurring_schedule_id;
+      const skipDate = recurInfo?.occ ?? recurInfo?.sched;
+      if (sid != null && skipDate) {
+        await db.execute(sql`
+          UPDATE recurring_schedules
+          SET skipped_dates = ARRAY(
+            SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
+          )
+          WHERE id = ${sid} AND company_id = ${companyId}
+        `);
       }
-      const [existing] = await db
-        .select({ id: jobsTable.id, status: jobsTable.status })
-        .from(jobsTable)
-        .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
-        .limit(1);
-      if (!existing) {
-        return res.status(404).json({ error: "Not Found", message: "Job not found" });
-      }
-      // Allow on any non-active status. in_progress jobs have a tech actively
-      // on-site (clock-in in flight); deleting under them produces UI ghosts
-      // and confused techs — that one stays gated.
-      if (existing.status === "in_progress") {
-        return res.status(409).json({
-          error: "Conflict",
-          message: "force=true is not allowed on in-progress jobs",
-        });
-      }
-      await db.transaction(async (tx) => {
-        // Cascade child rows that FK to jobs.id with ON DELETE NO ACTION.
-        // Tables with ON DELETE CASCADE (job_audit_log, job_rate_mods,
-        // job_technicians) drop automatically with the parent row.
-        //
-        // Per-job ephemeral / replaceable data → DELETE child rows.
-        // (All of these have job_id NOT NULL so NULL-out isn't an option.)
-        await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
-        await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
-        await tx.execute(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
-        //
-        // Financial / legal / cross-entity records → NULL the back-reference.
-        // The parent row stays intact for billing, accounting, loyalty, and
-        // reporting purposes; only the link to the deleted job is severed.
-        await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
-        await tx.execute(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
-        await tx
-          .delete(jobsTable)
-          .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
-      });
-      logAudit(req, "DELETE", "job", jobId, null, { force: true });
-      return res.json({ success: true, message: "Job and dependent records cleaned up" });
     }
 
-    await db
-      .delete(jobsTable)
-      .where(and(
-        eq(jobsTable.id, jobId),
-        eq(jobsTable.company_id, companyId)
-      ));
-    logAudit(req, "DELETE", "job", jobId, null, null);
+    // [delete-any-job 2026-06-05] Unified delete. Previously the plain path
+    // FK-failed on any job that had add-ons / photos / clock rows, and only
+    // owner/admin could "force" the cleanup — so the office literally could not
+    // delete those jobs (Sal: "we have to make sure we can delete any job").
+    // Now ONE path cleans up the child rows that FK to jobs and NULLs the
+    // financial back-refs, then deletes — for owner/admin/office. The only hard
+    // block is in_progress: a tech is clocked in on-site and deleting under them
+    // creates UI ghosts — clock them out first. The ?force flag is now a no-op
+    // (cleanup always runs); kept accepted for backward compatibility.
+    if (role !== "owner" && role !== "admin" && role !== "office") {
+      return res.status(403).json({ error: "Forbidden", message: "You don't have permission to delete jobs" });
+    }
+    const [existing] = await db
+      .select({ id: jobsTable.id, status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .limit(1);
+    if (!existing) {
+      return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    }
+    if (existing.status === "in_progress") {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "This job has a tech clocked in. Clock them out before deleting it.",
+      });
+    }
+    await db.transaction(async (tx) => {
+      // Per-job ephemeral / replaceable data → DELETE child rows (job_id NOT NULL).
+      await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
+      await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
+      // Financial / legal / cross-entity records → NULL the back-reference; the
+      // parent row stays intact for billing/accounting/reporting.
+      await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
+      await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+    });
+    await tombstoneOccurrence();
+    logAudit(req, "DELETE", "job", jobId, null, { status: existing.status });
     return res.json({ success: true, message: "Job deleted" });
   } catch (err) {
     console.error("Delete job error:", err);

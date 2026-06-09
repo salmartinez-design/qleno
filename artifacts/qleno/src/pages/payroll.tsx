@@ -1,10 +1,11 @@
-import { useState, useMemo, Fragment } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -45,14 +46,26 @@ const PAY_GROUPS = [
 // readable title-case so owner-defined pay categories display cleanly.
 const labelType = (t: string) => PAY_TYPE_LABELS[t] || String(t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-function getDefaultPeriod() {
-  // Match the Overview bi-weekly window (Sun..Sat, 14 days ending this Saturday)
-  // so switching tabs shows the same period.
+// [pay-cadence 2026-06-08] The default pay-period window is sized by the
+// tenant's pay cadence (companies.pay_cadence) — weekly = 7 days, bi-weekly =
+// 14, semi-monthly = 15 — instead of a hardcoded 14. Phes pays weekly.
+const CADENCE_DAYS: Record<string, number> = { weekly: 7, biweekly: 14, semimonthly: 15 };
+const CADENCE_LABEL: Record<string, string> = { weekly: 'Weekly', biweekly: 'Bi-weekly', semimonthly: 'Semi-monthly' };
+
+function periodForCadence(cadence: string) {
+  const days = CADENCE_DAYS[cadence] ?? 7;
   const t = new Date();
-  const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
-  const start = new Date(end); start.setDate(end.getDate() - 13);
+  const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay())); // Saturday of this week
+  const start = new Date(end); start.setDate(end.getDate() - (days - 1));
   const ymd = (d: Date) => d.toISOString().slice(0, 10);
   return { start: ymd(start), end: ymd(end) };
+}
+
+// Tenant pay cadence from companies.pay_cadence. Defaults to 'weekly' while
+// loading / when unset (Phes pays weekly; bi-weekly tenants opt in via Settings).
+function useCadence(): string {
+  const { data } = useQuery<any>({ queryKey: ['company-me-cadence'], queryFn: () => apiFetch('/companies/me') });
+  return data?.pay_cadence || data?.data?.pay_cadence || 'weekly';
 }
 
 // Customer-quality score is 0–4 (matches the Scorecards report scale):
@@ -61,7 +74,12 @@ const qualityColor = (q: number | null | undefined) =>
   q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
 
 function WeeklyDetailView() {
-  const [period, setPeriod] = useState(getDefaultPeriod());
+  const cadence = useCadence();
+  const [period, setPeriod] = useState(() => periodForCadence('weekly'));
+  // Re-seed the default window from the tenant's cadence once it loads, unless
+  // the office has manually picked dates.
+  const [periodEdited, setPeriodEdited] = useState(false);
+  useEffect(() => { if (!periodEdited) setPeriod(periodForCadence(cadence)); }, [cadence, periodEdited]);
   const [expanded, setExpanded] = useState<number[]>([]);
   const FF = "inherit";
   const { activeBranchId } = useBranch();
@@ -80,14 +98,20 @@ function WeeklyDetailView() {
   const dayTotals = employees.reduce((a: any, e: any) => ({
     revenue: a.revenue + Number(e.totals?.job_total || 0),
     commission: a.commission + Number(e.totals?.commission || 0),
+    // Total pay (commission + tips + mileage + additional) for the labor-cost ratio.
+    payroll: a.payroll + Number(e.totals?.grand_total ?? e.totals?.commission ?? 0),
     allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
     worked: a.worked + Number(e.totals?.hrs_worked || 0),
-  }), { revenue: 0, commission: 0, allowed: 0, worked: 0 });
+  }), { revenue: 0, commission: 0, payroll: 0, allowed: 0, worked: 0 });
   // Company-wide customer-quality avg across every rated job in the period.
   const allQ = employees.flatMap((e: any) => (e.jobs || []).map((j: any) => j.quality_score).filter((v: any) => v != null));
   const avgQuality = allQ.length ? allQ.reduce((a: number, b: number) => a + b, 0) / allQ.length : null;
   const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isSingleDay = period.start === period.end;
+  // Payroll as % of revenue — the labor-cost target to "stay under" (MC parity).
+  // <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
+  const payrollPct = dayTotals.revenue > 0 ? Math.round((dayTotals.payroll / dayTotals.revenue) * 1000) / 10 : null;
+  const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#16A34A' : payrollPct <= 50 ? '#D97706' : '#DC2626';
 
   const inputStyle: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #E5E2DC', borderRadius: 6, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF };
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
@@ -98,9 +122,9 @@ function WeeklyDetailView() {
       <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', fontFamily: FF }}>Pay Period:</span>
-          <input type="date" value={period.start} onChange={e => setPeriod(p => ({ ...p, start: e.target.value }))} style={inputStyle} />
+          <input type="date" value={period.start} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, start: e.target.value })); }} style={inputStyle} />
           <span style={{ fontSize: 12, color: '#9E9B94' }}>to</span>
-          <input type="date" value={period.end} onChange={e => setPeriod(p => ({ ...p, end: e.target.value }))} style={inputStyle} />
+          <input type="date" value={period.end} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, end: e.target.value })); }} style={inputStyle} />
           <button onClick={() => refetch()}
             style={{ padding: '7px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
             Load
@@ -112,7 +136,7 @@ function WeeklyDetailView() {
       <p style={{ fontSize: 11, color: '#9E9B94', margin: '-4px 2px 0', fontFamily: FF }}>
         During the transition, hours fall back to a job's <b>scheduled</b> hours (shown with ≈) when it
         hasn't been clocked yet — real clocked time takes over automatically as the team adopts clock-in/out.
-        Set both dates to the same day to reconcile that day against MaidCentral.
+        Set both dates to the same day to reconcile a single day's pay.
       </p>
 
       {employees.length > 0 && (
@@ -120,6 +144,7 @@ function WeeklyDetailView() {
           {[
             { k: isSingleDay ? 'Revenue · this day' : 'Revenue', v: money2(dayTotals.revenue), accent: true },
             { k: 'Commission', v: money2(dayTotals.commission), accent: true },
+            { k: 'Payroll % of rev', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor },
             { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
             { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
             { k: 'Avg Quality', v: avgQuality != null ? `${avgQuality.toFixed(1)}/4` : '—', quality: avgQuality },
@@ -127,7 +152,7 @@ function WeeklyDetailView() {
           ].map((s: any) => (
             <div key={s.k} style={{ minWidth: 104 }}>
               <div style={{ fontSize: 10, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF }}>{s.k}</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'quality' in s ? qualityColor(s.quality) : s.accent ? 'var(--brand)' : '#1A1917', fontFamily: FF }}>{s.v}</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: s.color ?? ('quality' in s ? qualityColor(s.quality) : s.accent ? 'var(--brand)' : '#1A1917'), fontFamily: FF }}>{s.v}</div>
             </div>
           ))}
         </div>
@@ -419,6 +444,80 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
   );
 }
 
+// [payroll-trend 2026-06-08] Company-level weekly Payroll-to-Revenue chart with
+// a YOY overlay (MaidCentral parity). Revenue vs payroll lines for the current
+// window + dashed prior-year lines (hidden until a year of history exists).
+// Headline shows payroll as % of revenue — the labor-cost KPI.
+function PayrollToRevenueChart() {
+  const [weeks, setWeeks] = useState(26);
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ['payroll-revenue-trend', weeks],
+    queryFn: () => apiFetch(`/payroll/revenue-trend?weeks=${weeks}`),
+  });
+  const series: any[] = data?.weeks || [];
+  const hasPrior = !!data?.has_prior_data;
+  const money0 = (n: number) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  const pct = data?.payroll_pct;
+  // Payroll % of revenue: <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
+  const pctColor = pct == null ? '#9E9B94' : pct < 40 ? '#16A34A' : pct <= 50 ? '#D97706' : '#DC2626';
+
+  return (
+    <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: '#1A1917', margin: '0 0 2px' }}>Payroll to Revenue</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>
+            {data ? <>Revenue {money0(data.total_revenue)} · Payroll {money0(data.total_payroll)} · last {weeks} weeks</> : 'Weekly labor cost vs revenue'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {pct != null && (
+            <div style={{ textAlign: 'right' }}>
+              <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Payroll % of rev</p>
+              <p style={{ fontSize: 20, fontWeight: 800, color: pctColor, margin: 0 }}>{pct}%</p>
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 4, background: '#F4F3F0', padding: 4, borderRadius: 8 }}>
+            {[13, 26, 52].map(w => (
+              <button key={w} onClick={() => setWeeks(w)}
+                style={{ padding: '4px 10px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+                  background: weeks === w ? '#fff' : 'transparent', color: weeks === w ? '#1A1917' : '#9E9B94',
+                  boxShadow: weeks === w ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>
+                {w}w
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: '60px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>
+      ) : series.length === 0 ? (
+        <div style={{ padding: '60px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>No completed jobs in this window yet.</div>
+      ) : (
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9E9B94' }} interval="preserveStartEnd" minTickGap={24} />
+            <YAxis tick={{ fontSize: 11, fill: '#9E9B94' }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} width={44} />
+            <Tooltip formatter={(v: any, name: string) => [money0(Number(v)), name]} labelFormatter={(l: string) => `Week of ${l}`}
+              contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E2DC' }} />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#5B9BD5" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="payroll" name="Payroll" stroke="#00C9A0" strokeWidth={2} dot={false} />
+            {hasPrior && <Line type="monotone" dataKey="prior_revenue" name="Revenue (last yr)" stroke="#B5D4F4" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
+            {hasPrior && <Line type="monotone" dataKey="prior_payroll" name="Payroll (last yr)" stroke="#9FE9D8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <p style={{ fontSize: 11, color: '#9E9B94', margin: '8px 2px 0' }}>
+        Payroll = commission + tips/additional + applied mileage. Revenue = completed-job totals.
+        {hasPrior ? ' Dashed lines = same weeks last year.' : ' Year-over-year overlay turns on automatically once a year of history exists.'}
+      </p>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const qc = useQueryClient();
   const { activeBranchId } = useBranch();
@@ -441,16 +540,10 @@ export default function PayrollPage() {
     return true;
   });
 
-  // Real payroll for the current bi-weekly period (Sun..Sat, 14 days) — same
-  // source as the detail view and the Earnings panel. Replaces the old stub
-  // that showed everyone a flat 40 hrs × rate.
-  const payPeriod = useMemo(() => {
-    const t = new Date();
-    const end = new Date(t); end.setDate(t.getDate() + (6 - t.getDay()));
-    const start = new Date(end); start.setDate(end.getDate() - 13);
-    const ymd = (d: Date) => d.toISOString().slice(0, 10);
-    return { start: ymd(start), end: ymd(end) };
-  }, []);
+  // Real payroll for the current pay period, sized by the tenant's pay cadence
+  // (weekly for Phes) — same source as the detail view and the Earnings panel.
+  const cadence = useCadence();
+  const payPeriod = useMemo(() => periodForCadence(cadence), [cadence]);
   const periodLabel = useMemo(() => {
     const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const yr = new Date(`${payPeriod.end}T00:00:00`).getFullYear();
@@ -482,63 +575,8 @@ export default function PayrollPage() {
   const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('weekly-detail');
   const [expandedOverview, setExpandedOverview] = useState<number[]>([]);
 
-  // Templates
-  const { data: templatesData, refetch: refetchTemplates } = useQuery({
-    queryKey: ['pay-templates'],
-    queryFn: () => apiFetch('/payroll/templates'),
-  });
-  const templates: any[] = templatesData?.data || [];
-
-  // Apply modal
-  const [applyTemplate, setApplyTemplate] = useState<any | null>(null);
-  const [applyEmpId, setApplyEmpId] = useState('');
-  const [applyNotes, setApplyNotes] = useState('');
-  const [applying, setApplying] = useState(false);
-
-  // New template modal
-  const [newTplModal, setNewTplModal] = useState(false);
-  const [newTpl, setNewTpl] = useState({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
-  const [savingTpl, setSavingTpl] = useState(false);
-
-  async function handleApplyTemplate() {
-    if (!applyTemplate || !applyEmpId) return;
-    setApplying(true);
-    try {
-      await apiFetch(`/users/${applyEmpId}/additional-pay`, {
-        method: 'POST',
-        body: JSON.stringify({ type: applyTemplate.type, amount: applyTemplate.amount, notes: applyNotes || applyTemplate.notes }),
-      });
-      setApplyTemplate(null);
-      setApplyEmpId('');
-      setApplyNotes('');
-    } catch { alert('Failed to apply template'); }
-    setApplying(false);
-  }
-
-  async function handleSaveTpl() {
-    if (!newTpl.name || !newTpl.amount) return;
-    // Custom category → slugify into a reusable additional_pay type, e.g.
-    // "Google Review Bonus" → "google_review_bonus". Lets the office define
-    // their own pay categories (review bonus, birthday, etc.).
-    const resolvedType = newTpl.type === '__custom__'
-      ? (newTpl.customName || newTpl.name).trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
-      : newTpl.type;
-    if (!resolvedType) return;
-    setSavingTpl(true);
-    try {
-      await apiFetch('/payroll/templates', { method: 'POST', body: JSON.stringify({ name: newTpl.name, type: resolvedType, amount: newTpl.amount, notes: newTpl.notes }) });
-      setNewTplModal(false);
-      setNewTpl({ name: '', type: 'bonus', amount: '', notes: '', customName: '' });
-      refetchTemplates();
-    } catch { alert('Failed to save template'); }
-    setSavingTpl(false);
-  }
-
-  async function handleDeleteTpl(id: number) {
-    if (!confirm('Delete this template?')) return;
-    await apiFetch(`/payroll/templates/${id}`, { method: 'DELETE' });
-    refetchTemplates();
-  }
+  // Pay Templates removed per Sal (2026-06-08): additional pay is added directly
+  // on the employee profile and cascades into the payroll summary by date.
 
   const inputStyle: React.CSSProperties = { height:36,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%',fontFamily:'inherit' };
   const labelStyle: React.CSSProperties = { fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.06em',display:'block',marginBottom:4 };
@@ -609,50 +647,14 @@ export default function PayrollPage() {
           ))}
         </div>
 
-        {/* ── Pay Templates ── */}
-        <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: '0 0 2px 0' }}>Pay Templates</p>
-              <p style={{ fontSize: '12px', color: '#9E9B94', margin: 0 }}>Pre-configured pay types — click Apply to send to an employee</p>
-            </div>
-            {isOwnerAdmin && (
-              <button onClick={() => setNewTplModal(true)}
-                style={{ display:'flex',alignItems:'center',gap:6,padding:'7px 14px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                <Plus size={13}/> New Template
-              </button>
-            )}
-          </div>
-          <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
-            {templates.length === 0 ? (
-              <div style={{ gridColumn:'1/-1',padding:'32px 0',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No pay templates yet</div>
-            ) : templates.map((t: any) => (
-              <div key={t.id} style={{ border:'1px solid #E5E2DC',borderRadius:10,padding:'16px 18px',display:'flex',flexDirection:'column',gap:8 }}>
-                <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start' }}>
-                  <span style={{ fontSize:13,fontWeight:700,color:'#1A1917' }}>{t.name}</span>
-                  {isOwnerAdmin && (
-                    <button onClick={() => handleDeleteTpl(t.id)} style={{ background:'none',border:'none',cursor:'pointer',color:'#C4C0B8',padding:0 }} title="Delete"><Trash2 size={13}/></button>
-                  )}
-                </div>
-                <span style={{ fontSize:11,fontWeight:600,padding:'2px 8px',borderRadius:10,background:'#DBEAFE',color:'#1E40AF',alignSelf:'flex-start' }}>
-                  {labelType(t.type)}
-                </span>
-                <div style={{ fontSize:22,fontWeight:800,color:'var(--brand)' }}>${parseFloat(t.amount).toFixed(2)}</div>
-                {t.notes && <div style={{ fontSize:11,color:'#9E9B94' }}>{t.notes}</div>}
-                <button onClick={() => { setApplyTemplate(t); setApplyEmpId(''); setApplyNotes(''); }}
-                  style={{ display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:12,fontWeight:600,cursor:'pointer',fontFamily:'inherit',marginTop:4 }}>
-                  <Zap size={12}/> Apply
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Payroll-to-Revenue trend + YOY */}
+        <PayrollToRevenueChart />
 
         {/* Employee Payroll Table */}
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: 0 }}>Employee Payroll Summary</p>
-            <span style={{ fontSize: '12px', color: '#6B7280' }}>Bi-weekly · {periodLabel}</span>
+            <span style={{ fontSize: '12px', color: '#6B7280' }}>{CADENCE_LABEL[cadence] || 'Weekly'} · {periodLabel}</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -752,95 +754,6 @@ export default function PayrollPage() {
       </>}
       </div>
 
-      {/* ── Apply Template Modal ── */}
-      {applyTemplate && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-          <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4 }}>
-              <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>Apply Template</h3>
-              <button onClick={() => setApplyTemplate(null)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
-            </div>
-            <p style={{ margin:'0 0 20px 0',fontSize:12,color:'#9E9B94' }}>
-              <strong style={{ color:'#1A1917' }}>{applyTemplate.name}</strong> — ${parseFloat(applyTemplate.amount).toFixed(2)} · {labelType(applyTemplate.type)}
-            </p>
-            <div style={{ display:'flex',flexDirection:'column',gap:12,marginBottom:20 }}>
-              <div>
-                <label style={labelStyle}>Employee</label>
-                <select value={applyEmpId} onChange={e => setApplyEmpId(e.target.value)} style={inputStyle}>
-                  <option value="">Select an employee…</option>
-                  {billableEmployees.map((e: any) => (
-                    <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Notes (optional)</label>
-                <input value={applyNotes} onChange={e => setApplyNotes(e.target.value)} placeholder={applyTemplate.notes || 'Override note…'} style={inputStyle}/>
-              </div>
-            </div>
-            <div style={{ display:'flex',gap:10,justifyContent:'flex-end' }}>
-              <button onClick={() => setApplyTemplate(null)}
-                style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-              <button onClick={handleApplyTemplate} disabled={!applyEmpId || applying}
-                style={{ display:'flex',alignItems:'center',gap:6,padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:(!applyEmpId||applying)?0.5:1 }}>
-                <Zap size={13}/> {applying ? 'Applying…' : 'Apply Pay Entry'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── New Template Modal ── */}
-      {newTplModal && (
-        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
-          <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20 }}>
-              <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>New Pay Template</h3>
-              <button onClick={() => setNewTplModal(false)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
-            </div>
-            <div style={{ display:'flex',flexDirection:'column',gap:12,marginBottom:20 }}>
-              <div>
-                <label style={labelStyle}>Template Name</label>
-                <input value={newTpl.name} onChange={e => setNewTpl(p => ({...p,name:e.target.value}))} placeholder="e.g. Holiday Pay" style={inputStyle}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Category</label>
-                <select value={newTpl.type} onChange={e => setNewTpl(p => ({...p,type:e.target.value}))} style={inputStyle}>
-                  {PAY_GROUPS.map(g => (
-                    <optgroup key={g.label} label={g.label}>
-                      {g.types.map(t => <option key={t} value={t}>{PAY_TYPE_LABELS[t]}</option>)}
-                    </optgroup>
-                  ))}
-                  <option value="__custom__">+ Custom category…</option>
-                </select>
-              </div>
-              {newTpl.type === '__custom__' && (
-                <div>
-                  <label style={labelStyle}>Custom category name</label>
-                  <input value={newTpl.customName} onChange={e => setNewTpl(p => ({...p,customName:e.target.value}))} placeholder="e.g. Google Review Bonus, Birthday Pay" style={inputStyle}/>
-                  <p style={{ fontSize:11,color:'#9E9B94',margin:'4px 0 0' }}>Reusable pay category — e.g. $10 per Google/FB review, birthday pay. Techs see it in their tips &amp; bonuses.</p>
-                </div>
-              )}
-              <div>
-                <label style={labelStyle}>Default Amount ($)</label>
-                <input type="number" value={newTpl.amount} onChange={e => setNewTpl(p => ({...p,amount:e.target.value}))} placeholder="0.00" style={inputStyle}/>
-              </div>
-              <div>
-                <label style={labelStyle}>Notes (optional)</label>
-                <input value={newTpl.notes} onChange={e => setNewTpl(p => ({...p,notes:e.target.value}))} placeholder="Description…" style={inputStyle}/>
-              </div>
-            </div>
-            <div style={{ display:'flex',gap:10,justifyContent:'flex-end' }}>
-              <button onClick={() => setNewTplModal(false)}
-                style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-              <button onClick={handleSaveTpl} disabled={!newTpl.name || !newTpl.amount || savingTpl}
-                style={{ padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit',opacity:(!newTpl.name||!newTpl.amount||savingTpl)?0.5:1 }}>
-                {savingTpl ? 'Saving…' : 'Save Template'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </DashboardLayout>
   );
 }

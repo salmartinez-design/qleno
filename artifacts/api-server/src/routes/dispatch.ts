@@ -92,6 +92,9 @@ router.get("/", requireAuth, async (req, res) => {
         assigned_user_id: jobsTable.assigned_user_id,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
+        // [count-rule 2026-06-08] job_kind distinguishes real visits ('cleaning')
+        // from office events/meetings so the FE can exclude events from the count.
+        job_kind: jobsTable.job_kind,
         scheduled_date: jobsTable.scheduled_date,
         scheduled_time: jobsTable.scheduled_time,
         frequency: jobsTable.frequency,
@@ -225,7 +228,14 @@ router.get("/", requireAuth, async (req, res) => {
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.scheduled_date, date),
         sql`${jobsTable.status} != 'cancelled'`,
-        ...(branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id))] : [])
+        // [quote-convert-branch 2026-06-08] Untagged (NULL-branch) jobs must NOT
+        // vanish under a location filter. Quote→job convert never set branch_id,
+        // so converted jobs "didn't stick" on the board when the office viewed a
+        // specific branch (Oak Lawn). Treat NULL branch as "shows under any
+        // branch" — same fix as the techs-disappearing-under-Oak-Lawn case.
+        ...(branch_id && branch_id !== "all"
+          ? [sql`(${jobsTable.branch_id} = ${parseInt(branch_id)} OR ${jobsTable.branch_id} IS NULL)`]
+          : [])
       ))
       .orderBy(jobsTable.scheduled_time);
 
@@ -694,6 +704,7 @@ router.get("/", requireAuth, async (req, res) => {
         assigned_user_id: j.assigned_user_id,
         service_type: j.service_type,
         status: j.status,
+        job_kind: (j as any).job_kind ?? "cleaning",
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
         frequency: j.frequency,
@@ -997,7 +1008,7 @@ router.get("/week-summary", requireAuth, async (req, res) => {
     const toStr = (req.query.to as string) || fmt(defaultTo);
 
     const branchCond = branch_id && branch_id !== "all"
-      ? sql`AND j.branch_id = ${parseInt(branch_id)}`
+      ? sql`AND (j.branch_id = ${parseInt(branch_id)} OR j.branch_id IS NULL)`
       : sql``;
 
     // Per-day aggregate. Excludes cancelled. Unassigned = no assigned_user_id
