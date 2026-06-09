@@ -419,6 +419,9 @@ router.post("/", requireAuth, async (req, res) => {
 router.get("/my-jobs", requireAuth, async (req, res) => {
   try {
     const today = new Date().toISOString().split("T")[0];
+    // Day navigation: the tech view can page to other days. Default = today.
+    const reqDate = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+      ? req.query.date : today;
     let userId = req.auth!.userId;
     if (req.auth!.role === "owner" && req.query.employee_id) {
       userId = parseInt(req.query.employee_id as string);
@@ -440,6 +443,17 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       // users with NULL company_id and no user_companies rows.
       return res.json({ data: [] });
     }
+
+    // After-photo-before-clock-out gate is a per-tenant owner setting (default
+    // off). Surface it so the tech UI can show/hide the requirement banner +
+    // disabled clock-out button. Read from the tech's auth company — the same
+    // company the clock-out route enforces against.
+    const companyCfg = await db
+      .select({ require_after_photo_for_clockout: companiesTable.require_after_photo_for_clockout })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, req.auth!.companyId))
+      .limit(1);
+    const requireAfterPhoto = companyCfg[0]?.require_after_photo_for_clockout ?? false;
 
     const jobs = await db
       .select({
@@ -488,11 +502,11 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       .where(and(
         inArray(jobsTable.company_id, tenantIds),
         eq(jobsTable.assigned_user_id, userId),
-        eq(jobsTable.scheduled_date, today),
+        eq(jobsTable.scheduled_date, reqDate),
       ))
       .orderBy(jobsTable.scheduled_time);
 
-    if (jobs.length === 0) return res.json({ data: [] });
+    if (jobs.length === 0) return res.json({ data: [], require_after_photo_for_clockout: requireAfterPhoto });
 
     const jobIds = jobs.map(j => j.id);
 
@@ -540,6 +554,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         after_photo_count: photoMap.get(j.id)?.after || 0,
         time_clock_entry: clockMap.get(j.id) || null,
       })),
+      require_after_photo_for_clockout: requireAfterPhoto,
     });
   } catch (err) {
     console.error("My jobs error:", err);
