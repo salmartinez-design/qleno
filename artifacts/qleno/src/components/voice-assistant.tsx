@@ -55,10 +55,34 @@ export function VoiceAssistant() {
 
   function speak(text: string) {
     try {
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = lang === "es" ? "es-MX" : "en-US";
-      window.speechSynthesis.speak(u);
+      const synth = window.speechSynthesis;
+      if (!synth || !text) return;
+      const targetLang = lang === "es" ? "es-MX" : "en-US";
+      const prefix = lang === "es" ? "es" : "en";
+      let done = false;
+      const doSpeak = () => {
+        if (done) return;
+        done = true;
+        synth.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = targetLang;
+        const voices = synth.getVoices();
+        const v = voices.find(vc => vc.lang === targetLang)
+          || voices.find(vc => vc.lang?.toLowerCase().startsWith(prefix));
+        if (v) u.voice = v;
+        try { synth.resume(); } catch { /* Chrome can leave synthesis paused */ }
+        synth.speak(u);
+      };
+      // First call after page load: Chrome's getVoices() is empty until the
+      // 'voiceschanged' event, and speaking before voices load silently no-ops
+      // ("doesn't talk back"). Wait for voices, with a timeout fallback.
+      if (synth.getVoices().length === 0) {
+        const handler = () => { synth.removeEventListener("voiceschanged", handler); doSpeak(); };
+        synth.addEventListener("voiceschanged", handler);
+        setTimeout(doSpeak, 300);
+      } else {
+        doSpeak();
+      }
     } catch { /* TTS unavailable — text answer still shows */ }
   }
 
