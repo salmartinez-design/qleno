@@ -484,6 +484,25 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         property_name: accountPropertiesTable.property_name,
         access_notes: accountPropertiesTable.access_notes,
         estimated_hours: jobsTable.estimated_hours,
+        // [tech-card-data 2026-06-09] Allowed hours is the load-bearing budget
+        // the tech needs (estimated_hours is the stale creation stamp). Zone
+        // (name + color) resolves zone_id first, then any zip source — a
+        // gray/zoneless tile is a data error per the zone-resolution invariant.
+        // Team = every assigned tech so the cleaner knows who else is going.
+        allowed_hours: jobsTable.allowed_hours,
+        zone_name: sql<string | null>`COALESCE(
+          (SELECT z.name FROM service_zones z WHERE z.id = ${jobsTable.zone_id}),
+          (SELECT z.name FROM service_zones z WHERE z.company_id = ${jobsTable.company_id} AND z.is_active = true
+             AND COALESCE(${jobsTable.address_zip}, CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.zip} ELSE ${clientsTable.zip} END) = ANY(z.zip_codes) LIMIT 1)
+        )`,
+        zone_color: sql<string | null>`COALESCE(
+          (SELECT z.color FROM service_zones z WHERE z.id = ${jobsTable.zone_id}),
+          (SELECT z.color FROM service_zones z WHERE z.company_id = ${jobsTable.company_id} AND z.is_active = true
+             AND COALESCE(${jobsTable.address_zip}, CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.zip} ELSE ${clientsTable.zip} END) = ANY(z.zip_codes) LIMIT 1)
+        )`,
+        team: sql<string | null>`(SELECT string_agg(u.first_name, ', ' ORDER BY jt.is_primary DESC, u.first_name)
+          FROM job_technicians jt JOIN users u ON u.id = jt.user_id WHERE jt.job_id = ${jobsTable.id})`,
+        team_count: sql<number>`(SELECT COUNT(*)::int FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id})`,
         // Surface BOTH the tenant (the business that owns the job) and the
         // branch (Phes-internal location, if set). For cross-tenant techs
         // the company_name distinguishes "Phes Oak Lawn" from "PHES
@@ -550,6 +569,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         job_lng: j.job_lng ? parseFloat(j.job_lng) : null,
         base_fee: j.base_fee ? parseFloat(j.base_fee) : 0,
         estimated_hours: j.estimated_hours ? parseFloat(j.estimated_hours) : null,
+        allowed_hours: j.allowed_hours != null ? parseFloat(j.allowed_hours as any) : null,
         before_photo_count: photoMap.get(j.id)?.before || 0,
         after_photo_count: photoMap.get(j.id)?.after || 0,
         time_clock_entry: clockMap.get(j.id) || null,
