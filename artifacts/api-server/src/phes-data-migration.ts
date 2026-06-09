@@ -1929,6 +1929,111 @@ async function runDianaVasquezAccessRepair(): Promise<void> {
 }
 
 /**
+ * Juliana Loredo access repair (2026-06-09, ad-hoc).
+ *
+ * Same pattern as the Diana Vasquez repair from yesterday — office could
+ * not get Juliana into the app via the LMS Admin bulk-reset flow; she
+ * tried `chicago23` and got "Invalid email or password." Two known
+ * failure modes here:
+ *   - password isn't actually `chicago23` (e.g. the bulk reset never
+ *     reached her row), or
+ *   - her stored email has mixed case and the auth route's
+ *     `WHERE email = LOWER(?)` lookup misses (auth.ts:25).
+ *
+ * Unlike Diana, we don't know Juliana's intended email — Sal was typing
+ * "Loredo_juliana@yahoo.com" but the stored value could be anything.
+ * So we DO NOT overwrite her email. Instead we:
+ *   1. Resolve her by name in company_id=1 (Phes only).
+ *   2. Lowercase the stored email if it isn't already (defensive fix
+ *      for the auth lookup).
+ *   3. Ensure password_hash = bcrypt('chicago23').
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ *
+ * The console.log line prints her actual stored email so Sal can copy
+ * the canonical address out of the Railway deploy log and send it to
+ * Juliana exactly. No-op once everything is in target state — the
+ * bcrypt.compare + string-equality guards make every subsequent boot
+ * one cheap SELECT + compare.
+ */
+async function runJulianaLoredoAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Juliana";
+  const LAST = "Loredo";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND LOWER(first_name) = LOWER(${FIRST})
+      AND LOWER(last_name) = LOWER(${LAST})
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[juliana-loredo-access-repair] no Juliana Loredo row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const lowercasedEmail = row.email.trim().toLowerCase();
+  const emailNeedsNormalize = lowercasedEmail !== row.email;
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && !emailNeedsNormalize && activeOk && unarchivedOk) {
+    console.log(
+      `[juliana-loredo-access-repair] user_id=${row.id} email=${lowercasedEmail} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${lowercasedEmail},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[juliana-loredo-access-repair] user_id=${row.id} email=${lowercasedEmail} updated: ` +
+      `email_normalized=${emailNeedsNormalize} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -2668,6 +2773,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runDianaVasquezAccessRepair();
   } catch (err: any) {
     console.warn("[phes-migration] diana-vasquez-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runJulianaLoredoAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] juliana-loredo-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {
