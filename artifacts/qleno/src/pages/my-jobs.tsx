@@ -165,7 +165,7 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
         >
           {uploading ? "…" : "+"}
         </button>
-        <input ref={inputRef} type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={handleFile} />
+        <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
       </div>
     </div>
   );
@@ -301,7 +301,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   );
 }
 
-function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; prevJobId?: number | null }) {
+function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfterPhoto }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; prevJobId?: number | null; requireAfterPhoto?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -314,6 +314,8 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
   const entry = job.time_clock_entry;
   const isClockedIn = entry && !entry.clock_out_at;
   const isComplete = job.status === "complete" || (entry && entry.clock_out_at);
+  // After-photo gate only applies when the owner enabled it (default off).
+  const photoGate = !!requireAfterPhoto && photosAfter.length === 0;
 
   const loadPhotos = useCallback(async () => {
     const res = await apiFetch(`/jobs/${job.id}/photos`);
@@ -636,7 +638,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
       <PhotoGrid jobId={job.id} type="before" photos={photosBefore} onUploaded={loadPhotos} />
       <PhotoGrid jobId={job.id} type="after" photos={photosAfter} onUploaded={loadPhotos} />
 
-      {isClockedIn && photosAfter.length === 0 && (
+      {isClockedIn && photoGate && (
         <div style={{ backgroundColor: "#FEF3C7", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>After photos required before clock-out</p>
         </div>
@@ -712,7 +714,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
             <button
               onClick={() => {
                 if (isPreviewMode) return;
-                if (photosAfter.length === 0) {
+                if (photoGate) {
                   toast({ variant: "destructive", title: "After photo required", description: "Upload at least 1 after photo first" });
                   return;
                 }
@@ -723,15 +725,15 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
               style={{
                 width: "100%", height: 48, borderRadius: 10, border: "none",
                 fontSize: 15, fontWeight: 600,
-                cursor: (isPreviewMode || photosAfter.length === 0) ? "not-allowed" : "pointer",
-                backgroundColor: (isPreviewMode || photosAfter.length === 0) ? "#F3F4F6" : "#166534",
-                color: (isPreviewMode || photosAfter.length === 0) ? "#9E9B94" : "#FFFFFF",
+                cursor: (isPreviewMode || photoGate) ? "not-allowed" : "pointer",
+                backgroundColor: (isPreviewMode || photoGate) ? "#F3F4F6" : "#166534",
+                color: (isPreviewMode || photoGate) ? "#9E9B94" : "#FFFFFF",
                 opacity: isPreviewMode ? 0.6 : 1,
                 transition: "opacity 0.15s",
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
-              {clockOutMutation.isPending || geoLoading ? "Getting location…" : photosAfter.length === 0 ? "Clock Out — add after photo first" : "Clock Out"}
+              {clockOutMutation.isPending || geoLoading ? "Getting location…" : photoGate ? "Clock Out — add after photo first" : "Clock Out"}
             </button>
           </div>
         ) : (
@@ -778,6 +780,11 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
   );
 }
 
+// Local YYYY-MM-DD (not UTC) so the day the tech sees matches their wall clock.
+function ymd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function MyJobsPage() {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
@@ -794,7 +801,18 @@ export default function MyJobsPage() {
   }
   const initials = userInfo ? `${userInfo.firstName[0] || ""}${userInfo.lastName[0] || ""}`.toUpperCase() : "?";
 
-  const today = new Date().toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  // Day navigation: tech can page to other days; defaults to today.
+  const todayYmd = ymd(new Date());
+  const [selectedDate, setSelectedDate] = useState(todayYmd);
+  const isToday = selectedDate === todayYmd;
+  const selectedLabel = (() => {
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  })();
+  const shiftDay = (delta: number) => {
+    const [y, m, d] = selectedDate.split("-").map(Number);
+    setSelectedDate(ymd(new Date(y, m - 1, d + delta)));
+  };
 
   useEffect(() => {
     let watchId: number | null = null;
@@ -817,10 +835,11 @@ export default function MyJobsPage() {
   }, []);
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["my-jobs", employeeView?.employeeId],
+    queryKey: ["my-jobs", employeeView?.employeeId, selectedDate],
     queryFn: async () => {
-      const url = employeeView ? `/jobs/my-jobs?employee_id=${employeeView.employeeId}` : "/jobs/my-jobs";
-      const res = await apiFetch(url);
+      const params = new URLSearchParams({ date: selectedDate });
+      if (employeeView) params.set("employee_id", String(employeeView.employeeId));
+      const res = await apiFetch(`/jobs/my-jobs?${params.toString()}`);
       if (!res.ok) throw new Error("Failed");
       return res.json();
     },
@@ -828,6 +847,7 @@ export default function MyJobsPage() {
   });
 
   const jobs: Job[] = data?.data || [];
+  const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
   const upcomingJobs = jobs.filter(j => j.status === "scheduled" && !j.time_clock_entry);
   // [day-complete 2026-06-04] The day is DERIVED, never a button: it's done
@@ -871,6 +891,26 @@ export default function MyJobsPage() {
           </div>
         </div>
 
+        {/* Day navigation — page to other days; tap the date to jump back to today. */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "8px 12px", background: "#FFFFFF", borderBottom: "1px solid #E5E2DC",
+        }}>
+          <button type="button" onClick={() => shiftDay(-1)} aria-label="Previous day"
+            style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" }}>
+            ‹
+          </button>
+          <button type="button" onClick={() => setSelectedDate(todayYmd)}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{isToday ? "Today" : selectedLabel}</span>
+            <span style={{ fontSize: 11, color: "#9E9B94" }}>{isToday ? selectedLabel : "Tap for today"}</span>
+          </button>
+          <button type="button" onClick={() => shiftDay(1)} aria-label="Next day"
+            style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" }}>
+            ›
+          </button>
+        </div>
+
         {employeeView && (
           <div style={{ background: "var(--brand, #00C9A0)", padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Eye size={14} color="#fff" />
@@ -895,7 +935,7 @@ export default function MyJobsPage() {
             <div style={{ textAlign: "center", padding: 40, color: "#9E9B94", fontSize: 14 }}>Loading your jobs…</div>
           ) : jobs.length === 0 ? (
             <div style={{ textAlign: "center", padding: 40 }}>
-              <p style={{ fontSize: 16, fontWeight: 600, color: "#1A1917", margin: "0 0 6px" }}>No jobs today</p>
+              <p style={{ fontSize: 16, fontWeight: 600, color: "#1A1917", margin: "0 0 6px" }}>{isToday ? "No jobs today" : `No jobs on ${selectedLabel}`}</p>
               <p style={{ fontSize: 13, color: "#9E9B94", margin: 0 }}>Check back or contact your manager</p>
             </div>
           ) : (
@@ -908,7 +948,7 @@ export default function MyJobsPage() {
                     </div>
                     <div>
                       <p style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", margin: 0 }}>Day complete</p>
-                      <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>{today}</p>
+                      <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>{selectedLabel}</p>
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 10 }}>
@@ -928,7 +968,7 @@ export default function MyJobsPage() {
               )}
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
-                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} />
+                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} requireAfterPhoto={requireAfterPhoto} />
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>

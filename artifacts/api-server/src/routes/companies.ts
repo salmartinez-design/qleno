@@ -106,6 +106,7 @@ router.patch("/me", requireAuth, async (req, res) => {
       sms_complete_enabled, twilio_from_number,
       geofence_enabled, geofence_clockin_radius_ft, geofence_clockout_radius_ft,
       geofence_override_allowed, geofence_soft_mode, flag_missing_gps,
+      require_after_photo_for_clockout,
     } = req.body;
 
     const patch: Record<string, unknown> = {};
@@ -125,6 +126,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (geofence_override_allowed !== undefined) patch.geofence_override_allowed = geofence_override_allowed;
     if (geofence_soft_mode !== undefined) patch.geofence_soft_mode = geofence_soft_mode;
     if (flag_missing_gps !== undefined) patch.flag_missing_gps = flag_missing_gps;
+    if (require_after_photo_for_clockout !== undefined) patch.require_after_photo_for_clockout = require_after_photo_for_clockout;
     const {
       default_payment_terms_residential, default_payment_terms_commercial,
       default_invoice_notes_residential, default_invoice_notes_commercial,

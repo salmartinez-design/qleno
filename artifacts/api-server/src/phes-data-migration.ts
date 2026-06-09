@@ -40,6 +40,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.office_notes_updated_by", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_by INTEGER" },
     { label: "jobs.office_notes_updated_at", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_at TIMESTAMP" },
     { label: "companies.flag_missing_gps", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS flag_missing_gps BOOLEAN NOT NULL DEFAULT true" },
+    { label: "companies.require_after_photo_for_clockout", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_after_photo_for_clockout BOOLEAN NOT NULL DEFAULT false" },
     { label: "jobs.last_cleaned_response", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_response TEXT" },
     { label: "jobs.last_cleaned_flag",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_flag TEXT" },
     { label: "jobs.overage_disclaimer_acknowledged", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false" },

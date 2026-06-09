@@ -32,6 +32,11 @@ export const companiesTable = pgTable("companies", {
   geofence_clockout_radius_ft: integer("geofence_clockout_radius_ft").notNull().default(1000),
   geofence_override_allowed: boolean("geofence_override_allowed").notNull().default(true),
   geofence_soft_mode: boolean("geofence_soft_mode").notNull().default(false),
+  // [after-photo-gate 2026-06-09] When true, a tech cannot clock out of a job
+  // until at least one "after" photo is uploaded. Default OFF — most shops
+  // don't want to block clock-out on photos. Owner toggles in Clock In/Out
+  // settings; enforced both client-side (my-jobs) and server-side (clock-out).
+  require_after_photo_for_clockout: boolean("require_after_photo_for_clockout").notNull().default(false),
   // [gps-flag] When true, the dispatch panel flags clock punches that captured
   // no GPS coordinates ("GPS unavailable"). Office can turn it off here.
   flag_missing_gps: boolean("flag_missing_gps").notNull().default(true),

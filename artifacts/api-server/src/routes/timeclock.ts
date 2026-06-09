@@ -368,8 +368,8 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
       .groupBy(jobsTable.id)
       .limit(1);
 
-    if (!jobData[0] || jobData[0].after_count === 0) {
-      return res.status(400).json({ error: "PHOTOS_REQUIRED", message: "At least 1 after photo required before clock out" });
+    if (!jobData[0]) {
+      return res.status(404).json({ error: "Not Found", message: "Job not found for this clock entry" });
     }
 
     const company = await db
@@ -377,6 +377,7 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
         geofence_enabled: companiesTable.geofence_enabled,
         geofence_clockout_radius_ft: companiesTable.geofence_clockout_radius_ft,
         geofence_soft_mode: companiesTable.geofence_soft_mode,
+        require_after_photo_for_clockout: companiesTable.require_after_photo_for_clockout,
       })
       .from(companiesTable)
       .where(eq(companiesTable.id, req.auth!.companyId))
@@ -386,6 +387,12 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
     const geofenceEnabled = cfg?.geofence_enabled ?? true;
     const clockOutRadius = cfg?.geofence_clockout_radius_ft ?? 1000;
     const softMode = cfg?.geofence_soft_mode ?? false;
+
+    // After-photo gate is OPT-IN (default off). Only block clock-out on a
+    // missing "after" photo when the owner enabled it in Clock In/Out settings.
+    if ((cfg?.require_after_photo_for_clockout ?? false) && jobData[0].after_count === 0) {
+      return res.status(400).json({ error: "PHOTOS_REQUIRED", message: "At least 1 after photo required before clock out" });
+    }
 
     const jobLat = jobData[0].job_lat ? parseFloat(jobData[0].job_lat) : null;
     const jobLng = jobData[0].job_lng ? parseFloat(jobData[0].job_lng) : null;
