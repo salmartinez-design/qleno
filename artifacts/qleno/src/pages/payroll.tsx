@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, Fragment } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
@@ -113,7 +114,6 @@ function WeeklyDetailView() {
   const payrollPct = dayTotals.revenue > 0 ? Math.round((dayTotals.payroll / dayTotals.revenue) * 1000) / 10 : null;
   const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#16A34A' : payrollPct <= 50 ? '#D97706' : '#DC2626';
 
-  const inputStyle: React.CSSProperties = { height: 34, padding: '0 10px', border: '1px solid #E5E2DC', borderRadius: 6, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF };
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { fontSize: 12, color: '#1A1917', padding: '6px 10px 6px 0', borderTop: '1px solid #F4F3F0', verticalAlign: 'middle' };
 
@@ -122,9 +122,9 @@ function WeeklyDetailView() {
       <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', fontFamily: FF }}>Pay Period:</span>
-          <input type="date" value={period.start} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, start: e.target.value })); }} style={inputStyle} />
+          <CalendarPopover value={period.start} onChange={v => { setPeriodEdited(true); setPeriod(p => ({ ...p, start: v })); }} ariaLabel="Pay period start" />
           <span style={{ fontSize: 12, color: '#9E9B94' }}>to</span>
-          <input type="date" value={period.end} onChange={e => { setPeriodEdited(true); setPeriod(p => ({ ...p, end: e.target.value })); }} style={inputStyle} />
+          <CalendarPopover value={period.end} onChange={v => { setPeriodEdited(true); setPeriod(p => ({ ...p, end: v })); }} ariaLabel="Pay period end" />
           <button onClick={() => refetch()}
             style={{ padding: '7px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
             Load
