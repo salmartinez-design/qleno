@@ -43,8 +43,8 @@ interface LibCard { key: string; label: string; sub?: string; render: (d: CardDa
 
 // Full card library — every card available to every user.
 const LIBRARY: LibCard[] = [
-  { key: "daily_revenue",        label: "Daily Revenue",        sub: "completed today",        render: d => <Big t={money(d.daily_revenue)} /> },
-  { key: "revenue_booked_today", label: "Revenue Booked Today", sub: "on schedule today",      render: d => <Big t={money(d.revenue_booked_today)} /> },
+  { key: "daily_revenue",        label: "Completed Revenue",    sub: "jobs done today",        render: d => <Big t={money(d.daily_revenue)} /> },
+  { key: "revenue_booked_today", label: "Scheduled Revenue",    sub: "today's scheduled jobs", render: d => <Big t={money(d.revenue_booked_today)} /> },
   { key: "jobs_today",           label: "Jobs Today",           render: d => <Big t={String(d.jobs_today)} /> },
   { key: "jobs_scheduled_today", label: "Jobs Scheduled Today", render: d => <Big t={String(d.jobs_scheduled_today)} /> },
   { key: "late_clockins",        label: "Late Clock-ins",       sub: "no clock-in past start +20m", render: d => <Big t={String(d.late_clockins)} c={d.late_clockins > 0 ? RED : INK} /> },
