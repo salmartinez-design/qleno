@@ -1311,7 +1311,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
     const exprBase = jobRevenueExpr(sql`CAST(j.base_fee AS NUMERIC)`, "j", "c");
     const exprBilled = jobRevenueExpr(sql`COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0)`, "j", "c");
 
-    const [todayRev, todayCounts, monthRev, bh, pay, next7, lateRows, leadsRows, quotesRows, activeRows] = await Promise.all([
+    const [todayRev, todayCounts, monthRev, bh, pay, next7, lateRows, leadsRows, quotesRows, activeRows, newBookedRows] = await Promise.all([
       // Daily revenue (completed today, actual) vs Revenue booked today (all non-cancelled scheduled today)
       db.execute(sql`
         SELECT
@@ -1386,6 +1386,17 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
         SELECT COUNT(*)::int AS v FROM clients
         WHERE company_id = ${companyId} AND is_active = true ${cb}
       `),
+      // Revenue newly BOOKED today — jobs whose booking was created today
+      // (jobs.created_at), regardless of when they're scheduled. Distinct from
+      // "scheduled today" (revenue_booked_today) and "completed today"
+      // (daily_revenue). Same Central-day convention as the quotes "today" cohort.
+      db.execute(sql`
+        SELECT COALESCE(SUM(${exprBase}), 0)::numeric AS v
+        FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+        WHERE j.company_id = ${companyId}
+          AND j.created_at >= ${todayStart}
+          AND j.status != 'cancelled' ${jb}
+      `),
     ]);
 
     const tc: any = (todayCounts as any).rows[0] ?? {};
@@ -1402,6 +1413,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       branch_id: branchId,
       daily_revenue: num(tr.daily),
       revenue_booked_today: num(tr.booked),
+      revenue_newly_booked_today: num((newBookedRows as any).rows[0]?.v),
       jobs_today: Number(tc.jobs_today ?? 0),
       jobs_scheduled_today: Number(tc.scheduled ?? 0),
       late_clockins: Number((lateRows as any).rows[0]?.v ?? 0),

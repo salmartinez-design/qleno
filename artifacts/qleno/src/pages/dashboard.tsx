@@ -532,7 +532,7 @@ export default function Dashboard() {
   // Intelligence strip — hide if all values are dashes
   const hcp = kpis?.hcp;
   const HCP_TILES = [
-    { label: 'Scheduled Revenue',    value: hcp == null ? '—' : fmt$(hcp.rev_booked_today), sub: "today's scheduled jobs" },
+    { label: 'Daily Revenue',        value: hcp == null ? '—' : fmt$(hcp.rev_booked_today), sub: "today's scheduled jobs" },
     { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
     { label: 'Quotes Given',         value: hcp == null ? '—' : String(hcp.quotes_given_today), sub: 'today' },
     { label: 'Booked Online',        value: hcp == null ? '—' : String(hcp.booked_online_month), sub: 'this month' },
@@ -645,7 +645,7 @@ export default function Dashboard() {
             borderBottom: '0.5px solid #F0EDE8',
           }}>
             {[
-              { label: 'Scheduled Revenue',    value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs" },
+              { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs" },
               { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
             ].map((tile, i) => (
               <div key={i} style={{ ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
