@@ -51,16 +51,17 @@ router.post("/", requireAuth, upload.single("file"), async (req, res) => {
     let file_type: string | undefined;
     let file_size: number | undefined;
     if (req.file) {
-      const fileBuffer = fs.readFileSync(req.file.path);
-      const base64 = fileBuffer.toString("base64");
-      file_url = `data:${req.file.mimetype};base64,${base64.substring(0, 100)}...stored`;
       file_type = req.file.mimetype;
       file_size = req.file.size;
-      const publicDir = path.join(process.cwd(), "public", "uploads");
-      fs.mkdirSync(publicDir, { recursive: true });
-      const destPath = path.join(publicDir, req.file.filename);
+      // Store under the dir the static handler serves (app.ts) and expose the
+      // canonical /api/uploads/ URL. The previous code wrote to public/uploads
+      // and stored a bare /uploads/ URL — neither served, so every download
+      // 404'd. Mirrors quote-attachments.ts.
+      const uploadsDir = process.env.UPLOADS_DIR ?? path.join(process.cwd(), "uploads");
+      fs.mkdirSync(uploadsDir, { recursive: true });
+      const destPath = path.join(uploadsDir, req.file.filename);
       fs.renameSync(req.file.path, destPath);
-      file_url = `/uploads/${req.file.filename}`;
+      file_url = `/api/uploads/${req.file.filename}`;
     }
     const [attachment] = await db.insert(clientAttachmentsTable).values({
       company_id: req.auth!.companyId,

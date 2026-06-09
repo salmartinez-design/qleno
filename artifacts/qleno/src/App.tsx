@@ -16,6 +16,8 @@ const EmployeeProfilePage = lazy(() => import("@/pages/employee-profile"));
 const AcceptInvitePage    = lazy(() => import("@/pages/accept-invite"));
 const CustomersPage       = lazy(() => import("@/pages/customers"));
 const CustomerProfilePage = lazy(() => import("@/pages/customer-profile"));
+const AddClientPage       = lazy(() => import("@/pages/add-client"));
+const AddEmployeePage     = lazy(() => import("@/pages/add-employee"));
 const InvoicesPage        = lazy(() => import("@/pages/invoices"));
 const CompanyPage         = lazy(() => import("@/pages/company"));
 const LoyaltyPage         = lazy(() => import("@/pages/loyalty"));
@@ -132,8 +134,10 @@ function Router() {
         <Route path="/reports/jobs" component={JobsListPage} />
         <Route path="/recurring" component={RecurringSchedulesPage} />
         <Route path="/employees/clocks" component={ClockMonitorPage} />
+        <Route path="/employees/new" component={AddEmployeePage} />
         <Route path="/employees/:id" component={EmployeeProfilePage} />
         <Route path="/employees" component={EmployeesPage} />
+        <Route path="/customers/new" component={AddClientPage} />
         <Route path="/customers/:id" component={CustomerProfilePage} />
         <Route path="/customers" component={CustomersPage} />
         <Route path="/invoices/:id" component={InvoiceDetailPage} />

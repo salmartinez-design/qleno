@@ -130,7 +130,7 @@ export default function EmployeesPage() {
               <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)} style={{ cursor: 'pointer' }} />
               Show inactive
             </label>
-            <button onClick={() => setAddModal(true)}
+            <button onClick={() => navigate('/employees/new')}
               style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
               <Plus size={14} strokeWidth={2} /> Add Team Member
             </button>

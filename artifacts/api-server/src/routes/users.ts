@@ -235,7 +235,16 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
 
 router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
-    const { email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone } = req.body;
+    const {
+      email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone,
+      personal_email, address, city, state, zip, skills,
+    } = req.body;
+
+    // Guard required fields — an undefined email previously threw on
+    // .toLowerCase() and surfaced as an opaque 500 / apparent hang.
+    if (!email || !first_name) {
+      return res.status(400).json({ error: "email and first_name are required" });
+    }
 
     const tempPassword = Math.random().toString(36).slice(-8);
     const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -244,15 +253,22 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       .insert(usersTable)
       .values({
         company_id: req.auth!.companyId,
-        email: email.toLowerCase(),
+        email: String(email).toLowerCase(),
         password_hash,
         first_name,
         last_name,
-        role,
-        pay_rate,
-        pay_type,
-        hire_date,
-        phone,
+        role: role || "technician",
+        // Empty-string numerics would error on a NUMERIC column.
+        ...(pay_rate !== undefined && pay_rate !== "" && { pay_rate }),
+        ...(pay_type && { pay_type }),
+        ...(hire_date && { hire_date }),
+        ...(phone !== undefined && { phone }),
+        ...(personal_email !== undefined && { personal_email }),
+        ...(address !== undefined && { address }),
+        ...(city !== undefined && { city }),
+        ...(state !== undefined && { state }),
+        ...(zip !== undefined && { zip }),
+        ...(Array.isArray(skills) && { skills }),
       })
       .returning();
 
@@ -380,6 +396,12 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       // [pay-matrix 2026-04-29] 4-cell pay matrix.
       residential_pay_type, residential_pay_rate,
       commercial_pay_type,  commercial_pay_rate,
+      // [2026-06-06] Information-tab fields the profile form sends but the
+      // route previously dropped silently (personal_email, address, …) —
+      // caused "Save Changes" to no-op. Only columns that exist on users.
+      personal_email, address, city, state, zip, dob, gender,
+      employment_type, bank_name, emergency_contact_name,
+      emergency_contact_phone, notes,
     } = req.body;
 
     // Only the OWNER may change a user's role (grant/revoke admin etc.).
@@ -421,10 +443,10 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(first_name && { first_name }),
         ...(last_name && { last_name }),
         ...(role && { role }),
-        ...(pay_rate !== undefined && { pay_rate }),
+        ...(pay_rate !== undefined && { pay_rate: pay_rate === "" ? null : pay_rate }),
         ...(pay_type && { pay_type }),
         ...(is_active !== undefined && { is_active }),
-        ...(hire_date !== undefined && { hire_date }),
+        ...(hire_date !== undefined && { hire_date: hire_date === "" ? null : hire_date }),
         ...(phone !== undefined && { phone }),
         ...(skills !== undefined && { skills }),
         ...(avatar_url !== undefined && { avatar_url }),
@@ -432,6 +454,19 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(residential_pay_rate !== undefined && { residential_pay_rate: String(residential_pay_rate) }),
         ...(commercial_pay_type  !== undefined && { commercial_pay_type }),
         ...(commercial_pay_rate  !== undefined && { commercial_pay_rate:  String(commercial_pay_rate) }),
+        // Information-tab fields (added 2026-06-06).
+        ...(personal_email !== undefined && { personal_email }),
+        ...(address !== undefined && { address }),
+        ...(city !== undefined && { city }),
+        ...(state !== undefined && { state }),
+        ...(zip !== undefined && { zip }),
+        ...(dob !== undefined && { dob: dob === "" ? null : dob }),
+        ...(gender !== undefined && { gender }),
+        ...(employment_type !== undefined && { employment_type }),
+        ...(bank_name !== undefined && { bank_name }),
+        ...(emergency_contact_name !== undefined && { emergency_contact_name }),
+        ...(emergency_contact_phone !== undefined && { emergency_contact_phone }),
+        ...(notes !== undefined && { notes }),
       })
       .where(and(
         eq(usersTable.id, userId),

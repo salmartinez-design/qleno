@@ -75,6 +75,11 @@ export const usersTable = pgTable("users", {
   benefit_year_start: date("benefit_year_start"),
   leave_balance_hours: numeric("leave_balance_hours", { precision: 8, scale: 2 }).default("0"),
   leave_balance_activated: boolean("leave_balance_activated").default(false),
+  // PTO and Sick tracked separately (mirror MaidCentral). leave_balance_hours
+  // stays as the legacy single bucket; these two are the canonical balances
+  // shown in the employee Attendance tab and set via PUT /api/hr-leave/balance.
+  pto_balance_hours: numeric("pto_balance_hours", { precision: 8, scale: 2 }).default("0"),
+  sick_balance_hours: numeric("sick_balance_hours", { precision: 8, scale: 2 }).default("0"),
   invite_token: text("invite_token"),
   invite_sent_at: timestamp("invite_sent_at"),
   invite_accepted_at: timestamp("invite_accepted_at"),
