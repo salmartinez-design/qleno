@@ -55,6 +55,8 @@ const FormsPage           = lazy(() => import("@/pages/forms"));
 const SignPage             = lazy(() => import("@/pages/sign"));
 const QuotesPage          = lazy(() => import("@/pages/quotes"));
 const QuoteBuilderPage    = lazy(() => import("@/pages/quote-builder"));
+const EstimatesPage       = lazy(() => import("@/pages/estimates"));
+const EstimateBuilderPage = lazy(() => import("@/pages/estimate-builder"));
 const QuoteDetailPage     = lazy(() => import("@/pages/quote-detail"));
 const QuotingPage         = lazy(() => import("@/pages/quoting"));
 const InvoiceDetailPage   = lazy(() => import("@/pages/invoice-detail"));
@@ -193,6 +195,10 @@ function Router() {
         <Route path="/quotes/:id/edit" component={QuoteBuilderPage} />
         <Route path="/quotes/:id" component={QuoteDetailPage} />
         <Route path="/quotes" component={QuotesPage} />
+
+        <Route path="/estimates/new" component={EstimateBuilderPage} />
+        <Route path="/estimates/:id" component={EstimateBuilderPage} />
+        <Route path="/estimates" component={EstimatesPage} />
 
         <Route path="/book/:slug" component={BookPage} />
         <Route path="/pay/:token" component={PayPage} />

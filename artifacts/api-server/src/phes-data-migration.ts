@@ -187,6 +187,89 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+    // ── commercial estimate tool ─────────────────────────────────────────────
+    // [commercial-estimate-tool 2026-06-09] Estimates + line items + reusable
+    // templates. Idempotent CREATE IF NOT EXISTS (matches the leads pattern —
+    // no FK constraints in the raw DDL; company_id scoping enforced in routes).
+    { label: "CREATE estimates", stmt: `
+      CREATE TABLE IF NOT EXISTS estimates (
+        id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL,
+        branch_id           INTEGER,
+        account_id          INTEGER,
+        account_property_id INTEGER,
+        client_id           INTEGER,
+        contact_name        TEXT,
+        contact_email       TEXT,
+        contact_phone       TEXT,
+        property_name       TEXT,
+        service_address     TEXT,
+        estimate_number     TEXT,
+        title               TEXT,
+        intro_note          TEXT,
+        terms               TEXT,
+        internal_notes      TEXT,
+        status              TEXT NOT NULL DEFAULT 'draft',
+        subtotal            NUMERIC(12,2) NOT NULL DEFAULT 0,
+        discount_amount     NUMERIC(12,2) NOT NULL DEFAULT 0,
+        total               NUMERIC(12,2) NOT NULL DEFAULT 0,
+        valid_until         TIMESTAMPTZ,
+        public_token        TEXT,
+        sent_at             TIMESTAMPTZ,
+        viewed_at           TIMESTAMPTZ,
+        accepted_at         TIMESTAMPTZ,
+        declined_at         TIMESTAMPTZ,
+        accepted_name       TEXT,
+        ghl_synced_at       TIMESTAMPTZ,
+        created_by          INTEGER,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "CREATE estimate_line_items", stmt: `
+      CREATE TABLE IF NOT EXISTS estimate_line_items (
+        id           SERIAL PRIMARY KEY,
+        estimate_id  INTEGER NOT NULL,
+        company_id   INTEGER NOT NULL,
+        sort_order   INTEGER NOT NULL DEFAULT 0,
+        name         TEXT,
+        description  TEXT,
+        pricing_type TEXT NOT NULL DEFAULT 'flat',
+        frequency    TEXT,
+        quantity     NUMERIC(10,2) NOT NULL DEFAULT 1,
+        unit_rate    NUMERIC(12,2) NOT NULL DEFAULT 0,
+        amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "CREATE estimate_templates", stmt: `
+      CREATE TABLE IF NOT EXISTS estimate_templates (
+        id          SERIAL PRIMARY KEY,
+        company_id  INTEGER NOT NULL,
+        name        TEXT NOT NULL,
+        title       TEXT,
+        intro_note  TEXT,
+        terms       TEXT,
+        created_by  INTEGER,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "CREATE estimate_template_items", stmt: `
+      CREATE TABLE IF NOT EXISTS estimate_template_items (
+        id           SERIAL PRIMARY KEY,
+        template_id  INTEGER NOT NULL,
+        company_id   INTEGER NOT NULL,
+        sort_order   INTEGER NOT NULL DEFAULT 0,
+        name         TEXT,
+        description  TEXT,
+        pricing_type TEXT NOT NULL DEFAULT 'flat',
+        frequency    TEXT,
+        quantity     NUMERIC(10,2) NOT NULL DEFAULT 1,
+        unit_rate    NUMERIC(12,2) NOT NULL DEFAULT 0,
+        amount       NUMERIC(12,2) NOT NULL DEFAULT 0,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
     // ── follow_up_sequences table ────────────────────────────────────────────
     { label: "CREATE follow_up_sequences", stmt: `
       CREATE TABLE IF NOT EXISTS follow_up_sequences (

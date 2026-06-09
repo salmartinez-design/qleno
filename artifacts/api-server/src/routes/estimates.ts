@@ -1,0 +1,382 @@
+import { Router } from "express";
+import { db } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
+import { requireAuth } from "../lib/auth.js";
+
+// [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
+// Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
+// api-server reads the db package's compiled .d.ts, which lags the source by a
+// build — raw SQL sidesteps that while the runtime (tsx) reads the live schema.
+// Every query is company-scoped via req.auth!.companyId. Line items are stored
+// in estimate_line_items; PATCH/create replace the full set (mirrors the
+// job_add_ons pattern). Totals are always recomputed server-side.
+
+const router = Router();
+
+const PRICING_TYPES = new Set(["flat", "hourly", "one_time"]);
+
+type NormalizedItem = {
+  sort_order: number;
+  name: string | null;
+  description: string | null;
+  pricing_type: string;
+  frequency: string | null;
+  quantity: number;
+  unit_rate: number;
+  amount: number;
+};
+
+function normalizeItems(raw: unknown): NormalizedItem[] {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((it: any, i: number) => {
+    const pricing_type = PRICING_TYPES.has(it?.pricing_type) ? it.pricing_type : "flat";
+    const quantity = Math.max(0, Number(it?.quantity ?? 1) || 0);
+    const unit_rate = Math.max(0, Number(it?.unit_rate ?? 0) || 0);
+    const amount = Math.round(quantity * unit_rate * 100) / 100;
+    const name = (it?.name ?? "").toString().trim().slice(0, 300);
+    const description = (it?.description ?? "").toString().trim();
+    const frequency = (it?.frequency ?? "").toString().trim().slice(0, 80);
+    return {
+      sort_order: i,
+      name: name || null,
+      description: description || null,
+      pricing_type,
+      frequency: frequency || null,
+      quantity,
+      unit_rate,
+      amount,
+    };
+  });
+}
+
+function computeTotals(items: NormalizedItem[], discountRaw: unknown) {
+  const subtotal = Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+  const discount = Math.max(0, Number(discountRaw ?? 0) || 0);
+  const total = Math.round(Math.max(0, subtotal - discount) * 100) / 100;
+  return { subtotal, discount, total };
+}
+
+function str(v: unknown, max = 2000): string | null {
+  if (v === undefined || v === null) return null;
+  const s = v.toString().trim();
+  return s ? s.slice(0, max) : null;
+}
+
+function intOrNull(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") return null;
+  const n = parseInt(v.toString(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function insertLineItems(estimateId: number, companyId: number, items: NormalizedItem[]) {
+  for (const it of items) {
+    await db.execute(sql`
+      INSERT INTO estimate_line_items
+        (estimate_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+      VALUES
+        (${estimateId}, ${companyId}, ${it.sort_order}, ${it.name}, ${it.description},
+         ${it.pricing_type}, ${it.frequency}, ${it.quantity}, ${it.unit_rate}, ${it.amount})
+    `);
+  }
+}
+
+// ─── Stats ───────────────────────────────────────────────────────────────────
+router.get("/stats", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'draft')::int AS draft,
+        COUNT(*) FILTER (WHERE status IN ('sent','viewed'))::int AS outstanding,
+        COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted,
+        COALESCE(SUM(total) FILTER (WHERE status = 'accepted'
+          AND accepted_at >= date_trunc('month', now())), 0)::numeric AS accepted_value_month
+      FROM estimates WHERE company_id = ${companyId}
+    `);
+    return res.json((rows as any).rows[0] ?? {});
+  } catch (err) {
+    console.error("Estimate stats error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Templates ───────────────────────────────────────────────────────────────
+router.get("/templates", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT t.*,
+        (SELECT COUNT(*)::int FROM estimate_template_items i WHERE i.template_id = t.id) AS item_count
+      FROM estimate_templates t
+      WHERE t.company_id = ${companyId}
+      ORDER BY t.created_at DESC
+    `);
+    return res.json({ data: (rows as any).rows });
+  } catch (err) {
+    console.error("List estimate templates error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.get("/templates/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const t = await db.execute(sql`SELECT * FROM estimate_templates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const tpl = (t as any).rows[0];
+    if (!tpl) return res.status(404).json({ error: "Not Found" });
+    const items = await db.execute(sql`
+      SELECT * FROM estimate_template_items WHERE template_id = ${id} AND company_id = ${companyId} ORDER BY sort_order
+    `);
+    return res.json({ ...tpl, items: (items as any).rows });
+  } catch (err) {
+    console.error("Get estimate template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/templates", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const name = str(req.body?.name, 200);
+    if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
+    const items = normalizeItems(req.body?.items);
+    const inserted = await db.execute(sql`
+      INSERT INTO estimate_templates (company_id, name, title, intro_note, terms, created_by)
+      VALUES (${companyId}, ${name}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${req.auth!.userId})
+      RETURNING id
+    `);
+    const templateId = (inserted as any).rows[0].id;
+    for (const it of items) {
+      await db.execute(sql`
+        INSERT INTO estimate_template_items
+          (template_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+        VALUES
+          (${templateId}, ${companyId}, ${it.sort_order}, ${it.name}, ${it.description},
+           ${it.pricing_type}, ${it.frequency}, ${it.quantity}, ${it.unit_rate}, ${it.amount})
+      `);
+    }
+    return res.status(201).json({ id: templateId });
+  } catch (err) {
+    console.error("Create estimate template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/templates/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    await db.execute(sql`DELETE FROM estimate_template_items WHERE template_id = ${id} AND company_id = ${companyId}`);
+    await db.execute(sql`DELETE FROM estimate_templates WHERE id = ${id} AND company_id = ${companyId}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete estimate template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── List estimates ──────────────────────────────────────────────────────────
+router.get("/", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const status = str(req.query?.status, 40);
+    const search = str(req.query?.search, 120);
+    const rows = await db.execute(sql`
+      SELECT e.id, e.estimate_number, e.status, e.title, e.total, e.subtotal,
+             e.contact_name, e.property_name, e.service_address,
+             e.sent_at, e.viewed_at, e.accepted_at, e.valid_until, e.created_at,
+             a.account_name,
+             COALESCE(NULLIF(e.property_name, ''), p.property_name) AS resolved_property,
+             COALESCE(a.account_name, e.contact_name, p.property_name, 'Untitled') AS recipient
+      FROM estimates e
+      LEFT JOIN accounts a ON a.id = e.account_id
+      LEFT JOIN account_properties p ON p.id = e.account_property_id
+      WHERE e.company_id = ${companyId}
+        ${status ? sql`AND e.status = ${status}` : sql``}
+        ${search ? sql`AND (a.account_name ILIKE ${"%" + search + "%"} OR e.contact_name ILIKE ${"%" + search + "%"} OR e.property_name ILIKE ${"%" + search + "%"} OR e.estimate_number ILIKE ${"%" + search + "%"})` : sql``}
+      ORDER BY e.created_at DESC
+      LIMIT 300
+    `);
+    return res.json({ data: (rows as any).rows });
+  } catch (err) {
+    console.error("List estimates error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Get one estimate (with line items) ──────────────────────────────────────
+router.get("/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`
+      SELECT e.*, a.account_name, p.property_name AS account_property_name
+      FROM estimates e
+      LEFT JOIN accounts a ON a.id = e.account_id
+      LEFT JOIN account_properties p ON p.id = e.account_property_id
+      WHERE e.id = ${id} AND e.company_id = ${companyId} LIMIT 1
+    `);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const items = await db.execute(sql`
+      SELECT * FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId} ORDER BY sort_order
+    `);
+    return res.json({ ...est, items: (items as any).rows });
+  } catch (err) {
+    console.error("Get estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Create estimate ─────────────────────────────────────────────────────────
+router.post("/", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const b = req.body ?? {};
+
+    // Optionally seed line items from a saved template.
+    let items = normalizeItems(b.items);
+    const fromTemplate = intOrNull(b.from_template_id);
+    if (fromTemplate && items.length === 0) {
+      const ti = await db.execute(sql`
+        SELECT name, description, pricing_type, frequency, quantity, unit_rate
+        FROM estimate_template_items WHERE template_id = ${fromTemplate} AND company_id = ${companyId} ORDER BY sort_order
+      `);
+      items = normalizeItems((ti as any).rows);
+    }
+    const { subtotal, discount, total } = computeTotals(items, b.discount_amount);
+
+    const inserted = await db.execute(sql`
+      INSERT INTO estimates
+        (company_id, branch_id, account_id, account_property_id, client_id,
+         contact_name, contact_email, contact_phone, property_name, service_address,
+         title, intro_note, terms, internal_notes, status,
+         subtotal, discount_amount, total, valid_until, created_by, updated_at)
+      VALUES
+        (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
+         ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
+         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft',
+         ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
+      RETURNING id
+    `);
+    const id = (inserted as any).rows[0].id;
+    await db.execute(sql`UPDATE estimates SET estimate_number = ${"EST-" + String(1000 + id)} WHERE id = ${id}`);
+    await insertLineItems(id, companyId, items);
+    return res.status(201).json({ id });
+  } catch (err) {
+    console.error("Create estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Update estimate (replaces line items) ───────────────────────────────────
+router.patch("/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const exists = await db.execute(sql`SELECT id FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    if (!(exists as any).rows[0]) return res.status(404).json({ error: "Not Found" });
+
+    const b = req.body ?? {};
+    const items = normalizeItems(b.items);
+    const { subtotal, discount, total } = computeTotals(items, b.discount_amount);
+
+    await db.execute(sql`
+      UPDATE estimates SET
+        account_id = ${intOrNull(b.account_id)},
+        account_property_id = ${intOrNull(b.account_property_id)},
+        client_id = ${intOrNull(b.client_id)},
+        contact_name = ${str(b.contact_name, 200)},
+        contact_email = ${str(b.contact_email, 200)},
+        contact_phone = ${str(b.contact_phone, 40)},
+        property_name = ${str(b.property_name, 300)},
+        service_address = ${str(b.service_address, 400)},
+        title = ${str(b.title, 300)},
+        intro_note = ${str(b.intro_note)},
+        terms = ${str(b.terms)},
+        internal_notes = ${str(b.internal_notes)},
+        subtotal = ${subtotal},
+        discount_amount = ${discount},
+        total = ${total},
+        valid_until = ${b.valid_until ? new Date(b.valid_until) : null},
+        updated_at = now()
+      WHERE id = ${id} AND company_id = ${companyId}
+    `);
+    await db.execute(sql`DELETE FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId}`);
+    await insertLineItems(id, companyId, items);
+    return res.json({ id });
+  } catch (err) {
+    console.error("Update estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Save an estimate's line items as a reusable template ─────────────────────
+router.post("/:id/save-as-template", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const name = str(req.body?.name, 200);
+    if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
+    const e = await db.execute(sql`SELECT title, intro_note, terms FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const inserted = await db.execute(sql`
+      INSERT INTO estimate_templates (company_id, name, title, intro_note, terms, created_by)
+      VALUES (${companyId}, ${name}, ${est.title}, ${est.intro_note}, ${est.terms}, ${req.auth!.userId})
+      RETURNING id
+    `);
+    const templateId = (inserted as any).rows[0].id;
+    await db.execute(sql`
+      INSERT INTO estimate_template_items
+        (template_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+      SELECT ${templateId}, ${companyId}, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount
+      FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId}
+    `);
+    return res.status(201).json({ id: templateId });
+  } catch (err) {
+    console.error("Save estimate as template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Send: mark sent + mint the public token (hosted view + GHL come next) ────
+router.post("/:id/send", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`SELECT public_token, valid_until FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const token = est.public_token || randomUUID();
+    // Default a 30-day validity window if none was set.
+    const validUntil = est.valid_until || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    await db.execute(sql`
+      UPDATE estimates
+      SET status = 'sent', sent_at = COALESCE(sent_at, now()), public_token = ${token}, valid_until = ${validUntil}, updated_at = now()
+      WHERE id = ${id} AND company_id = ${companyId}
+    `);
+    return res.json({ id, public_token: token });
+  } catch (err) {
+    console.error("Send estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    await db.execute(sql`DELETE FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId}`);
+    await db.execute(sql`DELETE FROM estimates WHERE id = ${id} AND company_id = ${companyId}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+export default router;
