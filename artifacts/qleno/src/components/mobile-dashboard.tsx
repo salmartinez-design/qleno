@@ -21,7 +21,7 @@ const MINT = "#2D9B83";
 const RED = "#E24B4A";
 
 interface CardData {
-  daily_revenue: number; revenue_booked_today: number; jobs_today: number; jobs_scheduled_today: number;
+  daily_revenue: number; revenue_booked_today: number; revenue_newly_booked_today: number; jobs_today: number; jobs_scheduled_today: number;
   late_clockins: number;
   todays_status: { in_progress: number; scheduled: number; complete: number; flagged: number; unassigned: number };
   unassigned_jobs: number; techs_today: number; next_7_days_jobs: number; next_7_days_revenue: number;
@@ -43,8 +43,9 @@ interface LibCard { key: string; label: string; sub?: string; render: (d: CardDa
 
 // Full card library — every card available to every user.
 const LIBRARY: LibCard[] = [
-  { key: "daily_revenue",        label: "Daily Revenue",        sub: "completed today",        render: d => <Big t={money(d.daily_revenue)} /> },
-  { key: "revenue_booked_today", label: "Revenue Booked Today", sub: "on schedule today",      render: d => <Big t={money(d.revenue_booked_today)} /> },
+  { key: "revenue_booked_today", label: "Daily Revenue",        sub: "today's scheduled jobs", render: d => <Big t={money(d.revenue_booked_today)} /> },
+  { key: "revenue_newly_booked_today", label: "Booked Today",   sub: "new jobs booked today",  render: d => <Big t={money(d.revenue_newly_booked_today)} /> },
+  { key: "daily_revenue",        label: "Completed Today",      sub: "jobs marked complete",   render: d => <Big t={money(d.daily_revenue)} /> },
   { key: "jobs_today",           label: "Jobs Today",           render: d => <Big t={String(d.jobs_today)} /> },
   { key: "jobs_scheduled_today", label: "Jobs Scheduled Today", render: d => <Big t={String(d.jobs_scheduled_today)} /> },
   { key: "late_clockins",        label: "Late Clock-ins",       sub: "no clock-in past start +20m", render: d => <Big t={String(d.late_clockins)} c={d.late_clockins > 0 ? RED : INK} /> },
@@ -87,7 +88,7 @@ const LIB_KEYS = LIBRARY.map(l => l.key);
 const cardDef = (k: string) => LIBRARY.find(l => l.key === k);
 
 // Default sets shown before any customization.
-const OWNER_DEFAULT = ["daily_revenue", "jobs_today", "revenue_booked_today", "quotes_today", "closed_quotes_today", "close_rate_today", "leads", "quotes", "closed_quotes", "close_rate"];
+const OWNER_DEFAULT = ["revenue_booked_today", "revenue_newly_booked_today", "jobs_today", "quotes_today", "closed_quotes_today", "close_rate_today", "leads", "quotes", "closed_quotes", "close_rate"];
 const OFFICE_DEFAULT = ["jobs_scheduled_today", "late_clockins", "todays_status", "unassigned_jobs", "techs_today", "next_7_days"];
 const roleDefault = (role: string) => (role === "owner" ? OWNER_DEFAULT : OFFICE_DEFAULT);
 
@@ -96,7 +97,7 @@ const CARD_HREF: Record<string, string> = {
   leads: "/leads",
   quotes: "/quotes", closed_quotes: "/quotes", close_rate: "/quotes",
   quotes_today: "/quotes", closed_quotes_today: "/quotes", close_rate_today: "/quotes",
-  daily_revenue: "/reports/revenue", revenue_booked_today: "/reports/revenue",
+  daily_revenue: "/reports/revenue", revenue_booked_today: "/reports/revenue", revenue_newly_booked_today: "/reports/revenue",
   monthly_revenue: "/reports/revenue", avg_bill: "/reports/revenue", rate_trend: "/reports/revenue",
   jobs_today: "/dispatch", jobs_scheduled_today: "/dispatch", unassigned_jobs: "/dispatch",
   todays_status: "/dispatch", late_clockins: "/dispatch", techs_today: "/dispatch", next_7_days: "/dispatch",
