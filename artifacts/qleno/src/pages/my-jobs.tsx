@@ -4,7 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users } from "lucide-react";
 import { Link } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
@@ -97,6 +97,11 @@ type Job = {
   access_notes: string | null;
   base_fee: number;
   estimated_hours: number | null;
+  allowed_hours: number | null;
+  zone_name: string | null;
+  zone_color: string | null;
+  team: string | null;
+  team_count: number;
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
@@ -551,20 +556,44 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
             {job.branch_name}
           </span>
         ) : null}
+        {/* Zone chip — color dot + name so the tech knows which area they're
+            headed to. A zoneless job is a data error (see zone-resolution rule). */}
+        {job.zone_name && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#F4F3F0", color: "#1A1917", letterSpacing: "0.02em" }}>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: job.zone_color || "#9E9B94", display: "inline-block", flexShrink: 0 }} />
+            {job.zone_name}
+          </span>
+        )}
       </div>
       <p style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 4px" }}>
         {formatServiceType(job.service_type)}
       </p>
-      {job.scheduled_time && (
-        <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
-          {formatTime(job.scheduled_time)}
-          {job.estimated_hours != null && job.estimated_hours > 0 && (
-            <span style={{ marginLeft: 8, color: "#9E9B94" }}>· ~{job.estimated_hours.toFixed(1)} hrs</span>
-          )}
+      {(() => {
+        // Allowed hours is the budget the tech needs; estimated_hours is the
+        // stale creation stamp and only a fallback.
+        const hrs = job.allowed_hours ?? job.estimated_hours;
+        const label = job.allowed_hours != null ? "hrs allowed" : "hrs est.";
+        return (
+          <>
+            {job.scheduled_time && (
+              <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
+                {formatTime(job.scheduled_time)}
+                {hrs != null && hrs > 0 && (
+                  <span style={{ marginLeft: 8, color: "#9E9B94" }}>· {hrs.toFixed(1)} {label}</span>
+                )}
+              </p>
+            )}
+            {!job.scheduled_time && hrs != null && hrs > 0 && (
+              <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>{hrs.toFixed(1)} {label}</p>
+            )}
+          </>
+        );
+      })()}
+      {job.team && job.team_count > 1 && (
+        <p style={{ fontSize: 12, color: "#6B6860", margin: "4px 0 0", display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <Users size={13} aria-hidden="true" style={{ color: "#9E9B94", flexShrink: 0 }} />
+          Team: {job.team}
         </p>
-      )}
-      {!job.scheduled_time && job.estimated_hours != null && job.estimated_hours > 0 && (
-        <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>Est. {job.estimated_hours.toFixed(1)} hrs</p>
       )}
       {job.address && (
         <a
