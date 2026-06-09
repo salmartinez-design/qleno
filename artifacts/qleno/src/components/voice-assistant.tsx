@@ -62,8 +62,23 @@ export function VoiceAssistant() {
     } catch { /* TTS unavailable — text answer still shows */ }
   }
 
+  // iOS Safari only lets speechSynthesis play if it was first invoked inside a
+  // user gesture (the tap). Our real speak() runs after an await fetch, by
+  // which point the gesture is gone — so on iPhone the answer never spoke.
+  // Prime the engine with a silent utterance on the tap to unlock it; the
+  // later speak() then plays. No-op on browsers that don't need it.
+  function primeSpeech() {
+    try {
+      const u = new SpeechSynthesisUtterance("");
+      u.volume = 0;
+      window.speechSynthesis.speak(u);
+    } catch { /* noop */ }
+  }
+
   async function ask(q: string) {
     if (!q.trim() || busy) return;
+    // Unlock iOS TTS while we're still in the tap/submit gesture (typed path).
+    primeSpeech();
     setBusy(true); setAnswer(""); setNavUrl(null); setTranscript(q);
     try {
       const r = await fetch(`${API}/api/assistant/ask`, {
@@ -107,6 +122,9 @@ export function VoiceAssistant() {
 
   async function startListening() {
     if (!supported || listening || busy) return;
+    // Unlock iOS TTS now, while we're inside the mic-tap gesture — the spoken
+    // answer fires later from an async callback that iOS won't let speak cold.
+    primeSpeech();
     setStatus(""); setTranscript(""); setAnswer(""); setNavUrl(null);
     // Pre-flight the microphone permission so a denial gives a clear message
     // instead of a silent no-op (the #1 reason "the mic does nothing").

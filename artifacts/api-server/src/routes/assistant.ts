@@ -156,6 +156,7 @@ router.post("/ask", requireAuth, async (req, res) => {
         `You can answer about the WHOLE company's day using ONLY the provided data: total revenue, total commission, each technician's schedule, and per-technician commission. ` +
         `Use ONLY this data — never invent numbers, jobs, names, or addresses; if it isn't here, say you don't have it. ` +
         `For a specific technician's commission or schedule, match jobs by that tech's name (case-insensitive) and sum their commission. All money is USD. ` +
+        `When asked which job a technician is on "right now" / "currently" / "at the moment", DO answer from the schedule and the current local time — do not refuse for lack of GPS. The current job is the latest one whose scheduled start time is at or before ${now || "now"}; name that client and time, and mention the next upcoming job if one remains. Add a brief caveat that this is based on the schedule, not live tracking. If the tech's first job today is still in the future, say they haven't started yet and give the first job's time. ` +
         `Reply in ${langName}, concise and natural for reading aloud (a few sentences; brief lists for schedules). ` +
         `When asked to navigate / get directions to a job, put that job's exact address in "navigate_to"; otherwise null. ` +
         `Respond with ONLY a JSON object: {"answer": string, "navigate_to": string|null}. No other text.\n\n` +
