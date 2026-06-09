@@ -56,6 +56,10 @@ interface Quote {
   client_last: string | null;
   client_email: string | null;
   scope_name: string | null;
+  created_by: number | null;
+  quoted_by_first: string | null;
+  quoted_by_last: string | null;
+  client_type: string | null;
 }
 
 interface Stats {
@@ -163,6 +167,24 @@ export default function QuotesPage() {
     );
   });
 
+  // [quote-breakdown 2026-06-08] Residential vs commercial + who quoted, over the
+  // currently-filtered set, so the office can see the mix at a glance.
+  const quoterName = (q: Quote) => `${q.quoted_by_first ?? ""} ${q.quoted_by_last ?? ""}`.trim() || "Unknown";
+  const breakdown = (() => {
+    let residential = 0, commercial = 0, other = 0;
+    const byQuoter: Record<string, number> = {};
+    for (const q of filtered) {
+      const t = (q.client_type || "").toLowerCase();
+      if (t === "commercial") commercial++;
+      else if (t === "residential") residential++;
+      else other++;
+      const n = quoterName(q);
+      byQuoter[n] = (byQuoter[n] || 0) + 1;
+    }
+    const quoters = Object.entries(byQuoter).sort((a, b) => b[1] - a[1]);
+    return { residential, commercial, other, quoters };
+  })();
+
   const statCards = [
     { label: "Total Quotes",          value: stats?.total ?? 0,                icon: FileText,    color: "text-[#5B9BD5]",    bg: "bg-[#5B9BD5]/10" },
     { label: "Awaiting Response",     value: stats?.pending ?? 0,              icon: Send,        color: "text-orange-500",   bg: "bg-orange-50" },
@@ -217,6 +239,31 @@ export default function QuotesPage() {
               </button>
             ))}
           </div>
+
+          {/* Breakdown: residential / commercial + who quoted */}
+          {!isLoading && filtered.length > 0 && (
+            <div style={{ padding: "12px 16px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                {[
+                  { label: "Residential", n: breakdown.residential },
+                  { label: "Commercial", n: breakdown.commercial },
+                  ...(breakdown.other > 0 ? [{ label: "Unspecified", n: breakdown.other }] : []),
+                ].map(c => (
+                  <div key={c.label} style={{ flex: 1, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 12px" }}>
+                    <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", fontFamily: FF }}>{c.label}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>{c.n}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {breakdown.quoters.map(([name, n]) => (
+                  <span key={name} style={{ fontSize: 12, color: "#6B6860", background: "#F4F3F0", borderRadius: 999, padding: "4px 10px", fontFamily: FF }}>
+                    {name}: <b style={{ color: "#1A1917" }}>{n}</b>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Card list */}
           <div style={{ marginTop: 12, background: "#FFF", borderTop: "1px solid #E5E2DC", borderBottom: "1px solid #E5E2DC" }}>

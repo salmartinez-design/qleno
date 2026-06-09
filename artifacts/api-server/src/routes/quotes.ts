@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { quotesTable, clientsTable, quoteScopesTable, recurringSchedulesTable } from "@workspace/db/schema";
+import { quotesTable, clientsTable, quoteScopesTable, recurringSchedulesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -124,10 +124,16 @@ router.get("/", requireAuth, async (req, res) => {
         client_last: clientsTable.last_name,
         client_email: clientsTable.email,
         scope_name: quoteScopesTable.name,
+        // [quote-breakdown 2026-06-08] who quoted + residential/commercial split.
+        created_by: quotesTable.created_by,
+        quoted_by_first: usersTable.first_name,
+        quoted_by_last: usersTable.last_name,
+        client_type: clientsTable.client_type,
       })
       .from(quotesTable)
       .leftJoin(clientsTable, eq(quotesTable.client_id, clientsTable.id))
       .leftJoin(quoteScopesTable, eq(quotesTable.scope_id, quoteScopesTable.id))
+      .leftJoin(usersTable, eq(quotesTable.created_by, usersTable.id))
       .where(and(...conditions))
       .orderBy(desc(quotesTable.created_at));
 
