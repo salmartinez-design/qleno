@@ -178,6 +178,97 @@ router.delete("/templates/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Public hosted estimate (no auth — tokenized) ───────────────────────────
+// [estimate-hosted-page 2026-06-10] The link the office texts/emails to the
+// property manager. GET marks first view (sent → viewed); accept/decline are
+// idempotent one-way transitions, blocked after expiry. Registered BEFORE
+// /:id so "public" never parses as an estimate id.
+router.get("/public/:token", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(404).json({ error: "Not Found" });
+    const rows = await db.execute(sql`
+      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color
+      FROM estimates e JOIN companies c ON c.id = e.company_id
+      WHERE e.public_token = ${token} AND e.status <> 'draft'
+      LIMIT 1
+    `);
+    const est = (rows as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+
+    const expired = est.valid_until && new Date(est.valid_until) < new Date() && est.status !== "accepted";
+    if (expired && est.status !== "expired") {
+      await db.execute(sql`UPDATE estimates SET status = 'expired', updated_at = now() WHERE id = ${est.id}`);
+      est.status = "expired";
+    }
+    if (est.status === "sent") {
+      await db.execute(sql`UPDATE estimates SET status = 'viewed', viewed_at = COALESCE(viewed_at, now()), updated_at = now() WHERE id = ${est.id}`);
+      est.status = "viewed";
+      est.viewed_at = est.viewed_at || new Date().toISOString();
+    }
+
+    const items = await db.execute(sql`
+      SELECT name, description, pricing_type, frequency, quantity, unit_rate, amount
+      FROM estimate_line_items WHERE estimate_id = ${est.id} ORDER BY sort_order
+    `);
+    // Public payload — strip internal fields.
+    const {
+      internal_notes: _i, created_by: _c, ghl_synced_at: _g,
+      account_id: _a, account_property_id: _p, client_id: _cl, branch_id: _b,
+      ...pub
+    } = est;
+    return res.json({ ...pub, items: (items as any).rows });
+  } catch (err) {
+    console.error("Public estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/public/:token/accept", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    const name = String(req.body?.name || "").trim().slice(0, 200);
+    if (!name) return res.status(400).json({ error: "Bad Request", message: "Please enter your name to accept" });
+    const rows = await db.execute(sql`
+      SELECT id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+    `);
+    const est = (rows as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (est.status === "accepted") return res.json({ ok: true, status: "accepted" });
+    if (est.status === "declined") return res.status(409).json({ error: "Conflict", message: "This estimate was declined" });
+    if (est.valid_until && new Date(est.valid_until) < new Date()) {
+      return res.status(409).json({ error: "Conflict", message: "This estimate has expired — please contact us for an updated quote" });
+    }
+    await db.execute(sql`
+      UPDATE estimates SET status = 'accepted', accepted_at = now(), accepted_name = ${name}, updated_at = now()
+      WHERE id = ${est.id}
+    `);
+    return res.json({ ok: true, status: "accepted" });
+  } catch (err) {
+    console.error("Accept estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/public/:token/decline", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    const rows = await db.execute(sql`
+      SELECT id, status FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+    `);
+    const est = (rows as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (est.status === "accepted") return res.status(409).json({ error: "Conflict", message: "Already accepted" });
+    if (est.status !== "declined") {
+      await db.execute(sql`UPDATE estimates SET status = 'declined', declined_at = now(), updated_at = now() WHERE id = ${est.id}`);
+    }
+    return res.json({ ok: true, status: "declined" });
+  } catch (err) {
+    console.error("Decline estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── List estimates ──────────────────────────────────────────────────────────
 router.get("/", requireAuth, async (req, res) => {
   try {

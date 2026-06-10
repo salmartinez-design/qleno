@@ -59,6 +59,7 @@ export default function EstimateBuilderPage() {
   const [id, setId] = useState<number | null>(estimateId);
   const [status, setStatus] = useState("draft");
   const [estimateNumber, setEstimateNumber] = useState<string>("");
+  const [publicToken, setPublicToken] = useState<string | null>(null);
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -80,6 +81,7 @@ export default function EstimateBuilderPage() {
         if (!isNew && estimateId) {
           const e = await apiFetch(`/api/estimates/${estimateId}`);
           setStatus(e.status); setEstimateNumber(e.estimate_number || "");
+          setPublicToken(e.public_token || null);
           setContactName(e.contact_name || ""); setContactEmail(e.contact_email || ""); setContactPhone(e.contact_phone || "");
           setPropertyName(e.property_name || ""); setServiceAddress(e.service_address || "");
           setTitle(e.title || ""); setIntroNote(e.intro_note || ""); setTerms(e.terms || ""); setInternalNotes(e.internal_notes || "");
@@ -153,13 +155,25 @@ export default function EstimateBuilderPage() {
     }
   }
 
+  function publicLink(token: string) {
+    return `${window.location.origin}${API}/estimate/${token}`;
+  }
+
   async function markSent() {
     const savedId = id || (await save());
     if (!savedId) return;
     try {
-      await apiFetch(`/api/estimates/${savedId}/send`, { method: "POST" });
+      const r = await apiFetch(`/api/estimates/${savedId}/send`, { method: "POST" });
       setStatus("sent");
-      toast.success("Marked as sent — hosted link, PDF & GoHighLevel follow-up land in the next update.");
+      setPublicToken(r.public_token || null);
+      if (r.public_token) {
+        try {
+          await navigator.clipboard.writeText(publicLink(r.public_token));
+          toast.success("Estimate link copied — paste it into a text or email.");
+        } catch {
+          toast.success("Estimate is live — copy the link below to share it.");
+        }
+      }
     } catch {
       toast.error("Failed to mark sent");
     }
@@ -178,6 +192,25 @@ export default function EstimateBuilderPage() {
         <button onClick={() => navigate("/estimates")} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, padding: 0, marginBottom: 12 }}>
           <ArrowLeft size={15} /> Estimates
         </button>
+
+        {publicToken && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#ECFDF8", border: "1px solid #99E9D3", borderRadius: 10, padding: "10px 14px", marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <p style={{ fontSize: 11, fontWeight: 700, color: "#047857", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>Customer link — text or email this</p>
+              <p style={{ fontSize: 12, color: "#065F46", margin: 0, wordBreak: "break-all" }}>{publicLink(publicToken)}</p>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button onClick={async () => { try { await navigator.clipboard.writeText(publicLink(publicToken)); toast.success("Link copied"); } catch { toast.error("Couldn't copy — select and copy manually"); } }}
+                style={{ background: "#047857", color: "#fff", border: "none", borderRadius: 8, padding: "8px 13px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                Copy link
+              </button>
+              <a href={publicLink(publicToken)} target="_blank" rel="noreferrer"
+                style={{ background: "#fff", color: "#047857", border: "1px solid #99E9D3", borderRadius: 8, padding: "8px 13px", fontSize: 12, fontWeight: 700, textDecoration: "none", fontFamily: FF }}>
+                Preview
+              </a>
+            </div>
+          </div>
+        )}
 
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           <h1 style={{ fontSize: 23, fontWeight: 800, color: INK, margin: 0 }}>{isNew && !id ? "New Estimate" : (estimateNumber || "Estimate")}</h1>
@@ -266,7 +299,7 @@ export default function EstimateBuilderPage() {
           <button onClick={saveAsTemplate} style={ghostBtn}><LayoutTemplate size={15} /> Save as template</button>
           <div style={{ flex: 1 }} />
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
-          <button onClick={markSent} style={primaryBtn}><Send size={15} /> Mark sent</button>
+          <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Re-copy link" : "Send — get link"}</button>
         </div>
       </div>
     </DashboardLayout>
