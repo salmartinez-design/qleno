@@ -20,7 +20,7 @@ const router = Router();
 // lives in exactly one place. `exec` is a db or transaction handle (both
 // expose .execute).
 type JobAddOnInput = { pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number };
-async function persistJobAddOns(exec: any, jobId: number, companyId: number, addOns: JobAddOnInput[]): Promise<void> {
+export async function persistJobAddOns(exec: any, jobId: number, companyId: number, addOns: JobAddOnInput[]): Promise<void> {
   await exec.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
   for (const a of addOns) {
     // [AI.6.3] job_add_ons.add_on_id references add_ons.id (older catalog
