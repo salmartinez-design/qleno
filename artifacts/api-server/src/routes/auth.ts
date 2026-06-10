@@ -30,6 +30,16 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Unauthorized", message: "Invalid credentials" });
     }
 
+    // [login-diagnostics 2026-06-10] An imported/invited account can have a
+    // NULL password_hash (never set). bcrypt.compare(pw, null) THROWS, which
+    // surfaced as a 500 masked by the login page's generic message — making
+    // it look like "wrong password" when really no password exists. Detect it
+    // explicitly and tell the operator the real cause.
+    if (!user[0].password_hash) {
+      await logAudit(req, "login_failed", "user", user[0].id, null, { email, reason: "no_password_set" });
+      return res.status(401).json({ error: "Unauthorized", message: "No password set for this account yet. The office needs to set or reset your password." });
+    }
+
     const validPassword = await bcrypt.compare(password, user[0].password_hash);
     if (!validPassword) {
       await logAudit(req, "login_failed", "user", user[0].id, null, { email, reason: "wrong_password" });
