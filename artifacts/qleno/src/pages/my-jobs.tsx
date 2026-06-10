@@ -34,6 +34,18 @@ function formatServiceType(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Expected finish = scheduled start + allowed hours, so the tech sees their
+// target end time on the card (e.g. "9:00 AM · 3.0 hrs allowed · ends ~12:00 PM").
+function addHoursToTime(t: string, hours: number): string {
+  const [h, m] = t.split(":").map(Number);
+  const total = (h || 0) * 60 + (m || 0) + Math.round(hours * 60);
+  const hh = Math.floor(total / 60) % 24;
+  const mm = ((total % 60) + 60) % 60;
+  const ampm = hh >= 12 ? "PM" : "AM";
+  const h12 = hh > 12 ? hh - 12 : hh || 12;
+  return `${h12}:${String(mm).padStart(2, "0")} ${ampm}`;
+}
+
 function formatDuration(ms: number) {
   const total = Math.floor(ms / 1000);
   const h = Math.floor(total / 3600);
@@ -306,7 +318,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   );
 }
 
-function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfterPhoto }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; prevJobId?: number | null; requireAfterPhoto?: boolean }) {
+function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJobId, requireAfterPhoto }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; actingForUserId?: number | null; prevJobId?: number | null; requireAfterPhoto?: boolean }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -337,7 +349,9 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
     mutationFn: async ({ lat, lng, accuracy, override_token }: { lat: number; lng: number; accuracy?: number; override_token?: string }) => {
       const res = await apiFetch("/timeclock/clock-in", {
         method: "POST",
-        body: JSON.stringify({ job_id: job.id, lat, lng, accuracy, override_token }),
+        // In office "view-as" preview the API call carries the office user's
+        // token; acting_for_user_id attributes the clock to the viewed tech.
+        body: JSON.stringify({ job_id: job.id, lat, lng, accuracy, override_token, acting_for_user_id: actingForUserId ?? undefined }),
       });
       const data = await res.json();
       if (!res.ok) throw { status: res.status, ...data };
@@ -584,7 +598,9 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
               <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
                 {formatTime(job.scheduled_time)}
                 {hrs != null && hrs > 0 && (
-                  <span style={{ marginLeft: 8, color: "#9E9B94" }}>· {hrs.toFixed(1)} {label}</span>
+                  <span style={{ marginLeft: 8, color: "#9E9B94" }}>
+                    · {hrs.toFixed(1)} {label} · ends ~{addHoursToTime(job.scheduled_time, hrs)}
+                  </span>
                 )}
               </p>
             )}
@@ -691,7 +707,7 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
           <p style={{ fontSize: 12, color: "#7F1D1D", margin: "0 0 12px", lineHeight: 1.5 }}>
             You are {geofenceError.distanceFt} ft from this job. Must be within {geofenceError.radiusFt} ft to clock in. Please drive to the job address and try again.
           </p>
-          {geofenceError.overrideAllowed && !isPreviewMode && (
+          {geofenceError.overrideAllowed && (
             <button
               onClick={() => {
                 setGeofenceError(null);
@@ -731,15 +747,13 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
             </div>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 12px" }}>Time on job</p>
             <button
-              onClick={() => !isPreviewMode && smsMutation.mutate(paused ? "resumed" : "paused")}
-              disabled={smsMutation.isPending || isPreviewMode}
-              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
+              onClick={() => smsMutation.mutate(paused ? "resumed" : "paused")}
+              disabled={smsMutation.isPending}
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: `1px solid ${paused ? "#10B981" : "#F59E0B"}`,
-                fontSize: 14, fontWeight: 600, cursor: isPreviewMode ? "not-allowed" : "pointer", marginBottom: 10,
+                fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10,
                 backgroundColor: paused ? "#DCFCE7" : "#FEF3C7",
                 color: paused ? "#166534" : "#92400E",
-                opacity: isPreviewMode ? 0.6 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -747,22 +761,19 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
             </button>
             <button
               onClick={() => {
-                if (isPreviewMode) return;
                 if (photoGate) {
                   toast({ variant: "destructive", title: "After photo required", description: "Upload at least 1 after photo first" });
                   return;
                 }
                 getLocation((lat, lng) => clockOutMutation.mutate({ lat, lng }));
               }}
-              disabled={clockOutMutation.isPending || geoLoading || isPreviewMode}
-              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
+              disabled={clockOutMutation.isPending || geoLoading}
               style={{
                 width: "100%", height: 48, borderRadius: 10, border: "none",
                 fontSize: 15, fontWeight: 600,
-                cursor: (isPreviewMode || photoGate) ? "not-allowed" : "pointer",
-                backgroundColor: (isPreviewMode || photoGate) ? "#F3F4F6" : "#166534",
-                color: (isPreviewMode || photoGate) ? "#9E9B94" : "#FFFFFF",
-                opacity: isPreviewMode ? 0.6 : 1,
+                cursor: photoGate ? "not-allowed" : "pointer",
+                backgroundColor: photoGate ? "#F3F4F6" : "#166534",
+                color: photoGate ? "#9E9B94" : "#FFFFFF",
                 transition: "opacity 0.15s",
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
@@ -774,13 +785,12 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
           <div>
             <button
               onClick={fireOnMyWay}
-              disabled={omwBusy || omwMutation.isPending || isPreviewMode}
-              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
+              disabled={omwBusy || omwMutation.isPending}
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: "1px solid var(--brand)",
-                fontSize: 14, fontWeight: 600, cursor: isPreviewMode ? "not-allowed" : "pointer", marginBottom: 10,
+                fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10,
                 backgroundColor: "var(--brand-soft)", color: "var(--brand)",
-                opacity: (isPreviewMode || omwBusy) ? 0.6 : 1,
+                opacity: omwBusy ? 0.6 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -788,17 +798,15 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
             </button>
             <button
               onClick={() => {
-                if (isPreviewMode) return;
                 setGeofenceError(null);
                 setSoftWarning(null);
                 getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy }));
               }}
-              disabled={clockInMutation.isPending || geoLoading || isPreviewMode}
-              title={isPreviewMode ? "Actions disabled in preview mode" : undefined}
+              disabled={clockInMutation.isPending || geoLoading}
               style={{
-                width: "100%", height: 48, backgroundColor: isPreviewMode ? "#E5E7EB" : "var(--brand)", color: isPreviewMode ? "#9E9B94" : "#FFFFFF",
+                width: "100%", height: 48, backgroundColor: "var(--brand)", color: "#FFFFFF",
                 borderRadius: 10, border: "none", fontSize: 15, fontWeight: 600,
-                cursor: isPreviewMode ? "not-allowed" : "pointer",
+                cursor: "pointer",
                 opacity: (clockInMutation.isPending || geoLoading) ? 0.7 : 1,
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
@@ -1002,6 +1010,7 @@ export default function MyJobsPage() {
               )}
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
+                  actingForUserId={employeeView ? employeeView.employeeId : null}
                   prevJobId={i > 0 ? activeJobs[i - 1].id : null} requireAfterPhoto={requireAfterPhoto} />
               ))}
               {upcomingJobs.length > 0 && (
