@@ -702,6 +702,15 @@ router.get("/", requireAuth, async (req, res) => {
         client_state:   (j as any).client_state ?? null,
         client_address_zip: (j as any).client_address_zip ?? null,
         assigned_user_id: j.assigned_user_id,
+        // [job-panel 2026-06-10] Surface the primary tech's display name on
+        // every dispatch job so the JobPanel's InlineTechEdit dropdown
+        // renders the real name immediately, without a second roundtrip to
+        // /api/users/techs-with-status. Without this the dropdown raced the
+        // techs-list fetch and fell back to the "Technician #<id>"
+        // placeholder Maribel saw in the 06-10 screenshot.
+        assigned_user_name: j.assigned_user_id != null
+          ? (userNameById.get(j.assigned_user_id) || null)
+          : null,
         service_type: j.service_type,
         status: j.status,
         job_kind: (j as any).job_kind ?? "cleaning",
