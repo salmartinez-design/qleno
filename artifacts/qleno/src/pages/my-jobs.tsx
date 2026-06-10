@@ -22,6 +22,46 @@ function apiFetch(path: string, opts?: RequestInit) {
   });
 }
 
+// [street-view 2026-06-10] Sal: a Street View thumbnail above the address helps
+// techs recognize where they're going. Static Street View image keyed on the
+// job's geocoded coords (falls back to the address string). The Maps key is
+// fetched once from /api/config/google-maps-key (falling back to the build-time
+// VITE var) and cached module-wide so every card reuses it. Tap → directions.
+let _mapsKey: string | null = null;
+let _mapsKeyPromise: Promise<string> | null = null;
+function getMapsKey(): Promise<string> {
+  if (_mapsKey != null) return Promise.resolve(_mapsKey);
+  if (!_mapsKeyPromise) {
+    _mapsKeyPromise = (async () => {
+      let key = "";
+      try { const r = await apiFetch("/config/google-maps-key"); if (r.ok) key = (await r.json())?.key ?? ""; } catch { /* fall through */ }
+      if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      _mapsKey = key;
+      return key;
+    })();
+  }
+  return _mapsKeyPromise;
+}
+function StreetViewThumb({ lat, lng, address, directionsUrl }: { lat: number | null; lng: number | null; address: string | null; directionsUrl: string | null }) {
+  const [key, setKey] = useState<string | null>(_mapsKey);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { if (key == null) getMapsKey().then(setKey); }, [key]);
+  const loc = (lat != null && lng != null) ? `${lat},${lng}` : (address || "");
+  if (!key || !loc || failed) return null;
+  const src = `https://maps.googleapis.com/maps/api/streetview?size=640x240&location=${encodeURIComponent(loc)}&fov=80&pitch=8&key=${key}`;
+  const img = (
+    <img src={src} alt="Street view of the property" loading="lazy"
+      onError={() => setFailed(true)}
+      style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #EEECE7", display: "block" }} />
+  );
+  return (
+    <div style={{ margin: "10px 0 6px", position: "relative" }}>
+      {directionsUrl ? <a href={directionsUrl} target="_blank" rel="noreferrer">{img}</a> : img}
+      <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(10,14,26,0.6)", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>STREET VIEW</span>
+    </div>
+  );
+}
+
 function formatTime(t: string | null | undefined) {
   if (!t) return "";
   const [h, m] = t.split(":");
@@ -562,6 +602,14 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId }: { job: Jo
       )}
       {!job.scheduled_time && job.estimated_hours != null && job.estimated_hours > 0 && (
         <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>Est. {job.estimated_hours.toFixed(1)} hrs</p>
+      )}
+      {job.address && (
+        <StreetViewThumb
+          lat={job.job_lat ?? job.lat}
+          lng={job.job_lng ?? job.lng}
+          address={formatAddress(job.address, job.city, job.state, job.zip)}
+          directionsUrl={mapsDirectionsUrl(formatAddress(job.address, job.city, job.state, job.zip)) ?? null}
+        />
       )}
       {job.address && (
         <a
