@@ -1974,8 +1974,45 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </button>
               </div>
             )}
-            {/* [inline-edit] Tech dropdown swaps the primary tech in place. */}
+            {/* [inline-edit] Tech dropdown swaps the primary tech in place.
+                [job-panel 2026-06-10] Sal report: Team section at the bottom
+                was redundant with this dropdown ("discrete redundancy").
+                Consolidated here — primary tech swap above, helper chips
+                immediately below, "+ helper" button inline. The standalone
+                Team section is gone; helpers + add are visible without
+                scrolling. */}
             <InlineTechEdit job={job} onUpdate={onUpdate} />
+            {(() => {
+              const helpers = commTechs.filter(t => !t.is_primary);
+              if (helpers.length === 0 && !canManageCommission) return null;
+              return (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 6 }}>
+                  {helpers.map(t => (
+                    <span key={t.user_id} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 4px 3px 9px", fontSize: 11, fontWeight: 600, color: "#1A1917", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 999 }}>
+                      {t.name}
+                      {canManageCommission && !isLocked && (
+                        <button
+                          onClick={() => removeTechFromJob(t.user_id)}
+                          disabled={removeTechBusy === t.user_id}
+                          title="Remove helper"
+                          aria-label={`Remove ${t.name}`}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, color: "#B91C1C", border: "none", background: "transparent", borderRadius: 999, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                  {canManageCommission && (
+                    <button onClick={() => !isLocked && setAddTechOpen(true)}
+                      disabled={isLocked}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 999, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+                      <Plus size={11} /> Add helper
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
             <InlinePriceEdit
               jobId={job.id}
               price={job.amount ?? job.billed_amount ?? 0}
@@ -2377,45 +2414,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </>
           )}
 
-          {/* Team — fallback for jobs without the commission display. Drives
-              off commTechs (live state updated on add/remove) so the list stays
-              sticky without reopening the panel. */}
-          {(!canManageCommission || (job.estimated_hours ?? 0) === 0) && (
-            <PS label="Team">
-              {commTechs.length > 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-                  {commTechs.map(t => (
-                    <div key={t.user_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                      <span style={{ fontSize: 12, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
-                        {t.is_primary && commTechs.length > 1 && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "2px 6px", borderRadius: 10, letterSpacing: "0.04em" }}>PRIMARY</span>}
-                      </span>
-                      {canManageCommission && !isLocked && (
-                        <button
-                          onClick={() => removeTechFromJob(t.user_id)}
-                          disabled={removeTechBusy === t.user_id}
-                          title="Remove from job"
-                          aria-label={`Remove ${t.name}`}
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", flexShrink: 0, opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
-                        >
-                          <X size={13} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
-                  {job.assigned_user_name || "Unassigned"}
-                </div>
-              )}
-              <button onClick={() => !isLocked && setAddTechOpen(true)}
-                disabled={isLocked}
-                style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
-                <Plus size={12} /> Add Team Member
-              </button>
-            </PS>
-          )}
+          {/* [job-panel 2026-06-10] Standalone "Team" section removed.
+              Sal report: it duplicated the primary tech already shown in
+              the Service & pricing block at the top of the panel. The
+              "+ helper" button + helper chips now live alongside the
+              primary tech dropdown in that block. The commTechs state +
+              addTechOpen modal are still wired through (see InlineTechEdit
+              area above and the existing Add Team Member modal below). */}
 
           {/* Time & Fee Adjustments — per-job mods stacked on top of base_fee */}
           {canManageMods && (
