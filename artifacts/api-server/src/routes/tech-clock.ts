@@ -131,11 +131,27 @@ async function ensureSiteCoords(
 router.post("/:jobId/on-my-way", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const userId = req.auth!.userId;
     if (companyId == null) {
       return res
         .status(400)
         .json({ error: "Bad Request", message: "User has no company assignment" });
+    }
+    // [acting-for 2026-06-10] Office "view-as" preview (and a real
+    // act-on-behalf) sends acting_for_user_id; attribute the on-my-way event,
+    // ownership check, and SMS to the VIEWED tech, not the office token holder.
+    // Mirrors the clock-in acting-for guard. owner/admin/office/super_admin only.
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    let userId = req.auth!.userId;
+    const actingForRaw = body.acting_for_user_id;
+    if (typeof actingForRaw === "number" && Number.isFinite(actingForRaw) && actingForRaw !== req.auth!.userId) {
+      const role = req.auth!.role || "";
+      if (!["owner", "admin", "office", "super_admin"].includes(role)) {
+        return res.status(403).json({ error: "Forbidden", message: "Not allowed to act for another user" });
+      }
+      const target = await db.select({ id: usersTable.id }).from(usersTable)
+        .where(and(eq(usersTable.id, actingForRaw), eq(usersTable.company_id, companyId))).limit(1);
+      if (!target[0]) return res.status(404).json({ error: "Not Found", message: "Target employee not found in this company" });
+      userId = actingForRaw;
     }
     const jobId = Number(req.params.jobId);
     if (!Number.isFinite(jobId)) {
@@ -151,7 +167,6 @@ router.post("/:jobId/on-my-way", requireAuth, async (req, res) => {
     // Optional inputs from the client (tech's current location, ETA
     // adjustment, deferred flag, from_job_id). All optional. Defaults
     // keep the one-tap happy path frictionless.
-    const body = (req.body ?? {}) as Record<string, unknown>;
     const fromLatRaw = body.from_latitude;
     const fromLngRaw = body.from_longitude;
     const fromLat =
