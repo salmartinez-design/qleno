@@ -970,7 +970,18 @@ export default function EditJobModal({
     //                   policy). Hiding the picker entirely meant `cascade=all`
     //                   was unreachable for pure template edits — the case
     //                   that actually motivates a backfill.
-    //   occurrence-only → existing 4-option picker.
+    //   occurrence-only → picker WITH "this_and_future" preselected.
+    //                     [PR / 2026-06-10] Sal's report: "we keep
+    //                     scheduling recurrent clients again and again …
+    //                     edits should not only affect one day but the
+    //                     future." When the office edits a recurring job's
+    //                     time / tech / day-of-week, they almost always
+    //                     mean the change to be the new normal going
+    //                     forward. The picker is still visible and a one-
+    //                     time swap can pick "Just this visit." The two-
+    //                     click confirm step on series-wide scopes (see
+    //                     cascadeConfirm below) keeps a wrong default from
+    //                     submitting silently.
     //   mixed → picker WITH footnote per Sal's Q1 = (c). Single
     //           cascade_scope on the wire; operator picks with full
     //           context about the trade-off.
@@ -983,13 +994,13 @@ export default function EditJobModal({
     }
     if (occurrence.length > 0 && template.length === 0) {
       setMixedEditWarning(null);
-      setCascadeChoice("this_job");
+      setCascadeChoice("this_and_future");
       setCascadePromptOpen(true);
       return;
     }
     // Mixed.
     setMixedEditWarning({ template, occurrence });
-    setCascadeChoice("this_job");
+    setCascadeChoice("this_and_future");
     setCascadePromptOpen(true);
   }
 
@@ -2137,8 +2148,25 @@ export default function EditJobModal({
             width: "100%", maxWidth: 420, fontFamily: FF, boxShadow: "0 16px 48px rgba(0,0,0,0.3)",
           }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>Recurring job</div>
-            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 12, lineHeight: 1.5 }}>
               This job is part of a recurring schedule. Apply changes to:
+            </div>
+            {/* [PR / 2026-06-10] Explicit reminder that the default reaches
+                forward. The default scope is preselected as "This and all
+                future visits" so the change becomes the new normal — pick
+                "Just this visit" only if the change should NOT carry over. */}
+            <div style={{
+              display: "flex", gap: 8, alignItems: "flex-start",
+              padding: "10px 12px", borderRadius: 8, marginBottom: 16,
+              backgroundColor: "rgba(0,201,160,0.08)",
+              borderLeft: "3px solid var(--brand, #00C9A0)",
+              fontSize: 12, color: "#1A1917", lineHeight: 1.45,
+            }}>
+              <span>
+                <strong>Future visits will be updated by default.</strong>{" "}
+                Pick <em>Just this visit</em> only if this change should NOT
+                carry over to next week.
+              </span>
             </div>
             {/* [PR / 2026-04-30] Mixed-edit footnote — appears when the
                 current save touched BOTH schedule-template fields AND
