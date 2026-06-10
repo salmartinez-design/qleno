@@ -56,8 +56,19 @@ export default function Login() {
             setLocation("/dashboard");
           }
         },
-        onError: () => {
-          toast({ variant: "destructive", title: "Login Failed", description: "Invalid email or password" });
+        onError: (err: any) => {
+          // [login-diagnostics 2026-06-10] Surface the REAL server reason
+          // instead of always saying "Invalid email or password." The backend
+          // distinguishes wrong credentials (401 "Invalid credentials") from
+          // an inactive account ("Account is inactive") and server errors
+          // (500 — e.g. a null password_hash on an imported account that was
+          // never given a password). Masking them all made field logins
+          // impossible to diagnose. ApiError carries .status + .data.
+          const serverMsg = err?.data?.message || err?.data?.error;
+          const description = err?.status === 500
+            ? "Something went wrong signing in. Your account may not have a password set yet — contact the office."
+            : (serverMsg || "Invalid email or password");
+          toast({ variant: "destructive", title: "Login Failed", description });
         }
       }
     );
