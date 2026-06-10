@@ -38,6 +38,35 @@ async function runBookingSchemaGuard(): Promise<void> {
     // (their slot before any move). Idempotent: the UPDATE only fills NULLs.
     { label: "jobs.occurrence_date", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS occurrence_date DATE" },
     { label: "jobs.occurrence_date backfill", stmt: "UPDATE jobs SET occurrence_date = scheduled_date WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL" },
+    // [pay-attribution-repair 2026-06-10] Payroll (routes/payroll.ts /detail)
+    // credits a tech by jobs.assigned_user_id, but a completed job's TRUTH is
+    // who actually clocked in. Stale split-brains from pre-mirror reassignments
+    // left assigned_user_id pointing at a tech who didn't do the job (Juliana
+    // credited for Diana's Weiss-Kunz visit). Re-sync a COMPLETED job's
+    // assigned_user_id to its earliest clock-in tech wherever they disagree.
+    // Idempotent: only touches rows already wrong (no clock entry → untouched);
+    // Phes pays by the clock, so clock-in tech IS the paid tech.
+    { label: "jobs.assigned_user_id <- clock-in tech (split-brain pay repair)", stmt: `
+      UPDATE jobs j
+      SET assigned_user_id = tc.user_id
+      FROM (
+        SELECT DISTINCT ON (job_id) job_id, user_id
+        FROM timeclock
+        WHERE clock_in_at IS NOT NULL
+        ORDER BY job_id, clock_in_at ASC
+      ) tc
+      WHERE tc.job_id = j.id
+        AND j.status = 'complete'
+        AND j.assigned_user_id IS DISTINCT FROM tc.user_id
+    ` },
+    // Keep job_technicians' primary in step with the repaired assignment so the
+    // card, commission, and payroll all read the same tech.
+    { label: "job_technicians primary <- repaired assigned_user_id", stmt: `
+      UPDATE job_technicians jt SET is_primary = (jt.user_id = j.assigned_user_id)
+      FROM jobs j
+      WHERE jt.job_id = j.id AND j.status = 'complete' AND j.assigned_user_id IS NOT NULL
+        AND EXISTS (SELECT 1 FROM job_technicians k WHERE k.job_id = j.id AND k.user_id = j.assigned_user_id)
+    ` },
     { label: "jobs.condition_multiplier",  stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS condition_multiplier NUMERIC(5,3)" },
     { label: "jobs.applied_bundle_id",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS applied_bundle_id INTEGER" },
     { label: "jobs.bundle_discount_total", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS bundle_discount_total NUMERIC(10,2)" },
