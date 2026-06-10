@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
 import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
@@ -2347,12 +2348,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 8px", border: "none", background: "transparent", cursor: addTechBusy ? "wait" : "pointer", borderRadius: 8, fontFamily: FF, textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#F7F6F3"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "#F0FDFB", color: "#2D9B83", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0, position: "relative" }}>
-                          {t.name.split(" ").map(p => p[0]).join("").slice(0, 2)}
-                          {t.is_clocked_in && (
+                        <EmployeeAvatar name={t.name} avatarUrl={t.avatar_url} size={32} fontSize={11}
+                          badge={t.is_clocked_in ? (
                             <span style={{ position: "absolute", bottom: -1, right: -1, width: 10, height: 10, borderRadius: "50%", backgroundColor: "#22C55E", border: "2px solid #FFFFFF" }} title="Clocked in" />
-                          )}
-                        </div>
+                          ) : undefined} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
                           <div style={{ fontSize: 11, color: "#9E9B94", textTransform: "capitalize" }}>{(t.role || "").replace("_", " ")}</div>

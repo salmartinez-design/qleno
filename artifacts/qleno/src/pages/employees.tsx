@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { useListUsers } from "@workspace/api-client-react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
@@ -150,8 +151,8 @@ export default function EmployeesPage() {
                 <div key={user.id}
                   onClick={() => navigate(`/employees/${user.id}`)}
                   style={{ borderBottom: '1px solid #F0EEE9', padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: 700, flexShrink: 0 }}>
-                    {user.first_name[0]}{user.last_name[0]}
+                  <div style={{ width: 40, height: 40, flexShrink: 0 }}>
+                    <EmployeeAvatar name={`${user.first_name} ${user.last_name}`} avatarUrl={(user as any).avatar_url} size={40} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
@@ -227,9 +228,7 @@ export default function EmployeesPage() {
                   >
                     <td style={{ padding: '14px 20px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 600, flexShrink: 0 }}>
-                          {user.first_name[0]}{user.last_name[0]}
-                        </div>
+                        <EmployeeAvatar name={`${user.first_name} ${user.last_name}`} avatarUrl={(user as any).avatar_url} size={36} fontSize={12} />
                         <div>
                           <p style={{ fontSize: '13px', fontWeight: 600, color: '#1A1917', margin: 0 }}>{user.first_name} {user.last_name}</p>
                           <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>{user.email}</p>
