@@ -5467,6 +5467,15 @@ export default function JobsPage() {
   const refreshRef = useRef(0);
   const [zones, setZones] = useState<{ id: number; name: string; color: string }[]>([]);
   const [selectedZoneFilter, setSelectedZoneFilter] = useState<number | null>(null);
+  // [dispatch tech sort 2026-06-10] Toggle "By time" (current — techs with
+  // the earliest first job rise) vs "Static" (alphabetical A→Z, MaidCentral
+  // parity). Persisted per office so the choice survives reloads.
+  const [techSortMode, setTechSortMode] = useState<"by_time" | "static">(
+    () => (typeof window !== "undefined" && window.localStorage.getItem("dispatchTechSort") === "static") ? "static" : "by_time"
+  );
+  useEffect(() => {
+    if (typeof window !== "undefined") window.localStorage.setItem("dispatchTechSort", techSortMode);
+  }, [techSortMode]);
   const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
   const zoneDropdownRef = useRef<HTMLDivElement>(null);
   const [selectedLocationFilter, setSelectedLocationFilter] = useState<"all" | "oak_lawn" | "schaumburg">("all");
@@ -6406,6 +6415,18 @@ export default function JobsPage() {
                 <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
               </div>
 
+              {/* Tech-row sort toggle. "By time" floats whoever starts first
+                  to the top of the timeline; "Static" is alphabetical A→Z so
+                  the order matches MaidCentral and the same tech is always
+                  in the same place. Persisted in localStorage so the choice
+                  sticks per browser. */}
+              {desktopView === "timeline" && (
+                <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+                  <button title="Sort tech rows by their earliest scheduled job" onClick={() => setTechSortMode("by_time")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "by_time" ? "var(--brand)" : "#FAFAF9", color: techSortMode === "by_time" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>By time</button>
+                  <button title="Sort tech rows alphabetically (MaidCentral parity — same tech, same place every day)" onClick={() => setTechSortMode("static")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "static" ? "var(--brand)" : "#FAFAF9", color: techSortMode === "static" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>Static</button>
+                </div>
+              )}
+
               {/* Cutover 3B — Attendance overlay drawer trigger. Sibling
                   of the Timeline/List toggle group, not inside it. Hidden
                   for tech-role; backend also 403s. */}
@@ -6530,15 +6551,26 @@ export default function JobsPage() {
                     {filteredData.unassigned_jobs.length > 0 && (
                       <UnassignedGanttRow jobs={filteredData.unassigned_jobs} onChipClick={setSelectedJob} nowLine={nowLine} />
                     )}
-                    {/* Row order: techs with jobs first, ordered by their
-                        earliest job time; then idle techs (no jobs today);
-                        then generic/test stub accounts pinned at the bottom. */}
+                    {/* Row order: controlled by the techSortMode toggle.
+                        - "by_time": techs with jobs first, ordered by their
+                          earliest job time; then idle; stubs at the bottom.
+                        - "static": pure alphabetical A→Z (with stubs still
+                          pinned at the bottom); MaidCentral parity, so the
+                          office can pattern-match a familiar order across
+                          tools. */}
                     {[...filteredData.employees].sort((a, b) => {
                       const isStub = (e: Employee) => /\b(generic|test)\b/i.test(e.name);
-                      const rank = (e: Employee) => isStub(e) ? 3 : (e.jobs.length === 0 ? 2 : 1);
+                      // Stubs always last in both modes.
+                      const sa = isStub(a) ? 1 : 0, sb = isStub(b) ? 1 : 0;
+                      if (sa !== sb) return sa - sb;
+                      if (techSortMode === "static") {
+                        return a.name.localeCompare(b.name);
+                      }
+                      // by_time: working > idle, then earliest first within working.
+                      const rank = (e: Employee) => e.jobs.length === 0 ? 1 : 0;
                       const ra = rank(a), rb = rank(b);
                       if (ra !== rb) return ra - rb;
-                      if (ra === 1) {
+                      if (ra === 0) {
                         const earliest = (e: Employee) => {
                           const t = e.jobs.map(j => timeToMins(j.scheduled_time)).filter(n => Number.isFinite(n));
                           return t.length ? Math.min(...t) : Infinity;
