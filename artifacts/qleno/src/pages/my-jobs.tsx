@@ -341,6 +341,49 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   );
 }
 
+// [tech-note-translate 2026-06-10] Notes are authored in English (the bridge
+// from customer instructions to the cleaner). Spanish-first techs tap "Ver en
+// español" to translate any note in place via /api/translate (Claude). The
+// translation is cached on first tap; the toggle flips back to the English
+// original. Used for both note tiers.
+function TranslatableNote({ text, color, linkColor, fontSize, fontWeight }: { text: string; color: string; linkColor: string; fontSize: number; fontWeight: number }) {
+  const [translated, setTranslated] = useState<string | null>(null);
+  const [showTranslated, setShowTranslated] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const { toast } = useToast();
+
+  const translate = async () => {
+    if (translated) { setShowTranslated(true); return; }
+    setBusy(true);
+    try {
+      const res = await apiFetch("/translate", { method: "POST", body: JSON.stringify({ text, target: "es" }) });
+      const d = await res.json();
+      if (!res.ok || !d.translated) throw new Error();
+      setTranslated(d.translated);
+      setShowTranslated(true);
+    } catch {
+      toast({ variant: "destructive", title: "No se pudo traducir", description: "Translation unavailable" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <p style={{ fontSize, fontWeight, color, margin: 0, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>
+        {showTranslated && translated ? translated : text}
+      </p>
+      <button
+        onClick={() => (showTranslated ? setShowTranslated(false) : translate())}
+        disabled={busy}
+        style={{ marginTop: 6, background: "none", border: "none", padding: 0, color: linkColor, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}
+      >
+        {busy ? "Traduciendo…" : showTranslated ? "View original (English)" : "Ver en español"}
+      </button>
+    </>
+  );
+}
+
 export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJobId, requireAfterPhoto, onOpenDetail }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; actingForUserId?: number | null; prevJobId?: number | null; requireAfterPhoto?: boolean; onOpenDetail?: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -470,6 +513,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       const body: Record<string, unknown> = {};
       if (typeof lat === "number" && typeof lng === "number") { body.from_latitude = lat; body.from_longitude = lng; }
       if (prevJobId != null) body.from_job_id = prevJobId;
+      if (actingForUserId != null) body.acting_for_user_id = actingForUserId;
       const res = await apiFetch(`/tech/jobs/${job.id}/on-my-way`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
       return res.json();
@@ -487,7 +531,6 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
     onSettled: () => setOmwBusy(false),
   });
   const fireOnMyWay = () => {
-    if (isPreviewMode) return;
     setOmwBusy(true);
     if (!navigator.geolocation) { omwMutation.mutate({}); return; }
     navigator.geolocation.getCurrentPosition(
@@ -761,7 +804,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           <p style={{ fontSize: 11, fontWeight: 800, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>
             Today's Job Notes — this visit only
           </p>
-          <p style={{ fontSize: 14, fontWeight: 600, color: "#065F46", margin: 0, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{job.job_notes}</p>
+          <TranslatableNote text={job.job_notes} color="#065F46" linkColor="#047857" fontSize={14} fontWeight={600} />
         </div>
       )}
 
@@ -770,7 +813,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           <p style={{ fontSize: 11, fontWeight: 800, color: "#3730A3", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>
             Client Notes — every visit
           </p>
-          <p style={{ fontSize: 13, color: "#312E81", margin: 0, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{job.client_notes}</p>
+          <TranslatableNote text={job.client_notes} color="#312E81" linkColor="#3730A3" fontSize={13} fontWeight={400} />
         </div>
       )}
 

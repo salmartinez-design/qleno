@@ -1,11 +1,15 @@
 import { Router } from "express";
 import Anthropic from "@anthropic-ai/sdk";
-import { requireAuth, requireRole } from "../lib/auth.js";
+import { requireAuth } from "../lib/auth.js";
 
 // [translate-job-notes 2026-05-27] Office types Job Notes in English; some
 // Phes techs are more comfortable in Spanish. One-click translation via
 // Claude gives the same text in Spanish that the tech sees alongside the
-// English original. Office-only — customer-facing fields don't route here.
+// English original.
+// [tech-note-translate 2026-06-10] Opened from office-only to any authed user
+// — the cleaner in the field is the primary consumer (tap "Ver en español" on
+// the job/client notes). It only translates text supplied in the request; no
+// tenant data is read, so there's nothing role-sensitive to gate.
 //
 // Requires ANTHROPIC_API_KEY in Railway env. If missing, we surface a
 // clear error instead of a 500 so the operator knows to set it.
@@ -16,7 +20,7 @@ const MAX_INPUT_CHARS = 5000;
 const SUPPORTED_TARGETS = new Set(["es", "en"]);
 const LANG_NAME: Record<string, string> = { es: "Spanish", en: "English" };
 
-router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.post("/", requireAuth, async (req, res) => {
   try {
     const text = typeof req.body?.text === "string" ? req.body.text : "";
     const target = typeof req.body?.target === "string" ? req.body.target : "es";
