@@ -180,7 +180,29 @@ router.get("/attempts", requireAuth, requireRole("owner", "admin", "office"), as
 
 router.post("/clock-in", requireAuth, async (req, res) => {
   try {
-    const { job_id, lat, lng, accuracy, override_token } = req.body;
+    const { job_id, lat, lng, accuracy, override_token, acting_for_user_id } = req.body;
+
+    // [acting-for 2026-06-10] The office can clock a tech in on their behalf —
+    // testing via "view as", or a tech whose phone died on site. Only
+    // owner/admin/office/super_admin may act for someone else, the target must
+    // belong to the same company, and a remote (office-acted) clock skips the
+    // hard geofence block because the office isn't standing at the job site.
+    let effectiveUserId = req.auth!.userId;
+    let actingForOther = false;
+    if (acting_for_user_id != null && Number(acting_for_user_id) !== req.auth!.userId) {
+      const role = req.auth!.role || "";
+      if (!["owner", "admin", "office", "super_admin"].includes(role)) {
+        return res.status(403).json({ error: "Forbidden", message: "Not allowed to clock in another user" });
+      }
+      const target = await db.select({ id: usersTable.id }).from(usersTable)
+        .where(and(eq(usersTable.id, Number(acting_for_user_id)), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (!target[0]) {
+        return res.status(404).json({ error: "Not Found", message: "Target employee not found in this company" });
+      }
+      effectiveUserId = Number(acting_for_user_id);
+      actingForOther = true;
+    }
 
     const job = await db
       .select()
@@ -230,12 +252,12 @@ router.post("/clock-in", requireAuth, async (req, res) => {
 
     if (geofenceEnabled && distanceFt !== null) {
       outsideGeofence = distanceFt > clockInRadius;
-      flagged = outsideGeofence && !softMode;
+      flagged = outsideGeofence && !softMode && !actingForOther;
     }
 
     const isOverride = override_token === "approved";
 
-    if (geofenceEnabled && outsideGeofence && !softMode && !isOverride) {
+    if (geofenceEnabled && outsideGeofence && !softMode && !isOverride && !actingForOther) {
       await db.insert(clockInAttemptsTable).values({
         company_id: req.auth!.companyId,
         user_id: req.auth!.userId,
@@ -270,7 +292,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       .insert(timeclockTable)
       .values({
         job_id,
-        user_id: req.auth!.userId,
+        user_id: effectiveUserId,
         company_id: req.auth!.companyId,
         branch_id: stampedBranchId,
         clock_in_lat: empLat !== null ? String(empLat) : null,
@@ -286,7 +308,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
 
     await db.insert(clockInAttemptsTable).values({
       company_id: req.auth!.companyId,
-      user_id: req.auth!.userId,
+      user_id: effectiveUserId,
       job_id,
       employee_lat: empLat !== null ? String(empLat) : null,
       employee_lng: empLng !== null ? String(empLng) : null,
@@ -307,14 +329,14 @@ router.post("/clock-in", requireAuth, async (req, res) => {
         const lateThreshold = new Date(scheduledStart.getTime() + 20 * 60 * 1000);
         if (new Date() > lateThreshold) {
           const techRow = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
-            .from(usersTable).where(eq(usersTable.id, req.auth!.userId)).limit(1);
+            .from(usersTable).where(eq(usersTable.id, effectiveUserId)).limit(1);
           const techName = techRow[0] ? `${techRow[0].first_name} ${techRow[0].last_name}` : "A technician";
           const clientName = job[0].clients ? `${(job[0].clients as any).first_name} ${(job[0].clients as any).last_name}` : "a client";
           const notifTitle = `Late Clock-In — ${techName}`;
           const notifBody = `${techName} clocked in late for ${clientName}'s job (scheduled ${arrivalWindow}).`;
           await db.execute(
             sql`INSERT INTO notifications (company_id, type, title, body, link, meta)
-              VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: req.auth!.userId, tech_name: techName })}::jsonb)`
+              VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: effectiveUserId, tech_name: techName })}::jsonb)`
           );
         }
       }
