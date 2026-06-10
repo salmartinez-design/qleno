@@ -497,9 +497,12 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
 
   return (
     <div style={{
-      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
+      backgroundColor: "#FFFFFF",
+      // Outline the whole card in the zone color so the tech sees their area at
+      // a glance; status overrides (active/unpaid/no-show/unassigned) win when
+      // present, mirroring the dispatch chip's border behavior.
+      border: `2px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
       borderRadius: 12, padding: 18, margin: "0 0 12px 0",
-      borderLeft: visual.stripe ? "none" : `3px solid var(--brand)`,
       position: "relative", overflow: "hidden",
       opacity: visual.bodyOpacity * (job.status === "cancelled" ? 1 : 1),
       filter: visual.desaturate ? "grayscale(1)" : "none",
@@ -524,7 +527,9 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, prevJobId, requireAfte
         <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, backgroundColor: sc.bg, color: sc.color, textTransform: "capitalize", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
           {job.status.replace("_", " ")}
         </span>
-        {["owner", "admin", "office"].includes(getTokenRole() || "")
+        {/* Techs never edit price. Also suppressed in office "view-as" preview
+            so the preview faithfully shows what the cleaner actually sees. */}
+        {!isPreviewMode && ["owner", "admin", "office"].includes(getTokenRole() || "")
           ? <InlinePriceEdit jobId={job.id} price={job.base_fee} canEdit onUpdated={onRefresh} />
           : <span style={{ fontSize: 20, fontWeight: 700, color: "#1A1917" }}>${job.base_fee.toFixed(2)}</span>}
       </div>
