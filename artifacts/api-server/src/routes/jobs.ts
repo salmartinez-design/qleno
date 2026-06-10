@@ -495,6 +495,23 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         // which painted every tech card with the amber unassigned border
         // override instead of its zone color.
         assigned_user_id: jobsTable.assigned_user_id,
+        // [mc-parity 2026-06-10] Cadence + home facts, MaidCentral-style.
+        // Cadence prefers the recurring schedule's frequency (the template is
+        // the source of truth for generated occurrences), falling back to the
+        // job's own stamp. Home facts come from the client's primary home.
+        frequency: sql<string | null>`COALESCE(
+          (SELECT rs.frequency::text FROM recurring_schedules rs WHERE rs.id = ${jobsTable.recurring_schedule_id}),
+          ${jobsTable.frequency}::text
+        )`,
+        bedrooms: sql<number | null>`(SELECT ch.bedrooms FROM client_homes ch
+          WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id}
+          ORDER BY ch.is_primary DESC NULLS LAST, ch.id LIMIT 1)`,
+        bathrooms: sql<number | null>`(SELECT ch.bathrooms FROM client_homes ch
+          WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id}
+          ORDER BY ch.is_primary DESC NULLS LAST, ch.id LIMIT 1)`,
+        sq_footage: sql<number | null>`(SELECT ch.sq_footage FROM client_homes ch
+          WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id}
+          ORDER BY ch.is_primary DESC NULLS LAST, ch.id LIMIT 1)`,
         zone_name: sql<string | null>`COALESCE(
           (SELECT z.name FROM service_zones z WHERE z.id = ${jobsTable.zone_id}),
           (SELECT z.name FROM service_zones z WHERE z.company_id = ${jobsTable.company_id} AND z.is_active = true
@@ -515,7 +532,9 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         // visit number (calibrates expectations vs a first-time deep clean).
         add_ons: sql<string | null>`(SELECT string_agg(CASE WHEN jao.quantity > 1 THEN ao.name || ' ×' || jao.quantity ELSE ao.name END, ', ' ORDER BY ao.name)
           FROM job_add_ons jao JOIN add_ons ao ON ao.id = jao.add_on_id WHERE jao.job_id = ${jobsTable.id})`,
-        pets: clientsTable.pets,
+        pets: sql<string | null>`COALESCE(${clientsTable.pets}, (SELECT ch.pet_notes FROM client_homes ch
+          WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id}
+          ORDER BY ch.is_primary DESC NULLS LAST, ch.id LIMIT 1))`,
         alarm_code: clientsTable.alarm_code,
         job_notes: jobsTable.notes,
         is_recurring: sql<boolean>`${jobsTable.recurring_schedule_id} IS NOT NULL`,

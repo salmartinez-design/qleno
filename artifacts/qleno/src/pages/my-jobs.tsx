@@ -34,6 +34,18 @@ function formatServiceType(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
+// Cadence labels, MaidCentral-style ("Every Two Weeks"), keyed by the
+// frequency enum. Unknown values title-case as a fallback.
+const FREQUENCY_LABELS: Record<string, string> = {
+  weekly: "Weekly", biweekly: "Every 2 Weeks", every_3_weeks: "Every 3 Weeks",
+  monthly: "Every 4 Weeks", semi_monthly: "Twice a Month", on_demand: "One-Time",
+  daily: "Daily", weekdays: "Weekdays", custom_days: "Custom Days",
+};
+export function frequencyLabel(f: string | null | undefined): string | null {
+  if (!f) return null;
+  return FREQUENCY_LABELS[f] ?? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 // Expected finish = scheduled start + allowed hours, so the tech sees their
 // target end time on the card (e.g. "9:00 AM · 3.0 hrs allowed · ends ~12:00 PM").
 function addHoursToTime(t: string, hours: number): string {
@@ -121,6 +133,10 @@ export type Job = {
   is_recurring: boolean;
   visit_number: number | null;
   assigned_user_id: number | null;
+  frequency: string | null;
+  bedrooms: number | null;
+  bathrooms: number | null;
+  sq_footage: number | null;
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
@@ -598,13 +614,16 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
             {job.zone_name}
           </span>
         )}
-        {/* Visit context — a first visit needs more care than a routine repeat. */}
+        {/* Visit context + cadence (MaidCentral parity: "Every 2 Weeks").
+            A first visit needs more care than a routine repeat. */}
         {job.visit_number === 1 ? (
           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#92400E", letterSpacing: "0.02em" }}>First visit</span>
         ) : job.is_recurring ? (
           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#EEF2FF", color: "#3730A3", letterSpacing: "0.02em" }}>
-            Recurring{job.visit_number ? ` · Visit #${job.visit_number}` : ""}
+            {frequencyLabel(job.frequency) ?? "Recurring"}{job.visit_number ? ` · Visit #${job.visit_number}` : ""}
           </span>
+        ) : job.frequency === "on_demand" ? (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em" }}>One-Time</span>
         ) : null}
       </div>
       <p style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 4px" }}>
@@ -633,6 +652,16 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           </>
         );
       })()}
+      {/* Home facts (MC parity) — size the work before walking in. */}
+      {(job.bedrooms != null || job.bathrooms != null || job.sq_footage != null) && (
+        <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0", fontWeight: 600 }}>
+          {[
+            job.bedrooms != null ? `${job.bedrooms} bd` : null,
+            job.bathrooms != null ? `${job.bathrooms} ba` : null,
+            job.sq_footage != null ? `${job.sq_footage.toLocaleString("en-US")} sq ft` : null,
+          ].filter(Boolean).join(" · ")}
+        </p>
+      )}
       {job.team && job.team_count > 1 && (
         <p style={{ fontSize: 12, color: "#6B6860", margin: "4px 0 0", display: "inline-flex", alignItems: "center", gap: 5 }}>
           <Users size={13} aria-hidden="true" style={{ color: "#9E9B94", flexShrink: 0 }} />
