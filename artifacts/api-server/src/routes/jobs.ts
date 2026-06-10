@@ -490,6 +490,11 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         // gray/zoneless tile is a data error per the zone-resolution invariant.
         // Team = every assigned tech so the cleaner knows who else is going.
         allowed_hours: jobsTable.allowed_hours,
+        // [zone-border-fix 2026-06-10] assigned_user_id must ride along — the
+        // card's getJobVisualStatus treats a missing value as "unassigned",
+        // which painted every tech card with the amber unassigned border
+        // override instead of its zone color.
+        assigned_user_id: jobsTable.assigned_user_id,
         zone_name: sql<string | null>`COALESCE(
           (SELECT z.name FROM service_zones z WHERE z.id = ${jobsTable.zone_id}),
           (SELECT z.name FROM service_zones z WHERE z.company_id = ${jobsTable.company_id} AND z.is_active = true
