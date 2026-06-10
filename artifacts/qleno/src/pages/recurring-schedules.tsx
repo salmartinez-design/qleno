@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { RefreshCw, Clock, Search } from "lucide-react";
+import { RefreshCw, Clock, Search, AlertTriangle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -14,6 +14,7 @@ type Schedule = {
   client_name: string;
   frequency: string;
   day_of_week: string | null;
+  start_date: string | null;
   scheduled_time: string | null;
   service_type: string | null;
   duration_minutes: number | null;
@@ -35,6 +36,27 @@ function fmtTime(t: string | null) {
   const ap = hh >= 12 ? "PM" : "AM";
   hh = hh % 12 || 12;
   return `${hh}:${(m ?? "00").slice(0, 2)} ${ap}`;
+}
+
+// [recurring-anchor-audit 2026-06-10] The recurring engine anchors a single-day
+// schedule on its day_of_week when that's set — even if it disagrees with the
+// real start_date. MaidCentral-imported rows sometimes carry a day_of_week
+// that doesn't match the start date, so jobs land on the wrong day (e.g.
+// "Monday" instead of the true start weekday). Surface the mismatch so the
+// office can fix it (edit the schedule's day, or clear it to follow start_date).
+const DOW_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+function startWeekday(start: string | null): string | null {
+  if (!start) return null;
+  const d = new Date(`${String(start).slice(0, 10)}T12:00:00`); // noon = DST/UTC-safe
+  return isNaN(d.getTime()) ? null : DOW_NAMES[d.getDay()];
+}
+function anchorMismatch(r: Schedule): string | null {
+  const singleDay = !["daily", "weekdays", "custom_days"].includes(r.frequency);
+  if (!singleDay || !r.day_of_week || !r.start_date) return null;
+  const actual = startWeekday(r.start_date);
+  if (!actual || actual === r.day_of_week.toLowerCase()) return null;
+  return `Set to ${cap(r.day_of_week)} but the start date is a ${cap(actual)} — jobs land on ${cap(r.day_of_week)}. Edit the schedule to fix.`;
 }
 
 export default function RecurringSchedulesPage() {
@@ -158,6 +180,11 @@ export default function RecurringSchedulesPage() {
                   <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 2px" }}>
                     {FREQ_LABEL[r.frequency] ?? r.frequency}{r.day_of_week ? ` · ${r.day_of_week}` : ""} · {r.base_fee ? `$${parseFloat(r.base_fee).toFixed(2)}` : "—"}
                   </p>
+                  {anchorMismatch(r) && (
+                    <p style={{ display: "inline-flex", alignItems: "flex-start", gap: 5, fontSize: 11, fontWeight: 600, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, padding: "4px 8px", margin: "2px 0 4px", lineHeight: 1.4 }}>
+                      <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} /> {anchorMismatch(r)}
+                    </p>
+                  )}
                   <p style={{ fontSize: 12, margin: 0 }}>
                     {fmtTime(r.scheduled_time)
                       ? <span style={{ color: "#1A1917", fontWeight: 600 }}>{fmtTime(r.scheduled_time)}</span>
@@ -193,7 +220,14 @@ export default function RecurringSchedulesPage() {
                   <td style={td}><input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} /></td>
                   <td style={{ ...td, fontWeight: 600 }}>{r.client_name?.trim() || `#${r.customer_id}`}</td>
                   <td style={td}>{FREQ_LABEL[r.frequency] ?? r.frequency}</td>
-                  <td style={{ ...td, textTransform: "capitalize" }}>{r.day_of_week || "—"}</td>
+                  <td style={{ ...td, textTransform: "capitalize" }}>
+                    {r.day_of_week || "—"}
+                    {anchorMismatch(r) && (
+                      <span title={anchorMismatch(r)!} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, padding: "1px 6px", textTransform: "none", cursor: "help" }}>
+                        <AlertTriangle size={11} /> Wrong day
+                      </span>
+                    )}
+                  </td>
                   <td style={td}>
                     {fmtTime(r.scheduled_time)
                       ?? <span style={{ color: "#B45309", fontWeight: 600 }}>No time set</span>}
