@@ -1117,35 +1117,33 @@ router.put("/:id", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Job not found" });
     }
 
-    // [dispatch drag-and-drop save 2026-06-10]
-    // The dispatch read path (routes/dispatch.ts:914-931) treats
-    // job_technicians as the source of truth for which row a job
-    // appears under — falling back to jobs.assigned_user_id ONLY when
-    // there is no job_technicians row. Updating `assigned_user_id`
-    // alone here used to leave the old primary row in job_technicians
-    // intact, so the very next dispatch reload would render the chip
-    // back under the original tech. That is the "drag let you but it
-    // doesn't save" symptom Maribel reported.
-    //
-    // The fix mirrors the new primary into job_technicians:
-    //   1) demote any current is_primary=true row for this job,
-    //   2) upsert the new tech as primary (promoting an existing helper
-    //      row if they were already on the team — the (job_id, user_id)
-    //      unique index makes this safe via ON CONFLICT).
-    // Helpers in job_technicians are untouched so multi-tech crews
-    // survive a quick reschedule.
-    if (assigned_user_id !== undefined && assigned_user_id !== null) {
+    // [drag-drop-mirror 2026-06-10] Mirror the dropped tech into
+    // job_technicians so the card / JobPanel tech selector / commission /
+    // payroll agree with the grid row (dispatch reads the primary from
+    // job_technicians, falling back to assigned_user_id only when no row
+    // exists). main (#381) mirrored the non-null case (demote the old primary,
+    // upsert the new one, keeping helpers). This adds the drag-to-Unassigned
+    // (null) case #381 didn't handle: a job dragged to the Unassigned row
+    // should leave no primary.
+    if (assigned_user_id !== undefined) {
       const companyId = req.auth!.companyId!;
-      await db.execute(sql`
-        UPDATE job_technicians
-        SET is_primary = false
-        WHERE job_id = ${jobId} AND is_primary = true AND user_id <> ${Number(assigned_user_id)}
-      `);
-      await db.execute(sql`
-        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-        VALUES (${jobId}, ${Number(assigned_user_id)}, ${companyId}, true)
-        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = true
-      `);
+      if (assigned_user_id === null) {
+        await db.execute(sql`
+          UPDATE job_technicians SET is_primary = false
+          WHERE job_id = ${jobId} AND is_primary = true
+        `);
+      } else {
+        await db.execute(sql`
+          UPDATE job_technicians
+          SET is_primary = false
+          WHERE job_id = ${jobId} AND is_primary = true AND user_id <> ${Number(assigned_user_id)}
+        `);
+        await db.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${Number(assigned_user_id)}, ${companyId}, true)
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = true
+        `);
+      }
     }
 
     logAudit(req, "UPDATE", "job", jobId, null, updated[0]);
