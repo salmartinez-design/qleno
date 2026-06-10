@@ -120,6 +120,7 @@ export type Job = {
   job_notes: string | null;
   is_recurring: boolean;
   visit_number: number | null;
+  assigned_user_id: number | null;
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
@@ -528,7 +529,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         // Outline the whole card in the zone color so the tech sees their area at
         // a glance; status overrides (active/unpaid/no-show/unassigned) win when
         // present, mirroring the dispatch chip's border behavior.
-        border: `2px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
+        border: `3px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
         borderRadius: 12, padding: 18, margin: "0 0 12px 0",
         position: "relative", overflow: "hidden",
         opacity: visual.bodyOpacity * (job.status === "cancelled" ? 1 : 1),
@@ -720,18 +721,27 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         </div>
       )}
 
-      {!job.access_notes && job.client_notes && (
-        <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Client Notes</p>
-          <p style={{ fontSize: 12, color: "#1A1917", margin: 0 }}>{job.client_notes}</p>
+      {/* Two-tier notes — the bridge from customer instructions to the cleaner.
+          TODAY'S notes (jobs.notes) are one-off for this visit ("today make 2
+          beds") — loudest, first. EVERY-VISIT notes (clients.notes) are sticky
+          per client ("dog and cat — treats in kitchen") and follow the client
+          onto every job regardless of which tech goes. Distinct colors so the
+          tech never confuses a one-off with a standing instruction. */}
+      {job.job_notes && (
+        <div style={{ backgroundColor: "#ECFDF8", border: "2px solid #00C9A0", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>
+            Today's Job Notes — this visit only
+          </p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: "#065F46", margin: 0, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{job.job_notes}</p>
         </div>
       )}
 
-      {/* Per-job instructions (distinct from the standing client notes). */}
-      {job.job_notes && (
-        <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Job Instructions</p>
-          <p style={{ fontSize: 12, color: "#1A1917", margin: 0, lineHeight: 1.5 }}>{job.job_notes}</p>
+      {job.client_notes && (
+        <div style={{ backgroundColor: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 10, padding: "12px 14px", marginTop: 10 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, color: "#3730A3", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>
+            Client Notes — every visit
+          </p>
+          <p style={{ fontSize: 13, color: "#312E81", margin: 0, lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{job.client_notes}</p>
         </div>
       )}
 
