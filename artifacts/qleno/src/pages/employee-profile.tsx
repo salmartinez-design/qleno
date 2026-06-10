@@ -1187,7 +1187,22 @@ export default function EmployeeProfilePage() {
                   </div>
                 )}
                 <div style={{ marginTop:16, display:'flex', gap:10 }}>
-                  <button style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280',fontFamily:'inherit' }}>
+                  <button
+                    onClick={async () => {
+                      const np = window.prompt(`Set a new password for ${fullName} (min 6 characters).\nGive this password to the employee — they sign in with their email + this password.`);
+                      if (np == null) return;
+                      if (np.trim().length < 6) { showToast("Password must be at least 6 characters"); return; }
+                      try {
+                        await apiFetch("/users/bulk-reset-password", {
+                          method: "POST",
+                          body: JSON.stringify({ userIds: [userId], newPassword: np.trim() }),
+                        });
+                        showToast("Password set — give it to the employee");
+                      } catch {
+                        showToast("Couldn't set password (owner/admin only)");
+                      }
+                    }}
+                    style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280',fontFamily:'inherit' }}>
                     Reset Password
                   </button>
                 </div>
