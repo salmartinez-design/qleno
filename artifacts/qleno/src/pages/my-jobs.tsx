@@ -1056,6 +1056,7 @@ export default function MyJobsPage() {
   // Day navigation: tech can page to other days; defaults to today.
   const todayYmd = ymd(new Date());
   const [selectedDate, setSelectedDate] = useState(todayYmd);
+  const dateInputRef = useRef<HTMLInputElement>(null);
   const isToday = selectedDate === todayYmd;
   const selectedLabel = (() => {
     const [y, m, d] = selectedDate.split("-").map(Number);
@@ -1152,11 +1153,27 @@ export default function MyJobsPage() {
             style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" }}>
             ‹
           </button>
-          <button type="button" onClick={() => setSelectedDate(todayYmd)}
-            style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{isToday ? "Today" : selectedLabel}</span>
-            <span style={{ fontSize: 11, color: "#9E9B94" }}>{isToday ? selectedLabel : "Tap for today"}</span>
-          </button>
+          {/* [day-calendar 2026-06-10] Tapping the date opens a calendar to
+              jump to ANY day (matches the owner dispatch board), instead of
+              only stepping with the arrows. A "Back to today" link returns. */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, position: "relative" }}>
+            <button type="button"
+              onClick={() => { const el = dateInputRef.current; if (!el) return; try { (el as any).showPicker ? (el as any).showPicker() : el.click(); } catch { el.click(); } }}
+              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{isToday ? "Today" : selectedLabel}</span>
+              <span style={{ fontSize: 11, color: "#9E9B94" }}>{isToday ? selectedLabel : "Tap to pick a day"}</span>
+            </button>
+            {!isToday && (
+              <button type="button" onClick={() => setSelectedDate(todayYmd)}
+                style={{ background: "none", border: "none", color: "var(--brand, #00C9A0)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 1 }}>
+                Back to today
+              </button>
+            )}
+            <input ref={dateInputRef} type="date" value={selectedDate}
+              onChange={e => { if (e.target.value) setSelectedDate(e.target.value); }}
+              aria-label="Pick a date" tabIndex={-1}
+              style={{ position: "absolute", left: "50%", bottom: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }} />
+          </div>
           <button type="button" onClick={() => shiftDay(1)} aria-label="Next day"
             style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" }}>
             ›
