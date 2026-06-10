@@ -114,6 +114,12 @@ type Job = {
   zone_color: string | null;
   team: string | null;
   team_count: number;
+  add_ons: string | null;
+  pets: string | null;
+  alarm_code: string | null;
+  job_notes: string | null;
+  is_recurring: boolean;
+  visit_number: number | null;
   before_photo_count: number;
   after_photo_count: number;
   time_clock_entry: TimeclockEntry | null;
@@ -583,6 +589,14 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJ
             {job.zone_name}
           </span>
         )}
+        {/* Visit context — a first visit needs more care than a routine repeat. */}
+        {job.visit_number === 1 ? (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#92400E", letterSpacing: "0.02em" }}>First visit</span>
+        ) : job.is_recurring ? (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#EEF2FF", color: "#3730A3", letterSpacing: "0.02em" }}>
+            Recurring{job.visit_number ? ` · Visit #${job.visit_number}` : ""}
+          </span>
+        ) : null}
       </div>
       <p style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 4px" }}>
         {formatServiceType(job.service_type)}
@@ -664,6 +678,33 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJ
         </p>
       )}
 
+      {/* What to do this visit — the EXTRAS that were sold. A tech who doesn't
+          see these skips paid work and the customer is unhappy. */}
+      {job.add_ons && (
+        <div style={{ backgroundColor: "#ECFDF8", border: "1px solid #99E9D3", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Services this visit</p>
+          <p style={{ fontSize: 13, color: "#065F46", margin: 0, lineHeight: 1.5, fontWeight: 600 }}>
+            {formatServiceType(job.service_type)} · {job.add_ons}
+          </p>
+        </div>
+      )}
+
+      {/* Pets — safety + allergy info the cleaner needs before entering. */}
+      {job.pets && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 10, fontSize: 12, color: "#92400E", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px" }}>
+          <span style={{ fontWeight: 700, flexShrink: 0 }}>Pets:</span>
+          <span>{job.pets}</span>
+        </div>
+      )}
+
+      {/* Entry / alarm code — the assigned tech needs this to get in & disarm. */}
+      {job.alarm_code && (
+        <div style={{ backgroundColor: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: "#3730A3", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Entry / Alarm Code</p>
+          <p style={{ fontSize: 14, color: "#1E1B4B", margin: 0, fontWeight: 700, letterSpacing: "0.04em" }}>{job.alarm_code}</p>
+        </div>
+      )}
+
       {job.access_notes && (
         <div style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Building Access</p>
@@ -675,6 +716,14 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJ
         <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Client Notes</p>
           <p style={{ fontSize: 12, color: "#1A1917", margin: 0 }}>{job.client_notes}</p>
+        </div>
+      )}
+
+      {/* Per-job instructions (distinct from the standing client notes). */}
+      {job.job_notes && (
+        <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginTop: 10 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Job Instructions</p>
+          <p style={{ fontSize: 12, color: "#1A1917", margin: 0, lineHeight: 1.5 }}>{job.job_notes}</p>
         </div>
       )}
 

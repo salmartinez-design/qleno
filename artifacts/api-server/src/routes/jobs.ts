@@ -503,6 +503,21 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         team: sql<string | null>`(SELECT string_agg(u.first_name, ', ' ORDER BY jt.is_primary DESC, u.first_name)
           FROM job_technicians jt JOIN users u ON u.id = jt.user_id WHERE jt.job_id = ${jobsTable.id})`,
         team_count: sql<number>`(SELECT COUNT(*)::int FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id})`,
+        // [field-tech-audit 2026-06-10] The pertinent things a cleaner needs that
+        // weren't surfaced: the EXTRAS sold for this visit (so they actually do
+        // them), pets (safety/allergy), the entry/alarm code (to get in), the
+        // per-job instructions, and whether this is a recurring client + which
+        // visit number (calibrates expectations vs a first-time deep clean).
+        add_ons: sql<string | null>`(SELECT string_agg(CASE WHEN jao.quantity > 1 THEN ao.name || ' ×' || jao.quantity ELSE ao.name END, ', ' ORDER BY ao.name)
+          FROM job_add_ons jao JOIN add_ons ao ON ao.id = jao.add_on_id WHERE jao.job_id = ${jobsTable.id})`,
+        pets: clientsTable.pets,
+        alarm_code: clientsTable.alarm_code,
+        job_notes: jobsTable.notes,
+        is_recurring: sql<boolean>`${jobsTable.recurring_schedule_id} IS NOT NULL`,
+        visit_number: sql<number | null>`CASE WHEN ${jobsTable.client_id} IS NOT NULL THEN (
+          SELECT COUNT(*)::int FROM jobs j2 WHERE j2.client_id = ${jobsTable.client_id} AND j2.company_id = ${jobsTable.company_id}
+            AND (j2.scheduled_date < ${jobsTable.scheduled_date} OR (j2.scheduled_date = ${jobsTable.scheduled_date} AND j2.id <= ${jobsTable.id})))
+          ELSE NULL END`,
         // Surface BOTH the tenant (the business that owns the job) and the
         // branch (Phes-internal location, if set). For cross-tenant techs
         // the company_name distinguishes "Phes Oak Lawn" from "PHES
@@ -3475,10 +3490,10 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
 });
 
 router.post("/:id/photos", requireAuth, async (req, res) => {
-  // [AF] PHOTOS_ENABLED feature gate — blocks new photo uploads while the
-  // before/after workflow is paused. GETs + existing photo rows stay intact.
-  if (process.env.PHOTOS_ENABLED !== "true") {
-    return res.status(503).json({ error: "feature_disabled", message: "Photo uploads are temporarily disabled (PHOTOS_ENABLED=false)." });
+  // [AF] PHOTOS_ENABLED is now an explicit kill switch — photo uploads are
+  // ENABLED by default and only blocked when PHOTOS_ENABLED="false".
+  if (process.env.PHOTOS_ENABLED === "false") {
+    return res.status(503).json({ error: "feature_disabled", message: "Photo uploads are disabled (PHOTOS_ENABLED=false)." });
   }
   try {
     const jobId = parseInt(req.params.id);

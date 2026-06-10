@@ -5,10 +5,10 @@ import { requireAuth } from "../lib/auth.js";
 const router = Router();
 const storage = new ObjectStorageService();
 
-// [AF] PHOTOS_ENABLED feature flag — disables upload ingest while before/after
-// photo workflow is paused. GET /objects/:path stays live so previously-uploaded
-// photos remain viewable; only new uploads are blocked.
-const photosEnabled = () => process.env.PHOTOS_ENABLED === "true";
+// [AF] PHOTOS_ENABLED feature flag. Photos are ENABLED by default (field techs
+// rely on before/after photos); the flag is now an explicit kill switch —
+// uploads are only blocked when PHOTOS_ENABLED is set to "false".
+const photosEnabled = () => process.env.PHOTOS_ENABLED !== "false";
 
 router.post("/request-url", requireAuth, async (req: Request, res: Response) => {
   if (!photosEnabled()) {
