@@ -5,7 +5,7 @@ import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users } from "lucide-react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
@@ -83,7 +83,7 @@ type TimeclockEntry = {
   flagged: boolean;
 };
 
-type Job = {
+export type Job = {
   id: number;
   client_name: string;
   address: string | null;
@@ -324,7 +324,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   );
 }
 
-function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJobId, requireAfterPhoto }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; actingForUserId?: number | null; prevJobId?: number | null; requireAfterPhoto?: boolean }) {
+export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJobId, requireAfterPhoto, onOpenDetail }: { job: Job; empPos: { lat: number; lng: number } | null; onRefresh: () => void; isPreviewMode?: boolean; actingForUserId?: number | null; prevJobId?: number | null; requireAfterPhoto?: boolean; onOpenDetail?: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -516,17 +516,25 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJ
   useEffect(() => { ensureJobStatusStyles(); }, []);
 
   return (
-    <div style={{
-      backgroundColor: "#FFFFFF",
-      // Outline the whole card in the zone color so the tech sees their area at
-      // a glance; status overrides (active/unpaid/no-show/unassigned) win when
-      // present, mirroring the dispatch chip's border behavior.
-      border: `2px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
-      borderRadius: 12, padding: 18, margin: "0 0 12px 0",
-      position: "relative", overflow: "hidden",
-      opacity: visual.bodyOpacity * (job.status === "cancelled" ? 1 : 1),
-      filter: visual.desaturate ? "grayscale(1)" : "none",
-    }}>
+    <div
+      onClick={onOpenDetail ? (e) => {
+        // Whole-card tap opens the detail screen, but never hijack taps on the
+        // card's own interactive elements (links, buttons, photo inputs).
+        if ((e.target as HTMLElement).closest("a, button, input, img")) return;
+        onOpenDetail();
+      } : undefined}
+      style={{
+        backgroundColor: "#FFFFFF",
+        // Outline the whole card in the zone color so the tech sees their area at
+        // a glance; status overrides (active/unpaid/no-show/unassigned) win when
+        // present, mirroring the dispatch chip's border behavior.
+        border: `2px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
+        borderRadius: 12, padding: 18, margin: "0 0 12px 0",
+        position: "relative", overflow: "hidden",
+        opacity: visual.bodyOpacity * (job.status === "cancelled" ? 1 : 1),
+        filter: visual.desaturate ? "grayscale(1)" : "none",
+        cursor: onOpenDetail ? "pointer" : undefined,
+      }}>
       {visual.stripe && (
         <div className="qleno-active-stripe" style={{
           position: "absolute", top: 0, bottom: 0, left: 0, width: 4,
@@ -867,18 +875,33 @@ function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId, prevJ
       </div>
 
       <StatusTimeline jobId={job.id} />
+
+      {onOpenDetail && (
+        <button
+          onClick={onOpenDetail}
+          style={{
+            width: "calc(100% + 36px)", margin: "14px -18px -18px", padding: "11px 18px",
+            background: "#F7F6F3", border: "none", borderTop: "1px solid #EEECE7",
+            fontSize: 13, fontWeight: 700, color: "#1A1917", cursor: "pointer",
+            fontFamily: "'Plus Jakarta Sans', sans-serif", textAlign: "center",
+          }}
+        >
+          View job details ›
+        </button>
+      )}
     </div>
   );
 }
 
 // Local YYYY-MM-DD (not UTC) so the day the tech sees matches their wall clock.
-function ymd(d: Date) {
+export function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export default function MyJobsPage() {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
+  const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showPay, setShowPay] = useState(false);
@@ -1060,13 +1083,15 @@ export default function MyJobsPage() {
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
                   actingForUserId={employeeView ? employeeView.employeeId : null}
-                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} requireAfterPhoto={requireAfterPhoto} />
+                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} requireAfterPhoto={requireAfterPhoto}
+                  onOpenDetail={() => navigate(`/my-jobs/${job.id}?date=${selectedDate}`)} />
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>
                   <p style={{ fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px 4px" }}>Up Next</p>
                   {upcomingJobs.map(job => (
-                    <div key={job.id} style={{ opacity: 0.55, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand)", borderRadius: 12, padding: 18, marginBottom: 10 }}>
+                    <div key={job.id} onClick={() => navigate(`/my-jobs/${job.id}?date=${selectedDate}`)}
+                      style={{ opacity: 0.55, backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: `3px solid ${job.zone_color || "var(--brand)"}`, borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                         <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
                         {(job.company_name || job.branch_name) && (
