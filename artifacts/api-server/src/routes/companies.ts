@@ -120,6 +120,17 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (sms_paused_enabled !== undefined) patch.sms_paused_enabled = sms_paused_enabled;
     if (sms_complete_enabled !== undefined) patch.sms_complete_enabled = sms_complete_enabled;
     if (twilio_from_number !== undefined) patch.twilio_from_number = twilio_from_number;
+    // [ghl-estimate-bridge 2026-06-10] GoHighLevel webhook URLs (estimate drip).
+    // https-only; empty string clears (disables the bridge).
+    {
+      const { ghl_estimate_sent_webhook, ghl_estimate_outcome_webhook } = req.body;
+      const cleanGhlUrl = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        return s && /^https:\/\//i.test(s) ? s.slice(0, 500) : null;
+      };
+      if (ghl_estimate_sent_webhook !== undefined) patch.ghl_estimate_sent_webhook = cleanGhlUrl(ghl_estimate_sent_webhook);
+      if (ghl_estimate_outcome_webhook !== undefined) patch.ghl_estimate_outcome_webhook = cleanGhlUrl(ghl_estimate_outcome_webhook);
+    }
     if (geofence_enabled !== undefined) patch.geofence_enabled = geofence_enabled;
     if (geofence_clockin_radius_ft !== undefined) patch.geofence_clockin_radius_ft = geofence_clockin_radius_ft;
     if (geofence_clockout_radius_ft !== undefined) patch.geofence_clockout_radius_ft = geofence_clockout_radius_ft;

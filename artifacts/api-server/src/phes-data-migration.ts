@@ -25,6 +25,10 @@ async function runBookingSchemaGuard(): Promise<void> {
   const guards: Array<{ label: string; stmt: string }> = [
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
+    // the estimate drip. Opt-in: bridge fires only when a URL is set.
+    { label: "companies.ghl_estimate_sent_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_sent_webhook TEXT" },
+    { label: "companies.ghl_estimate_outcome_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_outcome_webhook TEXT" },
     // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
     // recurring occurrence the office removed isn't regenerated next run.
     { label: "recurring_schedules.skipped_dates", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS skipped_dates DATE[] DEFAULT '{}'" },
