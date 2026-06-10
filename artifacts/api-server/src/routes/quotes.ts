@@ -6,8 +6,27 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { getBranchByZip } from "../lib/branchRouter";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
+import { persistJobAddOns } from "./jobs.js";
 
 const router = Router();
+
+// [quote-convert-stickiness 2026-06-10] Map the quote's `addons` jsonb
+// (addon_breakdown rows: { id: pricing_addons.id, name, amount, price_type })
+// into the shape persistJobAddOns expects. The convert previously dropped
+// every sold add-on on the floor — the booked job had no job_add_ons rows, so
+// the tech card's "Services this visit", the edit-job modal, and invoicing all
+// lost the extras the office sold on the quote.
+function quoteAddonsToJobAddOns(addons: unknown): { pricing_addon_id?: number; qty: number; unit_price?: number; subtotal?: number }[] {
+  if (!Array.isArray(addons)) return [];
+  return addons
+    .map((a: any) => ({
+      pricing_addon_id: Number(a?.id) || undefined,
+      qty: 1,
+      unit_price: a?.amount != null ? Number(a.amount) : undefined,
+      subtotal: a?.amount != null ? Number(a.amount) : undefined,
+    }))
+    .filter(a => a.pricing_addon_id);
+}
 
 async function getQuoteWithDetails(id: number, companyId: number) {
   const [quote] = await db
@@ -382,6 +401,18 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         notes: q.internal_memo || null,
       }).returning();
 
+      // [quote-convert-stickiness 2026-06-10] Persist the quote's add-ons onto
+      // the schedule template (so the edit-job cascade machinery sees them)…
+      const schedAddons = quoteAddonsToJobAddOns(q.addons);
+      for (const a of schedAddons) {
+        try {
+          await db.execute(sql`
+            INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
+            VALUES (${sched.id}, ${a.pricing_addon_id}, ${a.qty})
+          `);
+        } catch (e) { console.warn("[quote convert] schedule add-on insert failed:", e); }
+      }
+
       let generated = { created: 0, skipped: 0 };
       try {
         const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable).where(eq(clientsTable.id, q.client_id)).limit(1);
@@ -391,6 +422,17 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         generated = await generateJobsFromSchedule(sched as any, today, horizon, null, clientZip);
       } catch (genErr: any) {
         console.warn("[quote convert] recurring generation failed:", genErr?.message ?? genErr);
+      }
+
+      // …and onto every occurrence just generated (the engine only stamps the
+      // parking fee at generation time, not schedule add-ons).
+      if (schedAddons.length) {
+        try {
+          const genRows = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}`);
+          for (const row of (genRows as any).rows) {
+            await persistJobAddOns(db, Number(row.id), companyId, schedAddons);
+          }
+        } catch (e) { console.warn("[quote convert] stamping add-ons on generated jobs failed:", e); }
       }
 
       logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", recurring_schedule_id: sched.id, jobs_generated: generated.created });
@@ -436,6 +478,30 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       try {
         await db.execute(sql`UPDATE quotes SET booked_job_id = ${jobId} WHERE id = ${id}`);
       } catch { /* column may not exist */ }
+    }
+
+    // [quote-convert-stickiness 2026-06-10] Two more things that previously
+    // didn't stick through the convert:
+    // 1. branch_id — stamped from the client's home branch. NULL branch was
+    //    papered over in the dispatch filter, but timeclock branch attribution
+    //    (stamps branch at clock-in, defaults Oak Lawn) and hours-by-branch
+    //    reporting still misattributed Schaumburg work.
+    // 2. add-ons — the extras sold on the quote now land in job_add_ons, so
+    //    the tech card's "Services this visit", the edit-job modal, and
+    //    invoicing keep them.
+    if (jobId && q.client_id) {
+      try {
+        await db.execute(sql`
+          UPDATE jobs SET branch_id = (SELECT branch_id FROM clients WHERE id = ${q.client_id})
+          WHERE id = ${jobId} AND branch_id IS NULL
+        `);
+      } catch (e) { console.warn("[quote convert] branch stamp failed:", e); }
+    }
+    const jobAddons = quoteAddonsToJobAddOns(q.addons);
+    if (jobId && jobAddons.length) {
+      try {
+        await persistJobAddOns(db, jobId, companyId, jobAddons);
+      } catch (e) { console.warn("[quote convert] add-on persistence failed:", e); }
     }
 
     // [quote-convert-assignment-mirror] When the office assigns a tech on the
