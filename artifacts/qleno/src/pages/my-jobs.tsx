@@ -165,23 +165,31 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
   const inputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
+  // [multi-photo 2026-06-10] Juliana: "can't upload more than one photo at a
+  // time." The picker is now `multiple`; we upload every selected file (one
+  // request each — the endpoint takes one photo per POST), skipping any that
+  // are oversized/invalid, and report how many landed.
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { toast({ variant: "destructive", title: "File too large", description: "Max 10MB" }); return; }
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) { toast({ variant: "destructive", title: "Invalid file type" }); return; }
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
     setUploading(true);
+    let ok = 0, skipped = 0;
     try {
-      const data_url = await fileToBase64(file);
-      const res = await apiFetch(`/jobs/${jobId}/photos`, {
-        method: "POST",
-        body: JSON.stringify({ photo_type: type, data_url }),
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      onUploaded();
-      toast({ title: `${type === "before" ? "Before" : "After"} photo added` });
-    } catch {
-      toast({ variant: "destructive", title: "Upload failed" });
+      for (const file of files) {
+        if (file.size > 10 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) { skipped++; continue; }
+        try {
+          const data_url = await fileToBase64(file);
+          const res = await apiFetch(`/jobs/${jobId}/photos`, {
+            method: "POST",
+            body: JSON.stringify({ photo_type: type, data_url }),
+          });
+          if (!res.ok) { skipped++; continue; }
+          ok++;
+        } catch { skipped++; }
+      }
+      if (ok > 0) onUploaded();
+      if (ok > 0) toast({ title: `${ok} ${type} photo${ok === 1 ? "" : "s"} added${skipped ? ` · ${skipped} skipped` : ""}` });
+      else if (skipped > 0) toast({ variant: "destructive", title: "Couldn't add photos", description: "Too large or unsupported type (max 10MB; JPG/PNG/WebP)." });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -205,7 +213,7 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
         >
           {uploading ? "…" : "+"}
         </button>
-        <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
+        <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFile} />
       </div>
     </div>
   );

@@ -4,7 +4,8 @@ import { useLocation, useRoute } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { JobCard, ymd, type Job } from "./my-jobs";
-import { ArrowLeft, History } from "lucide-react";
+import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
+import { ArrowLeft, History, Navigation } from "lucide-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -139,6 +140,19 @@ export default function MyJobDetailPage() {
             </div>
           ) : (
             <>
+              {/* [job-detail-directions 2026-06-10] Juliana clicked "Job
+                  details" expecting directions but only saw previous visits.
+                  A prominent Get Directions button (one tap → maps) up top. */}
+              {job.address && (() => {
+                const addr = formatAddress(job.address, job.city, job.state, job.zip);
+                const url = mapsDirectionsUrl(addr);
+                return (
+                  <a href={url ?? "#"} target="_blank" rel="noreferrer"
+                    style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, height: 48, marginBottom: 12, background: "var(--brand, #00C9A0)", color: "#fff", borderRadius: 12, fontSize: 15, fontWeight: 800, textDecoration: "none", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    <Navigation size={17} /> Get Directions
+                  </a>
+                );
+              })()}
               <JobCard
                 job={job}
                 empPos={empPos}
