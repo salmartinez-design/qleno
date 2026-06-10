@@ -318,6 +318,63 @@ async function patchJob(id: number, patch: object, token: string) {
   if (!r.ok) throw new Error("Failed");
 }
 
+// [clock-edit-from-card 2026-06-10] Office can correct a tech's clock in/out
+// times straight from the dispatch job card — calls PATCH /api/timeclock/:id
+// (owner/admin/office), which re-derives actual hours + audits the change.
+// Inputs are datetime-local (wall-clock); converted to ISO on save.
+function ClockEditor({ entry, canEdit, onUpdate }: { entry: ClockEntry; canEdit: boolean; onUpdate: () => void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { toast } = useToast();
+  const [editing, setEditing] = useState(false);
+  const [inVal, setInVal] = useState("");
+  const [outVal, setOutVal] = useState("");
+  const [saving, setSaving] = useState(false);
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const toLocal = (iso: string | null) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  function open() { setInVal(toLocal(entry.clock_in_at)); setOutVal(toLocal(entry.clock_out_at)); setEditing(true); }
+  async function save() {
+    if (!inVal) { toast({ title: "Clock-in time is required", variant: "destructive" }); return; }
+    setSaving(true);
+    try {
+      const body: any = { clock_in_at: new Date(inVal).toISOString(), clock_out_at: outVal ? new Date(outVal).toISOString() : null };
+      const r = await fetch(`${API}/api/timeclock/${entry.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || e.error || "Failed"); }
+      toast({ title: "Clock updated" });
+      setEditing(false);
+      onUpdate();
+    } catch (e: any) { toast({ title: "Couldn't update clock", description: e.message, variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+  if (!canEdit) return null;
+  const inp: React.CSSProperties = { padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" };
+  if (!editing) {
+    return (
+      <button onClick={open} style={{ marginTop: 8, background: "none", border: "none", padding: 0, color: "var(--brand, #00C9A0)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+        Edit clock times
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: "#F7F6F3", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
+      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>Clock in
+        <input type="datetime-local" value={inVal} onChange={e => setInVal(e.target.value)} style={inp} />
+      </label>
+      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>Clock out <span style={{ fontWeight: 400 }}>(blank = still on the clock)</span>
+        <input type="datetime-local" value={outVal} onChange={e => setOutVal(e.target.value)} style={inp} />
+      </label>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setEditing(false)} disabled={saving} style={{ flex: 1, padding: "7px", border: "1px solid #E5E2DC", background: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+        <button onClick={save} disabled={saving} style={{ flex: 1.3, padding: "7px", border: "none", background: "var(--brand, #00C9A0)", color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{saving ? "Saving…" : "Save clock"}</button>
+      </div>
+    </div>
+  );
+}
+
 // [translate-note] One-tap English → Spanish for job notes. Office writes
 // notes in English; many Phes techs read more comfortably in Spanish. Calls
 // the existing POST /api/translate (Claude-backed, office-gated). The English
@@ -2114,6 +2171,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 {ce?.gps_missing && (
                   <KV label="GPS" value="Unavailable — location not captured" color="#DC2626" />
                 )}
+                {ce && <ClockEditor entry={ce} canEdit={canEditOfficeNotes} onUpdate={onUpdate} />}
               </PS>
             );
           })()}
@@ -4050,7 +4108,10 @@ function JobChip({
   const dnd = useDraggable({
     id: `chip-${job.id}-${layout}`,
     data: { job, originalLeft: timelineLeft, type: isUnassigned ? "unassigned" : undefined },
-    disabled: layout !== "timeline" || isComplete,
+    // [unlock-completed 2026-06-10] Completed jobs are now draggable too — the
+    // office needs to fix a wrong tech/time after the fact. The PUT mirror
+    // keeps job_technicians in sync on reassignment.
+    disabled: layout !== "timeline",
   });
 
   // [BUG-6 follow-up / 2026-06-02] Dispatch.amount is now LIVE (post #229:
@@ -4242,13 +4303,13 @@ function JobChip({
     <div ref={dnd.setNodeRef}
       onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}
-      {...(isComplete ? {} : { ...dnd.listeners, ...dnd.attributes })}
+      {...dnd.listeners} {...dnd.attributes}
       style={{
         position: "absolute", top, left: timelineLeft, width: timelineWidth, height: ROW_H - 20,
         borderRadius: 8, backgroundColor: chipBg,
         border: `2px solid ${borderColor}`,
         boxSizing: "border-box", overflow: "visible",
-        cursor: isComplete ? "default" : dnd.isDragging ? "grabbing" : "grab",
+        cursor: dnd.isDragging ? "grabbing" : "grab",
         opacity: dnd.isDragging ? 0.3 : visual.bodyOpacity,
         filter: visual.desaturate ? "grayscale(1)" : "none",
         transform: dnd.transform ? `translate(${dnd.transform.x}px, ${dnd.transform.y}px)` : undefined,
