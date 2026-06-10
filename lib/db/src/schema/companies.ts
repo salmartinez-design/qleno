@@ -46,6 +46,14 @@ export const companiesTable = pgTable("companies", {
   sms_paused_enabled: boolean("sms_paused_enabled").notNull().default(false),
   sms_complete_enabled: boolean("sms_complete_enabled").notNull().default(true),
   twilio_from_number: text("twilio_from_number"),
+  // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for the
+  // estimate follow-up drip. Opt-in: the bridge only fires when a URL is set
+  // (pasting the URL IS the explicit enable). Sent fires on estimate send;
+  // outcome fires on accept/decline so GHL can stop the drip. These are
+  // outbound integration events to the tenant's own CRM — Qleno's
+  // COMMS_ENABLED gate (Twilio/Resend suppression) does not apply.
+  ghl_estimate_sent_webhook: text("ghl_estimate_sent_webhook"),
+  ghl_estimate_outcome_webhook: text("ghl_estimate_outcome_webhook"),
   default_payment_terms_residential: text("default_payment_terms_residential").default("due_on_receipt"),
   default_payment_terms_commercial: text("default_payment_terms_commercial").default("net_30"),
   // [pay-matrix 2026-04-29] Tenant defaults inherited by every new
