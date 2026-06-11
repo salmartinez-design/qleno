@@ -12,6 +12,7 @@ import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
+import { enqueueClock, isOfflineError, flushClockQueue, queueLength } from "@/lib/offline-clock";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -461,17 +462,33 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
 
   const clockInMutation = useMutation({
     mutationFn: async ({ lat, lng, accuracy, override_token }: { lat: number; lng: number; accuracy?: number; override_token?: string }) => {
-      const res = await apiFetch("/timeclock/clock-in", {
-        method: "POST",
-        // In office "view-as" preview the API call carries the office user's
-        // token; acting_for_user_id attributes the clock to the viewed tech.
-        body: JSON.stringify({ job_id: job.id, lat, lng, accuracy, override_token, acting_for_user_id: actingForUserId ?? undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw { status: res.status, ...data };
-      return data;
+      const ts = new Date().toISOString();
+      try {
+        const res = await apiFetch("/timeclock/clock-in", {
+          method: "POST",
+          // In office "view-as" preview the API call carries the office user's
+          // token; acting_for_user_id attributes the clock to the viewed tech.
+          // client_clock_in_at = the real tap time (honored on offline replay).
+          body: JSON.stringify({ job_id: job.id, lat, lng, accuracy, override_token, acting_for_user_id: actingForUserId ?? undefined, client_clock_in_at: ts }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw { status: res.status, ...data };
+        return data;
+      } catch (e) {
+        // [offline-clock] No signal → save the punch locally with the real time
+        // + GPS and sync when back online (don't lose it).
+        if (isOfflineError(e)) {
+          enqueueClock({ type: "in", job_id: job.id, ts, lat, lng, accuracy, acting_for_user_id: actingForUserId ?? null });
+          return { queued: true };
+        }
+        throw e;
+      }
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
+      if (data?.queued) {
+        toast({ title: "No signal — Clock In saved", description: "It'll sync automatically when you're back online." });
+        return;
+      }
       setGeofenceError(null);
       if (data.soft_warned) {
         setSoftWarning(`You are ${Math.round(data.clock_in_distance_ft || 0)} feet from the job address. Your location has been logged.`);
@@ -499,19 +516,35 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
 
   const clockOutMutation = useMutation({
     mutationFn: async ({ lat, lng }: { lat: number; lng: number }) => {
-      const res = await apiFetch(`/timeclock/${entry!.id}/clock-out`, {
-        method: "POST",
-        body: JSON.stringify({ lat, lng }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (data.error === "PHOTOS_REQUIRED") throw new Error("PHOTOS_REQUIRED");
-        if (data.error === "GEOFENCE_BLOCKED") throw { ...data };
-        throw new Error(data.message || "Clock out failed");
+      const ts = new Date().toISOString();
+      try {
+        const res = await apiFetch(`/timeclock/${entry!.id}/clock-out`, {
+          method: "POST",
+          // client_clock_out_at = the real tap time. This is the fix for the
+          // "clock-out registered 30 min late at her house" bug — even when the
+          // request only lands after signal returns, the captured on-site time wins.
+          body: JSON.stringify({ lat, lng, client_clock_out_at: ts }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          if (data.error === "PHOTOS_REQUIRED") throw new Error("PHOTOS_REQUIRED");
+          if (data.error === "GEOFENCE_BLOCKED") throw { ...data };
+          throw new Error(data.message || "Clock out failed");
+        }
+        return data;
+      } catch (e) {
+        if (isOfflineError(e)) {
+          enqueueClock({ type: "out", job_id: job.id, entry_id: entry!.id, ts, lat, lng });
+          return { queued: true } as any;
+        }
+        throw e;
       }
-      return data;
     },
-    onSuccess: (data) => {
+    onSuccess: (data: any) => {
+      if (data?.queued) {
+        toast({ title: "No signal — Clock Out saved", description: "It'll sync automatically when you're back online." });
+        return;
+      }
       if (data.soft_warned) {
         toast({ title: "Job complete", description: `Clocked out — ${Math.round(data.clock_out_distance_ft || 0)} ft from job (logged)` });
       } else {
@@ -1039,6 +1072,7 @@ export function ymd(d: Date) {
 export default function MyJobsPage() {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
+  const { toast } = useToast();
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -1086,6 +1120,31 @@ export default function MyJobsPage() {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, []);
+
+  // [offline-clock 2026-06-11] Replay any punches saved while offline. Fires on
+  // mount, whenever the browser fires 'online', and on a 20s heartbeat (covers
+  // flaky signal that flips back without an 'online' event). When something
+  // actually syncs, refetch so the card flips to its true clocked state, and
+  // surface a confirmation toast.
+  const [pendingSync, setPendingSync] = useState(queueLength());
+  useEffect(() => {
+    let cancelled = false;
+    const flush = async () => {
+      if (queueLength() === 0) { if (!cancelled) setPendingSync(0); return; }
+      const { synced, remaining } = await flushClockQueue(token);
+      if (cancelled) return;
+      setPendingSync(remaining);
+      if (synced > 0) {
+        toast({ title: `${synced} punch${synced === 1 ? "" : "es"} synced`, description: "Your saved clock times are now recorded." });
+        refetch();
+      }
+    };
+    flush();
+    const onOnline = () => flush();
+    window.addEventListener("online", onOnline);
+    const hb = setInterval(() => { setPendingSync(queueLength()); flush(); }, 20000);
+    return () => { cancelled = true; window.removeEventListener("online", onOnline); clearInterval(hb); };
+  }, [token]);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["my-jobs", employeeView?.employeeId, selectedDate],
@@ -1179,6 +1238,16 @@ export default function MyJobsPage() {
             ›
           </button>
         </div>
+
+        {pendingSync > 0 && (
+          <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: "#D97706", flexShrink: 0, animation: "qleno-active-stripe-pulse 2s ease-in-out infinite" }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E", flex: 1 }}>
+              {pendingSync} clock punch{pendingSync === 1 ? "" : "es"} waiting to sync
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: "#B45309" }}>Saved on your phone</span>
+          </div>
+        )}
 
         {employeeView && (
           <div style={{ background: "var(--brand, #00C9A0)", padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
