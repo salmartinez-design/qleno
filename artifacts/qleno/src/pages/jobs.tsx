@@ -9,7 +9,7 @@ import { mapsDirectionsUrl } from "@/lib/format-address";
 import { JobWizard } from "@/components/job-wizard";
 import EditJobModal from "@/components/edit-job-modal";
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors,
+  DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import {
@@ -5752,7 +5752,15 @@ export default function JobsPage() {
   })();
 
   // DnD
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  // [drag-drop touch fix 2026-06-11] A single PointerSensor with a distance
+  // constraint never starts a drag on touch — the browser claims the gesture as
+  // a scroll first, so the dispatch board's drag-to-assign did nothing on a
+  // phone/tablet ("can't drag and drop"). Split into MouseSensor (desktop, 6px)
+  // + TouchSensor (press-and-hold ~180ms then drag; a quick swipe still scrolls).
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+  );
   function onDragStart(e: DragStartEvent) { setDraggingJob(e.active.data.current?.job ?? null); }
   async function onDragEnd(e: DragEndEvent) {
     setDraggingJob(null);
