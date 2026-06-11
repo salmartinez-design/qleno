@@ -87,6 +87,8 @@ type Row = {
   pay?: number | null; source?: string | null;
   gps_in_ft?: number | null; gps_out_ft?: number | null;
   gps_in_outside?: boolean | null; gps_out_outside?: boolean | null; has_gps?: boolean;
+  gps_in_lat?: number | null; gps_in_lng?: number | null;
+  gps_out_lat?: number | null; gps_out_lng?: number | null;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
@@ -233,9 +235,24 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
           {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
           {row.entry_id && (row.has_gps
-            ? <span title="Distance from the job site at clock-in (from the tech's phone GPS)" style={{ marginLeft: 6, fontWeight: 700, color: row.gps_in_outside ? "#B45309" : "#0A7C66" }}>
-                · GPS {row.gps_in_ft != null ? `${row.gps_in_ft} ft` : "on"}{row.gps_in_outside ? " (outside zone)" : ""}
-              </span>
+            ? (() => {
+                const lat = row.gps_in_lat, lng = row.gps_in_lng;
+                const coords = lat != null && lng != null;
+                const label = `GPS ${row.gps_in_ft != null ? `${row.gps_in_ft} ft` : "on"}${row.gps_in_outside ? " (outside zone)" : ""}`;
+                const color = row.gps_in_outside ? "#B45309" : "#0A7C66";
+                const tip = coords
+                  ? `Clock-in location: ${lat!.toFixed(5)}, ${lng!.toFixed(5)}${row.gps_in_ft != null ? ` · ${row.gps_in_ft} ft from job` : " · job not geocoded, distance unavailable"}. Tap to open the map.`
+                  : "Distance from the job site at clock-in (from the tech's phone GPS).";
+                return coords ? (
+                  <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer"
+                     title={tip} onClick={e => e.stopPropagation()}
+                     style={{ marginLeft: 6, fontWeight: 700, color, textDecoration: "underline" }}>
+                    · {label} ▸
+                  </a>
+                ) : (
+                  <span title={tip} style={{ marginLeft: 6, fontWeight: 700, color }}>· {label}</span>
+                );
+              })()
             : <span title="This punch carried no location — phone location was off/denied, or it was entered here as an office correction." style={{ marginLeft: 6, fontWeight: 700, color: "#9E9B94" }}>· no GPS</span>
           )}
         </div>
