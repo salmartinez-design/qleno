@@ -23,6 +23,24 @@ const PHES = 1; // company_id
 // raw SQL inserts in the booking route can never fail with "column does not exist".
 async function runBookingSchemaGuard(): Promise<void> {
   const guards: Array<{ label: string; stmt: string }> = [
+    // [job-discounts 2026-06-11] Per-job applied discounts (tracked for the
+    // discounts report). Distinct from the pricing_discounts catalog.
+    { label: "job_discounts table", stmt: `
+      CREATE TABLE IF NOT EXISTS job_discounts (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id),
+        job_id INTEGER NOT NULL REFERENCES jobs(id),
+        code TEXT,
+        type TEXT NOT NULL,
+        value NUMERIC(10,2) NOT NULL,
+        amount NUMERIC(10,2) NOT NULL,
+        reason TEXT,
+        applied_by INTEGER REFERENCES users(id),
+        created_at TIMESTAMP NOT NULL DEFAULT now()
+      )
+    ` },
+    { label: "job_discounts job_id index", stmt: "CREATE INDEX IF NOT EXISTS idx_job_discounts_job ON job_discounts(job_id)" },
+    { label: "job_discounts company_id index", stmt: "CREATE INDEX IF NOT EXISTS idx_job_discounts_company ON job_discounts(company_id)" },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for

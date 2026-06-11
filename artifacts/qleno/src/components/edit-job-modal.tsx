@@ -304,6 +304,60 @@ export default function EditJobModal({
   const [manualOpen, setManualOpen] = useState(false);
   const [manualValue, setManualValue] = useState<string>(String(initialBaseFee));
 
+  // [job-discounts 2026-06-11] Tracked discounts on this job — separate from the
+  // gross base_fee (net = base_fee − applied discounts). Applied immediately via
+  // the job's discount sub-resource so each lands in the discounts report,
+  // instead of silently overriding the rate.
+  const [jobDiscounts, setJobDiscounts] = useState<Array<{ id: number; code: string | null; type: string; value: number; amount: number; reason: string | null }>>([]);
+  const [discountCatalog, setDiscountCatalog] = useState<Array<{ id: number; code: string; discount_type: string; discount_value: string }>>([]);
+  const [discOpen, setDiscOpen] = useState(false);
+  const [discType, setDiscType] = useState<"percent" | "flat">("percent");
+  const [discValue, setDiscValue] = useState("");
+  const [discReason, setDiscReason] = useState("");
+  const [discCode, setDiscCode] = useState<string | null>(null);
+  const [discBusy, setDiscBusy] = useState(false);
+  const discountTotal = jobDiscounts.reduce((s, d) => s + (d.amount || 0), 0);
+
+  const reloadDiscounts = async () => {
+    if (!job?.id) return;
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/discounts`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) { const d = await r.json(); setJobDiscounts(d.data ?? []); }
+    } catch { /* non-fatal */ }
+  };
+  useEffect(() => {
+    reloadDiscounts();
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/pricing/discounts`, { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) { const d = await r.json(); setDiscountCatalog(Array.isArray(d) ? d : (d.data ?? [])); }
+      } catch { /* non-fatal */ }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job?.id, API, token]);
+
+  const applyDiscount = async () => {
+    const v = parseFloat(discValue);
+    if (!job?.id || !(v > 0)) return;
+    setDiscBusy(true);
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/discounts`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ type: discType, value: v, reason: discReason || null, code: discCode }),
+      });
+      if (r.ok) { await reloadDiscounts(); setDiscOpen(false); setDiscValue(""); setDiscReason(""); setDiscCode(null); }
+    } catch { /* non-fatal */ } finally { setDiscBusy(false); }
+  };
+  const removeDiscount = async (id: number) => {
+    if (!job?.id) return;
+    setDiscBusy(true);
+    try {
+      await fetch(`${API}/api/jobs/${job.id}/discounts/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      await reloadDiscounts();
+    } catch { /* non-fatal */ } finally { setDiscBusy(false); }
+  };
+
   // [AH] Commercial state. clientType is 'residential' until the client
   // profile loads. clientLoaded gates rendering so we don't flash residential
   // UI for a commercial client. commercialServiceType holds the dropdown
@@ -2046,6 +2100,67 @@ export default function EditJobModal({
                 <button onClick={() => setManualOpen(false)} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
               </div>
             )}
+
+            {/* [job-discounts 2026-06-11] Tracked discounts — preferred over a
+                raw rate override so every discount is recorded for the report. */}
+            <div style={{ marginTop: 12, borderTop: "1px solid #EEECE7", paddingTop: 10 }}>
+              {jobDiscounts.length > 0 && (
+                <div style={{ marginBottom: 8 }}>
+                  {jobDiscounts.map(d => (
+                    <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, padding: "3px 0" }}>
+                      <span style={{ color: "#1A1917", fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {d.code || (d.type === "percent" ? `${d.value}% discount` : "Discount")}
+                        {d.reason && d.reason !== d.code ? <span style={{ color: "#9E9B94", fontWeight: 400 }}> · {d.reason}</span> : null}
+                      </span>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        <span style={{ color: "#16A34A", fontWeight: 700 }}>−${d.amount.toFixed(2)}{d.type === "percent" ? ` (${d.value}%)` : ""}</span>
+                        <button onClick={() => removeDiscount(d.id)} disabled={discBusy} title="Remove discount" style={{ background: "none", border: "none", cursor: "pointer", color: "#B91C1C", fontWeight: 700, fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, fontWeight: 700, color: "#1A1917", marginTop: 5, paddingTop: 5, borderTop: "1px dashed #E5E2DC" }}>
+                    <span>Net after discounts</span>
+                    <span>${Math.max(0, baseFee - discountTotal).toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+              {!discOpen && (
+                <button onClick={() => setDiscOpen(true)}
+                  style={{ fontSize: 12, color: "#00936F", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 700, padding: 0 }}>
+                  + Add discount
+                </button>
+              )}
+              {discOpen && (
+                <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {discountCatalog.length > 0 && (
+                    <select value="" onChange={e => {
+                      const c = discountCatalog.find(x => String(x.id) === e.target.value);
+                      if (c) { setDiscType(c.discount_type === "flat" ? "flat" : "percent"); setDiscValue(String(Number(c.discount_value))); setDiscReason(c.code); setDiscCode(c.code); }
+                    }} style={{ ...INPUT }}>
+                      <option value="">Pick a saved code (or enter custom below)…</option>
+                      {discountCatalog.map(c => (
+                        <option key={c.id} value={c.id}>{c.code} · {c.discount_type === "flat" ? `$${Number(c.discount_value)}` : `${Number(c.discount_value)}%`}</option>
+                      ))}
+                    </select>
+                  )}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
+                      <button type="button" onClick={() => { setDiscType("percent"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "percent" ? "var(--brand, #00C9A0)" : "#fff", color: discType === "percent" ? "#fff" : "#6B6860", fontFamily: FF }}>%</button>
+                      <button type="button" onClick={() => { setDiscType("flat"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "flat" ? "var(--brand, #00C9A0)" : "#fff", color: discType === "flat" ? "#fff" : "#6B6860", fontFamily: FF }}>$</button>
+                    </div>
+                    <input type="number" min={0} step={0.01} value={discValue} onChange={e => { setDiscValue(e.target.value); setDiscCode(null); }} placeholder={discType === "percent" ? "15" : "25.00"} style={{ ...INPUT, width: 90 }} />
+                    <input type="text" value={discReason} onChange={e => setDiscReason(e.target.value)} placeholder="Reason (Senior, Goodwill…)" style={{ ...INPUT, flex: 1, minWidth: 0 }} />
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button type="button" disabled={discBusy || !(parseFloat(discValue) > 0)} onClick={applyDiscount}
+                      style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand, #00C9A0)", border: "none", borderRadius: 6, padding: "8px 14px", cursor: discBusy || !(parseFloat(discValue) > 0) ? "default" : "pointer", fontFamily: FF, opacity: discBusy || !(parseFloat(discValue) > 0) ? 0.6 : 1 }}>
+                      Apply discount
+                    </button>
+                    <button type="button" onClick={() => { setDiscOpen(false); setDiscValue(""); setDiscReason(""); setDiscCode(null); }} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Section 6 — Instructions */}
