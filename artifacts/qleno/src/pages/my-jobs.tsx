@@ -4,7 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
@@ -46,20 +46,38 @@ function getMapsKey(): Promise<string> {
 }
 function StreetViewThumb({ lat, lng, address, directionsUrl }: { lat: number | null; lng: number | null; address: string | null; directionsUrl: string | null }) {
   const [key, setKey] = useState<string | null>(_mapsKey);
+  const [keyResolved, setKeyResolved] = useState<boolean>(_mapsKey != null);
   const [failed, setFailed] = useState(false);
-  useEffect(() => { if (key == null) getMapsKey().then(setKey); }, [key]);
+  useEffect(() => {
+    if (!keyResolved) getMapsKey().then(k => { setKey(k); setKeyResolved(true); });
+  }, [keyResolved]);
   const loc = (lat != null && lng != null) ? `${lat},${lng}` : (address || "");
-  if (!key || !loc || failed) return null;
-  const src = `https://maps.googleapis.com/maps/api/streetview?size=640x240&location=${encodeURIComponent(loc)}&fov=80&pitch=8&key=${key}`;
-  const img = (
-    <img src={src} alt="Street view of the property" loading="lazy"
+  if (!loc) return null; // nothing to point at — render nothing
+  // Show the real Street View image only when the key resolved and the image
+  // hasn't errored. When the key is missing (endpoint returned empty) or the
+  // image is denied (Street View Static API not enabled, key referrer-restricted,
+  // or no imagery at the spot), fall back to a tappable map placeholder rather
+  // than a SILENT BLANK. The placeholder doubles as a deploy check: if a tech
+  // sees this tile, the new bundle is live and the only thing missing is the
+  // Google key config.
+  const canShowImg = keyResolved && !!key && !failed;
+  const inner = canShowImg ? (
+    <img src={`https://maps.googleapis.com/maps/api/streetview?size=640x240&location=${encodeURIComponent(loc)}&fov=80&pitch=8&key=${key}`}
+      alt="Street view of the property" loading="lazy"
       onError={() => setFailed(true)}
       style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #EEECE7", display: "block" }} />
+  ) : (
+    <div style={{ width: "100%", height: 120, borderRadius: 10, border: "1px dashed #D9D5CC", background: "#F2F0EB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}>
+      <MapPin size={20} color="#9E9B94" aria-hidden="true" />
+      <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860" }}>{directionsUrl ? "Open in Maps" : "Map preview unavailable"}</span>
+    </div>
   );
   return (
     <div style={{ margin: "10px 0 6px", position: "relative" }}>
-      {directionsUrl ? <a href={directionsUrl} target="_blank" rel="noreferrer">{img}</a> : img}
-      <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(10,14,26,0.6)", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>STREET VIEW</span>
+      {directionsUrl ? <a href={directionsUrl} target="_blank" rel="noreferrer">{inner}</a> : inner}
+      {canShowImg && (
+        <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(10,14,26,0.6)", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>STREET VIEW</span>
+      )}
     </div>
   );
 }
