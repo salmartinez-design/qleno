@@ -61,6 +61,10 @@ export function PunchMapModal({ data, onClose }: { data: PunchMapData; onClose: 
       if (cancelled || !mapRef.current) return;
       const map = new maps.Map(mapRef.current, {
         zoom: 15, mapTypeControl: false, streetViewControl: false, fullscreenControl: true,
+        // Cap zoom so near-identical punches (often a few feet apart) don't slam
+        // to max zoom and render as a gray no-detail tile. Drop the rotate/tilt
+        // controls that clutter the view at high zoom.
+        maxZoom: 18, rotateControl: false, clickableIcons: false, tilt: 0,
         center: { lat: data.inLat ?? data.jobLat ?? 0, lng: data.inLng ?? data.jobLng ?? 0 },
       });
       const bounds = new maps.LatLngBounds();
