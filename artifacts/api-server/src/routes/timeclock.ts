@@ -917,8 +917,22 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     const revenue = Math.round(jobs.reduce((s, j: any) => s + (pf(j.billed_amount) || pf(j.base_fee)), 0) * 100) / 100;
     const allowedHoursTotal = Math.round(jobs.reduce((s, j: any) => s + pf(j.allowed_hours), 0) * 100) / 100;
 
+    // Today's additional pay (bonuses, sick/holiday, etc.) so the Payroll %
+    // reflects full payroll, not commission alone. Day-scoped by created_at.
+    let additionalPayTotal = 0;
+    try {
+      const ap = await db.execute(sql`
+        SELECT COALESCE(SUM(amount), 0)::float AS total
+        FROM additional_pay
+        WHERE company_id = ${companyId}
+          AND status <> 'voided'
+          AND created_at::date = ${date}::date
+      `);
+      additionalPayTotal = Math.round(Number((ap.rows[0] as any)?.total ?? 0) * 100) / 100;
+    } catch { /* additional_pay table absent — leave 0 */ }
+
     console.log(`[TC-DAY] company=${companyId} date=${date} RESULT jobs=${jobs.length} techRows=${techRows.length} clockRows=${clockRows.length} employees=${employees.length}`);
-    return res.json({ date, employees, revenue, allowed_hours_total: allowedHoursTotal, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
+    return res.json({ date, employees, revenue, allowed_hours_total: allowedHoursTotal, additional_pay_total: additionalPayTotal, diagnostics: { jobCount: jobs.length, techRows: techRows.length, clockRows: clockRows.length } });
   } catch (err: any) {
     // Surface the failure to the UI instead of a silent 500 → empty screen.
     // The Time Clock empty-state renders this so we can diagnose without
