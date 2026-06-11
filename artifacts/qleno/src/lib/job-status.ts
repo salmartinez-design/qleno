@@ -238,6 +238,11 @@ export interface StatusVisual {
    *  (en_route only). The icon + motion-line markup is owned by each
    *  consumer; this flag is the trigger. */
   showCarIcon: boolean;
+  /** Whether the card should render a slow pulsating amber glow (active
+   *  only) so "happening now" is unmistakable — and never confused with a
+   *  job that merely sits in an orange-colored zone. Applied by consumers
+   *  via the `qleno-active-glow` class from ensureJobStatusStyles(). */
+  glowActive?: boolean;
 }
 
 export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
@@ -273,6 +278,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     // since they need elapsed time to render meaningfully.
     borderOverride: "#EF9F27",
     showCarIcon: false,
+    glowActive: true,
   },
   en_route: {
     label: "On the way",
@@ -402,9 +408,20 @@ export function ensureJobStatusStyles(): void {
     .qleno-en-route-icon {
       animation: qleno-en-route-drive 0.8s ease-in-out infinite;
     }
+    /* Slow "breathing" amber glow on a job that's happening RIGHT NOW. An
+       animated halo, distinct from any static zone-color border, so an active
+       job never reads as just an orange-zone job. */
+    @keyframes qleno-active-glow {
+      0%, 100% { box-shadow: 0 0 6px 1px rgba(245, 158, 11, 0.30); }
+      50%      { box-shadow: 0 0 16px 4px rgba(245, 158, 11, 0.65); }
+    }
+    .qleno-active-glow {
+      animation: qleno-active-glow 2.4s ease-in-out infinite;
+    }
     @media (prefers-reduced-motion: reduce) {
       .qleno-active-stripe { animation: none; opacity: 1; }
       .qleno-en-route-icon { animation: none; }
+      .qleno-active-glow { animation: none; box-shadow: 0 0 8px 1px rgba(245, 158, 11, 0.45); }
     }
   `;
   document.head.appendChild(style);

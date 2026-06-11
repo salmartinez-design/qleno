@@ -792,6 +792,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
 
   return (
     <div
+      className={visual.glowActive ? "qleno-active-glow" : undefined}
       onClick={onOpenDetail ? (e) => {
         // Whole-card tap opens the detail screen, but never hijack taps on the
         // card's own interactive elements (links, buttons, photo inputs).
