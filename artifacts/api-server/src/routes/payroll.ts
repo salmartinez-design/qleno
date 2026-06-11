@@ -291,6 +291,37 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
       console.error("Overtime commission regular-rate calc failed (non-fatal):", e);
     }
 
+    // Nondiscretionary wage augmentations (bonuses, referrals, manual pay
+    // adjustments) ARE part of the FLSA regular rate (29 CFR 778.208–.211) and
+    // must be folded into it — this is what MaidCentral does and is the source
+    // of the prior discrepancy (Qleno used commission only). EXCLUDED from the
+    // regular rate: tips (pass-through, 29 CFR 531.55), mileage/reimbursements
+    // (expense, 778.217), and paid-leave-not-worked (sick/vacation/holiday —
+    // not "hours worked"). `type` is free text, so we exclude by a known list
+    // and treat everything else as regular-rate wages.
+    const weeklyBonus = new Map<string, number>(); // user|mondayWeek → $ bonus
+    try {
+      const bonusRows = await db.execute(sql`
+        SELECT user_id,
+               to_char(date_trunc('week', created_at), 'YYYY-MM-DD') AS week_start,
+               COALESCE(SUM(amount), 0) AS bonus_total
+        FROM additional_pay
+        WHERE company_id = ${companyId}
+          AND status <> 'voided'
+          AND created_at >= ${from} AND created_at <= ${toEnd}
+          AND lower(type) NOT IN (
+            'tips','tip','mileage','mileage_reimbursement','reimbursement',
+            'sick','sick_pay','vacation','holiday','holiday_pay','pto'
+          )
+        GROUP BY user_id, week_start
+      `);
+      for (const r of bonusRows.rows as any[]) {
+        weeklyBonus.set(key(Number(r.user_id), String(r.week_start)), Number(r.bonus_total) || 0);
+      }
+    } catch (e) {
+      console.error("Overtime bonus regular-rate calc failed (non-fatal):", e);
+    }
+
     const round1 = (n: number) => Math.round(n * 10) / 10;
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -302,7 +333,11 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
 
       const ot = computeWeekOvertime(dailyHours, rules);
       const commission = weeklyCommission.get(key(b.user_id, b.week_start)) || 0;
-      const regularRate = ot.totalHours > 0 ? commission / ot.totalHours : 0;
+      const bonus = weeklyBonus.get(key(b.user_id, b.week_start)) || 0;
+      // Regular rate = (commission + nondiscretionary bonuses) ÷ hours worked,
+      // matching MaidCentral / FLSA. Tips & mileage are excluded above.
+      const regularEarnings = commission + bonus;
+      const regularRate = ot.totalHours > 0 ? regularEarnings / ot.totalHours : 0;
       const premium = computeOvertimePremium({ otHours: ot.otHours, dtHours: ot.dtHours, regularRate, rules });
 
       return {
@@ -317,6 +352,8 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
         ot_hours: round1(ot.otHours),
         dt_hours: round1(ot.dtHours),
         weekly_commission: round2(commission),
+        weekly_bonus: round2(bonus),
+        weekly_regular_earnings: round2(regularEarnings),
         regular_rate: round2(regularRate),
         premium_estimate: round2(premium),
       };
