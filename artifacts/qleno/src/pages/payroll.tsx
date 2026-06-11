@@ -5,6 +5,7 @@ import { useListUsers } from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
@@ -687,9 +688,8 @@ export default function PayrollPage() {
                         {canOpen
                           ? (isOpen ? <ChevronDown size={14} style={{ color: '#9E9B94', flexShrink: 0 }} /> : <ChevronRight size={14} style={{ color: '#9E9B94', flexShrink: 0 }} />)
                           : <span style={{ width: 14, flexShrink: 0 }} />}
-                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '12px', fontWeight: 600, flexShrink: 0 }}>
-                          {emp.first_name?.[0]}{emp.last_name?.[0]}
-                        </div>
+                        <EmployeeAvatar name={`${emp.first_name ?? ''} ${emp.last_name ?? ''}`} avatarUrl={emp.avatar_url} size={32} fontSize={12} />
+
                         <div>
                           <p style={{ fontSize: '13px', fontWeight: 600, color: '#1A1917', margin: 0 }}>{emp.first_name} {emp.last_name}</p>
                           <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>{emp.email}</p>
