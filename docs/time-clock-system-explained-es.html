@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<title>Reloj de Tiempo Qleno — Cómo Funciona</title>
+<style>
+  @page {
+    size: letter;
+    margin: 16mm 14mm 18mm 14mm;
+    @bottom-center {
+      content: "Reloj de Tiempo Qleno — Cómo Funciona";
+      font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+      font-size: 8pt; color: #9E9B94;
+    }
+    @bottom-right {
+      content: "Página " counter(page) " de " counter(pages);
+      font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+      font-size: 8pt; color: #9E9B94;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+    color: #1A1917; background: #FFFFFF; margin: 0;
+    font-size: 10.5pt; line-height: 1.5;
+  }
+  h1 { font-size: 26pt; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h2 {
+    font-size: 14pt; font-weight: 800; letter-spacing: -0.01em;
+    margin: 26px 0 8px; color: #0A0E1A;
+    border-left: 4px solid #00C9A0; padding-left: 10px;
+  }
+  h3 { font-size: 11.5pt; font-weight: 800; margin: 14px 0 4px; }
+  p { margin: 0 0 9px; }
+  .lede { font-size: 12pt; color: #44423D; margin-bottom: 4px; }
+  .tag {
+    display: inline-block; background: #ECFDF7; color: #00936F;
+    border: 1px solid #B8EFE1; border-radius: 999px;
+    font-size: 8.5pt; font-weight: 700; padding: 3px 10px;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 14px;
+  }
+  .rule { border: none; border-top: 1px solid #E5E2DC; margin: 22px 0; }
+  .cols { width: 100%; }
+  .cols td { vertical-align: top; padding: 0; }
+  .gap { width: 22px; }
+
+  /* maqueta de teléfono "captura de pantalla" */
+  .phone {
+    width: 210px; border: 1px solid #E5E2DC; border-radius: 16px;
+    background: #F7F6F3; padding: 10px; box-shadow: 0 1px 0 #E5E2DC;
+  }
+  .phone .bar {
+    background: #FFFFFF; border: 1px solid #E5E2DC; border-radius: 8px;
+    padding: 5px 9px; font-size: 8pt; color: #9E9B94; font-weight: 700;
+    display: flex; justify-content: space-between; margin-bottom: 8px;
+  }
+  .card {
+    background: #FFFFFF; border: 1px solid #E5E2DC; border-radius: 12px;
+    padding: 11px; position: relative; overflow: hidden;
+  }
+  .card.zone { border-left: 4px solid #6366F1; }
+  .card.active { border-left: 4px solid #F59E0B; }
+  .card .client { font-size: 10.5pt; font-weight: 800; margin: 0 0 1px; }
+  .card .meta { font-size: 8pt; color: #6B6860; margin: 0 0 2px; }
+  .card .addr { font-size: 8pt; color: #6B6860; margin: 0 0 9px; }
+  .btn {
+    display: block; text-align: center; border-radius: 9px;
+    font-size: 9.5pt; font-weight: 800; padding: 9px 0; margin-top: 7px;
+  }
+  .btn.mint { background: #00C9A0; color: #FFFFFF; }
+  .btn.dark { background: #0A0E1A; color: #FFFFFF; }
+  .btn.ghost { background: #FFFFFF; color: #1A1917; border: 1px solid #E5E2DC; }
+  .btn.red { background: #FEECEC; color: #B42318; border: 1px solid #F4C7C2; }
+  .row2 { width: 100%; }
+  .row2 td { padding: 0; }
+  .row2 .sp { width: 7px; }
+  .pill {
+    display: inline-block; font-size: 7.5pt; font-weight: 800; border-radius: 999px;
+    padding: 2px 7px; vertical-align: middle;
+  }
+  .pill.amber { background: #FEF3C7; color: #92400E; }
+  .pill.green { background: #DCFCE7; color: #166534; }
+  .stat {
+    background: #F7F6F3; border-radius: 9px; padding: 8px 9px; text-align: left;
+  }
+  .stat .k { font-size: 7pt; font-weight: 800; color: #9E9B94; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 1px; }
+  .stat .v { font-size: 15pt; font-weight: 800; color: #1A1917; margin: 0; }
+  .offline-banner {
+    background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px;
+    padding: 7px 9px; font-size: 8pt; font-weight: 800; color: #92400E; margin-bottom: 8px;
+  }
+  .cap { font-size: 8.5pt; color: #9E9B94; font-style: italic; margin-top: 7px; text-align: center; width: 210px; }
+
+  .point { margin: 0 0 10px; }
+  .point .n {
+    display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center;
+    background: #0A0E1A; color: #fff; border-radius: 50%; font-weight: 800; font-size: 9.5pt; margin-right: 8px;
+  }
+  .point b { font-weight: 800; }
+  .callout {
+    background: #F7F6F3; border: 1px solid #E5E2DC; border-radius: 10px; padding: 12px 14px; margin: 12px 0;
+  }
+  .callout.mint { background: #ECFDF7; border-color: #B8EFE1; }
+  .callout h3 { margin-top: 0; }
+  ul { margin: 4px 0 10px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  .kv { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+  .kv td { border-bottom: 1px solid #EFEDE8; padding: 7px 4px; font-size: 9.5pt; vertical-align: top; }
+  .kv td.k { font-weight: 800; width: 38%; }
+  .nobreak { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<span class="tag">Phes &middot; Guía para el Equipo de Campo</span>
+<h1>El Reloj de Tiempo Qleno</h1>
+<p class="lede">Un solo reloj. Se usa en cada casa. Ese es todo el sistema.</p>
+<p style="color:#6B6860;">Lo diseñamos juntos para que sea simple a propósito. No hay un
+"registro de entrada" y "registro de salida" por separado. No hay un botón para
+empezar ni terminar tu día. Tocas <b>Marcar Entrada</b> cuando llegas a una casa y
+<b>Marcar Salida</b> cuando esa casa está terminada — eso es todo. Esta guía te muestra
+cada pantalla que verás.</p>
+
+<hr class="rule" />
+
+<h2>1. Un par de marcas, en cada casa</h2>
+<table class="cols"><tr>
+<td>
+  <p>Cada hogar de tu día es su propio reloj. Cuando llegas a una casa tocas
+  <b>Marcar Entrada</b>. Cuando terminas esa casa tocas <b>Marcar Salida</b>. Luego
+  manejas a la siguiente casa y haces lo mismo otra vez.</p>
+
+  <div class="point"><span class="n">1</span><b>Llegas</b> &rarr; toca <b>Marcar Entrada</b>. Se guardan tu hora y tu ubicación.</div>
+  <div class="point"><span class="n">2</span><b>Limpiando</b> &rarr; el reloj corre. Toca <b>Pausa</b> para un descanso de comida real.</div>
+  <div class="point"><span class="n">3</span><b>Terminado</b> &rarr; toca <b>Marcar Salida</b>. La casa muestra <b>Trabajo Completo</b>.</div>
+
+  <div class="callout mint nobreak">
+    <h3>¿Por qué solo un reloj?</h3>
+    <p style="margin:0;">Dos juegos de botones era lo que hacía confusa la aplicación
+    anterior. Tu entrada/salida en la casa es lo único que necesitamos — eso alimenta
+    tu pago, tus horas y el manejo entre trabajos. Nada más que recordar.</p>
+  </div>
+</td>
+<td class="gap"></td>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>Mis Trabajos</span><span>Mar, 10 Jun</span></div>
+    <div class="card zone">
+      <p class="client">Maria Gonzalez</p>
+      <p class="meta">9:00 AM &middot; 3.5 hrs permitidas &middot; con Diana</p>
+      <p class="addr">4821 W 99th St, Oak Lawn, IL 60453</p>
+      <a class="btn mint">Marcar Entrada</a>
+    </div>
+  </div>
+  <p class="cap">Toca Marcar Entrada cuando llegues a la casa.</p>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>2. Mientras estás en el reloj</h2>
+<table class="cols"><tr>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>Mis Trabajos</span><span>9:04 AM</span></div>
+    <div class="card active">
+      <p class="client">Maria Gonzalez <span class="pill amber">En el reloj</span></p>
+      <p class="meta">Entrada 9:04 AM &middot; a 12 pies del trabajo</p>
+      <p class="addr">4821 W 99th St, Oak Lawn, IL 60453</p>
+      <table class="row2"><tr>
+        <td><a class="btn ghost">Pausa</a></td>
+        <td class="sp"></td>
+        <td><a class="btn dark">Marcar Salida</a></td>
+      </tr></table>
+    </div>
+  </div>
+  <p class="cap">Una franja naranja significa que esta casa está activa.</p>
+</td>
+<td class="gap"></td>
+<td>
+  <p>Una vez que marcas entrada, la tarjeta muestra una <b>franja naranja</b> y la
+  hora en que empezaste. Tienes dos botones:</p>
+  <table class="kv">
+    <tr><td class="k">Pausa</td><td>Úsalo solo para un descanso de comida real, sentado (30 minutos o más, completamente libre). Detiene el reloj para que el descanso no cuente como trabajo. Toca <b>Reanudar</b> cuando regreses.</td></tr>
+    <tr><td class="k">Marcar Salida</td><td>Tócalo cuando la casa está terminada y vas saliendo. Esto termina el reloj de esta casa.</td></tr>
+  </table>
+  <div class="callout nobreak">
+    <h3>Los descansos cortos no necesitan Pausa</h3>
+    <p style="margin:0;">Tomar agua o un respiro rápido es parte del trabajo — deja el
+    reloj corriendo. Pausa es solo para un descanso de comida completo.</p>
+  </div>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>3. Tu día termina solo</h2>
+<table class="cols"><tr>
+<td>
+  <p>No hay un <b>botón de "terminar mi día"</b>. Tu día es simplemente tu primera
+  entrada hasta tu última salida. Cuando marcas salida de tu última casa, la
+  aplicación muestra un resumen de <b>Día Completo</b> — trabajos hechos y horas de
+  trabajo.</p>
+  <p>Si te agregan un trabajo sorpresa después, no hay problema: solo marcas entrada
+  en la nueva casa y tu día se extiende para incluirlo. Nunca tienes que "reabrir" nada.</p>
+  <div class="callout nobreak">
+    <h3>¿Por qué no hay botón de día?</h3>
+    <p style="margin:0;">Un botón de día invitaría a marcar salida en casa, lo que pagaría
+    tu manejo a casa. Al terminar el día en tu última casa automáticamente, las cuentas
+    se mantienen honestas y simples — para ti y para la oficina.</p>
+  </div>
+</td>
+<td class="gap"></td>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>Mis Trabajos</span><span>4:10 PM</span></div>
+    <div class="card" style="border-left:4px solid #00C9A0;">
+      <p class="client">Día completo <span class="pill green">Listo</span></p>
+      <p class="meta" style="margin-bottom:8px;">Martes, 10 Jun</p>
+      <table class="row2"><tr>
+        <td><div class="stat"><p class="k">Trabajos</p><p class="v">3</p></div></td>
+        <td class="sp"></td>
+        <td><div class="stat"><p class="k">Horas trab.</p><p class="v">7.4h</p></div></td>
+      </tr></table>
+      <p class="meta" style="margin-top:9px;">El millaje entre tus trabajos se agrega automáticamente. El pago se finaliza tras la revisión de la oficina.</p>
+    </div>
+  </div>
+  <p class="cap">El día se cierra solo después de tu última casa.</p>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>4. ¿Sin señal? Tu marca se guarda igual <span class="pill amber" style="font-size:9pt;">Nuevo</span></h2>
+<table class="cols"><tr>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>Mis Trabajos</span><span>Sin señal</span></div>
+    <div class="offline-banner">1 marca esperando sincronizar &middot; Guardada en tu teléfono</div>
+    <div class="card zone">
+      <p class="client">Robert Klein</p>
+      <p class="meta">Entrada 1:02 PM (guardada)</p>
+      <p class="addr">22 Birch Ln, Schaumburg, IL 60173</p>
+      <a class="btn dark">Marcar Salida</a>
+    </div>
+  </div>
+  <p class="cap">Sótanos y casas rurales pierden señal — tu hora se guarda igual.</p>
+</td>
+<td class="gap"></td>
+<td>
+  <p>Algunas casas no tienen señal — un sótano profundo, una casa en el campo. Antes,
+  una salida sin señal podía registrarse tarde una vez que volvías a tener señal.
+  <b>Ya no.</b></p>
+  <p>Si tocas <b>Marcar Entrada</b> o <b>Marcar Salida</b> sin señal, la aplicación lo
+  guarda <b>en ese momento</b> con la hora real y tu ubicación, y muestra un aviso
+  amarillo de <b>"esperando sincronizar"</b>. En cuanto tu teléfono vuelve a tener
+  conexión, se envía automáticamente — registrado a la hora en que realmente tocaste el
+  botón, no cuando volvió la señal.</p>
+  <ul>
+    <li>Sigue trabajando normal — solo toca los botones como siempre.</li>
+    <li>El aviso amarillo se borra solo cuando todo se sincroniza.</li>
+    <li>Tu hora real en el sitio es la que cuenta, siempre.</li>
+  </ul>
+  <div class="callout mint nobreak">
+    <p style="margin:0;"><b>No tienes que hacer nada.</b> Toca el botón y sigue adelante.
+    Qleno se encarga del resto en cuanto tengas señal.</p>
+  </div>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>5. Cómo te pagan</h2>
+<p>Dos cosas forman tu pago. Todo lo demás que el reloj registra es solo para que la
+oficina vea el día con claridad — <b>no</b> se paga por hora.</p>
+<table class="kv">
+  <tr><td class="k">Comisión</td><td>Tu parte de cada trabajo. Esto es lo principal que ganas.</td></tr>
+  <tr><td class="k">Millaje</td><td>El manejo <b>entre</b> tus casas, reembolsado por milla. El manejo de tu casa al primer trabajo y del último trabajo a casa no se incluyen.</td></tr>
+  <tr><td class="k">Horas (para registro)</td><td>Las horas de trabajo, de manejo y de espera se registran para que la oficina pueda guiar y revisar el día. No son un cheque por hora aparte.</td></tr>
+</table>
+<div class="callout nobreak">
+  <h3>Horas permitidas vs. horas reales</h3>
+  <p style="margin:0;">Cada trabajo tiene un número de horas <b>permitidas</b> (el presupuesto)
+  y tus horas <b>reales</b> marcadas. Superar el tiempo permitido es bueno — es la
+  eficiencia que cubre el entrenamiento de Compensación. El reloj es lo que la mide, así
+  que siempre marca entrada y salida en cada casa.</p>
+</div>
+
+<hr class="rule" />
+
+<h2>6. Para la oficina</h2>
+<p>Los dueños y gerentes tienen visibilidad extra en la pantalla del Reloj de Tiempo —
+los técnicos nunca ven esto:</p>
+<ul>
+  <li><b>GPS por marca</b> — distancia del trabajo y una alerta si una marca fue fuera del sitio.</li>
+  <li><b>Editar marcas</b> — corregir una marca olvidada o incorrecta directamente desde el trabajo.</li>
+  <li><b>Revisión de millaje</b> — los tramos de manejo se calculan automáticamente pero solo
+  se convierten en pago después de que los revisas y aplicas. Ningún dinero se mueve solo.</li>
+</ul>
+
+<div class="callout mint nobreak" style="margin-top:18px;">
+  <h3>Todo el sistema en una línea</h3>
+  <p style="margin:0;">Marca entrada en la casa, marca salida en la casa, maneja a la
+  siguiente. El día, las horas, el millaje y el pago se construyen solos a partir de esas
+  marcas — incluso cuando pierdes la señal.</p>
+</div>
+
+</body>
+</html>
