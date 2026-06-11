@@ -6,6 +6,7 @@ import { useEmployeeView } from "@/contexts/employee-view-context";
 import { JobCard, StreetViewThumb, ymd, type Job } from "./my-jobs";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
 import { ArrowLeft, History } from "lucide-react";
+import { QlenoMark } from "@/components/brand/QlenoMark";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -118,6 +119,11 @@ export default function MyJobDetailPage() {
             </p>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: 0 }}>{formatVisitDate(dateParam)}</p>
           </div>
+          {/* Tapping the logo returns to today's job list — the main screen. */}
+          <button type="button" onClick={() => navigate("/my-jobs")} aria-label="Back to today's jobs"
+            style={{ marginLeft: "auto", background: "none", border: "none", padding: 0, cursor: "pointer", flexShrink: 0, display: "inline-flex" }}>
+            <QlenoMark size={26} />
+          </button>
         </div>
 
         {employeeView && (
