@@ -4,7 +4,7 @@ import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
   AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
-  Briefcase,
+  Briefcase, Percent,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -16,6 +16,7 @@ const REPORT_GROUPS = [
       { title: "Accounts Receivable",  desc: "Outstanding invoices grouped by aging bucket.",          url: "/reports/receivables",       icon: ReceiptText },
       { title: "Job Costing",          desc: "Revenue vs labor cost with gross profit margins.",       url: "/reports/job-costing",       icon: Clipboard },
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
+      { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
     ],
   },
   {

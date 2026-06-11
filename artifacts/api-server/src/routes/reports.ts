@@ -754,6 +754,52 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
   }
 });
 
+// ─── DISCOUNTS ───────────────────────────────────────────────────────────────
+// Every discount applied to a job in the window (from job_discounts), so the
+// office can see what's being given away and to whom.
+router.get("/discounts", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+    const rows = await db.execute(sql`
+      SELECT
+        jd.id, jd.code, jd.type, jd.value, jd.amount, jd.reason, jd.created_at,
+        u.first_name AS by_first, u.last_name AS by_last,
+        c.first_name AS client_first, c.last_name AS client_last, c.company_name AS client_company,
+        j.id AS job_id, j.service_type, j.scheduled_date
+      FROM job_discounts jd
+      JOIN jobs j ON j.id = jd.job_id
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN users u ON u.id = jd.applied_by
+      WHERE jd.company_id = ${companyId}
+        AND jd.created_at::date BETWEEN ${fromStr} AND ${toStr}
+        ${branchFilter(req, "j.branch_id")}
+      ORDER BY jd.created_at DESC LIMIT 1000
+    `);
+    const data = (rows.rows as any[]).map(r => ({
+      id: r.id, date: r.created_at,
+      code: r.code, type: r.type, value: parseF(r.value), amount: parseF(r.amount), reason: r.reason,
+      applied_by: r.by_first ? `${r.by_first} ${r.by_last}`.trim() : null,
+      client_name: r.client_first ? `${r.client_first} ${r.client_last}`.trim() : (r.client_company || null),
+      job_id: r.job_id, service_type: r.service_type, job_date: r.scheduled_date,
+    }));
+    const total = data.reduce((s, r) => s + r.amount, 0);
+    return res.json({
+      from: fromStr, to: toStr, data,
+      summary: {
+        total_discount: total, count: data.length,
+        percent_count: data.filter(d => d.type === "percent").length,
+        flat_count: data.filter(d => d.type === "flat").length,
+      },
+    });
+  } catch (err) {
+    console.error("Discounts report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── WEEK IN REVIEW ──────────────────────────────────────────────────────────
 router.get("/week-review", requireAuth, ROLE, async (req, res) => {
   try {
