@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays } from "lucide-react";
+import { PunchMapModal } from "@/components/punch-map-modal";
 
 // [time-clock-portal 2026-06-05] Office Time Clock portal. The office reconciles
 // Qleno's per-job clock times against MaidCentral so commission (proportional by
@@ -89,6 +90,7 @@ type Row = {
   gps_in_outside?: boolean | null; gps_out_outside?: boolean | null; has_gps?: boolean;
   gps_in_lat?: number | null; gps_in_lng?: number | null;
   gps_out_lat?: number | null; gps_out_lng?: number | null;
+  job_lat?: number | null; job_lng?: number | null;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
@@ -175,6 +177,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   const [inVal, setInVal] = useState(isoToDisplay(row.clock_in_at));
   const [outVal, setOutVal] = useState(isoToDisplay(row.clock_out_at));
   const [busy, setBusy] = useState(false);
+  const [gpsOpen, setGpsOpen] = useState(false);
   useEffect(() => { setInVal(isoToDisplay(row.clock_in_at)); setOutVal(isoToDisplay(row.clock_out_at)); }, [row.clock_in_at, row.clock_out_at, row.entry_id]);
 
   const parsedIn = parseTimeInput(inVal);   // 24h "HH:MM" or null
@@ -241,14 +244,13 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
                 const label = `GPS ${row.gps_in_ft != null ? `${row.gps_in_ft} ft` : "on"}${row.gps_in_outside ? " (outside zone)" : ""}`;
                 const color = row.gps_in_outside ? "#B45309" : "#0A7C66";
                 const tip = coords
-                  ? `Clock-in location: ${lat!.toFixed(5)}, ${lng!.toFixed(5)}${row.gps_in_ft != null ? ` · ${row.gps_in_ft} ft from job` : " · job not geocoded, distance unavailable"}. Tap to open the map.`
+                  ? `Clock-in location: ${lat!.toFixed(5)}, ${lng!.toFixed(5)}${row.gps_in_ft != null ? ` · ${row.gps_in_ft} ft from job` : " · job not geocoded, distance unavailable"}. Tap to see it on the map.`
                   : "Distance from the job site at clock-in (from the tech's phone GPS).";
                 return coords ? (
-                  <a href={`https://www.google.com/maps?q=${lat},${lng}`} target="_blank" rel="noopener noreferrer"
-                     title={tip} onClick={e => e.stopPropagation()}
-                     style={{ marginLeft: 6, fontWeight: 700, color, textDecoration: "underline" }}>
+                  <button type="button" title={tip} onClick={e => { e.stopPropagation(); setGpsOpen(true); }}
+                     style={{ marginLeft: 6, fontWeight: 700, color, textDecoration: "underline", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", fontSize: "inherit" }}>
                     · {label} ▸
-                  </a>
+                  </button>
                 ) : (
                   <span title={tip} style={{ marginLeft: 6, fontWeight: 700, color }}>· {label}</span>
                 );
@@ -286,6 +288,20 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
       </button>
     </div>
     <PayEditor emp={emp} row={row} onChanged={onChanged} toastFn={toastFn} />
+    {gpsOpen && (
+      <PunchMapModal
+        onClose={() => setGpsOpen(false)}
+        data={{
+          techName: emp.name,
+          clientName: row.client_name,
+          inAt: fmtClock(row.clock_in_at),
+          outAt: row.clock_out_at ? fmtClock(row.clock_out_at) : null,
+          inLat: row.gps_in_lat ?? null, inLng: row.gps_in_lng ?? null, inFt: row.gps_in_ft ?? null, inOutside: row.gps_in_outside ?? null,
+          outLat: row.gps_out_lat ?? null, outLng: row.gps_out_lng ?? null, outFt: row.gps_out_ft ?? null, outOutside: row.gps_out_outside ?? null,
+          jobLat: row.job_lat ?? null, jobLng: row.job_lng ?? null,
+        }}
+      />
+    )}
     </div>
   );
 }
