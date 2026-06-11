@@ -1227,23 +1227,28 @@ export default function MyJobsPage() {
           {/* [day-calendar 2026-06-10] Tapping the date opens a calendar to
               jump to ANY day (matches the owner dispatch board), instead of
               only stepping with the arrows. A "Back to today" link returns. */}
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, position: "relative" }}>
-            <button type="button"
-              onClick={() => { const el = dateInputRef.current; if (!el) return; try { (el as any).showPicker ? (el as any).showPicker() : el.click(); } catch { el.click(); } }}
-              style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0 }}>
+          {/* [day-calendar tap-fix 2026-06-11] iOS Safari will NOT open the
+              native date picker from a programmatic showPicker()/.click() on a
+              hidden 1×1 input — that's why tapping the date did nothing for techs.
+              Fix: overlay a full-size TRANSPARENT <input type="date"> directly
+              over the visible label so the tech's tap lands on the real input and
+              iOS opens its native calendar. "Back to today" sits below the
+              overlay so it stays independently tappable. */}
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
+            <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 1 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{isToday ? "Today" : selectedLabel}</span>
               <span style={{ fontSize: 11, color: "#9E9B94" }}>{isToday ? selectedLabel : "Tap to pick a day"}</span>
-            </button>
+              <input ref={dateInputRef} type="date" value={selectedDate}
+                onChange={e => { if (e.target.value) setSelectedDate(e.target.value); }}
+                aria-label="Pick a date"
+                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, border: "none", padding: 0, margin: 0, cursor: "pointer", WebkitAppearance: "none", appearance: "none", background: "transparent" }} />
+            </div>
             {!isToday && (
               <button type="button" onClick={() => setSelectedDate(todayYmd)}
                 style={{ background: "none", border: "none", color: "var(--brand, #00C9A0)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 1 }}>
                 Back to today
               </button>
             )}
-            <input ref={dateInputRef} type="date" value={selectedDate}
-              onChange={e => { if (e.target.value) setSelectedDate(e.target.value); }}
-              aria-label="Pick a date" tabIndex={-1}
-              style={{ position: "absolute", left: "50%", bottom: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }} />
           </div>
           <button type="button" onClick={() => shiftDay(1)} aria-label="Next day"
             style={{ width: 36, height: 36, borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 18, fontWeight: 700, cursor: "pointer", lineHeight: 1, fontFamily: "inherit" }}>
