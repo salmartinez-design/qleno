@@ -293,7 +293,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
 export default function TimeClockPage() {
   const { toast } = useToast();
   const [date, setDate] = useState(new Date());
-  const [data, setData] = useState<{ date: string; employees: Emp[]; revenue?: number; allowed_hours_total?: number; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
+  const [data, setData] = useState<{ date: string; employees: Emp[]; revenue?: number; allowed_hours_total?: number; additional_pay_total?: number; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
   const [loading, setLoading] = useState(true);
   const dk = dateKey(date);
   const isToday = dk === dateKey(new Date());
@@ -323,11 +323,12 @@ export default function TimeClockPage() {
     ?? new Set(employees.flatMap(e => e.rows.map(r => r.job_id))).size;
   const totalPay = employees.reduce((s, e) => s + (e.pay_total ?? 0), 0);
   // Business metrics for the summary bar. Revenue + allowed hours come from the
-  // API (summed per unique job). Labor % = commission ÷ revenue (the number a
-  // service business lives on). Efficiency = allowed ÷ actual hours (>100% =
-  // under budget = good — the canonical comp-model metric).
+  // API (summed per unique job). Payroll % = full payroll (commission + today's
+  // additional pay) ÷ revenue — the labor-cost ratio a service business lives
+  // on. Efficiency = allowed ÷ actual hours (>100% = under budget = good).
   const revenue = data?.revenue ?? 0;
-  const laborPct = revenue > 0 ? (totalPay / revenue) * 100 : null;
+  const payrollTotal = totalPay + (data?.additional_pay_total ?? 0);
+  const payrollPct = revenue > 0 ? (payrollTotal / revenue) * 100 : null;
   const actualHours = totalWorked / 60;
   const allowedTotal = data?.allowed_hours_total ?? 0;
   const efficiency = actualHours > 0 ? (allowedTotal / actualHours) * 100 : null;
@@ -378,8 +379,8 @@ export default function TimeClockPage() {
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
           <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
           <Stat label="Commission" value={`$${totalPay.toFixed(2)}`} accent="#0A7C66" />
-          <Stat label="Labor %" value={laborPct != null ? `${laborPct.toFixed(1)}%` : "—"}
-            accent={laborPct == null ? undefined : laborPct <= 40 ? "#16A34A" : laborPct <= 50 ? "#B45309" : "#B91C1C"} />
+          <Stat label="Payroll %" value={payrollPct != null ? `${payrollPct.toFixed(1)}%` : "—"}
+            accent={payrollPct == null ? undefined : payrollPct <= 40 ? "#16A34A" : payrollPct <= 50 ? "#B45309" : "#B91C1C"} />
           <Stat label="Efficiency" value={efficiency != null ? `${efficiency.toFixed(0)}%` : "—"}
             accent={efficiency == null ? undefined : efficiency >= 100 ? "#16A34A" : efficiency >= 85 ? "#B45309" : "#B91C1C"} />
         </div>
