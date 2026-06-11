@@ -753,7 +753,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged, t.source,
              t.clock_in_distance_ft, t.clock_out_distance_ft,
              t.clock_in_outside_geofence, t.clock_out_outside_geofence,
-             t.clock_in_lat, t.clock_out_lat,
+             t.clock_in_lat, t.clock_in_lng, t.clock_out_lat, t.clock_out_lng,
              TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
       FROM timeclock t JOIN users u ON u.id = t.user_id
       WHERE t.company_id = ${companyId} AND t.job_id IN (${inList})
@@ -830,13 +830,21 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // means the punch carried no location (denied permission, or an
                  // office-entered correction).
                  gps_in_ft: number | null; gps_out_ft: number | null;
-                 gps_in_outside: boolean | null; gps_out_outside: boolean | null; has_gps: boolean };
+                 gps_in_outside: boolean | null; gps_out_outside: boolean | null; has_gps: boolean;
+                 // Raw punch coordinates so the office can open the exact spot on
+                 // a map — surfaced even when distance is null (job not geocoded).
+                 gps_in_lat: number | null; gps_in_lng: number | null;
+                 gps_out_lat: number | null; gps_out_lng: number | null };
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
       gps_out_ft: e?.clock_out_distance_ft != null ? Math.round(parseFloat(String(e.clock_out_distance_ft))) : null,
       gps_in_outside: e?.clock_in_outside_geofence ?? null,
       gps_out_outside: e?.clock_out_outside_geofence ?? null,
       has_gps: !!(e && (e.clock_in_lat != null || e.clock_out_lat != null || e.clock_in_distance_ft != null)),
+      gps_in_lat: e?.clock_in_lat != null ? Number(e.clock_in_lat) : null,
+      gps_in_lng: e?.clock_in_lng != null ? Number(e.clock_in_lng) : null,
+      gps_out_lat: e?.clock_out_lat != null ? Number(e.clock_out_lat) : null,
+      gps_out_lng: e?.clock_out_lng != null ? Number(e.clock_out_lng) : null,
     });
     const payOf = (jid: number, uid: number) => {
       const p = payByJobUser.get(`${jid}:${uid}`);
