@@ -182,6 +182,19 @@ router.post("/clock-in", requireAuth, async (req, res) => {
   try {
     const { job_id, lat, lng, accuracy, override_token, acting_for_user_id } = req.body;
 
+    // [offline-clock 2026-06-11] The field app queues a punch when there's no
+    // signal and replays it later. client_clock_in_at carries the REAL on-site
+    // time the tech tapped (not the sync time). Accept only a sane past stamp
+    // (≤ now + 5 min skew, ≥ 24h ago) so it can't be abused to back/forward-date.
+    let clockInAt: Date | undefined;
+    if (req.body?.client_clock_in_at) {
+      const d = new Date(req.body.client_clock_in_at);
+      const now = Date.now();
+      if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
+        clockInAt = d;
+      }
+    }
+
     // [acting-for 2026-06-10] The office can clock a tech in on their behalf —
     // testing via "view as", or a tech whose phone died on site. Only
     // owner/admin/office/super_admin may act for someone else, the target must
@@ -295,6 +308,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
         user_id: effectiveUserId,
         company_id: req.auth!.companyId,
         branch_id: stampedBranchId,
+        ...(clockInAt ? { clock_in_at: clockInAt } : {}),
         clock_in_lat: empLat !== null ? String(empLat) : null,
         clock_in_lng: empLng !== null ? String(empLng) : null,
         clock_in_distance_ft: distanceFt !== null ? String(distanceFt) : null,
@@ -361,6 +375,18 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
   try {
     const entryId = parseInt(req.params.id);
     const { lat, lng } = req.body;
+
+    // [offline-clock 2026-06-11] Queued clock-out replays the REAL on-site time
+    // (client_clock_out_at), not the sync time — so a dead-zone job doesn't
+    // record a clock-out 30 min late at the tech's house. Same sanity window.
+    let clockOutAt = new Date();
+    if (req.body?.client_clock_out_at) {
+      const d = new Date(req.body.client_clock_out_at);
+      const now = Date.now();
+      if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
+        clockOutAt = d;
+      }
+    }
 
     const existing = await db
       .select()
@@ -444,7 +470,7 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
     const [updated] = await db
       .update(timeclockTable)
       .set({
-        clock_out_at: new Date(),
+        clock_out_at: clockOutAt,
         clock_out_lat: empLat !== null ? String(empLat) : null,
         clock_out_lng: empLng !== null ? String(empLng) : null,
         clock_out_distance_ft: distanceFt !== null ? String(distanceFt) : null,
