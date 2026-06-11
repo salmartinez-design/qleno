@@ -4,7 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
@@ -223,6 +223,42 @@ function getDistanceFt(lat1: number, lng1: number, lat2: number, lng2: number): 
     Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return Math.round(R * c);
+}
+
+// [weather 2026-06-11] Current conditions for the tech's area, so they can
+// dress/plan for the day. Uses Open-Meteo — free, no API key, CORS-enabled —
+// so it needs zero Google/console setup. WMO weather_code → a Lucide icon
+// (no emojis, per brand). Location = the tech's GPS, else the first job.
+function weatherIconFor(code: number) {
+  const p = { size: 14, "aria-hidden": true } as any;
+  if (code === 0) return <Sun {...p} color="#E0A21B" />;
+  if (code <= 2) return <CloudSun {...p} color="#6B6860" />;
+  if (code === 3 || code === 45 || code === 48) return <Cloud {...p} color="#6B6860" />;
+  if (code >= 51 && code <= 57) return <CloudDrizzle {...p} color="#3B7DD8" />;
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain {...p} color="#3B7DD8" />;
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <CloudSnow {...p} color="#5B9BD5" />;
+  if (code >= 95) return <CloudLightning {...p} color="#7C5CCB" />;
+  return <Cloud {...p} color="#6B6860" />;
+}
+function WeatherChip({ lat, lng }: { lat: number | null; lng: number | null }) {
+  const [wx, setWx] = useState<{ temp: number; code: number } | null>(null);
+  const rlat = lat == null ? null : Math.round(lat * 50) / 50;
+  const rlng = lng == null ? null : Math.round(lng * 50) / 50;
+  useEffect(() => {
+    if (rlat == null || rlng == null) return;
+    let cancelled = false;
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${rlat}&longitude=${rlng}&current=temperature_2m,weather_code&temperature_unit=fahrenheit`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d?.current) setWx({ temp: Math.round(d.current.temperature_2m), code: d.current.weather_code }); })
+      .catch(() => { /* weather is best-effort; never block the page */ });
+    return () => { cancelled = true; };
+  }, [rlat, rlng]);
+  if (!wx) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 12, fontWeight: 700, color: "#6B6860", flexShrink: 0 }}>
+      {weatherIconFor(wx.code)} {wx.temp}&deg;
+    </span>
+  );
 }
 
 type TimeclockEntry = {
@@ -1268,6 +1304,56 @@ export default function MyJobsPage() {
     return sum + (j.estimated_hours ?? 0);
   }, 0);
 
+  // [day-banner 2026-06-11] Top-of-day summary for the selected day only.
+  // Efficiency = Allowed ÷ Actual job hours (Qleno's one efficiency metric;
+  // ≥100% = under budget = good), over jobs with a completed clock pair.
+  // Quality = the day's average non-excluded visit scorecard (from the feed).
+  const quality = (data?.quality as { avg: number; count: number } | null | undefined) ?? null;
+  const nonCancelled = jobs.filter(j => j.status !== "cancelled");
+  // Efficiency PER SERVICE TYPE (deep clean, MIMO, PPM, commercial, standard…),
+  // then the MEDIAN across the types worked that day. Each tech performs
+  // differently per package and allowed-hours budgets differ per package, so a
+  // median keeps one slow type from skewing the day's score.
+  const effByType = new Map<string, { allowed: number; actual: number }>();
+  let totAllowed = 0, totActual = 0;
+  for (const j of jobs) {
+    const e = j.time_clock_entry;
+    if (e?.clock_in_at && e?.clock_out_at && j.allowed_hours != null) {
+      const actual = Math.max(0, (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000);
+      if (actual > 0) {
+        const t = j.service_type || "other";
+        const b = effByType.get(t) || { allowed: 0, actual: 0 };
+        b.allowed += j.allowed_hours; b.actual += actual; effByType.set(t, b);
+        totAllowed += j.allowed_hours; totActual += actual;
+      }
+    }
+  }
+  // Per-type efficiency %, then the median across types.
+  const perTypeEff = [...effByType.values()].map(b => (b.allowed / b.actual) * 100).sort((a, b) => a - b);
+  const effTypeCount = perTypeEff.length;
+  const efficiencyPct = effTypeCount === 0 ? null : Math.round(
+    effTypeCount % 2
+      ? perTypeEff[(effTypeCount - 1) / 2]
+      : (perTypeEff[effTypeCount / 2 - 1] + perTypeEff[effTypeCount / 2]) / 2
+  );
+  // Shift window = earliest scheduled start → latest (start + allowed/est hours).
+  const timedJobs = nonCancelled.filter(j => j.scheduled_time);
+  let shiftStart: string | null = null, shiftEnd: string | null = null;
+  if (timedJobs.length) {
+    const earliest = [...timedJobs].sort((a, b) => (a.scheduled_time! < b.scheduled_time! ? -1 : 1))[0];
+    shiftStart = formatTime(earliest.scheduled_time);
+    let maxEndMins = -1;
+    for (const j of timedJobs) {
+      const hrs = j.allowed_hours ?? j.estimated_hours ?? 0;
+      const [h, m] = j.scheduled_time!.split(":").map(Number);
+      const endMins = (h || 0) * 60 + (m || 0) + Math.round(hrs * 60);
+      if (endMins > maxEndMins) { maxEndMins = endMins; shiftEnd = addHoursToTime(j.scheduled_time!, hrs); }
+    }
+  }
+  // Weather location: the tech's GPS if granted, else the first job's coords.
+  const wxLat = empPos?.lat ?? jobs[0]?.job_lat ?? jobs[0]?.lat ?? null;
+  const wxLng = empPos?.lng ?? jobs[0]?.job_lng ?? jobs[0]?.lng ?? null;
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
@@ -1277,8 +1363,13 @@ export default function MyJobsPage() {
           padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <QlenoMark size={24} />
-            <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
+            {/* Tapping the logo/title returns the tech to today's main screen. */}
+            <button type="button" onClick={() => setSelectedDate(todayYmd)} aria-label="Back to today"
+              style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
+              <QlenoMark size={24} />
+              <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
+            </button>
+            <WeatherChip lat={wxLat} lng={wxLng} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <Link href="/training">
@@ -1336,6 +1427,51 @@ export default function MyJobsPage() {
             ›
           </button>
         </div>
+
+        {/* [day-banner 2026-06-11] Qleno-Night day summary: Efficiency + Quality
+            for the selected day, with a job-completion progress bar. */}
+        {jobs.length > 0 && (
+          <div style={{ background: "#0A0E1A", padding: "14px 16px 15px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, gap: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{isToday ? "Today" : selectedLabel}</span>
+              {shiftStart && (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: "#9DEFD9" }}>
+                  Shift {shiftStart}{shiftEnd ? ` – ${shiftEnd}` : ""}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: "9px 11px" }}>
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px" }}>Efficiency</p>
+                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: efficiencyPct == null ? "#C9CCD6" : efficiencyPct >= 100 ? "#34E3B6" : efficiencyPct >= 85 ? "#FBBF55" : "#F87171" }}>
+                  {efficiencyPct == null ? "—" : `${efficiencyPct}%`}
+                </p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
+                  {efficiencyPct == null
+                    ? "after first clock-out"
+                    : effTypeCount > 1
+                      ? `median · ${effTypeCount} service types`
+                      : `${totAllowed.toFixed(1)} allowed / ${totActual.toFixed(1)} actual`}
+                </p>
+              </div>
+              <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: "9px 11px" }}>
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px" }}>Quality</p>
+                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: quality ? "#FFD75E" : "#C9CCD6" }}>
+                  {quality ? quality.avg.toFixed(1) : "—"}
+                </p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
+                  {quality ? `avg · ${quality.count} visit${quality.count === 1 ? "" : "s"}` : "awaiting ratings"}
+                </p>
+              </div>
+            </div>
+            <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>
+              <span style={{ display: "block", height: "100%", width: `${nonCancelled.length ? Math.round((completedToday.length / nonCancelled.length) * 100) : 0}%`, background: "#00C9A0" }} />
+            </div>
+            <p style={{ fontSize: 9.5, fontWeight: 600, color: "#9DA1AC", margin: "6px 0 0" }}>
+              {completedToday.length} of {nonCancelled.length} job{nonCancelled.length === 1 ? "" : "s"} complete
+            </p>
+          </div>
+        )}
 
         {pendingSync > 0 && (
           <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>

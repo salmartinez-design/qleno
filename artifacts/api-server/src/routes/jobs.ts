@@ -599,6 +599,25 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       if (!clockMap.has(e.job_id) || (!e.clock_out_at)) clockMap.set(e.job_id, e);
     }
 
+    // Day quality = average of this day's non-excluded visit scorecards for the
+    // tech (tied to the day's jobs, regardless of when the rating arrived). Often
+    // empty same-day — client ratings land after the visit — so the UI shows
+    // "—" until at least one scorecard exists, then it fills in retrospectively.
+    let quality: { avg: number; count: number } | null = null;
+    try {
+      const qc = await db.execute(sql`
+        SELECT AVG(score)::float AS avg, COUNT(*)::int AS cnt
+        FROM scorecards
+        WHERE user_id = ${userId}
+          AND excluded = false
+          AND job_id = ANY(${sql.raw(`ARRAY[${jobIds.join(",")}]`)})
+      `);
+      const row = (qc.rows as any[])[0];
+      if (row && Number(row.cnt) > 0 && row.avg != null) {
+        quality = { avg: Math.round(Number(row.avg) * 10) / 10, count: Number(row.cnt) };
+      }
+    } catch { /* scorecards table absent — leave null */ }
+
     return res.json({
       data: jobs.map(j => ({
         ...j,
@@ -613,6 +632,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         after_photo_count: photoMap.get(j.id)?.after || 0,
         time_clock_entry: clockMap.get(j.id) || null,
       })),
+      quality,
       require_after_photo_for_clockout: requireAfterPhoto,
     });
   } catch (err) {
