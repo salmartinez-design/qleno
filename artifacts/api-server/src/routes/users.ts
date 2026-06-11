@@ -118,7 +118,16 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
                ORDER BY tc.clock_in_at DESC LIMIT 1) AS active_job_id
         FROM users u
        WHERE u.is_active = true
-         AND u.role IN ('technician','team_lead')
+         -- [add-team-member fix 2026-06-11] Match the dispatch board field-worker
+         -- rule EXACTLY (routes/dispatch.ts): any active user who is not
+         -- office/admin/owner, plus office/admin explicitly tagged field or
+         -- technician. The old role IN (technician, team_lead) was narrower than
+         -- the board, so cleaners shown on the board but carrying any other role
+         -- were missing from the Add Team Member picker.
+         AND (
+              u.role NOT IN ('admin', 'owner', 'office', 'super_admin')
+           OR (COALESCE(u.tags, '{}') && ARRAY['field','technician']::text[])
+         )
          AND (
               u.company_id = ${companyId}
            OR EXISTS (SELECT 1 FROM user_companies uc
