@@ -44,7 +44,9 @@ function getMapsKey(): Promise<string> {
   }
   return _mapsKeyPromise;
 }
-function StreetViewThumb({ lat, lng, address, directionsUrl }: { lat: number | null; lng: number | null; address: string | null; directionsUrl: string | null }) {
+// Rendered on the job DETAIL screen only (not the My Jobs list cards) — see
+// my-job-detail.tsx. Exported so the detail page can place it above the address.
+export function StreetViewThumb({ lat, lng, address, directionsUrl }: { lat: number | null; lng: number | null; address: string | null; directionsUrl: string | null }) {
   const [key, setKey] = useState<string | null>(_mapsKey);
   const [keyResolved, setKeyResolved] = useState<boolean>(_mapsKey != null);
   const [failed, setFailed] = useState(false);
@@ -809,14 +811,6 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           <Users size={13} aria-hidden="true" style={{ color: "#9E9B94", flexShrink: 0 }} />
           Team: {job.team}
         </p>
-      )}
-      {job.address && (
-        <StreetViewThumb
-          lat={job.job_lat ?? job.lat}
-          lng={job.job_lng ?? job.lng}
-          address={formatAddress(job.address, job.city, job.state, job.zip)}
-          directionsUrl={mapsDirectionsUrl(formatAddress(job.address, job.city, job.state, job.zip)) ?? null}
-        />
       )}
       {job.address && (
         <a
