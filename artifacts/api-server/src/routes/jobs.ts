@@ -13,6 +13,62 @@ import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-ra
 
 const router = Router();
 
+// [invoice-sync 2026-06-11] Keep a job's existing DRAFT invoice in lockstep with
+// its price + applied discounts. Discounts render as their own negative line
+// items so the invoice total nets them out. NEVER touches a sent/paid invoice
+// (QB is write-only + sent invoices are immutable) and never creates one — only
+// syncs a draft that already exists. Fully non-fatal: an invoice hiccup must
+// never break the underlying job write.
+async function syncJobInvoiceDraft(jobId: number, companyId: number): Promise<void> {
+  try {
+    const [existing] = await db
+      .select({ id: invoicesTable.id, status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
+      .limit(1);
+    if (!existing || existing.status !== "draft") return;
+
+    const [job] = await db
+      .select({
+        service_type: jobsTable.service_type, base_fee: jobsTable.base_fee,
+        billed_amount: jobsTable.billed_amount, hourly_rate: jobsTable.hourly_rate, billed_hours: jobsTable.billed_hours,
+      })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .limit(1);
+    if (!job) return;
+
+    const service = job.billed_amount ? parseFloat(String(job.billed_amount)) : parseFloat(String(job.base_fee ?? "0"));
+    const svcLabel = (job.service_type ?? "Cleaning Service").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    const qty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
+    const unitPrice = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : service;
+
+    const discounts = await db.select().from(jobDiscountsTable)
+      .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
+    const discountTotal = discounts.reduce((s, d) => s + parseFloat(String(d.amount)), 0);
+    const net = Math.max(0, Math.round((service - discountTotal) * 100) / 100);
+
+    const lineItems: any[] = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: service }];
+    for (const d of discounts) {
+      const amt = parseFloat(String(d.amount));
+      const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
+      lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
+    }
+
+    await db.update(invoicesTable)
+      .set({ line_items: lineItems, subtotal: net.toFixed(2), total: net.toFixed(2) })
+      .where(eq(invoicesTable.id, existing.id));
+
+    // Re-push to QuickBooks (no-op for non-connected tenants). Accounting, not
+    // outbound comms — does not respect COMMS_ENABLED.
+    import("../services/quickbooks-sync.js").then(({ syncInvoice }) => {
+      syncInvoice(companyId, existing.id).catch(e => console.error("[invoice-sync] QB push non-fatal:", e));
+    }).catch(e => console.error("[invoice-sync] QB module load non-fatal:", e));
+  } catch (err) {
+    console.error("[invoice-sync] non-fatal:", err);
+  }
+}
+
 // Shared add-on persistence. Resolves the add_ons.id FK by company + name
 // (creating the row if absent — see AI.6.3 below) and writes job_add_ons,
 // replacing any existing rows for the job. Used by BOTH job create
@@ -3008,6 +3064,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
     `);
     const updated = updatedRows.rows[0];
 
+    // Keep the job's draft invoice (if any) in step with the new price/discounts.
+    await syncJobInvoiceDraft(jobId, companyId);
+
     return res.json({
       ok: true,
       changed: true,
@@ -3479,7 +3538,20 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
           const qty = completedJob.billed_hours ? parseFloat(completedJob.billed_hours) : 1;
           const unitPrice = completedJob.hourly_rate ? parseFloat(completedJob.hourly_rate) : amount;
 
-          const lineItems = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: amount }];
+          const lineItems: any[] = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: amount }];
+
+          // Itemize any discounts applied to this job as negative lines so the
+          // invoice total nets them out (matches the live draft-sync helper).
+          const jobDisc = await db.select().from(jobDiscountsTable)
+            .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
+          let discTotal = 0;
+          for (const d of jobDisc) {
+            const amt = parseFloat(String(d.amount));
+            discTotal += amt;
+            const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
+            lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
+          }
+          const netAmount = Math.max(0, Math.round((amount - discTotal) * 100) / 100);
 
           const [newInv] = await db
             .insert(invoicesTable)
@@ -3490,8 +3562,8 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
               account_id: job.account_id ?? null,
               status: "draft",
               line_items: lineItems,
-              subtotal: amount.toFixed(2),
-              total: amount.toFixed(2),
+              subtotal: netAmount.toFixed(2),
+              total: netAmount.toFixed(2),
               due_date: dueDateStr,
               payment_terms: termsLabel,
               created_by: req.auth!.userId,
@@ -4066,6 +4138,7 @@ router.post("/:id/discounts", requireAuth, async (req, res) => {
       reason: reason ? String(reason).slice(0, 200) : null, applied_by: req.auth!.userId ?? null,
     }).returning();
     try { await logAudit(req, "job_discount.add", "job", jobId, null, { code: row.code, type, value: v, amount }); } catch {}
+    await syncJobInvoiceDraft(jobId, req.auth!.companyId!);
     return res.json({ data: { ...row, value: Number(row.value), amount: Number(row.amount) } });
   } catch (e) { console.error("add job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
 });
@@ -4080,6 +4153,7 @@ router.delete("/:id/discounts/:discountId", requireAuth, async (req, res) => {
       eq(jobDiscountsTable.company_id, req.auth!.companyId!),
     ));
     try { await logAudit(req, "job_discount.remove", "job", jobId, null, { discount_id: discountId }); } catch {}
+    await syncJobInvoiceDraft(jobId, req.auth!.companyId!);
     return res.json({ ok: true });
   } catch (e) { console.error("delete job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
 });
