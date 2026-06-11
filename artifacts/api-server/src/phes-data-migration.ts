@@ -4455,11 +4455,20 @@ async function runDiscountMigration() {
     const MIO = scopeMap["Move In / Move Out"];
     const HS  = scopeMap["Hourly Standard Cleaning"];
     const HD  = scopeMap["Hourly Deep Clean"];
-    const R   = scopeMap["Recurring Cleaning"];
     const C   = scopeMap["Commercial Cleaning"];
 
     // "Deep Clean or Move In/Out" maps to both DC + MIO
     const DC_MIO = [DC, MIO].filter(Boolean);
+
+    // [audit-fix 2026-06-11] The plain "Recurring Cleaning" scope is kept
+    // INACTIVE for backward-compat (scope 11); the live recurring scopes are
+    // "Recurring Cleaning - Weekly / Every 2 Weeks / Every 4 Weeks". Mapping the
+    // recurring discounts to the inactive scope left them scope-less (applying to
+    // nothing). Map them to whichever "Recurring Cleaning*" scopes are active.
+    const recurringScopeIds = Object.keys(scopeMap)
+      .filter(n => /^Recurring Cleaning/i.test(n))
+      .map(n => scopeMap[n])
+      .filter(Boolean);
 
     const discounts: Array<{
       code: string; value: number; type: string;
@@ -4484,6 +4493,7 @@ async function runDiscountMigration() {
       { code: "Realtor Discount",                 value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
       { code: "ROA",                              value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
       { code: "Senior Citizen Discount",          value: 12, type: "percent", scope_ids: DC_MIO, office: true, online: true },
+      { code: "oakparkmom",                       value: 15, type: "percent", scope_ids: DC_MIO, office: true, online: true },
       { code: "smartcity10",                      value: 10, type: "percent", scope_ids: DC_MIO, office: true, online: false },
 
       // Scope: Commercial Cleaning
@@ -4497,13 +4507,31 @@ async function runDiscountMigration() {
       { code: "Compass Discount",               value: 15, type: "percent", scope_ids: [HD].filter(Boolean), office: true, online: true },
       { code: "Manager Discretion Discount 25", value: 25, type: "flat",    scope_ids: [HD].filter(Boolean), office: true, online: true },
 
-      // Scope: Recurring Cleaning
-      { code: "fb15",      value: 15, type: "percent", scope_ids: [R].filter(Boolean), office: true, online: true },
-      { code: "PHES10OFF", value: 10, type: "percent", scope_ids: [R].filter(Boolean), office: true, online: true },
+      // Scope: Recurring Cleaning (active sub-frequency scopes)
+      { code: "fb15",      value: 15, type: "percent", scope_ids: recurringScopeIds, office: true, online: true },
+      { code: "PHES10OFF", value: 10, type: "percent", scope_ids: recurringScopeIds, office: true, online: true },
     ];
 
-    let seeded = 0;
+    // [audit-fix 2026-06-11] Remove any earlier scope-less seeds of these codes
+    // — a prior run inserted scope_ids='[]' whenever a scope name didn't resolve
+    // (e.g. the recurring discounts above). Clear them so the corrected scopes
+    // win cleanly on re-seed (the unique key includes scope_ids, so a fixed row
+    // is a different key and would otherwise leave the broken one behind).
+    const codeInList = [...new Set(discounts.map(d => d.code))]
+      .map(c => `'${c.replace(/'/g, "''")}'`).join(", ");
+    await db.execute(sql.raw(
+      `DELETE FROM pricing_discounts WHERE company_id = ${PHES} AND scope_ids = '[]' AND code IN (${codeInList})`
+    ));
+
+    let seeded = 0, skipped = 0;
     for (const d of discounts) {
+      // Never seed a discount that resolved to no scope — it would apply to
+      // nothing. Skip + log so the gap is visible instead of silently broken.
+      if (d.scope_ids.length === 0) {
+        console.warn(`[phes-migration] discount "${d.code}" has no resolved scope — skipped (check pricing_scopes names)`);
+        skipped++;
+        continue;
+      }
       const scopeIdsJson = JSON.stringify([...d.scope_ids].sort((a, b) => a - b));
       await db.execute(sql`
         INSERT INTO pricing_discounts
@@ -4522,7 +4550,7 @@ async function runDiscountMigration() {
       `);
       seeded++;
     }
-    console.log(`[phes-migration] MC discounts seeded: ${seeded} rows`);
+    console.log(`[phes-migration] MC discounts seeded: ${seeded} rows${skipped ? `, ${skipped} skipped (unresolved scope)` : ""}`);
 
     // Delete placeholder discount add-ons
     const deleted = await db.execute(sql`
