@@ -3,6 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
 import { accountsTable } from "./accounts";
+import { clientsTable } from "./clients";
 
 export const propertyTypeEnum = pgEnum("property_type", [
   "apartment_building", "condo", "common_area", "office", "retail", "other",
@@ -12,6 +13,10 @@ export const accountPropertiesTable = pgTable("account_properties", {
   id: serial("id").primaryKey(),
   account_id: integer("account_id").references(() => accountsTable.id).notNull(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
+  // Sub-account that owns this property (nullable; null = unassigned). Lets a
+  // parent account (e.g. Cucci PM) group its properties under client
+  // sub-accounts (CL-1358 / CL-1359). See phes-data-migration guard.
+  client_id: integer("client_id").references(() => clientsTable.id),
   property_name: text("property_name"),
   address: text("address").notNull(),
   city: text("city"),

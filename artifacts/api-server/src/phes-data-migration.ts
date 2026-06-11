@@ -1266,6 +1266,29 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_scorecard_entries_emp",
       stmt: `CREATE INDEX IF NOT EXISTS idx_scorecard_entries_emp ON scorecard_entries(company_id, employee_id)` },
+
+    // ── hr-leave: company_leave_policy column drift (caused GET /balance 500) ──
+    // Drizzle schema declares these but prod was missing them, so
+    // `SELECT * FROM company_leave_policy` in routes/hr-leave.ts errored and
+    // every balance read 500'd. Idempotent backfill.
+    { label: "company_leave_policy.balance_ceiling_hours",
+      stmt: `ALTER TABLE company_leave_policy ADD COLUMN IF NOT EXISTS balance_ceiling_hours NUMERIC(8,2) DEFAULT '80'` },
+    { label: "company_leave_policy.use_it_or_lose_it_alert_lead_days",
+      stmt: `ALTER TABLE company_leave_policy ADD COLUMN IF NOT EXISTS use_it_or_lose_it_alert_lead_days INTEGER DEFAULT 60` },
+
+    // ── PTO / Sick balances (separate buckets, mirror MaidCentral) ──
+    { label: "users.pto_balance_hours",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS pto_balance_hours NUMERIC(8,2) DEFAULT '0'` },
+    { label: "users.sick_balance_hours",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS sick_balance_hours NUMERIC(8,2) DEFAULT '0'` },
+
+    // ── Property → sub-account grouping ──
+    // account_properties.client_id links a property to the client sub-account
+    // that owns it (Cucci PM account → CL-1358 / CL-1359). Nullable = unassigned.
+    { label: "account_properties.client_id",
+      stmt: `ALTER TABLE account_properties ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id)` },
+    { label: "idx_account_properties_client",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_account_properties_client ON account_properties(account_id, client_id)` },
   ];
 
   for (const { label, stmt } of guards) {

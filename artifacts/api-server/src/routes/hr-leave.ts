@@ -22,6 +22,8 @@ router.get("/balance/:employee_id", requireAuth, requireRole("owner", "admin", "
         leave_balance_hours: usersTable.leave_balance_hours,
         leave_balance_activated: usersTable.leave_balance_activated,
         benefit_year_start: usersTable.benefit_year_start,
+        pto_balance_hours: usersTable.pto_balance_hours,
+        sick_balance_hours: usersTable.sick_balance_hours,
       })
       .from(usersTable)
       .where(and(eq(usersTable.id, employeeId), eq(usersTable.company_id, companyId)))
@@ -51,6 +53,8 @@ router.get("/balance/:employee_id", requireAuth, requireRole("owner", "admin", "
       employee_id: employeeId,
       leave_balance_hours: employee.leave_balance_hours,
       leave_balance_activated: employee.leave_balance_activated,
+      pto_balance_hours: employee.pto_balance_hours,
+      sick_balance_hours: employee.sick_balance_hours,
       activation_date: activationDate,
       policy: policy ?? null,
       usage,
@@ -58,6 +62,41 @@ router.get("/balance/:employee_id", requireAuth, requireRole("owner", "admin", "
   } catch (err) {
     console.error("leave balance error:", err);
     return res.status(500).json({ error: "Failed to fetch leave balance" });
+  }
+});
+
+// Set an employee's PTO and/or Sick balance directly (admin "Update PTO" /
+// "Update Sick"). Absolute set, not a delta. Also the load path for the
+// reconciliation import of MaidCentral PTO/sick balances.
+router.put("/balance/:employee_id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const employeeId = parseInt(req.params.employee_id);
+    if (isNaN(employeeId)) return res.status(400).json({ error: "Invalid employee_id" });
+
+    const updates: Record<string, string> = {};
+    if (req.body.pto_balance_hours !== undefined) updates.pto_balance_hours = String(parseFloat(req.body.pto_balance_hours) || 0);
+    if (req.body.sick_balance_hours !== undefined) updates.sick_balance_hours = String(parseFloat(req.body.sick_balance_hours) || 0);
+    if (req.body.leave_balance_hours !== undefined) updates.leave_balance_hours = String(parseFloat(req.body.leave_balance_hours) || 0);
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Provide pto_balance_hours, sick_balance_hours, or leave_balance_hours" });
+    }
+
+    const [row] = await db
+      .update(usersTable)
+      .set(updates)
+      .where(and(eq(usersTable.id, employeeId), eq(usersTable.company_id, companyId)))
+      .returning({
+        id: usersTable.id,
+        pto_balance_hours: usersTable.pto_balance_hours,
+        sick_balance_hours: usersTable.sick_balance_hours,
+        leave_balance_hours: usersTable.leave_balance_hours,
+      });
+    if (!row) return res.status(404).json({ error: "Employee not found" });
+    return res.json(row);
+  } catch (err) {
+    console.error("leave balance update error:", err);
+    return res.status(500).json({ error: "Failed to update leave balance" });
   }
 });
 

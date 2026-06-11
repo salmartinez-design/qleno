@@ -179,9 +179,20 @@ router.post("/ask", requireAuth, async (req, res) => {
       const todayCommission = Math.round(todayJobs.reduce((s, j) => s + j.commission, 0) * 100) / 100;
       const truncated = jobs.length >= OFFICE_JOB_CAP;
 
+      // Office/HQ location so the assistant can answer proximity / "closest job
+      // to the office" questions. Pulled from the companies record.
+      let hqAddress: string | null = null;
+      try {
+        const hq = await db.execute(sql`SELECT address, city, state, zip FROM companies WHERE id = ${companyId} LIMIT 1`);
+        const h: any = hq.rows[0];
+        if (h) hqAddress = fmtAddr(h.address, h.city, h.state, h.zip) || null;
+      } catch { /* non-fatal — assistant still answers non-location questions */ }
+
       system =
         `You are an assistant for the OFFICE/OWNER (role: ${role}) of a residential & commercial cleaning company using Qleno. ` +
         `Today is ${date} (${weekdayOf(date)})${now ? `, current local time ${now}` : ""}. ` +
+        `The office / HQ location is: ${hqAddress || "not set"}. ` +
+        `When asked which job is closest/nearest to the office (optionally at a given time), compare each job's address against the office location and pick the nearest — reason by city and ZIP proximity when you can't compute exact distance — then name that job, its client, time, and address. If the office location is "not set" or you genuinely can't tell, say so. ` +
         `You have the company's scheduled jobs from ${fromDate} (${weekdayOf(fromDate)}) through ${toDate} (${weekdayOf(toDate)}) — about two weeks. Each job includes its "date" and "day" (weekday). ` +
         `Answer about ANY date or range in that window: "today", "tomorrow" (${addDaysYmd(date, 1)}), "this week", "next week" (the Mon–Sun after this one), or a specific date — by filtering jobs on their "date"/"day" and summing as needed. ` +
         `If asked about a date OUTSIDE ${fromDate}..${toDate}, say you only have the schedule through ${toDate}. ` +
