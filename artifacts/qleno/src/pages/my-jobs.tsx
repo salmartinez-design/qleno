@@ -1268,6 +1268,36 @@ export default function MyJobsPage() {
     return sum + (j.estimated_hours ?? 0);
   }, 0);
 
+  // [day-banner 2026-06-11] Top-of-day summary for the selected day only.
+  // Efficiency = Allowed ÷ Actual job hours (Qleno's one efficiency metric;
+  // ≥100% = under budget = good), over jobs with a completed clock pair.
+  // Quality = the day's average non-excluded visit scorecard (from the feed).
+  const quality = (data?.quality as { avg: number; count: number } | null | undefined) ?? null;
+  const nonCancelled = jobs.filter(j => j.status !== "cancelled");
+  let effAllowed = 0, effActual = 0;
+  for (const j of jobs) {
+    const e = j.time_clock_entry;
+    if (e?.clock_in_at && e?.clock_out_at && j.allowed_hours != null) {
+      const actual = Math.max(0, (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000);
+      if (actual > 0) { effAllowed += j.allowed_hours; effActual += actual; }
+    }
+  }
+  const efficiencyPct = effActual > 0 ? Math.round((effAllowed / effActual) * 100) : null;
+  // Shift window = earliest scheduled start → latest (start + allowed/est hours).
+  const timedJobs = nonCancelled.filter(j => j.scheduled_time);
+  let shiftStart: string | null = null, shiftEnd: string | null = null;
+  if (timedJobs.length) {
+    const earliest = [...timedJobs].sort((a, b) => (a.scheduled_time! < b.scheduled_time! ? -1 : 1))[0];
+    shiftStart = formatTime(earliest.scheduled_time);
+    let maxEndMins = -1;
+    for (const j of timedJobs) {
+      const hrs = j.allowed_hours ?? j.estimated_hours ?? 0;
+      const [h, m] = j.scheduled_time!.split(":").map(Number);
+      const endMins = (h || 0) * 60 + (m || 0) + Math.round(hrs * 60);
+      if (endMins > maxEndMins) { maxEndMins = endMins; shiftEnd = addHoursToTime(j.scheduled_time!, hrs); }
+    }
+  }
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ maxWidth: 460, margin: "0 auto" }}>
@@ -1336,6 +1366,47 @@ export default function MyJobsPage() {
             ›
           </button>
         </div>
+
+        {/* [day-banner 2026-06-11] Qleno-Night day summary: Efficiency + Quality
+            for the selected day, with a job-completion progress bar. */}
+        {jobs.length > 0 && (
+          <div style={{ background: "#0A0E1A", padding: "14px 16px 15px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, gap: 8 }}>
+              <span style={{ fontSize: 15, fontWeight: 800, color: "#fff" }}>{isToday ? "Today" : selectedLabel}</span>
+              {shiftStart && (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: "#9DEFD9" }}>
+                  Shift {shiftStart}{shiftEnd ? ` – ${shiftEnd}` : ""}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: "9px 11px" }}>
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px" }}>Efficiency</p>
+                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: efficiencyPct == null ? "#C9CCD6" : efficiencyPct >= 100 ? "#34E3B6" : efficiencyPct >= 85 ? "#FBBF55" : "#F87171" }}>
+                  {efficiencyPct == null ? "—" : `${efficiencyPct}%`}
+                </p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
+                  {efficiencyPct == null ? "after first clock-out" : `${effAllowed.toFixed(1)} allowed / ${effActual.toFixed(1)} actual`}
+                </p>
+              </div>
+              <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: "9px 11px" }}>
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px" }}>Quality</p>
+                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: quality ? "#FFD75E" : "#C9CCD6" }}>
+                  {quality ? quality.avg.toFixed(1) : "—"}
+                </p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
+                  {quality ? `avg · ${quality.count} visit${quality.count === 1 ? "" : "s"}` : "awaiting ratings"}
+                </p>
+              </div>
+            </div>
+            <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>
+              <span style={{ display: "block", height: "100%", width: `${nonCancelled.length ? Math.round((completedToday.length / nonCancelled.length) * 100) : 0}%`, background: "#00C9A0" }} />
+            </div>
+            <p style={{ fontSize: 9.5, fontWeight: 600, color: "#9DA1AC", margin: "6px 0 0" }}>
+              {completedToday.length} of {nonCancelled.length} job{nonCancelled.length === 1 ? "" : "s"} complete
+            </p>
+          </div>
+        )}
 
         {pendingSync > 0 && (
           <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
