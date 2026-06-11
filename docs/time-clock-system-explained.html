@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Qleno Time Clock — How It Works</title>
+<style>
+  @page {
+    size: letter;
+    margin: 16mm 14mm 18mm 14mm;
+    @bottom-center {
+      content: "Qleno Time Clock — How It Works";
+      font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+      font-size: 8pt; color: #9E9B94;
+    }
+    @bottom-right {
+      content: "Page " counter(page) " of " counter(pages);
+      font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+      font-size: 8pt; color: #9E9B94;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Plus Jakarta Sans', Helvetica, Arial, sans-serif;
+    color: #1A1917; background: #FFFFFF; margin: 0;
+    font-size: 10.5pt; line-height: 1.5;
+  }
+  h1 { font-size: 26pt; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h2 {
+    font-size: 14pt; font-weight: 800; letter-spacing: -0.01em;
+    margin: 26px 0 8px; color: #0A0E1A;
+    border-left: 4px solid #00C9A0; padding-left: 10px;
+  }
+  h3 { font-size: 11.5pt; font-weight: 800; margin: 14px 0 4px; }
+  p { margin: 0 0 9px; }
+  .lede { font-size: 12pt; color: #44423D; margin-bottom: 4px; }
+  .tag {
+    display: inline-block; background: #ECFDF7; color: #00936F;
+    border: 1px solid #B8EFE1; border-radius: 999px;
+    font-size: 8.5pt; font-weight: 700; padding: 3px 10px;
+    text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 14px;
+  }
+  .rule { border: none; border-top: 1px solid #E5E2DC; margin: 22px 0; }
+  .cols { width: 100%; }
+  .cols td { vertical-align: top; padding: 0; }
+  .gap { width: 22px; }
+
+  /* phone mock "screenshot" */
+  .phone {
+    width: 210px; border: 1px solid #E5E2DC; border-radius: 16px;
+    background: #F7F6F3; padding: 10px; box-shadow: 0 1px 0 #E5E2DC;
+  }
+  .phone .bar {
+    background: #FFFFFF; border: 1px solid #E5E2DC; border-radius: 8px;
+    padding: 5px 9px; font-size: 8pt; color: #9E9B94; font-weight: 700;
+    display: flex; justify-content: space-between; margin-bottom: 8px;
+  }
+  .card {
+    background: #FFFFFF; border: 1px solid #E5E2DC; border-radius: 12px;
+    padding: 11px; position: relative; overflow: hidden;
+  }
+  .card.zone { border-left: 4px solid #6366F1; }
+  .card.active { border-left: 4px solid #F59E0B; }
+  .card .client { font-size: 10.5pt; font-weight: 800; margin: 0 0 1px; }
+  .card .meta { font-size: 8pt; color: #6B6860; margin: 0 0 2px; }
+  .card .addr { font-size: 8pt; color: #6B6860; margin: 0 0 9px; }
+  .btn {
+    display: block; text-align: center; border-radius: 9px;
+    font-size: 9.5pt; font-weight: 800; padding: 9px 0; margin-top: 7px;
+  }
+  .btn.mint { background: #00C9A0; color: #FFFFFF; }
+  .btn.dark { background: #0A0E1A; color: #FFFFFF; }
+  .btn.ghost { background: #FFFFFF; color: #1A1917; border: 1px solid #E5E2DC; }
+  .btn.red { background: #FEECEC; color: #B42318; border: 1px solid #F4C7C2; }
+  .row2 { width: 100%; }
+  .row2 td { padding: 0; }
+  .row2 .sp { width: 7px; }
+  .pill {
+    display: inline-block; font-size: 7.5pt; font-weight: 800; border-radius: 999px;
+    padding: 2px 7px; vertical-align: middle;
+  }
+  .pill.amber { background: #FEF3C7; color: #92400E; }
+  .pill.green { background: #DCFCE7; color: #166534; }
+  .stat {
+    background: #F7F6F3; border-radius: 9px; padding: 8px 9px; text-align: left;
+  }
+  .stat .k { font-size: 7pt; font-weight: 800; color: #9E9B94; text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 1px; }
+  .stat .v { font-size: 15pt; font-weight: 800; color: #1A1917; margin: 0; }
+  .offline-banner {
+    background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 8px;
+    padding: 7px 9px; font-size: 8pt; font-weight: 800; color: #92400E; margin-bottom: 8px;
+  }
+  .cap { font-size: 8.5pt; color: #9E9B94; font-style: italic; margin-top: 7px; text-align: center; width: 210px; }
+
+  .point { margin: 0 0 10px; }
+  .point .n {
+    display: inline-block; width: 22px; height: 22px; line-height: 22px; text-align: center;
+    background: #0A0E1A; color: #fff; border-radius: 50%; font-weight: 800; font-size: 9.5pt; margin-right: 8px;
+  }
+  .point b { font-weight: 800; }
+  .callout {
+    background: #F7F6F3; border: 1px solid #E5E2DC; border-radius: 10px; padding: 12px 14px; margin: 12px 0;
+  }
+  .callout.mint { background: #ECFDF7; border-color: #B8EFE1; }
+  .callout h3 { margin-top: 0; }
+  ul { margin: 4px 0 10px; padding-left: 18px; }
+  li { margin-bottom: 4px; }
+  .kv { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+  .kv td { border-bottom: 1px solid #EFEDE8; padding: 7px 4px; font-size: 9.5pt; vertical-align: top; }
+  .kv td.k { font-weight: 800; width: 38%; }
+  .nobreak { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<span class="tag">Phes &middot; Field Team Guide</span>
+<h1>The Qleno Time Clock</h1>
+<p class="lede">One clock. Used at every house. That's the whole system.</p>
+<p style="color:#6B6860;">We designed this together to be simple on purpose. There is no separate
+"check in" and "check out." There is no button to start or end your day. You tap
+<b>Clock In</b> when you arrive at a house and <b>Clock Out</b> when that house is done — that's it.
+This guide walks through every screen you'll see.</p>
+
+<hr class="rule" />
+
+<h2>1. One clock pair, at each house</h2>
+<table class="cols"><tr>
+<td>
+  <p>Each home on your day is its own clock. When you get to a house you tap
+  <b>Clock In</b>. When you finish that house you tap <b>Clock Out</b>. Then you
+  drive to the next house and do the same thing again.</p>
+
+  <div class="point"><span class="n">1</span><b>Arrive</b> &rarr; tap <b>Clock In</b>. Your time and location are recorded.</div>
+  <div class="point"><span class="n">2</span><b>Cleaning</b> &rarr; the clock runs. Tap <b>Pause</b> for a real meal break.</div>
+  <div class="point"><span class="n">3</span><b>Finished</b> &rarr; tap <b>Clock Out</b>. The house shows <b>Job Complete</b>.</div>
+
+  <div class="callout mint nobreak">
+    <h3>Why only one clock?</h3>
+    <p style="margin:0;">Two sets of buttons is what made the old app confusing. Your
+    house clock-in/out is the only thing we need — it feeds your pay, your hours,
+    and the drive between jobs. Nothing else to remember.</p>
+  </div>
+</td>
+<td class="gap"></td>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>My Jobs</span><span>Tue, Jun 10</span></div>
+    <div class="card zone">
+      <p class="client">Maria Gonzalez</p>
+      <p class="meta">9:00 AM &middot; 3.5 allowed hrs &middot; with Diana</p>
+      <p class="addr">4821 W 99th St, Oak Lawn, IL 60453</p>
+      <a class="btn mint">Clock In</a>
+    </div>
+  </div>
+  <p class="cap">Tap Clock In when you walk up to the house.</p>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>2. While you're on the clock</h2>
+<table class="cols"><tr>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>My Jobs</span><span>9:04 AM</span></div>
+    <div class="card active">
+      <p class="client">Maria Gonzalez <span class="pill amber">On the clock</span></p>
+      <p class="meta">Clocked in 9:04 AM &middot; 12 ft from job</p>
+      <p class="addr">4821 W 99th St, Oak Lawn, IL 60453</p>
+      <table class="row2"><tr>
+        <td><a class="btn ghost">Pause</a></td>
+        <td class="sp"></td>
+        <td><a class="btn dark">Clock Out</a></td>
+      </tr></table>
+    </div>
+  </div>
+  <p class="cap">An orange stripe means this house is active.</p>
+</td>
+<td class="gap"></td>
+<td>
+  <p>Once you're clocked in, the card gets an <b>orange stripe</b> and shows the
+  time you started. You have two buttons:</p>
+  <table class="kv">
+    <tr><td class="k">Pause</td><td>Use only for a real, sit-down meal break (30 min or more, fully off). It stops the clock so the break isn't counted as work. Tap <b>Resume</b> when you're back.</td></tr>
+    <tr><td class="k">Clock Out</td><td>Tap when the house is finished and you're walking out. This ends the clock for this house.</td></tr>
+  </table>
+  <div class="callout nobreak">
+    <h3>Short breaks don't need a Pause</h3>
+    <p style="margin:0;">Grabbing water or a quick breather is just part of the job — leave
+    the clock running. Pause is only for a full meal break.</p>
+  </div>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>3. Your day ends by itself</h2>
+<table class="cols"><tr>
+<td>
+  <p>There is <b>no "end my day" button</b>. Your day is simply your first clock-in
+  to your last clock-out. When you clock out of your last house, the app shows a
+  <b>Day Complete</b> summary — jobs done and job hours.</p>
+  <p>If a surprise job gets added after that, no problem: you just clock in at the
+  new house and your day stretches to fit it. You never have to "reopen" anything.</p>
+  <div class="callout nobreak">
+    <h3>Why no day button?</h3>
+    <p style="margin:0;">A day button invites clocking out at home, which would pay for
+    your drive home. By ending the day at your last house automatically, the math
+    stays honest and simple — for you and for the office.</p>
+  </div>
+</td>
+<td class="gap"></td>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>My Jobs</span><span>4:10 PM</span></div>
+    <div class="card" style="border-left:4px solid #00C9A0;">
+      <p class="client">Day complete <span class="pill green">Done</span></p>
+      <p class="meta" style="margin-bottom:8px;">Tuesday, Jun 10</p>
+      <table class="row2"><tr>
+        <td><div class="stat"><p class="k">Jobs done</p><p class="v">3</p></div></td>
+        <td class="sp"></td>
+        <td><div class="stat"><p class="k">Job hours</p><p class="v">7.4h</p></div></td>
+      </tr></table>
+      <p class="meta" style="margin-top:9px;">Drive mileage between your jobs is added automatically. Pay finalizes after office review.</p>
+    </div>
+  </div>
+  <p class="cap">The day closes itself after your last house.</p>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>4. No signal? Your punch is still saved <span class="pill amber" style="font-size:9pt;">New</span></h2>
+<table class="cols"><tr>
+<td style="width:230px;">
+  <div class="phone nobreak">
+    <div class="bar"><span>My Jobs</span><span>No signal</span></div>
+    <div class="offline-banner">1 clock punch waiting to sync &middot; Saved on your phone</div>
+    <div class="card zone">
+      <p class="client">Robert Klein</p>
+      <p class="meta">Clocked in 1:02 PM (saved)</p>
+      <p class="addr">22 Birch Ln, Schaumburg, IL 60173</p>
+      <a class="btn dark">Clock Out</a>
+    </div>
+  </div>
+  <p class="cap">Basements and rural homes lose signal — your time is still kept.</p>
+</td>
+<td class="gap"></td>
+<td>
+  <p>Some houses have no cell signal — a deep basement, a home out in the country.
+  Before, a clock-out in a dead zone could register late once you got back into
+  signal. <b>Not anymore.</b></p>
+  <p>If you tap <b>Clock In</b> or <b>Clock Out</b> with no signal, the app saves it
+  <b>right then</b> with the real time and your location, and shows a yellow
+  <b>"waiting to sync"</b> banner. The moment your phone is back online, it sends
+  automatically — recorded at the time you actually tapped, not when the signal
+  came back.</p>
+  <ul>
+    <li>Keep working normally — just tap the buttons as usual.</li>
+    <li>The yellow banner clears itself once everything syncs.</li>
+    <li>Your real on-site time is what counts, every time.</li>
+  </ul>
+  <div class="callout mint nobreak">
+    <p style="margin:0;"><b>You don't have to do anything.</b> Tap the button, keep going.
+    Qleno handles the rest as soon as you have signal.</p>
+  </div>
+</td>
+</tr></table>
+
+<hr class="rule" />
+
+<h2>5. How you get paid</h2>
+<p>Two things make up your pay. Everything else the clock records is just for the
+office to see the day clearly — it is <b>not</b> paid by the hour.</p>
+<table class="kv">
+  <tr><td class="k">Commission</td><td>Your share of each job. This is the main thing you earn.</td></tr>
+  <tr><td class="k">Mileage</td><td>The drive <b>between</b> your houses, reimbursed per mile. The drive from home to your first job and from your last job home are not included.</td></tr>
+  <tr><td class="k">Hours (for records)</td><td>Job hours, drive time, and idle time are tracked so the office can coach and check the day. They are not a separate hourly paycheck.</td></tr>
+</table>
+<div class="callout nobreak">
+  <h3>Allowed hours vs. actual hours</h3>
+  <p style="margin:0;">Each job has an <b>allowed</b> number of hours (the budget) and your
+  <b>actual</b> clocked hours. Beating the allowed time is good — it's the efficiency
+  the Compensation training covers. The clock is what measures it, so always clock
+  in and out at every house.</p>
+</div>
+
+<hr class="rule" />
+
+<h2>6. For the office</h2>
+<p>Owners and managers get extra visibility on the Time Clock screen — techs never
+see these:</p>
+<ul>
+  <li><b>GPS per punch</b> — distance from the job and a flag if a punch was off-site.</li>
+  <li><b>Edit clocks</b> — fix a missed or wrong punch directly from the job.</li>
+  <li><b>Mileage review</b> — drive legs are calculated automatically but only become
+  pay after you review and apply them. No money moves on its own.</li>
+</ul>
+
+<div class="callout mint nobreak" style="margin-top:18px;">
+  <h3>The whole system in one line</h3>
+  <p style="margin:0;">Clock in at the house, clock out at the house, drive to the next
+  one. The day, the hours, the mileage, and the pay all build themselves from those
+  taps — even when you lose signal.</p>
+</div>
+
+</body>
+</html>
