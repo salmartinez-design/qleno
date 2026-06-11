@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { notifyUserAsync } from "../lib/push.js";
@@ -4030,6 +4030,60 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
 // next remaining tech (lowest job_technicians.id) to primary and update
 // jobs.assigned_user_id. If no techs remain, jobs.assigned_user_id goes
 // NULL (job back to unassigned). Audit row written for traceability.
+// ── Per-job discounts (tracked; feeds the discounts report) ─────────────────
+// Distinct from the pricing_discounts catalog: this records each discount
+// actually applied to a job, with the $ taken off snapshotted at apply time.
+router.get("/:id/discounts", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const rows = await db.select().from(jobDiscountsTable)
+      .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, req.auth!.companyId!)))
+      .orderBy(desc(jobDiscountsTable.created_at));
+    return res.json({ data: rows.map(r => ({ ...r, value: Number(r.value), amount: Number(r.amount) })) });
+  } catch (e) { console.error("list job discounts:", e); return res.status(500).json({ error: "Internal Server Error" }); }
+});
+
+router.post("/:id/discounts", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const { code, type, value, reason } = req.body ?? {};
+    if (type !== "percent" && type !== "flat") return res.status(400).json({ error: "type must be 'percent' or 'flat'" });
+    const v = Number(value);
+    if (!Number.isFinite(v) || v <= 0) return res.status(400).json({ error: "value must be a positive number" });
+    const jobRows = await db.select({ base_fee: jobsTable.base_fee })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId!)))
+      .limit(1);
+    if (jobRows.length === 0) return res.status(404).json({ error: "Job not found" });
+    const baseFee = jobRows[0].base_fee != null ? parseFloat(String(jobRows[0].base_fee)) : 0;
+    // Dollars off this job, snapshotted. Cap at the base fee so it never goes
+    // negative; a percent resolves against the current base fee.
+    let amount = type === "percent" ? (baseFee * v) / 100 : v;
+    amount = Math.round(Math.min(Math.max(amount, 0), baseFee) * 100) / 100;
+    const [row] = await db.insert(jobDiscountsTable).values({
+      company_id: req.auth!.companyId!, job_id: jobId,
+      code: code ? String(code).slice(0, 64) : null, type, value: String(v), amount: String(amount),
+      reason: reason ? String(reason).slice(0, 200) : null, applied_by: req.auth!.userId ?? null,
+    }).returning();
+    try { await logAudit(req, "job_discount.add", "job", jobId, null, { code: row.code, type, value: v, amount }); } catch {}
+    return res.json({ data: { ...row, value: Number(row.value), amount: Number(row.amount) } });
+  } catch (e) { console.error("add job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
+});
+
+router.delete("/:id/discounts/:discountId", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const discountId = parseInt(req.params.discountId);
+    await db.delete(jobDiscountsTable).where(and(
+      eq(jobDiscountsTable.id, discountId),
+      eq(jobDiscountsTable.job_id, jobId),
+      eq(jobDiscountsTable.company_id, req.auth!.companyId!),
+    ));
+    try { await logAudit(req, "job_discount.remove", "job", jobId, null, { discount_id: discountId }); } catch {}
+    return res.json({ ok: true });
+  } catch (e) { console.error("delete job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
+});
+
 router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
