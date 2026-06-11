@@ -85,6 +85,8 @@ type Row = {
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; source?: string | null;
+  gps_in_ft?: number | null; gps_out_ft?: number | null;
+  gps_in_outside?: boolean | null; gps_out_outside?: boolean | null; has_gps?: boolean;
 };
 type Emp = {
   user_id: number; name: string; rows: Row[]; worked_minutes: number;
@@ -230,6 +232,12 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
           {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedTime(row.scheduled_time)}` : ""}
           {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
+          {row.entry_id && (row.has_gps
+            ? <span title="Distance from the job site at clock-in (from the tech's phone GPS)" style={{ marginLeft: 6, fontWeight: 700, color: row.gps_in_outside ? "#B45309" : "#0A7C66" }}>
+                · GPS {row.gps_in_ft != null ? `${row.gps_in_ft} ft` : "on"}{row.gps_in_outside ? " (outside zone)" : ""}
+              </span>
+            : <span title="This punch carried no location — phone location was off/denied, or it was entered here as an office correction." style={{ marginLeft: 6, fontWeight: 700, color: "#9E9B94" }}>· no GPS</span>
+          )}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -397,7 +405,7 @@ export default function TimeClockPage() {
         )}
 
         <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9E9B94", margin: "10px 2px 24px" }}>
-          <AlertTriangle size={12} /> Times are office corrections (no GPS). Every edit is logged. Pay reflects these clocks on the Payroll screen.
+          <AlertTriangle size={12} /> "GPS" is the distance from the job at the tech's field clock-in. Editing a time here saves an office correction (no GPS) and is logged. Pay reflects these clocks on the Payroll screen.
         </div>
       </div>
     </DashboardLayout>

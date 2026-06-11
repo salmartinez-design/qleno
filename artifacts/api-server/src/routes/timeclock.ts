@@ -725,6 +725,9 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
 
     const clockRows = inList ? ((await db.execute(sql`
       SELECT t.id, t.job_id, t.user_id, t.clock_in_at, t.clock_out_at, t.flagged, t.source,
+             t.clock_in_distance_ft, t.clock_out_distance_ft,
+             t.clock_in_outside_geofence, t.clock_out_outside_geofence,
+             t.clock_in_lat, t.clock_out_lat,
              TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS name
       FROM timeclock t JOIN users u ON u.id = t.user_id
       WHERE t.company_id = ${companyId} AND t.job_id IN (${inList})
@@ -795,7 +798,20 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  flagged: boolean; minutes: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
-                 source: string | null };
+                 source: string | null;
+                 // [gps-on-timeclock 2026-06-11] GPS captured at clock-in/out so
+                 // the office can audit field punches right here. has_gps=false
+                 // means the punch carried no location (denied permission, or an
+                 // office-entered correction).
+                 gps_in_ft: number | null; gps_out_ft: number | null;
+                 gps_in_outside: boolean | null; gps_out_outside: boolean | null; has_gps: boolean };
+    const gpsOf = (e: any) => ({
+      gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
+      gps_out_ft: e?.clock_out_distance_ft != null ? Math.round(parseFloat(String(e.clock_out_distance_ft))) : null,
+      gps_in_outside: e?.clock_in_outside_geofence ?? null,
+      gps_out_outside: e?.clock_out_outside_geofence ?? null,
+      has_gps: !!(e && (e.clock_in_lat != null || e.clock_out_lat != null || e.clock_in_distance_ft != null)),
+    });
     const payOf = (jid: number, uid: number) => {
       const p = payByJobUser.get(`${jid}:${uid}`);
       return {
@@ -828,6 +844,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null, source: e?.source ?? null,
+          ...gpsOf(e),
         });
       }
     }
@@ -840,6 +857,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null, source: e.source ?? null,
+        ...gpsOf(e),
       });
     }
 
