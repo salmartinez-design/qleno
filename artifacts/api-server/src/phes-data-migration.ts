@@ -41,6 +41,22 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "job_discounts job_id index", stmt: "CREATE INDEX IF NOT EXISTS idx_job_discounts_job ON job_discounts(job_id)" },
     { label: "job_discounts company_id index", stmt: "CREATE INDEX IF NOT EXISTS idx_job_discounts_company ON job_discounts(company_id)" },
+    // [gps-geocode-backfill 2026-06-11] Inherit job coords from the already-
+    // geocoded client (residential) / account property (commercial) so the GPS
+    // pin + future clock-in distance work — no new geocoding API calls. Only
+    // touches jobs with NULL coords; idempotent.
+    { label: "backfill jobs.job_lat/lng from client geocode", stmt: `
+      UPDATE jobs j SET job_lat = c.lat, job_lng = c.lng
+      FROM clients c
+      WHERE j.client_id = c.id AND j.company_id = c.company_id
+        AND j.job_lat IS NULL AND c.lat IS NOT NULL
+    ` },
+    { label: "backfill jobs.job_lat/lng from account property geocode", stmt: `
+      UPDATE jobs j SET job_lat = ap.lat, job_lng = ap.lng
+      FROM account_properties ap
+      WHERE j.account_property_id = ap.id
+        AND j.job_lat IS NULL AND ap.lat IS NOT NULL
+    ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
