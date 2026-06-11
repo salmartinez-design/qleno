@@ -57,6 +57,10 @@ export const usersTable = pgTable("users", {
   notes: text("notes"),
   hr_status: hrStatusEnum("hr_status").default("active"),
   commission_rate_override: numeric("commission_rate_override", { precision: 6, scale: 2 }),
+  // MaidCentral-style scorecard: a single percentage per employee. Stored as
+  // MC's authoritative value on import (NOT recomputed — MC's % is not a simple
+  // average of job scores). Per-job history lives in scorecard_entries.
+  scorecard_pct: numeric("scorecard_pct", { precision: 5, scale: 2 }),
   // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Replaces
   // the company-wide single-rate model. Type can be 'commission' (rate
   // is a fraction 0.00–1.00) or 'hourly' (rate is dollars/hour). The

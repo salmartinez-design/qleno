@@ -250,12 +250,11 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      <div style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="var(--brand)" stroke="none">
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                        <span style={{ fontSize: '13px', fontWeight: 500, color: '#1A1917' }}>3.9</span>
-                      </div>
+                      {(user as any).scorecard_pct != null ? (
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>{Math.round(parseFloat((user as any).scorecard_pct))}%</span>
+                      ) : (
+                        <span style={{ fontSize: '13px', color: '#9E9B94' }}>—</span>
+                      )}
                     </td>
                     <td style={{ padding: '14px 20px' }} onClick={e => e.stopPropagation()}>
                       {invited ? (

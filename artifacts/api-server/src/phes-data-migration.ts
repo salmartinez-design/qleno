@@ -1226,6 +1226,28 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `CREATE UNIQUE INDEX IF NOT EXISTS device_tokens_token_key ON device_tokens(token)` },
     { label: "idx_device_tokens_user",
       stmt: `CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(company_id, user_id)` },
+
+    // ── Scorecard percentage model (MaidCentral parity) ──
+    // users.scorecard_pct = authoritative per-employee % (stored as-is from MC).
+    // scorecard_entries = per-job history (781 MC rows + future Qleno entries).
+    { label: "users.scorecard_pct",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct NUMERIC(5,2)` },
+    { label: "CREATE scorecard_entries", stmt: `
+      CREATE TABLE IF NOT EXISTS scorecard_entries (
+        id           SERIAL PRIMARY KEY,
+        company_id   INTEGER NOT NULL REFERENCES companies(id),
+        employee_id  INTEGER NOT NULL REFERENCES users(id),
+        job_id       INTEGER REFERENCES jobs(id),
+        entry_date   DATE NOT NULL,
+        score_value  NUMERIC(8,2) NOT NULL,
+        max_value    NUMERIC(8,2) NOT NULL DEFAULT 100,
+        source       TEXT NOT NULL DEFAULT 'mc',
+        notes        TEXT,
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_scorecard_entries_emp",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_scorecard_entries_emp ON scorecard_entries(company_id, employee_id)` },
   ];
 
   for (const { label, stmt } of guards) {
