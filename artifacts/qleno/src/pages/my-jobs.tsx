@@ -812,12 +812,9 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         filter: visual.desaturate ? "grayscale(1)" : "none",
         cursor: onOpenDetail ? "pointer" : undefined,
       }}>
-      {visual.stripe && (
-        <div className="qleno-active-stripe" style={{
-          position: "absolute", top: 0, bottom: 0, left: 0, width: 4,
-          backgroundColor: visual.stripe,
-        }} />
-      )}
+      {/* No left active-stripe on this card: the active state already shows an
+          EVEN orange border all the way around + the breathing glow, so the
+          extra 4px left bar only made the outline look thicker on the left. */}
       {visual.showCheckmark && (
         <div style={{ position: "absolute", top: 12, right: 12, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Check size={11} color="#FFFFFF" strokeWidth={3} />
