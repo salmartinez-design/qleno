@@ -13,6 +13,7 @@ import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
 import { enqueueClock, isOfflineError, flushClockQueue, queueLength } from "@/lib/offline-clock";
+import { shiftForWeekday } from "@/lib/business-hours";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1337,18 +1338,29 @@ export default function MyJobsPage() {
       ? perTypeEff[(effTypeCount - 1) / 2]
       : (perTypeEff[effTypeCount / 2 - 1] + perTypeEff[effTypeCount / 2]) / 2
   );
-  // Shift window = earliest scheduled start → latest (start + allowed/est hours).
-  const timedJobs = nonCancelled.filter(j => j.scheduled_time);
+  // Shift window — driven by the tenant's BUSINESS HOURS for the selected
+  // weekday (e.g. "Mon–Fri 9:00 AM – 6:00 PM"). Falls back to the derived job
+  // span (earliest start → latest finish) only when business hours aren't
+  // configured for that day.
   let shiftStart: string | null = null, shiftEnd: string | null = null;
-  if (timedJobs.length) {
-    const earliest = [...timedJobs].sort((a, b) => (a.scheduled_time! < b.scheduled_time! ? -1 : 1))[0];
-    shiftStart = formatTime(earliest.scheduled_time);
-    let maxEndMins = -1;
-    for (const j of timedJobs) {
-      const hrs = j.allowed_hours ?? j.estimated_hours ?? 0;
-      const [h, m] = j.scheduled_time!.split(":").map(Number);
-      const endMins = (h || 0) * 60 + (m || 0) + Math.round(hrs * 60);
-      if (endMins > maxEndMins) { maxEndMins = endMins; shiftEnd = addHoursToTime(j.scheduled_time!, hrs); }
+  const [sy, sm, sd] = selectedDate.split("-").map(Number);
+  const selWeekday = new Date(sy, sm - 1, sd).getDay();
+  const bizShift = shiftForWeekday(data?.business_hours as string | null | undefined, selWeekday);
+  if (bizShift && bizShift !== "closed") {
+    shiftStart = bizShift.start;
+    shiftEnd = bizShift.end;
+  } else if (bizShift !== "closed") {
+    const timedJobs = nonCancelled.filter(j => j.scheduled_time);
+    if (timedJobs.length) {
+      const earliest = [...timedJobs].sort((a, b) => (a.scheduled_time! < b.scheduled_time! ? -1 : 1))[0];
+      shiftStart = formatTime(earliest.scheduled_time);
+      let maxEndMins = -1;
+      for (const j of timedJobs) {
+        const hrs = j.allowed_hours ?? j.estimated_hours ?? 0;
+        const [h, m] = j.scheduled_time!.split(":").map(Number);
+        const endMins = (h || 0) * 60 + (m || 0) + Math.round(hrs * 60);
+        if (endMins > maxEndMins) { maxEndMins = endMins; shiftEnd = addHoursToTime(j.scheduled_time!, hrs); }
+      }
     }
   }
   // Weather location: the tech's GPS if granted, else the first job's coords.

@@ -449,11 +449,15 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
     // disabled clock-out button. Read from the tech's auth company — the same
     // company the clock-out route enforces against.
     const companyCfg = await db
-      .select({ require_after_photo_for_clockout: companiesTable.require_after_photo_for_clockout })
+      .select({
+        require_after_photo_for_clockout: companiesTable.require_after_photo_for_clockout,
+        business_hours: companiesTable.business_hours,
+      })
       .from(companiesTable)
       .where(eq(companiesTable.id, req.auth!.companyId))
       .limit(1);
     const requireAfterPhoto = companyCfg[0]?.require_after_photo_for_clockout ?? false;
+    const businessHours = companyCfg[0]?.business_hours ?? null;
 
     const jobs = await db
       .select({
@@ -633,6 +637,7 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         time_clock_entry: clockMap.get(j.id) || null,
       })),
       quality,
+      business_hours: businessHours,
       require_after_photo_for_clockout: requireAfterPhoto,
     });
   } catch (err) {
