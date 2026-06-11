@@ -44,42 +44,111 @@ function getMapsKey(): Promise<string> {
   }
   return _mapsKeyPromise;
 }
+// Lazy-load the Google Maps JS SDK once (shared promise). Used to upgrade the
+// static Street View thumbnail into an interactive, drag-to-look-around
+// panorama when the tech taps it (HouseCall-Pro style). Maps JavaScript API is
+// already enabled + allow-listed on the Phes key, so this needs no extra setup.
+let _mapsJsPromise: Promise<any> | null = null;
+function loadMapsJs(key: string): Promise<any> {
+  const w = window as any;
+  if (w.google?.maps) return Promise.resolve(w.google.maps);
+  if (_mapsJsPromise) return _mapsJsPromise;
+  _mapsJsPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly`;
+    s.async = true;
+    s.defer = true;
+    s.onload = () => (w.google?.maps ? resolve(w.google.maps) : reject(new Error("maps unavailable")));
+    s.onerror = () => reject(new Error("maps script failed"));
+    document.head.appendChild(s);
+  });
+  return _mapsJsPromise;
+}
+
 // Rendered on the job DETAIL screen only (not the My Jobs list cards) — see
 // my-job-detail.tsx. Exported so the detail page can place it above the address.
+// Shows a static Street View thumbnail; tapping it loads an interactive
+// panorama the tech can pan around to recognize the property (HCP-style).
 export function StreetViewThumb({ lat, lng, address, directionsUrl }: { lat: number | null; lng: number | null; address: string | null; directionsUrl: string | null }) {
   const [key, setKey] = useState<string | null>(_mapsKey);
   const [keyResolved, setKeyResolved] = useState<boolean>(_mapsKey != null);
   const [failed, setFailed] = useState(false);
+  const [mode, setMode] = useState<"thumb" | "loading" | "live">("thumb");
+  const panoRef = useRef<HTMLDivElement>(null);
+  const builtRef = useRef(false);
   useEffect(() => {
     if (!keyResolved) getMapsKey().then(k => { setKey(k); setKeyResolved(true); });
   }, [keyResolved]);
+  // When we flip to "live", the panorama container mounts; build the
+  // interactive Street View on it (the SDK is already loaded by then).
+  useEffect(() => {
+    if (mode !== "live" || builtRef.current || !panoRef.current || lat == null || lng == null) return;
+    const maps = (window as any).google?.maps;
+    if (!maps) { setMode("thumb"); return; }
+    try {
+      new maps.StreetViewPanorama(panoRef.current, {
+        position: { lat, lng },
+        pov: { heading: 0, pitch: 0 },
+        zoom: 0,
+        addressControl: false,
+        motionTracking: false,
+        motionTrackingControl: false,
+        showRoadLabels: false,
+        fullscreenControl: true,
+      });
+      builtRef.current = true;
+    } catch { setMode("thumb"); }
+  }, [mode, lat, lng]);
+
   const loc = (lat != null && lng != null) ? `${lat},${lng}` : (address || "");
   if (!loc) return null; // nothing to point at — render nothing
-  // Show the real Street View image only when the key resolved and the image
-  // hasn't errored. When the key is missing (endpoint returned empty) or the
-  // image is denied (Street View Static API not enabled, key referrer-restricted,
-  // or no imagery at the spot), fall back to a tappable map placeholder rather
-  // than a SILENT BLANK. The placeholder doubles as a deploy check: if a tech
-  // sees this tile, the new bundle is live and the only thing missing is the
-  // Google key config.
   const canShowImg = keyResolved && !!key && !failed;
-  const inner = canShowImg ? (
-    <img src={`https://maps.googleapis.com/maps/api/streetview?size=640x240&location=${encodeURIComponent(loc)}&fov=80&pitch=8&key=${key}`}
-      alt="Street view of the property" loading="lazy"
-      onError={() => setFailed(true)}
-      style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #EEECE7", display: "block" }} />
-  ) : (
-    <div style={{ width: "100%", height: 120, borderRadius: 10, border: "1px dashed #D9D5CC", background: "#F2F0EB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}>
-      <MapPin size={20} color="#9E9B94" aria-hidden="true" />
-      <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860" }}>{directionsUrl ? "Open in Maps" : "Map preview unavailable"}</span>
-    </div>
-  );
+  const hasCoords = lat != null && lng != null;
+
+  const lookAround = async () => {
+    if (!key || !hasCoords || mode !== "thumb") return;
+    setMode("loading");
+    try { await loadMapsJs(key); setMode("live"); }
+    catch { setMode("thumb"); }
+  };
+
+  // No key / denied image / no coords → tappable "Open in Maps" fallback tile.
+  if (!canShowImg) {
+    const tile = (
+      <div style={{ width: "100%", height: 120, borderRadius: 10, border: "1px dashed #D9D5CC", background: "#F2F0EB", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 5 }}>
+        <MapPin size={20} color="#9E9B94" aria-hidden="true" />
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860" }}>{directionsUrl ? "Open in Maps" : "Map preview unavailable"}</span>
+      </div>
+    );
+    return (
+      <div style={{ margin: "10px 0 6px" }}>
+        {directionsUrl ? <a href={directionsUrl} target="_blank" rel="noreferrer">{tile}</a> : tile}
+      </div>
+    );
+  }
+
+  // Live interactive panorama — the tech can drag to look around.
+  if (mode === "live") {
+    return (
+      <div style={{ margin: "10px 0 6px" }}>
+        <div ref={panoRef} style={{ width: "100%", height: 220, borderRadius: 10, border: "1px solid #EEECE7", overflow: "hidden" }} />
+      </div>
+    );
+  }
+
+  // Static thumbnail → tap to load the interactive view.
   return (
-    <div style={{ margin: "10px 0 6px", position: "relative" }}>
-      {directionsUrl ? <a href={directionsUrl} target="_blank" rel="noreferrer">{inner}</a> : inner}
-      {canShowImg && (
-        <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(10,14,26,0.6)", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>STREET VIEW</span>
-      )}
+    <div style={{ margin: "10px 0 6px" }}>
+      <button type="button" onClick={lookAround} disabled={!hasCoords || mode === "loading"}
+        style={{ display: "block", width: "100%", padding: 0, border: "none", background: "none", cursor: hasCoords ? "pointer" : "default", position: "relative", borderRadius: 10 }}>
+        <img src={`https://maps.googleapis.com/maps/api/streetview?size=640x240&location=${encodeURIComponent(loc)}&fov=80&pitch=8&key=${key}`}
+          alt="Street view of the property" loading="lazy"
+          onError={() => setFailed(true)}
+          style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 10, border: "1px solid #EEECE7", display: "block" }} />
+        <span style={{ position: "absolute", bottom: 6, left: 8, fontSize: 9, fontWeight: 700, color: "#fff", background: "rgba(10,14,26,0.72)", padding: "3px 7px", borderRadius: 5, letterSpacing: "0.02em" }}>
+          {mode === "loading" ? "Loading…" : (hasCoords ? "STREET VIEW · Tap to look around" : "STREET VIEW")}
+        </span>
+      </button>
     </div>
   );
 }
@@ -117,6 +186,15 @@ function addHoursToTime(t: string, hours: number): string {
   const ampm = hh >= 12 ? "PM" : "AM";
   const h12 = hh > 12 ? hh - 12 : hh || 12;
   return `${h12}:${String(mm).padStart(2, "0")} ${ampm}`;
+}
+
+// "3 Allowed Hours" / "3.5 Allowed Hours" / "1 Allowed Hour" — trailing .0
+// dropped, singular when exactly one. Falls back to "Est." when the number is
+// the stale estimated_hours stamp rather than the live allowed_hours budget.
+function formatHoursLabel(hrs: number, allowed: boolean): string {
+  const n = Number.isInteger(hrs) ? String(hrs) : hrs.toFixed(1).replace(/\.0$/, "");
+  const unit = hrs === 1 ? "Hour" : "Hours";
+  return `${n} ${allowed ? "Allowed" : "Est."} ${unit}`;
 }
 
 function formatDuration(ms: number) {
@@ -689,7 +767,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         // Outline the whole card in the zone color so the tech sees their area at
         // a glance; status overrides (active/unpaid/no-show/unassigned) win when
         // present, mirroring the dispatch chip's border behavior.
-        border: `3px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
+        border: `4.5px solid ${visual.borderOverride || job.zone_color || "#E5E2DC"}`,
         borderRadius: 12, padding: 18, margin: "0 0 12px 0",
         position: "relative", overflow: "hidden",
         opacity: visual.bodyOpacity * (job.status === "cancelled" ? 1 : 1),
@@ -775,25 +853,28 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       </p>
       {(() => {
         // Allowed hours is the budget the tech needs; estimated_hours is the
-        // stale creation stamp and only a fallback.
+        // stale creation stamp and only a fallback. New treatment: lead with the
+        // "N Allowed Hours" budget chip, then the clean start–end window
+        // (e.g. "9:00 AM – 12:00 PM") — same on every job, list and detail.
         const hrs = job.allowed_hours ?? job.estimated_hours;
-        const label = job.allowed_hours != null ? "hrs allowed" : "hrs est.";
+        const allowed = job.allowed_hours != null;
+        const hasHrs = hrs != null && hrs > 0;
+        const start = job.scheduled_time ? formatTime(job.scheduled_time) : null;
+        const end = job.scheduled_time && hasHrs ? addHoursToTime(job.scheduled_time, hrs!) : null;
+        if (!hasHrs && !start) return null;
         return (
-          <>
-            {job.scheduled_time && (
-              <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
-                {formatTime(job.scheduled_time)}
-                {hrs != null && hrs > 0 && (
-                  <span style={{ marginLeft: 8, color: "#9E9B94" }}>
-                    · {hrs.toFixed(1)} {label} · ends ~{addHoursToTime(job.scheduled_time, hrs)}
-                  </span>
-                )}
-              </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", margin: "0 0 6px" }}>
+            {hasHrs && (
+              <span style={{ fontSize: 12.5, fontWeight: 800, color: "#00936F", background: "#E7F9F3", border: "1px solid #BFEFE2", borderRadius: 8, padding: "3px 9px", whiteSpace: "nowrap" }}>
+                {formatHoursLabel(hrs!, allowed)}
+              </span>
             )}
-            {!job.scheduled_time && hrs != null && hrs > 0 && (
-              <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 2px" }}>{hrs.toFixed(1)} {label}</p>
+            {start && (
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap" }}>
+                {start}{end ? ` – ${end}` : ""}
+              </span>
             )}
-          </>
+          </div>
         );
       })()}
       {/* Home facts (MC parity) — size the work before walking in. */}
