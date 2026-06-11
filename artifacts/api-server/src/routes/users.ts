@@ -56,7 +56,7 @@ router.get("/", requireAuth, async (req, res) => {
     const usersRows = await db.execute(sql`
       SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
              u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
-             u.hire_date, u.avatar_url
+             u.hire_date, u.avatar_url, u.scorecard_pct
         FROM users u
        WHERE ${whereClause}
        ORDER BY u.first_name, u.last_name

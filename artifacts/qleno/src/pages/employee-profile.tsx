@@ -744,6 +744,10 @@ export default function EmployeeProfilePage() {
 
   const fullName = `${user.first_name} ${user.last_name}`;
   const scoreAvg = user.scorecard_avg ? parseFloat(user.scorecard_avg) : null;
+  // MaidCentral-style percentage: prefer the authoritative imported %; fall back
+  // to deriving from the legacy star average (score/4) until MC data is loaded.
+  const scorePct = user.scorecard_pct != null ? parseFloat(user.scorecard_pct)
+    : (scoreAvg != null ? Math.round(scoreAvg / 4 * 100) : null);
 
   return (
     <DashboardLayout>
@@ -838,11 +842,8 @@ export default function EmployeeProfilePage() {
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Score</span>
                   <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-                    {scoreAvg ? (
-                      <>
-                        <StarRating score={scoreAvg}/>
-                        <span style={{ fontSize:13,fontWeight:700,color:'var(--brand)' }}>{scoreAvg.toFixed(1)}</span>
-                      </>
+                    {scorePct != null ? (
+                      <span style={{ fontSize:18,fontWeight:700,color:'var(--brand)' }}>{scorePct.toFixed(0)}%</span>
                     ) : <span style={{ fontSize:11,color:'#9E9B94' }}>No scores yet</span>}
                   </div>
                 </div>
@@ -1102,7 +1103,7 @@ export default function EmployeeProfilePage() {
                     {label:'Paid Time Off', value: 3, pct:'2%'},
                     {label:'Sick', value: 4, pct:'3%'},
                     {label:'Late', value: 6, pct:'5%'},
-                    {label:'Score', value: scoreAvg ? `${(scoreAvg/4*100).toFixed(0)}` : '—'},
+                    {label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—'},
                   ].map(row => (
                     <div key={row.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #F3F4F6' }}>
                       <span style={{ fontSize:12,color:'#6B7280' }}>{row.label}</span>
