@@ -706,7 +706,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
              j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
-             c.client_type,
+             c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
                       c.company_name, 'Client') AS client_name
       FROM jobs j
@@ -839,10 +839,15 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // The job's own coordinates (the expected spot) so the GPS
                  // map modal can drop a second pin + show the punch-vs-job gap.
                  job_lat: number | null; job_lng: number | null };
-    const coordsOf = (j: any) => ({
-      job_lat: (j?.job_lat ?? j?.address_lat) != null ? Number(j.job_lat ?? j.address_lat) : null,
-      job_lng: (j?.job_lng ?? j?.address_lng) != null ? Number(j.job_lng ?? j.address_lng) : null,
-    });
+    // Job pin coords: prefer the job's own geocode, then the per-job address
+    // geocode, then fall back to the (already-geocoded) client coords so the
+    // map pin shows even for jobs that were never geocoded (e.g. recurring
+    // children created before on-create geocoding).
+    const coordsOf = (j: any) => {
+      const lat = j?.job_lat ?? j?.address_lat ?? j?.client_lat;
+      const lng = j?.job_lng ?? j?.address_lng ?? j?.client_lng;
+      return { job_lat: lat != null ? Number(lat) : null, job_lng: lng != null ? Number(lng) : null };
+    };
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
       gps_out_ft: e?.clock_out_distance_ft != null ? Math.round(parseFloat(String(e.clock_out_distance_ft))) : null,
