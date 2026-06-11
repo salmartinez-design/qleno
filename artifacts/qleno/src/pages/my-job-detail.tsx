@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { useAuthStore } from "@/lib/auth";
 import { useEmployeeView } from "@/contexts/employee-view-context";
-import { JobCard, ymd, type Job } from "./my-jobs";
+import { JobCard, StreetViewThumb, ymd, type Job } from "./my-jobs";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
 import { ArrowLeft, History, Navigation } from "lucide-react";
 
@@ -153,6 +153,17 @@ export default function MyJobDetailPage() {
                   </a>
                 );
               })()}
+              {/* [street-view 2026-06-11] Sal: Street View belongs on the detail
+                  screen only (not the list cards). Sits right under Get Directions,
+                  above the address, so the tech can recognize the property. */}
+              {job.address && (
+                <StreetViewThumb
+                  lat={job.job_lat ?? job.lat}
+                  lng={job.job_lng ?? job.lng}
+                  address={formatAddress(job.address, job.city, job.state, job.zip)}
+                  directionsUrl={mapsDirectionsUrl(formatAddress(job.address, job.city, job.state, job.zip)) ?? null}
+                />
+              )}
               <JobCard
                 job={job}
                 empPos={empPos}
