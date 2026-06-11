@@ -3,6 +3,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
@@ -1898,9 +1899,7 @@ export default function EmployeeProfilePage() {
                             <label key={e.id} style={{ display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderBottom:'1px solid #F3F4F6',cursor:'pointer',background: isChecked ? '#F0FBF8' : '#FFFFFF' }}>
                               <input type="checkbox" checked={isChecked} onChange={() => setBulkSelectedEmps(prev => isChecked ? prev.filter(id => id !== e.id) : [...prev, e.id])}
                                 style={{ accentColor:'var(--brand)',width:15,height:15,flexShrink:0 }}/>
-                              <div style={{ width:30,height:30,borderRadius:'50%',background:'var(--brand-dim)',color:'var(--brand)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,flexShrink:0 }}>
-                                {e.first_name?.[0]}{e.last_name?.[0]}
-                              </div>
+                              <EmployeeAvatar name={`${e.first_name ?? ''} ${e.last_name ?? ''}`} avatarUrl={e.avatar_url} size={30} fontSize={11} />
                               <div>
                                 <div style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{e.first_name} {e.last_name}</div>
                                 <div style={{ fontSize:11,color:'#9E9B94',textTransform:'capitalize' }}>{e.role}</div>
@@ -1955,9 +1954,7 @@ export default function EmployeeProfilePage() {
                         {selectedEmpObjects.map((e: any) => (
                           <div key={e.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderBottom:'1px solid #F3F4F6' }}>
                             <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-                              <div style={{ width:28,height:28,borderRadius:'50%',background:'var(--brand-dim)',color:'var(--brand)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:700 }}>
-                                {e.first_name?.[0]}{e.last_name?.[0]}
-                              </div>
+                              <EmployeeAvatar name={`${e.first_name ?? ''} ${e.last_name ?? ''}`} avatarUrl={e.avatar_url} size={28} fontSize={10} />
                               <span style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{e.first_name} {e.last_name}</span>
                             </div>
                             <span style={{ fontSize:13,fontWeight:700,color:'#166534' }}>${parseFloat(bulkAmount||'0').toFixed(2)}</span>
