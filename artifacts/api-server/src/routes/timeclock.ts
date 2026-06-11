@@ -704,6 +704,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     const jobsRes = await db.execute(sql`
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
+             j.job_lat, j.job_lng, j.address_lat, j.address_lng,
              j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type,
              COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
@@ -834,7 +835,14 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // Raw punch coordinates so the office can open the exact spot on
                  // a map — surfaced even when distance is null (job not geocoded).
                  gps_in_lat: number | null; gps_in_lng: number | null;
-                 gps_out_lat: number | null; gps_out_lng: number | null };
+                 gps_out_lat: number | null; gps_out_lng: number | null;
+                 // The job's own coordinates (the expected spot) so the GPS
+                 // map modal can drop a second pin + show the punch-vs-job gap.
+                 job_lat: number | null; job_lng: number | null };
+    const coordsOf = (j: any) => ({
+      job_lat: (j?.job_lat ?? j?.address_lat) != null ? Number(j.job_lat ?? j.address_lat) : null,
+      job_lng: (j?.job_lng ?? j?.address_lng) != null ? Number(j.job_lng ?? j.address_lng) : null,
+    });
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
       gps_out_ft: e?.clock_out_distance_ft != null ? Math.round(parseFloat(String(e.clock_out_distance_ft))) : null,
@@ -878,7 +886,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null, source: e?.source ?? null,
-          ...gpsOf(e),
+          ...gpsOf(e), ...coordsOf(j),
         });
       }
     }
@@ -891,7 +899,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null, source: e.source ?? null,
-        ...gpsOf(e),
+        ...gpsOf(e), ...coordsOf(j),
       });
     }
 
