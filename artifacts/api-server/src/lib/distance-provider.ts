@@ -95,7 +95,12 @@ async function tryDistanceMatrix(
       `?origins=${encodeURIComponent(origins)}` +
       `&destinations=${encodeURIComponent(destinations)}` +
       `&mode=driving` +
-      `&departure_time=now` +
+      // NOTE: do NOT send departure_time. It switches the request into
+      // traffic-aware mode, which Google authorizes as a separate API surface
+      // and rejects with REQUEST_DENIED unless the key is granted that extra
+      // entitlement. Mileage is paid on DISTANCE, not duration, so the
+      // traffic-aware duration buys us nothing — we use the plain driving
+      // distance (and the non-traffic duration for office visibility).
       `&key=${apiKey}`;
     const res = await fetch(url);
     if (!res.ok) {
