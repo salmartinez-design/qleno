@@ -115,6 +115,11 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
              (SELECT tc.job_id FROM timeclock tc
                WHERE tc.user_id = u.id
                  AND tc.clock_out_at IS NULL
+                 -- [stale-punch fix 2026-06-12] Only TODAY's open punches count as
+                 -- "currently on a job". Without this, an office-keyed IN with no
+                 -- OUT from a previous day (e.g. MC reconciliation) marked the
+                 -- tech as on that job indefinitely.
+                 AND tc.clock_in_at::date = CURRENT_DATE
                ORDER BY tc.clock_in_at DESC LIMIT 1) AS active_job_id
         FROM users u
        WHERE u.is_active = true

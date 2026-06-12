@@ -57,6 +57,17 @@ async function runBookingSchemaGuard(): Promise<void> {
       WHERE j.account_property_id = ap.id
         AND j.job_lat IS NULL AND ap.lat IS NOT NULL
     ` },
+    // [real-techs-only 2026-06-12] Flag Phes's known placeholder/test logins as
+    // sandbox so the Add tech picker (which filters is_sandbox) stops listing
+    // them. They were never flagged in the DB, so the #420 filter alone didn't
+    // drop them. is_sandbox keeps them OFF the picker while leaving their board
+    // rows/history intact (the dispatch board doesn't filter sandbox).
+    { label: "flag Generic Cleaner / Test Auditor as sandbox", stmt: `
+      UPDATE users SET is_sandbox = true
+      WHERE company_id = 1
+        AND COALESCE(is_sandbox, false) = false
+        AND lower(trim(COALESCE(first_name,'') || ' ' || COALESCE(last_name,''))) IN ('generic cleaner', 'test auditor')
+    ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
