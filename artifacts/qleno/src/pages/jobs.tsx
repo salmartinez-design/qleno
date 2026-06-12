@@ -2443,6 +2443,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     const durOf = (j: DispatchJob) => (j.duration_minutes && j.duration_minutes > 0 ? j.duration_minutes : (j.allowed_hours ? j.allowed_hours * 60 : 120));
                     const jobStart = timeToMins(job.scheduled_time);
                     const jobEnd = jobStart + durOf(job);
+                    // Phes office close. Hardcoded like LATE_THRESHOLD_MINUTES —
+                    // multi-tenant later → tenant_settings.close_time.
+                    const CLOSE_MINS = 18 * 60;
                     const jobZone = job.zone_id ?? null;
                     const fmtAmpm = (mins: number) => { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ap = h < 12 ? "AM" : "PM"; const h12 = ((h + 11) % 12) + 1; return `${h12}:${String(m).padStart(2, "0")} ${ap}`; };
                     const empById = new Map(employees.map(e => [e.id, e] as const));
@@ -2475,7 +2478,37 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       // Sort key for distance: real miles when known; else a zone-based
                       // proxy so same-zone (no coords) still beats far/unknown.
                       const distScore = dist != null ? dist : (sameZone ? 8 : 25);
-                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null, dist, distScore };
+                      // [safeguards 2026-06-12] Sal's call: WARN, never block — both
+                      // flags keep the tech rankable in Suggested; office decides.
+                      // 1) End-of-shift: with this job added, the tech's day would run
+                      //    past close (later of this job's end and their current last
+                      //    job's end).
+                      const lastEnd = empJobs.reduce((mx, j) => Math.max(mx, timeToMins(j.scheduled_time!) + durOf(j)), 0);
+                      const pastClose = available && Math.max(jobEnd, lastEnd) > CLOSE_MINS;
+                      // 2) Tight turnaround: free on paper, but the schedule-adjacent
+                      //    job (latest ending before this one / earliest starting after)
+                      //    is too far away for the gap. Drive estimate from straight-line
+                      //    miles: ×1.3 road factor at ~30 mph (2.6 min/mi) + 10 min
+                      //    wrap-up/parking. Only the adjacent legs matter — that's where
+                      //    the tech actually drives from/to.
+                      let tight: { gap: number; drive: number } | null = null;
+                      if (available && jLat != null && jLng != null) {
+                        let prev: DispatchJob | null = null, next: DispatchJob | null = null;
+                        for (const j of empJobs) {
+                          const s = timeToMins(j.scheduled_time!), e = s + durOf(j);
+                          if (e <= jobStart && (!prev || e > timeToMins(prev.scheduled_time!) + durOf(prev))) prev = j;
+                          if (s >= jobEnd && (!next || s < timeToMins(next.scheduled_time!))) next = j;
+                        }
+                        const legs: Array<{ adj: DispatchJob; gap: number }> = [];
+                        if (prev) legs.push({ adj: prev, gap: jobStart - (timeToMins(prev.scheduled_time!) + durOf(prev)) });
+                        if (next) legs.push({ adj: next, gap: timeToMins(next.scheduled_time!) - jobEnd });
+                        for (const { adj, gap } of legs) {
+                          if (adj.job_lat == null || adj.job_lng == null) continue;
+                          const drive = Math.ceil(milesBetween(jLat, jLng, adj.job_lat, adj.job_lng) * 2.6) + 10;
+                          if (gap < drive && (tight == null || drive - gap > tight.drive - tight.gap)) tight = { gap, drive };
+                        }
+                      }
+                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null, dist, distScore, pastClose, tight };
                     });
                     // SAFEGUARD: never SUGGEST a tech on PTO / sick / absent today.
                     // Best → ok: free at the job's time → CLOSEST to the job →
@@ -2483,16 +2516,30 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     const suggested = scored.filter(s => !s.timeOff).sort((a, b) => {
                       if (a.available !== b.available) return a.available ? -1 : 1;
                       if (a.available) {
+                        // Soft demotion only: a clean pick outranks one carrying a
+                        // warning, but a warned tech still surfaces when they're
+                        // the best on offer (Sal: warn, never block).
+                        const aw = (a.tight ? 1 : 0) + (a.pastClose ? 1 : 0);
+                        const bw = (b.tight ? 1 : 0) + (b.pastClose ? 1 : 0);
+                        if (aw !== bw) return aw - bw;
                         if (Math.abs(a.distScore - b.distScore) > 0.3) return a.distScore - b.distScore;
                         return a.jobCount - b.jobCount;
                       }
                       return a.freeAt - b.freeAt;
                     }).slice(0, 2);
+                    const warnsFor = (s: typeof scored[number]) => {
+                      const w: string[] = [];
+                      if (s.tight) w.push(`tight turnaround (${s.tight.gap} min gap, ~${s.tight.drive} min drive)`);
+                      if (s.pastClose) w.push("runs past 6 PM");
+                      return w;
+                    };
                     const reasonFor = (s: typeof scored[number]) => {
                       if (!s.available) return `Frees up ${fmtAmpm(s.freeAt)}`;
-                      if (s.dist != null) return `${s.dist < 0.1 ? "<0.1" : s.dist.toFixed(1)} mi away${s.sameZone ? " · same zone" : ""}`;
-                      if (s.sameZone) return `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open`;
-                      return s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today";
+                      const base = s.dist != null ? `${s.dist < 0.1 ? "<0.1" : s.dist.toFixed(1)} mi away${s.sameZone ? " · same zone" : ""}`
+                        : s.sameZone ? `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open`
+                        : s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today";
+                      const warns = warnsFor(s);
+                      return warns.length ? `${base} · ${warns.join(" · ")}` : base;
                     };
 
                     // Time off (PTO/sick/absent) is split out so it can never sit
@@ -2508,7 +2555,6 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     // [distance-order 2026-06-12] Available techs sort by real
                     // distance to the job (closest first), name as the tiebreak.
                     const distScoreOf = (id: number) => scoredById.get(id)?.distScore ?? 99;
-                    const distOf = (id: number) => scoredById.get(id)?.dist ?? null;
                     const byDistThenName = (a: TechRow, b: TechRow) => {
                       const da = distScoreOf(a.id), db_ = distScoreOf(b.id);
                       return Math.abs(da - db_) > 0.3 ? da - db_ : a.name.localeCompare(b.name);
@@ -2516,7 +2562,14 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     const offList = addTechList.filter(t => !!timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
                     const free = addTechList.filter(t => !timeOffOf(t.id) && isAvail(t.id)).sort(byDistThenName);
                     const working = addTechList.filter(t => !timeOffOf(t.id) && !isAvail(t.id)).sort((a, b) => a.name.localeCompare(b.name));
-                    const availLabel = (id: number) => { const d = distOf(id); return d != null ? `${d < 0.1 ? "<0.1" : d.toFixed(1)} mi away` : undefined; };
+                    const availLabel = (id: number) => {
+                      const s = scoredById.get(id);
+                      const d = s?.dist ?? null;
+                      const parts = d != null ? [`${d < 0.1 ? "<0.1" : d.toFixed(1)} mi away`] : [];
+                      if (s) parts.push(...warnsFor(s));
+                      return parts.length ? parts.join(" · ") : undefined;
+                    };
+                    const hasWarn = (id: number) => { const s = scoredById.get(id); return !!s && warnsFor(s).length > 0; };
                     const busyLabel = (id: number) => { const f = freeAtOf(id); return f != null ? `On a job · frees up ${fmtAmpm(f)}` : "On a job"; };
                     const offLabel = (id: number) => { const o = timeOffOf(id); return o === "pto" ? "On PTO today" : o === "sick" ? "Out sick today" : o === "absent" ? "Absent today" : ""; };
                     const groupHeader = (text: string) => (
@@ -2551,9 +2604,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     return (
                       <>
                         {suggested.length > 0 && groupHeader("Suggested")}
-                        {suggested.map(s => row(s.t, reasonFor(s), `sug-${s.t.id}`))}
+                        {suggested.map(s => row(s.t, reasonFor(s), `sug-${s.t.id}`, warnsFor(s).length ? "warn" : "good"))}
                         {free.length > 0 && groupHeader("Available")}
-                        {free.map(t => row(t, availLabel(t.id)))}
+                        {free.map(t => row(t, availLabel(t.id), undefined, hasWarn(t.id) ? "warn" : "good"))}
                         {working.length > 0 && groupHeader("On a job")}
                         {working.map(t => row(t, busyLabel(t.id), `busy-${t.id}`, "warn"))}
                         {offList.length > 0 && groupHeader("Time off")}
