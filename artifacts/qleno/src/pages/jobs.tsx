@@ -1603,7 +1603,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // vs "Currently on a job") using /api/users/techs-with-status. The endpoint
   // excludes already-assigned techs server-side via ?exclude=<ids>.
   const [addTechOpen, setAddTechOpen] = useState(false);
-  type TechRow = { id: number; name: string; role: string; is_clocked_in: boolean; currently_at: string | null };
+  type TechRow = { id: number; name: string; role: string; avatar_url?: string | null; is_clocked_in: boolean; currently_at: string | null };
   const [addTechList, setAddTechList] = useState<TechRow[]>([]);
   const [addTechLoading, setAddTechLoading] = useState(false);
   const [addTechBusy, setAddTechBusy] = useState(false);
