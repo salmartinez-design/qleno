@@ -4,6 +4,8 @@ import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, sco
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
+import { computeCommissionRows, type CommissionInputJob } from "../lib/commission-compute.js";
+import { parseResRatesRow } from "../lib/commission-rates.js";
 
 const router = Router();
 
@@ -1278,11 +1280,111 @@ async function computeAprilPayrollPct(companyId: number): Promise<{ payroll_pct:
   };
 }
 
+// [revenue-connect 2026-06-12] Payroll % — LAST COMPLETED WEEK (Sun–Sat,
+// America/Chicago), replacing the April-2026 pin now that the job_history
+// live bridge keeps the revenue ledger current past the MC cutover.
+// Numerator: commission via the shared engine (computeCommissionRows +
+// job_technicians.final_pay overrides) — the same formula behind the
+// payroll page's "PAYROLL % OF REV" header, so the two surfaces agree for
+// the same week. Denominator: job_history revenue for the week. Falls back
+// to the pinned April calc when the week has no ledger revenue (bridge not
+// yet run on this deploy / fresh tenant) so the card never blanks.
+async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_pct: number; payroll_window: string }> {
+  const nowCt = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const start = new Date(nowCt);
+  start.setDate(nowCt.getDate() - nowCt.getDay() - 7); // previous Sunday
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  const d = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const label = `${M[start.getMonth()]} ${start.getDate()} – ${M[end.getMonth()]} ${end.getDate()}`;
+
+  const revRow = await db.execute(sql`
+    SELECT COALESCE(SUM(revenue), 0)::numeric AS revenue FROM job_history
+    WHERE company_id = ${companyId}
+      AND job_date >= ${d(start)} AND job_date <= ${d(end)}
+  `);
+  const revenue = Number((revRow as any).rows[0]?.revenue ?? 0);
+  if (revenue <= 0) return computeAprilPayrollPct(companyId);
+
+  // Company comp settings — same resilient waterfall as /payroll/detail.
+  let compSettings: any = {
+    res_tech_pay_pct: 0.35,
+    deep_clean_pay_pct: 0.32,
+    move_in_out_pay_pct: 0.32,
+    commercial_hourly_rate: 20.0,
+    commercial_comp_mode: "allowed_hours",
+  };
+  try {
+    const rows = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+    if (rows.rows[0]) compSettings = rows.rows[0];
+  } catch { /* tiered columns absent — keep defaults */ }
+  const resRates = parseResRatesRow(compSettings);
+
+  const jobRows = await db.execute(sql`
+    SELECT j.id, j.assigned_user_id, j.service_type::text AS service_type, j.account_id,
+           j.base_fee, j.billed_amount, j.allowed_hours, j.actual_hours, j.branch_id,
+           j.scheduled_date::text AS scheduled_date, c.client_type
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+     WHERE j.company_id = ${companyId} AND j.status = 'complete'
+       AND j.scheduled_date >= ${d(start)} AND j.scheduled_date <= ${d(end)}
+  `);
+  const jobs: CommissionInputJob[] = (jobRows.rows as any[]).map(r => ({
+    id: Number(r.id),
+    // Commercial routing matches /payroll/detail: account link OR a
+    // commercial client_type. computeCommissionRows keys on account_id
+    // only, so a commercial client without an account gets a sentinel.
+    account_id: r.account_id != null ? Number(r.account_id) : (r.client_type === "commercial" ? -1 : null),
+    assigned_user_id: r.assigned_user_id != null ? Number(r.assigned_user_id) : null,
+    service_type: r.service_type ?? null,
+    base_fee: r.base_fee ?? null,
+    billed_amount: r.billed_amount ?? null,
+    allowed_hours: r.allowed_hours ?? null,
+    actual_hours: r.actual_hours ?? null,
+    branch_id: r.branch_id != null ? Number(r.branch_id) : null,
+    scheduled_date: String(r.scheduled_date),
+    client_type: r.client_type ?? null,
+  }));
+
+  // Per-job hand-set pay overrides (job_technicians.final_pay) win — same
+  // rule as the payroll surfaces.
+  const overrides = new Map<string, number>();
+  const jobIds = jobs.map(j => j.id);
+  if (jobIds.length > 0) {
+    try {
+      const t = await db.execute(sql`
+        SELECT job_id, user_id, final_pay FROM job_technicians
+        WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[]) AND final_pay IS NOT NULL
+      `);
+      for (const r of t.rows as any[]) {
+        const pay = parseFloat(String(r.final_pay));
+        if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
+      }
+    } catch { /* job_technicians absent on a fresh tenant — engine-computed only */ }
+  }
+
+  const commissionRows = computeCommissionRows({
+    jobs,
+    resRates,
+    commercial: {
+      commercial_hourly_rate: parseFloat(String(compSettings.commercial_hourly_rate ?? 20)),
+      commercial_comp_mode: compSettings.commercial_comp_mode === "actual_hours" ? "actual_hours" : "allowed_hours",
+    },
+    overrides,
+  });
+  const cost = commissionRows.reduce((s, r) => s + r.amount, 0);
+  return {
+    payroll_pct: Math.round((cost / revenue) * 1000) / 10,
+    payroll_window: label,
+  };
+}
+
 // Desktop BUSINESS HEALTH section. Same source-of-truth helpers as mobile.
 router.get("/business-health", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const [bh, pay] = await Promise.all([computeBusinessHealth(companyId), computeAprilPayrollPct(companyId)]);
+    const [bh, pay] = await Promise.all([computeBusinessHealth(companyId), computeLastWeekPayrollPct(companyId)]);
     return res.json({ ...bh, ...pay });
   } catch (err) {
     console.error("GET /dashboard/business-health error:", err);
@@ -1344,8 +1446,8 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
       // (job_history-sourced; see computeBusinessHealth). Single source of
       // truth shared with the desktop BUSINESS HEALTH section.
       computeBusinessHealth(companyId),
-      // Payroll % (April 2026 clean month) — shared with desktop.
-      computeAprilPayrollPct(companyId),
+      // Payroll % (last completed week) — shared with desktop.
+      computeLastWeekPayrollPct(companyId),
       // Next 7 days (jobs + revenue)
       db.execute(sql`
         SELECT
