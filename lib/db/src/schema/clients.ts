@@ -51,6 +51,10 @@ export const clientsTable = pgTable("clients", {
   default_card_last_4: text("default_card_last_4"),
   default_card_brand: text("default_card_brand"),
   client_type: clientTypeEnum("client_type").notNull().default("residential"),
+  // [commercial-category 2026-06-12] Sub-category for commercial clients
+  // (Office, Condo/HOA Common Areas, Church, ...). Free text; the UI offers
+  // a fixed top-10 list + Other. NULL for residential clients.
+  commercial_category: text("commercial_category"),
   billing_contact_name: text("billing_contact_name"),
   billing_contact_email: text("billing_contact_email"),
   billing_contact_phone: text("billing_contact_phone"),

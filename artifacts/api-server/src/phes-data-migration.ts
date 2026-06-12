@@ -479,6 +479,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "clients.stripe_payment_method_id", stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_payment_method_id TEXT` },
     { label: "clients.payment_source",           stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS payment_source TEXT` },
     { label: "clients.referral_source",          stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS referral_source TEXT` },
+    { label: "clients.commercial_category",      stmt: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS commercial_category TEXT` },
 
     // ── leads: extended columns added after initial schema ───────────────────
     { label: "leads.status",            stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'new'` },
