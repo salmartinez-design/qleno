@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable } from "@workspace/db/schema";
+import { usersTable, timeclockTable, additionalPayTable, jobsTable, clientsTable, accountsTable } from "@workspace/db/schema";
 import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
@@ -596,12 +596,18 @@ router.get("/detail", requireAuth, async (req, res) => {
         branch_id: jobsTable.branch_id,
         client_first: clientsTable.first_name,
         client_last: clientsTable.last_name,
+        // [account-name 2026-06-12] Commercial account jobs carry account_id
+        // with NO client_id, so the clients join is all-NULL and the
+        // per-client breakdown rendered "—" (Sal: 5/31 + 6/1 rows nameless).
+        // Surface the account's name as the display fallback.
+        account_name: accountsTable.account_name,
         // Commercial CLIENTS (no account_id) are still commercial for pay —
         // never a residential %. Routing below keys on account_id OR this.
         client_type: clientsTable.client_type,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+      .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
       .where(and(...jobConditions))
       .orderBy(jobsTable.scheduled_date);
 
@@ -772,7 +778,7 @@ router.get("/detail", requireAuth, async (req, res) => {
         return {
           job_id: job.id,
           date: job.scheduled_date,
-          client: `${job.client_first || ""} ${job.client_last || ""}`.trim(),
+          client: `${job.client_first || ""} ${job.client_last || ""}`.trim() || job.account_name || "",
           scope: job.service_type,
           job_total: jobTotal,
           commission,
