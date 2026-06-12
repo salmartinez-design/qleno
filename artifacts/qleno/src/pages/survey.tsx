@@ -6,6 +6,16 @@ import { QlenoLogo } from "@/components/brand/QlenoLogo";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// MaidCentral 0–4 satisfaction scale — the single question that feeds the
+// employee scorecard. Highest first (reads top-down on a phone).
+const OPTIONS: { score: number; label: string; sub: string; color: string }[] = [
+  { score: 4, label: "Thrilled — Great Work", sub: "Everything was excellent", color: "#16A34A" },
+  { score: 3, label: "Happy — Good Work", sub: "A good cleaning", color: "#65A30D" },
+  { score: 2, label: "A Few Concerns", sub: "Some things to improve", color: "#D97706" },
+  { score: 1, label: "Major Concerns", sub: "Several problems", color: "#DC2626" },
+  { score: 0, label: "Considering Another Company", sub: "Strongly dissatisfied", color: "#991B1B" },
+];
+
 export default function SurveyPage() {
   const [, params] = useRoute("/survey/:token");
   const token = params?.token || "";
@@ -17,8 +27,7 @@ export default function SurveyPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
 
-  const [rating, setRating] = useState<number | null>(null);
-  const [nps, setNps] = useState<number | null>(null);
+  const [score, setScore] = useState<number | null>(null);
   const [comment, setComment] = useState("");
 
   useEffect(() => {
@@ -35,14 +44,14 @@ export default function SurveyPage() {
   }, [token]);
 
   async function submit() {
-    if (rating === null || nps === null) return;
+    if (score === null) return;
     setSubmitting(true);
     setSubmitError("");
     try {
       const r = await fetch(`${API}/api/satisfaction/respond`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, nps_score: nps, rating, comment }),
+        body: JSON.stringify({ token, survey_score: score, comment }),
       });
       const d = await r.json();
       if (d.error) setSubmitError(d.error === "Already responded" ? "This survey has already been submitted. Thank you." : d.error);
@@ -53,7 +62,7 @@ export default function SurveyPage() {
     setSubmitting(false);
   }
 
-  const brand = meta?.brand_color || "#5B9BD5";
+  const brand = meta?.brand_color || "#00C9A0";
   const companyName = meta?.company_name || "Your cleaning company";
 
   if (loading) {
@@ -80,7 +89,7 @@ export default function SurveyPage() {
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F8F7F4", fontFamily: FF, padding: 24 }}>
         <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "48px 40px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
-          <CheckCircle size={48} style={{ color: "#22C55E", marginBottom: 16 }} />
+          <CheckCircle size={48} style={{ color: brand, marginBottom: 16 }} />
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 10px" }}>Thank you for your feedback.</h2>
           <p style={{ fontSize: 14, color: "#6B7280", margin: 0, lineHeight: "1.6" }}>
             We appreciate you trusting us with your home.
@@ -90,75 +99,54 @@ export default function SurveyPage() {
     );
   }
 
-  const RATING_LABELS: Record<number, string> = { 1: "Poor", 2: "Fair", 3: "Good", 4: "Great", 5: "Excellent" };
-  const canSubmit = rating !== null && nps !== null;
+  const canSubmit = score !== null;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8F7F4", fontFamily: FF, padding: "24px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }}>
-      <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "36px 28px", maxWidth: 500, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
+      <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "36px 24px", maxWidth: 480, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+        <div style={{ textAlign: "center", marginBottom: 28 }}>
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
             <QlenoLogo size="sm" theme="light" layout="horizontal" />
           </div>
           <div style={{ width: 44, height: 44, borderRadius: 11, backgroundColor: brand, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px", fontSize: 18, fontWeight: 800, color: "#FFFFFF" }}>
             {companyName[0]}
           </div>
           <h1 style={{ fontSize: 17, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{companyName}</h1>
-          <p style={{ fontSize: 10, color: "#9E9B94", margin: "0 0 8px", letterSpacing: "0.02em" }}>Powered by Qleno</p>
-          <p style={{ fontSize: 14, color: "#6B7280", margin: 0 }}>How was your cleaning today?</p>
+          <p style={{ fontSize: 10, color: "#9E9B94", margin: "0 0 10px", letterSpacing: "0.02em" }}>Powered by Qleno</p>
+          <p style={{ fontSize: 15, color: "#1A1917", fontWeight: 600, margin: 0 }}>How was your cleaning?</p>
         </div>
 
-        {/* Q1 — 1–5 circle rating */}
-        <div style={{ marginBottom: 28 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 14 }}>Rate your cleaning today</p>
-          <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-            {[1, 2, 3, 4, 5].map(s => (
-              <button key={s} onClick={() => setRating(s)} style={{
-                width: 52, height: 52, borderRadius: "50%",
-                border: `2px solid ${rating === s ? brand : "#E5E2DC"}`,
-                backgroundColor: rating === s ? brand : "#FFFFFF",
-                color: rating === s ? "#FFFFFF" : "#6B7280",
-                fontSize: 16, fontWeight: 700, cursor: "pointer",
-                display: "flex", alignItems: "center", justifyContent: "center",
+        {/* 0–4 satisfaction choices */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+          {OPTIONS.map(o => {
+            const sel = score === o.score;
+            return (
+              <button key={o.score} onClick={() => setScore(o.score)} style={{
+                display: "flex", alignItems: "center", gap: 14, textAlign: "left" as const,
+                padding: "14px 16px", borderRadius: 12, cursor: "pointer", width: "100%",
+                border: `2px solid ${sel ? o.color : "#E5E2DC"}`,
+                backgroundColor: sel ? `${o.color}12` : "#FFFFFF",
                 transition: "all 0.12s", fontFamily: FF,
               }}>
-                {s}
+                <div style={{
+                  width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
+                  backgroundColor: sel ? o.color : "#F3F4F6",
+                  color: sel ? "#FFFFFF" : "#6B7280",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 16, fontWeight: 800,
+                }}>{o.score}</div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: sel ? o.color : "#1A1917" }}>{o.label}</div>
+                  <div style={{ fontSize: 12, color: "#9E9B94" }}>{o.sub}</div>
+                </div>
               </button>
-            ))}
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, paddingLeft: 4, paddingRight: 4 }}>
-            <span style={{ fontSize: 10, color: "#9E9B94" }}>Poor</span>
-            <span style={{ fontSize: 10, color: "#9E9B94" }}>Good</span>
-            <span style={{ fontSize: 10, color: "#9E9B94" }}>Excellent</span>
-          </div>
-          {rating && (
-            <p style={{ textAlign: "center", fontSize: 12, color: brand, fontWeight: 600, marginTop: 6 }}>{RATING_LABELS[rating]}</p>
-          )}
+            );
+          })}
         </div>
 
-        {/* Q2 — NPS 0–10 */}
-        <div style={{ marginBottom: 28 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>How likely are you to recommend us to a friend or neighbor?</p>
-          <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 14px" }}>0 = Not at all likely · 10 = Extremely likely</p>
-          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" as const }}>
-            {Array.from({ length: 11 }, (_, i) => (
-              <button key={i} onClick={() => setNps(i)} style={{
-                width: 40, height: 40, borderRadius: 8,
-                border: `2px solid ${nps === i ? brand : "#E5E2DC"}`,
-                backgroundColor: nps === i ? brand : "#FFFFFF",
-                color: nps === i ? "#FFFFFF" : "#1A1917",
-                fontSize: 13, fontWeight: 600, cursor: "pointer",
-                transition: "all 0.12s", fontFamily: FF,
-              }}>
-                {i}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Q3 — Optional comment */}
-        <div style={{ marginBottom: 28 }}>
+        {/* Optional comment */}
+        <div style={{ marginBottom: 22 }}>
           <label style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", display: "block", marginBottom: 8 }}>
             Anything else you'd like to share? <span style={{ color: "#9E9B94", fontWeight: 400 }}>(optional)</span>
           </label>
