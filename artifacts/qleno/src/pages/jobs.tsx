@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { createPortal } from "react-dom";
 import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -3734,7 +3735,13 @@ function stripImportTags(notes: string | null | undefined): string {
   return notes.replace(/\[mc_import_phase[^\]]*\]/g, "").trim();
 }
 
-function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: string }) {
+function JobHoverCard({ job, assignedName, anchorRef, onCardEnter, onCardLeave }: {
+  job: DispatchJob;
+  assignedName?: string;
+  anchorRef: React.RefObject<HTMLElement | null>;
+  onCardEnter: () => void;
+  onCardLeave: () => void;
+}) {
   const endTime = minsToStr(timeToMins(job.scheduled_time) + job.duration_minutes);
   const allowedH = job.duration_minutes / 60;
   const isRecurring = job.frequency && job.frequency !== "on_demand";
@@ -3774,68 +3781,56 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   // edge to chip's right) when an edge would otherwise cut the card off.
   // Single re-render. No flash because useLayoutEffect runs synchronously
   // before the browser paints the initial position.
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [anchor, setAnchor] = useState<{ vertical: "below" | "above"; horizontal: "left" | "right" }>({
-    vertical: "below", horizontal: "left",
-  });
+  // [hover-rebuild 2026-06-04] Smart, always-fully-visible positioning. The
+  // card renders in a portal on document.body with position:fixed, so the
+  // timeline's overflow:auto can no longer clip it (the old absolute-in-chip
+  // anchor got cut off near edges and drifted per chip). We measure the card
+  // and the anchor chip against the viewport, then place the whole card
+  // on-screen: prefer below the chip, flip above when it won't fit, clamp
+  // horizontally, and only as a last resort cap the height + scroll. The top
+  // edge is always kept on-screen so the header (name + status) never clips.
+  const CARD_W = 320;
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; maxHeight: number } | null>(null);
 
   useLayoutEffect(() => {
-    const el = popoverRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    // [hotfix 2026-04-29 / closes #4] Compare against the nearest
-    // ancestor that establishes a clipping context (overflow auto/scroll/
-    // hidden), not against the viewport. The dispatch timeline is
-    // wrapped in `<div ref={timelineRef} style={{ overflow: 'auto' }}>`
-    // (jobs.tsx ~3543) — when its bottom edge sits above the viewport
-    // (smaller browser windows, footer/drawer present, the page's
-    // height: calc(100vh - 56px) math), chips near the bottom of the
-    // visible timeline could pass the old window-based flip check yet
-    // still get clipped by the timeline's overflow. Walking up the DOM
-    // gives us the actual clipping rectangle.
-    const scrollParent = getScrollParent(el.parentElement);
-    const bounds = scrollParent ? scrollParent.getBoundingClientRect() : null;
-    const topBound    = bounds ? bounds.top    : 0;
-    const bottomBound = bounds ? bounds.bottom : window.innerHeight;
-    const leftBound   = bounds ? bounds.left   : 0;
-    const rightBound  = bounds ? bounds.right  : window.innerWidth;
+    const card = cardRef.current;
+    const chip = anchorRef.current;
+    if (!card || !chip) return;
+    const cr = chip.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
     const margin = 12;
+    const gap = 8;
+    const cardH = card.offsetHeight;
 
-    let nextVertical = anchor.vertical;
-    let nextHorizontal = anchor.horizontal;
+    // Horizontal: align the card's left to the chip, then pull it back inside
+    // the viewport so the right edge never clips.
+    let left = cr.left;
+    if (left + CARD_W > vw - margin) left = vw - margin - CARD_W;
+    if (left < margin) left = margin;
 
-    // Vertical: measure the CHIP (the popover's positioned parent), not the
-    // popover, so room-above / room-below are real. The previous math derived
-    // both from the popover's own rect and inflated "space below" by a full
-    // card height, so the card rarely flipped and clipped on mid/low rows.
-    // Flip up when the card doesn't fit below and there's more room above.
-    const chipRect = el.parentElement ? el.parentElement.getBoundingClientRect() : rect;
-    const spaceBelow = bottomBound - chipRect.bottom;
-    const spaceAbove = chipRect.top - topBound;
-    if (rect.height + margin > spaceBelow && spaceAbove > spaceBelow) {
-      nextVertical = "above";
+    // Vertical: below if it fits, else above if it fits, else the side with
+    // more room (cap height, scroll internally). Never let the top clip.
+    const roomBelow = vh - margin - (cr.bottom + gap);
+    const roomAbove = (cr.top - gap) - margin;
+    let top: number;
+    let maxHeight = vh - margin * 2;
+    if (cardH <= roomBelow) {
+      top = cr.bottom + gap;
+    } else if (cardH <= roomAbove) {
+      top = cr.top - gap - cardH;
+    } else if (roomBelow >= roomAbove) {
+      top = cr.bottom + gap;
+      maxHeight = roomBelow;
+    } else {
+      maxHeight = roomAbove;
+      top = cr.top - gap - Math.min(cardH, maxHeight);
     }
+    if (top < margin) top = margin;
 
-    // Horizontal: flip right-anchor when the popover's right edge would
-    // clip past the scroll container's right edge.
-    if (rect.right > rightBound - margin) {
-      const spaceLeft = rect.right - leftBound;
-      if (spaceLeft > rect.width + margin) nextHorizontal = "right";
-    }
-
-    if (nextVertical !== anchor.vertical || nextHorizontal !== anchor.horizontal) {
-      setAnchor({ vertical: nextVertical, horizontal: nextHorizontal });
-    }
-  }, []);
-
-  const positionStyle: React.CSSProperties = {
-    ...(anchor.vertical === "below"
-      ? { top: "calc(100% + 8px)" }
-      : { bottom: "calc(100% + 8px)" }),
-    ...(anchor.horizontal === "left"
-      ? { left: 0 }
-      : { right: 0 }),
-  };
+    setPos({ top, left, maxHeight });
+  }, [job.id]);
 
   // [bugfix 2026-04-28] Zone chip color matches the tile bg exactly.
   // Previous 15% alpha tint read as a different shade than the saturated
@@ -3849,23 +3844,30 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   const zoneChipMutedFg = zoneChipIsLight ? "#4B5563" : "rgba(255,255,255,0.85)";
   const zoneChipDot = zoneChipIsLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.85)";
 
-  return (
-    // Native click bubbles up to parent JobChip → opens JobPanel drawer.
-    // Phone anchor and in-card buttons use their own stopPropagation as needed.
-    //
-    // [R] Positioning rebuilt after Q2's taller layout got clipped by the
-    // dispatch row container's overflow. Anchor is now TOP (renders below
-    // the chip) so the critical header (client name + status) is always
-    // visible even when hovering chips near the top of the viewport. Very
-    // tall content scrolls inside the card rather than overflowing.
-    <div ref={popoverRef} style={{
-      position: "absolute", ...positionStyle, zIndex: 9999,
-      width: 320,
-      maxHeight: "calc(100vh - 120px)", overflowY: "auto",
-      backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
-      borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
-      fontFamily: FF, padding: 0,
-    }}>
+  return createPortal(
+    // Portaled to document.body so the timeline's overflow can't clip it.
+    // React event bubbling still follows the component tree, so a click here
+    // bubbles to the parent JobChip → opens the JobPanel drawer. The card's
+    // own mouse enter/leave keep the hover alive while the cursor is on it
+    // (the chip's mouseleave would otherwise close it, since the portal is
+    // not a DOM child of the chip). Rendered hidden until measured (one
+    // useLayoutEffect pass) so it never flashes in the wrong spot.
+    <div ref={cardRef}
+      onMouseEnter={onCardEnter}
+      onMouseLeave={onCardLeave}
+      style={{
+        position: "fixed",
+        top: pos ? pos.top : -9999,
+        left: pos ? pos.left : -9999,
+        visibility: pos ? "visible" : "hidden",
+        zIndex: 9999,
+        width: CARD_W,
+        maxHeight: pos ? pos.maxHeight : "calc(100vh - 24px)",
+        overflowY: "auto",
+        backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC",
+        borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.14)",
+        fontFamily: FF, padding: 0,
+      }}>
       {/* ─── HEADER ─── */}
       <div style={{ padding: "20px 20px 16px", borderBottom: sectionBorder }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
@@ -4087,7 +4089,8 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
       <div style={{ padding: "12px 20px 16px", borderTop: sectionBorder, fontSize: 12, fontWeight: 500, color: "#9E9B94", textAlign: "center" }}>
         Click for full details &rarr;
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -4257,11 +4260,25 @@ function JobChip({
   // drag overlay is transient.
   const [hovered, setHovered] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The portaled hover card positions itself against this chip element.
+  // Combine our ref with dnd's node ref (both must point at the chip div).
+  const chipRef = useRef<HTMLDivElement | null>(null);
+  const setChipRef = (el: HTMLDivElement | null) => { dnd.setNodeRef(el); chipRef.current = el; };
+  // [hover-rebuild 2026-06-04] The hover card now renders in a portal (so it
+  // can't be clipped by the timeline's overflow). A portaled card is NOT a DOM
+  // child of the chip, so moving the mouse onto it fires the chip's mouseleave.
+  // Bridge the gap: closing is deferred briefly and the card cancels it on
+  // enter, so the user can travel onto the card (phone link, full-details
+  // click) without it vanishing.
+  function cancelClose() { if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; } }
+  function scheduleClose() { cancelClose(); closeTimer.current = setTimeout(() => setHovered(false), 140); }
   function onEnter() {
     if (layout !== "timeline") return;
+    cancelClose();
     hoverTimer.current = setTimeout(() => setHovered(true), 400);
   }
-  function onLeave() { if (hoverTimer.current) clearTimeout(hoverTimer.current); setHovered(false); }
+  function onLeave() { if (hoverTimer.current) clearTimeout(hoverTimer.current); scheduleClose(); }
 
   const baseShadow = layout === "list"
     ? "0 1px 2px rgba(0,0,0,0.04)"
@@ -4397,7 +4414,7 @@ function JobChip({
 
   // ───── Layout: timeline (default) ─────
   return (
-    <div ref={dnd.setNodeRef}
+    <div ref={setChipRef}
       onClick={e => { e.stopPropagation(); setHovered(false); onClick(job); }}
       onMouseEnter={onEnter} onMouseLeave={onLeave}
       {...dnd.listeners} {...dnd.attributes}
@@ -4443,7 +4460,7 @@ function JobChip({
           NO SHOW
         </div>
       )}
-      {hovered && !dnd.isDragging && <JobHoverCard job={job} assignedName={assignedName} />}
+      {hovered && !dnd.isDragging && <JobHoverCard job={job} assignedName={assignedName} anchorRef={chipRef} onCardEnter={cancelClose} onCardLeave={scheduleClose} />}
     </div>
   );
 }
