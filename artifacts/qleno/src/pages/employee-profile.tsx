@@ -616,8 +616,9 @@ export default function EmployeeProfilePage() {
   const effByPackage = new Map<string, number>(
     (efficiencyData?.rows || []).map((r: any) => [r.service_type, parseFloat(r.efficiency_pct)]),
   );
-  // Include any stored package not in the catalog (e.g. an unmapped MC label).
-  const effPackages = [...effCatalog, ...[...effByPackage.keys()].filter(k => !effCatalog.includes(k))];
+  // Only the budgeted/time-target packages (the catalog) are shown — pure-hourly
+  // packages are intentionally excluded from efficiency entirely.
+  const effPackages = effCatalog;
 
   const { data: incentivesData = [] } = useQuery<any[]>({
     queryKey: ['incentives-earned', userId],

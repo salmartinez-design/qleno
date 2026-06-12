@@ -13,8 +13,6 @@ const router = Router();
 const MC_TO_QLENO: Record<string, string> = {
   "Deep Clean or Move In/Out": "Deep Clean or Move In/Out",
   "Commercial Cleaning": "Commercial Cleaning",
-  "Hourly Deep Clean or Move In/Out": "Hourly Deep Clean",
-  "Hourly Standard Cleaning": "Hourly Standard Cleaning",
   "Multi-Unit Common Areas": "Common Areas",
   "One-Time/Flat-Rate Standard Cleaning": "One-Time Flat-Rate Standard Cleaning",
   "PPM Common Areas": "PPM Common Areas",
@@ -22,13 +20,25 @@ const MC_TO_QLENO: Record<string, string> = {
   "Recurring Cleaning": "Recurring Cleaning",
 };
 
+// Pure-hourly packages have no time target, so efficiency is not meaningful —
+// these MC labels are dropped entirely on import (not stored, not displayed).
+const HOURLY_MC_LABELS = new Set<string>([
+  "Hourly Deep Clean or Move In/Out",
+  "Hourly Standard Cleaning",
+  "Hourly Tasks",
+]);
+
 // The full Qleno package catalog efficiency is keyed to: active residential
 // quote_scopes + active commercial_service_types, in a stable display order.
 async function loadCatalog(companyId: number): Promise<string[]> {
+  // Only packages with a TIME TARGET are scored. Residential quote_scopes that
+  // are pure-hourly (no flat-rate budget) are excluded — their names are
+  // prefixed "Hourly". Commercial service types are all allowed-hours budgeted.
   const res = await db.execute(sql`
     SELECT name, 0 AS grp, sort FROM (
       SELECT name, id AS sort FROM quote_scopes
        WHERE company_id = ${companyId} AND is_active = true
+         AND name NOT ILIKE 'Hourly%'
     ) q
     UNION ALL
     SELECT name, 1 AS grp, id AS sort FROM commercial_service_types
@@ -95,18 +105,20 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
     const unresolved: any[] = [];
     const unmapped_labels = new Set<string>();
     const touchedEmps = new Set<number>();
-    let updated = 0, skipped_no_data = 0;
+    let updated = 0, skipped_no_data = 0, dropped_hourly = 0;
 
     type Norm = { uid: number; service_type: string; pct: number; period: string };
     const norm: Norm[] = [];
     for (const r of rows) {
       const uid = resolve(r);
       if (uid == null) { unresolved.push({ ref: r.email ?? r.name ?? r.user_id, service_type: r.service_type }); continue; }
+      const label = String(r.service_type ?? "").trim();
+      if (!label) { skipped_no_data++; continue; }
+      // Pure-hourly packages have no time target — drop entirely (not scored).
+      if (HOURLY_MC_LABELS.has(label)) { dropped_hourly++; continue; }
       const pct = parseFloat(r.efficiency_pct);
       // No-data rule: 0 / blank / NaN → skip (not a real 0% efficiency).
       if (!Number.isFinite(pct) || pct <= 0) { skipped_no_data++; continue; }
-      const label = String(r.service_type ?? "").trim();
-      if (!label) { skipped_no_data++; continue; }
       const qleno = MC_TO_QLENO[label];
       if (!qleno) unmapped_labels.add(label);
       norm.push({ uid, service_type: qleno ?? label, pct, period: r.period ? String(r.period) : "all_time" });
@@ -136,7 +148,7 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
       updated++;
     }
 
-    return res.json({ ok: true, updated, skipped_no_data, unresolved, unmapped_labels: [...unmapped_labels] });
+    return res.json({ ok: true, updated, skipped_no_data, dropped_hourly, unresolved, unmapped_labels: [...unmapped_labels] });
   } catch (err) {
     console.error("Efficiency import error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to import efficiency" });
