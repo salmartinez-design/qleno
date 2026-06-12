@@ -1020,7 +1020,7 @@ router.get("/reconciliation-audit", requireAuth, requireRole("owner", "admin", "
         const hrs = allowed > 0 ? allowed : clocked;
         const expected = r2(commercialRate * hrs);
         commercial_misroutes.push({
-          job_id: r.id, date: r.date, name: r.name, service_type: st, tech: r.tech,
+          job_id: r.id, client_id: r.client_id ?? null, date: r.date, name: r.name, service_type: st, tech: r.tech,
           job_total: r2(jobTotal), pct_paid: Math.round(pct * 100), paid_residential: paid,
           hours: r2(hrs), expected_commercial: expected, delta: r2(paid - expected),
         });

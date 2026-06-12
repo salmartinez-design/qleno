@@ -2601,6 +2601,28 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         </div>
                       </button>
                     );
+                    // [retro-add 2026-06-12] PAST job: adding a tech is
+                    // record-keeping ("who actually worked it"), not dispatch.
+                    // Suggested picks, frees-up times, time-off, and the
+                    // end-of-shift / turnaround warnings are meaningless after
+                    // the fact (Sal hit "frees up 4:00 PM" on a June 9 job
+                    // three days later) — show the flat roster instead. The
+                    // commission split picks the late addition up from
+                    // job_technicians, which is exactly the missing-split-
+                    // partner fix path.
+                    const nowChi = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+                    const todayYmd = `${nowChi.getFullYear()}-${String(nowChi.getMonth() + 1).padStart(2, "0")}-${String(nowChi.getDate()).padStart(2, "0")}`;
+                    const isPastJob = !!job.scheduled_date && job.scheduled_date < todayYmd;
+                    if (isPastJob) {
+                      return (
+                        <>
+                          <div style={{ fontSize: 11, color: "#B45309", background: "#FEF3E2", border: "1px solid #F3D9B0", borderRadius: 7, padding: "8px 10px", marginBottom: 4, fontFamily: FF }}>
+                            Past job — availability checks skipped. Add whoever actually worked it; the pay split updates from the team list.
+                          </div>
+                          {[...addTechList].sort((a, b) => a.name.localeCompare(b.name)).map(t => row(t))}
+                        </>
+                      );
+                    }
                     return (
                       <>
                         {suggested.length > 0 && groupHeader("Suggested")}
