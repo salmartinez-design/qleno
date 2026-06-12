@@ -441,6 +441,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
     // there's no way to enter or correct the business name from the UI.
     company_name: client.company_name || "",
     client_type: (client.client_type === "commercial" ? "commercial" : "residential") as "residential" | "commercial",
+    commercial_category: client.commercial_category || "",
     phone: client.phone || "", email: client.email || "",
     address: client.address || "", city: client.city || "", state: client.state || "", zip: client.zip || "",
     home_access_notes: client.home_access_notes || "", alarm_code: client.alarm_code || "",
@@ -605,6 +606,9 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
         ...form,
         cancel_fee_pct: form.cancel_fee_pct === "" ? null : Number(form.cancel_fee_pct),
         lockout_fee_pct: form.lockout_fee_pct === "" ? null : Number(form.lockout_fee_pct),
+        // Category only applies to commercial clients; clear it on a flip
+        // back to residential so stale labels don't linger.
+        commercial_category: form.client_type === "commercial" && form.commercial_category !== "" ? form.commercial_category : null,
       });
       onToast("Profile updated");
       onClose();
@@ -649,6 +653,25 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
               ))}
             </div>
           </div>
+          {/* [commercial-category 2026-06-12] Sub-category for commercial
+              clients — drives reporting segmentation (Office vs Common Areas
+              vs Church, etc.). Fixed top-10 list + Other; free-text values
+              saved by older data still display via the fallback option. */}
+          {form.client_type === "commercial" && (
+            <div>
+              {lbl("Commercial Category")}
+              <select value={form.commercial_category} onChange={e => setForm(f => ({ ...f, commercial_category: e.target.value }))}
+                style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, color: "#1A1917", fontFamily: FF, outline: "none", background: "#FFFFFF", boxSizing: "border-box" }}>
+                <option value="">Select a category…</option>
+                {["Office", "Condo / HOA Common Areas", "Church / Place of Worship", "Property Mgmt / Turnover", "Medical / Dental Office", "Retail / Storefront", "Gym / Fitness Studio", "School / Daycare", "Restaurant / Food Service", "Airbnb / Short-Term Rental", "Other Commercial"].map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+                {form.commercial_category !== "" && !["Office", "Condo / HOA Common Areas", "Church / Place of Worship", "Property Mgmt / Turnover", "Medical / Dental Office", "Retail / Storefront", "Gym / Fitness Studio", "School / Daycare", "Restaurant / Food Service", "Airbnb / Short-Term Rental", "Other Commercial"].includes(form.commercial_category) && (
+                  <option value={form.commercial_category}>{form.commercial_category}</option>
+                )}
+              </select>
+            </div>
+          )}
           <div>
             {lbl(form.client_type === "commercial" ? "Company Name" : "Company Name (optional)")}
             <input value={form.company_name} onChange={upd("company_name")}
