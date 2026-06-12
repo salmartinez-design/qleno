@@ -102,6 +102,10 @@ router.get("/", requireAuth, async (req, res) => {
         allowed_hours: jobsTable.allowed_hours,
         notes: jobsTable.notes,
         zone_id: jobsTable.zone_id,
+        // [distance-order 2026-06-12] Job coords (geocoded; address fallback) so
+        // the Add tech picker can rank candidates by real distance, not just zone.
+        job_lat: sql<number | null>`COALESCE(${jobsTable.job_lat}, ${jobsTable.address_lat})`,
+        job_lng: sql<number | null>`COALESCE(${jobsTable.job_lng}, ${jobsTable.address_lng})`,
         // [Q2/S] Zone name/color — prefer direct JOIN (when jobs.zone_id set).
         // Fall back to deriving from clients.zip via service_zones.zip_codes.
         // [S] Second fallback: extract first 5-digit ZIP pattern from
@@ -692,6 +696,9 @@ router.get("/", requireAuth, async (req, res) => {
         client_payment_method: j.client_payment_method ?? null,
         client_type: (j as any).client_type ?? null,
         address: displayAddress,
+        // [distance-order 2026-06-12] Job coords for the Add tech distance sort.
+        job_lat: (j as any).job_lat != null ? Number((j as any).job_lat) : null,
+        job_lng: (j as any).job_lng != null ? Number((j as any).job_lng) : null,
         // [inline-edit] Raw fields for the address editor's mode detection.
         job_address_street: (j as any).job_address_street ?? null,
         job_address_city:   (j as any).job_address_city ?? null,
