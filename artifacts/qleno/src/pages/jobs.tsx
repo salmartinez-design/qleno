@@ -2438,16 +2438,21 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     const jobEnd = jobStart + durOf(job);
                     const jobZone = job.zone_id ?? null;
                     const fmtAmpm = (mins: number) => { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ap = h < 12 ? "AM" : "PM"; const h12 = ((h + 11) % 12) + 1; return `${h12}:${String(m).padStart(2, "0")} ${ap}`; };
+                    const empById = new Map(employees.map(e => [e.id, e] as const));
+                    const timeOffOf = (id: number) => empById.get(id)?.time_off ?? null;
                     const scored = addTechList.map(t => {
-                      const emp = employees.find(e => e.id === t.id);
+                      const emp = empById.get(t.id);
                       const empJobs = (emp?.jobs ?? []).filter(j => j.id !== job.id && j.scheduled_time);
                       const overlapping = empJobs.filter(j => { const s = timeToMins(j.scheduled_time!); return s < jobEnd && (s + durOf(j)) > jobStart; });
                       const available = overlapping.length === 0;
                       const sameZone = jobZone != null && !!emp?.zone && emp.zone.zone_id === jobZone;
                       const freeAt = available ? jobStart : Math.max(...overlapping.map(j => timeToMins(j.scheduled_time!) + durOf(j)));
-                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null };
+                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null };
                     });
-                    const suggested = [...scored].sort((a, b) => {
+                    // SAFEGUARD: never SUGGEST a tech who's on PTO / sick / absent
+                    // today. Best → ok: free at the job's time → same zone →
+                    // lighter load; if none free, whoever frees up soonest.
+                    const suggested = scored.filter(s => !s.timeOff).sort((a, b) => {
                       if (a.available !== b.available) return a.available ? -1 : 1;
                       if (a.available) { if (a.sameZone !== b.sameZone) return a.sameZone ? -1 : 1; return a.jobCount - b.jobCount; }
                       return a.freeAt - b.freeAt;
@@ -2456,14 +2461,19 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       ? (s.sameZone ? `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open` : (s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today"))
                       : `Frees up ${fmtAmpm(s.freeAt)}`;
 
-                    const free = addTechList.filter(t => !t.is_clocked_in).sort((a, b) => a.name.localeCompare(b.name));
-                    const working = addTechList.filter(t => t.is_clocked_in).sort((a, b) => a.name.localeCompare(b.name));
+                    // Time off (PTO/sick/absent) is split out so it can never sit
+                    // under "Available"; still listed (amber) for a deliberate
+                    // override if the office really needs to assign them.
+                    const offList = addTechList.filter(t => !!timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const free = addTechList.filter(t => !t.is_clocked_in && !timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const working = addTechList.filter(t => t.is_clocked_in && !timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const offLabel = (id: number) => { const o = timeOffOf(id); return o === "pto" ? "On PTO today" : o === "sick" ? "Out sick today" : o === "absent" ? "Absent today" : ""; };
                     const groupHeader = (text: string) => (
                       <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 2px 6px", marginTop: 4 }}>
                         {text}
                       </div>
                     );
-                    const row = (t: TechRow, subtitle?: string, keyId?: string) => (
+                    const row = (t: TechRow, subtitle?: string, keyId?: string, tone: "good" | "warn" = "good") => (
                       <button key={keyId ?? String(t.id)} onClick={() => addTechToJob(t.id)} disabled={addTechBusy}
                         style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 8px", border: "none", background: "transparent", cursor: addTechBusy ? "wait" : "pointer", borderRadius: 8, fontFamily: FF, textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#F7F6F3"}
@@ -2475,7 +2485,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
                           {subtitle ? (
-                            <div style={{ fontSize: 11, color: "#00936F", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>
+                            <div style={{ fontSize: 11, color: tone === "warn" ? "#B45309" : "#00936F", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>
                           ) : (<>
                             <div style={{ fontSize: 11, color: "#9E9B94", textTransform: "capitalize" }}>{(t.role || "").replace("_", " ")}</div>
                             {t.currently_at && (
@@ -2495,6 +2505,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         {free.map(t => row(t))}
                         {working.length > 0 && groupHeader("Currently on a job")}
                         {working.map(t => row(t))}
+                        {offList.length > 0 && groupHeader("Time off")}
+                        {offList.map(t => row(t, offLabel(t.id), `off-${t.id}`, "warn"))}
                       </>
                     );
                   })()}
