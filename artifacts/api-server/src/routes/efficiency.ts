@@ -4,6 +4,7 @@ import { employeeEfficiencyTable, usersTable } from "@workspace/db/schema";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { recomputeAllEfficiency } from "../lib/efficiency-engine.js";
+import { resolveWindow } from "../lib/report-periods.js";
 
 const router = Router();
 
@@ -51,6 +52,70 @@ async function loadCatalog(companyId: number): Promise<string[]> {
   `);
   return (res.rows as any[]).map(r => r.name);
 }
+
+// GET /api/efficiency/report — time-bucketed efficiency over a window.
+//   ?scope=employee|company  &period=rolling_90d|month|quarter|year|custom
+//   &date=YYYY-MM-DD (anchor)  &from=&to= (custom)  &employee_id= (employee scope)
+//   &package= (optional filter)
+// Computed from the LIVE source='qleno' per-job entries (which carry dates).
+// Both per-package and overall use the hours-weighted 100×Σallowed_share÷Σactual.
+// The imported 'mc' baseline is a single fixed window with no per-job dates, so
+// it is not time-bucketable and is excluded from reports (it stays the all-time
+// headline on the profile). MUST be declared before "/:employee_id".
+router.get("/report", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const scope = req.query.scope === "company" ? "company" : "employee";
+    const win = resolveWindow(String(req.query.period ?? "rolling_90d"), {
+      anchor: req.query.date, from: req.query.from, to: req.query.to,
+    });
+    const pkg = req.query.package ? String(req.query.package) : null;
+    const pkgCond = pkg ? sql`AND package = ${pkg}` : sql``;
+
+    const overallOf = (rows: any[]) => {
+      const a = rows.reduce((s, r) => s + parseFloat(r.allowed), 0);
+      const h = rows.reduce((s, r) => s + parseFloat(r.actual), 0);
+      return h > 0 ? Math.round((100 * a / h) * 100) / 100 : null;
+    };
+    const shape = (rows: any[]) => rows.map((r: any) => ({
+      package: r.package,
+      efficiency_pct: r.efficiency_pct != null ? parseFloat(r.efficiency_pct) : null,
+      jobs: Number(r.jobs),
+      ...(r.techs != null ? { techs: Number(r.techs) } : {}),
+    }));
+
+    if (scope === "employee") {
+      const employeeId = parseInt(String(req.query.employee_id ?? ""));
+      if (isNaN(employeeId)) return res.status(400).json({ error: "employee_id required for scope=employee" });
+      const r = await db.execute(sql`
+        SELECT package,
+               ROUND(100 * SUM(allowed_share) / NULLIF(SUM(actual_hours), 0), 2) AS efficiency_pct,
+               SUM(allowed_share)::numeric AS allowed, SUM(actual_hours)::numeric AS actual,
+               COUNT(*)::int AS jobs
+          FROM efficiency_entries
+         WHERE company_id = ${companyId} AND employee_id = ${employeeId} AND source = 'qleno'
+           AND entry_date >= ${win.from} AND entry_date <= ${win.to} ${pkgCond}
+         GROUP BY package ORDER BY efficiency_pct DESC NULLS LAST`);
+      const rows = r.rows as any[];
+      return res.json({ scope, employee_id: employeeId, window: win, overall: overallOf(rows), packages: shape(rows), catalog: await loadCatalog(companyId) });
+    }
+
+    const r = await db.execute(sql`
+      SELECT package,
+             ROUND(100 * SUM(allowed_share) / NULLIF(SUM(actual_hours), 0), 2) AS efficiency_pct,
+             SUM(allowed_share)::numeric AS allowed, SUM(actual_hours)::numeric AS actual,
+             COUNT(*)::int AS jobs, COUNT(DISTINCT employee_id)::int AS techs
+        FROM efficiency_entries
+       WHERE company_id = ${companyId} AND source = 'qleno'
+         AND entry_date >= ${win.from} AND entry_date <= ${win.to} ${pkgCond}
+       GROUP BY package ORDER BY efficiency_pct DESC NULLS LAST`);
+    const rows = r.rows as any[];
+    return res.json({ scope: "company", window: win, overall: overallOf(rows), packages: shape(rows), catalog: await loadCatalog(companyId) });
+  } catch (err) {
+    console.error("Efficiency report error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build efficiency report" });
+  }
+});
 
 // GET /api/efficiency/:employee_id → { rows, catalog, avg_efficiency }
 // rows = stored efficiency for this employee; catalog = every Qleno package so
