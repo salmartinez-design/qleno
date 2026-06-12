@@ -55,4 +55,5 @@ migration/
 !.env.example
 
 # Per-developer tool config (contains absolute paths)
-.claude/
+.claude/*
+!.claude/settings.json
