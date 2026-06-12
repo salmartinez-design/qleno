@@ -1355,6 +1355,34 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_efficiency_entries_emp_pkg",
       stmt: `CREATE INDEX IF NOT EXISTS idx_efficiency_entries_emp_pkg ON efficiency_entries(company_id, employee_id, package)` },
+
+    // ── Scorecard customer-survey system (per-tenant; Twilio-gated send) ──
+    { label: "companies.survey_enabled",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS survey_enabled BOOLEAN NOT NULL DEFAULT false` },
+    { label: "companies.survey_message_template",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS survey_message_template TEXT DEFAULT 'Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}'` },
+    { label: "companies.survey_send_after_hours",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS survey_send_after_hours INTEGER NOT NULL DEFAULT 0` },
+    { label: "companies.twilio_enabled",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS twilio_enabled BOOLEAN NOT NULL DEFAULT false` },
+    { label: "companies.twilio_account_sid",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS twilio_account_sid TEXT` },
+    { label: "companies.twilio_auth_token",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS twilio_auth_token TEXT` },
+    { label: "satisfaction_surveys.survey_score",
+      stmt: `ALTER TABLE satisfaction_surveys ADD COLUMN IF NOT EXISTS survey_score INTEGER` },
+    { label: "scorecard_entries.excluded",
+      stmt: `ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT false` },
+    { label: "scorecard_entries.survey_id",
+      stmt: `ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS survey_id INTEGER` },
+    { label: "users.scorecard_pct_mc",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct_mc NUMERIC(5,2)` },
+    { label: "users.scorecard_pct_source",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct_source TEXT DEFAULT 'mc'` },
+    // Snapshot the imported MC baseline into scorecard_pct_mc once (idempotent:
+    // only fills rows where the baseline isn't captured yet).
+    { label: "backfill scorecard_pct_mc",
+      stmt: `UPDATE users SET scorecard_pct_mc = scorecard_pct WHERE scorecard_pct IS NOT NULL AND scorecard_pct_mc IS NULL` },
   ];
 
   for (const { label, stmt } of guards) {

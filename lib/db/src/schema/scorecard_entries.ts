@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, numeric, text, date, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, numeric, text, date, timestamp, boolean, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -22,6 +22,11 @@ export const scorecardEntriesTable = pgTable("scorecard_entries", {
   score_value: numeric("score_value", { precision: 8, scale: 2 }).notNull(),
   max_value: numeric("max_value", { precision: 8, scale: 2 }).notNull().default("100"),
   source: text("source").notNull().default("mc"), // 'mc' | 'qleno'
+  // Office "Exclude from employee" action (MC parity) — excluded responses
+  // (e.g. 0-scores / churn flags) drop out of the tech's mean.
+  excluded: boolean("excluded").notNull().default(false),
+  // Links a qleno entry back to its customer survey response.
+  survey_id: integer("survey_id"),
   notes: text("notes"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [

@@ -61,6 +61,12 @@ export const usersTable = pgTable("users", {
   // MC's authoritative value on import (NOT recomputed — MC's % is not a simple
   // average of job scores). Per-job history lives in scorecard_entries.
   scorecard_pct: numeric("scorecard_pct", { precision: 5, scale: 2 }),
+  // Coexistence (mirrors efficiency mc/qleno): scorecard_pct is the LIVE headline
+  // — the qleno survey-derived value once responses exist, else the imported MC
+  // baseline. scorecard_pct_mc preserves the MC import; scorecard_pct_source
+  // tracks which is currently shown.
+  scorecard_pct_mc: numeric("scorecard_pct_mc", { precision: 5, scale: 2 }),
+  scorecard_pct_source: text("scorecard_pct_source").default("mc"),
   // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Replaces
   // the company-wide single-rate model. Type can be 'commission' (rate
   // is a fraction 0.00–1.00) or 'hourly' (rate is dollars/hour). The

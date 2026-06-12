@@ -3,8 +3,92 @@ import { db } from "@workspace/db";
 import { scorecardsTable, scorecardEntriesTable, usersTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, avg, count, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { resolveWindow } from "../lib/report-periods.js";
+import { recomputeAllScorecards, recomputeEmployeeScorecard } from "../lib/scorecard-engine.js";
 
 const router = Router();
+
+// GET /api/scorecards/report — time-bucketed scorecard over a window.
+//   ?scope=employee|company &period=rolling_90d|month|quarter|year|custom
+//   &date= (anchor) &from=&to= (custom) &employee_id= (employee scope)
+// MC formula: score % = unweighted MEAN of non-excluded 0–4 responses ÷ max ×100.
+// Company = unweighted mean of ALL responses (entry-level — NOT avg of tech
+// averages). Computed from live source='qleno' dated entries.
+router.get("/report", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const scope = req.query.scope === "company" ? "company" : "employee";
+    const win = resolveWindow(String(req.query.period ?? "rolling_90d"), {
+      anchor: req.query.date, from: req.query.from, to: req.query.to,
+    });
+    const base = sql`source = 'qleno' AND excluded = false AND company_id = ${companyId}
+      AND entry_date >= ${win.from} AND entry_date <= ${win.to}`;
+
+    if (scope === "employee") {
+      const employeeId = parseInt(String(req.query.employee_id ?? ""));
+      if (isNaN(employeeId)) return res.status(400).json({ error: "employee_id required for scope=employee" });
+      const r = await db.execute(sql`
+        SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
+          FROM scorecard_entries WHERE ${base} AND employee_id = ${employeeId}`);
+      const row: any = r.rows[0] ?? {};
+      return res.json({ scope, employee_id: employeeId, window: win, score_pct: row.score_pct != null ? parseFloat(row.score_pct) : null, responses: Number(row.responses ?? 0) });
+    }
+
+    // Company: overall (unweighted mean of all responses) + per-tech breakdown.
+    const overall = await db.execute(sql`
+      SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
+        FROM scorecard_entries WHERE ${base}`);
+    const byTech = await db.execute(sql`
+      SELECT e.employee_id, (u.first_name || ' ' || u.last_name) AS name,
+             ROUND(AVG(e.score_value / NULLIF(e.max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
+        FROM scorecard_entries e LEFT JOIN users u ON u.id = e.employee_id
+       WHERE ${base} GROUP BY e.employee_id, u.first_name, u.last_name
+       ORDER BY score_pct DESC NULLS LAST`);
+    const o: any = overall.rows[0] ?? {};
+    return res.json({
+      scope: "company", window: win,
+      score_pct: o.score_pct != null ? parseFloat(o.score_pct) : null,
+      responses: Number(o.responses ?? 0),
+      employees: (byTech.rows as any[]).map(r => ({ employee_id: r.employee_id, name: r.name, score_pct: r.score_pct != null ? parseFloat(r.score_pct) : null, responses: Number(r.responses) })),
+    });
+  } catch (err) {
+    console.error("Scorecard report error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build scorecard report" });
+  }
+});
+
+// PATCH /api/scorecards/entries/:id/exclude { excluded } — office "Exclude from
+// employee" action; recomputes the affected tech's headline.
+router.patch("/entries/:id/exclude", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const excluded = req.body?.excluded !== false;
+    const [row] = await db.update(scorecardEntriesTable)
+      .set({ excluded })
+      .where(and(eq(scorecardEntriesTable.id, id), eq(scorecardEntriesTable.company_id, companyId)))
+      .returning({ employee_id: scorecardEntriesTable.employee_id });
+    if (!row) return res.status(404).json({ error: "Entry not found" });
+    await recomputeEmployeeScorecard(companyId, row.employee_id);
+    return res.json({ ok: true, excluded, employee_id: row.employee_id });
+  } catch (err) {
+    console.error("Scorecard exclude error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to update entry" });
+  }
+});
+
+// POST /api/scorecards/recompute — backfill qleno scorecard headlines from
+// non-excluded survey responses. MC baseline preserved.
+router.post("/recompute", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const result = await recomputeAllScorecards(req.auth!.companyId!);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("Scorecard recompute error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to recompute scorecards" });
+  }
+});
 
 router.get("/", requireAuth, async (req, res) => {
   try {
