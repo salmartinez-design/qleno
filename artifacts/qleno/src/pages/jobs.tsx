@@ -1055,6 +1055,22 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
         allowed_hours: String(durationH.toFixed(2)),
         cascade_scope: scope,
       };
+      // [time-edit price recompute 2026-06-04] Keep the commercial price in
+      // step with the hours.
+      //   • Rate-driven jobs (manual_rate_override = false) already bill
+      //     hourly_rate × allowed_hours LIVE, so updating allowed_hours above
+      //     is enough — we must NOT send base_fee (that would flip the job to a
+      //     pinned price and break the live billing).
+      //   • Pinned jobs (manual_rate_override = true) DON'T follow hours on
+      //     their own — that's Diana's PPM stuck at $170 when 4.5h should read
+      //     $245. Re-pin them using the same formula the Edit modal uses:
+      //     base_fee = hourly_rate × allowed_hours + add-ons (parking).
+      const isCommercialJob = job.account_id != null || job.client_type === "commercial";
+      const hourly = job.hourly_rate != null ? Number(job.hourly_rate) : 0;
+      if (isCommercialJob && job.manual_rate_override && hourly > 0) {
+        const addonSum = (job.add_ons ?? []).reduce((s, a) => s + Number((a as any).subtotal ?? 0), 0);
+        payload.base_fee = (Math.round((hourly * durationH + addonSum) * 100) / 100).toFixed(2);
+      }
       // Only pass the schedule's day_of_week field when actually
       // cascading to the schedule template (this_and_future / all).
       // 'this_job' / 'remove_this' don't touch the schedule.
