@@ -12,6 +12,7 @@ import { runSmokeTests } from "./lib/smoke-test.js";
 import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
+import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -165,6 +166,19 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
   }
+  // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
+  // jobs into the revenue ledger past each tenant's MC-import end date, so
+  // the dashboard forecast / business health / client history stay live
+  // after the MC cutover instead of freezing at the last imported week.
+  try {
+    await ensureJobHistoryLiveBridgeSchema();
+    const r = await syncJobHistoryLiveBridge();
+    if (r.inserted || r.updated || r.removed) {
+      console.log(`[job-history-bridge] startup sync: +${r.inserted} ~${r.updated} -${r.removed}`);
+    }
+  } catch (err: any) {
+    console.error("[startup] job-history bridge — non-fatal:", err?.message ?? err);
+  }
   // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
   // is live AND enforced in production. Non-fatal: pay computation
   // independently filters at the application layer, but the deploy log
@@ -245,6 +259,22 @@ async function startup() {
   }, 5000); // 5s delay to let migrations finish
   startNotificationCron();
   startFollowUpCron();
+
+  // [revenue-connect 2026-06-12] Hourly job_history re-sync — keeps the
+  // revenue ledger current so yesterday's completions appear in the
+  // dashboard forecast next morning (the forecast reads past days from
+  // job_history, not the jobs table). Cheap: set-based statements gated
+  // by NOT EXISTS / IS DISTINCT FROM.
+  setInterval(async () => {
+    try {
+      const r = await syncJobHistoryLiveBridge();
+      if (r.inserted || r.updated || r.removed) {
+        console.log(`[job-history-bridge] sync: +${r.inserted} ~${r.updated} -${r.removed}`);
+      }
+    } catch (err: any) {
+      console.error("[job-history-bridge] tick failed:", err?.message);
+    }
+  }, 60 * 60 * 1000);
 
   // QuickBooks sync queue drain worker — every 60s, runs syncAll() for each
   // QB-connected tenant. Retries failed rows up to attempts<3 (logic lives in
