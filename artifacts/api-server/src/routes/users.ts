@@ -57,6 +57,14 @@ router.get("/", requireAuth, async (req, res) => {
       SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
              u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
              u.hire_date, u.avatar_url, u.scorecard_pct,
+             -- [payroll-roster 2026-06-12] Sandbox/archive/termination flags so
+             -- list consumers (the payroll page's billableEmployees filter) can
+             -- exclude test fixtures and former staff. The filter already
+             -- existed client-side, but these fields were never in the
+             -- response, so e.is_sandbox was undefined and "Generic Cleaner"
+             -- passed straight through into the payroll roster.
+             COALESCE(u.is_sandbox, false) AS is_sandbox,
+             u.archived_at, u.termination_date,
              (SELECT ROUND(AVG(d.pct))::int FROM (
                 SELECT DISTINCT ON (ee.service_type) ee.efficiency_pct AS pct
                   FROM employee_efficiency ee
