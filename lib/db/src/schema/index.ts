@@ -8,6 +8,7 @@ export * from "./timeclock";
 export * from "./invoices";
 export * from "./scorecards";
 export * from "./scorecard_entries";
+export * from "./employee_efficiency";
 export * from "./additional_pay";
 export * from "./loyalty";
 export * from "./audit_log";

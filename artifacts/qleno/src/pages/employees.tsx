@@ -201,10 +201,10 @@ export default function EmployeesPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #EEECE7' }}>
-                {['Employee', 'Role', 'Pay Structure', 'Productivity', 'Score', 'Invite', ''].map(h => (
+                {['Employee', 'Role', 'Pay Structure', 'Efficiency', 'Score', 'Invite', ''].map(h => (
                   <th key={h} style={{
                     padding: '12px 20px',
-                    textAlign: (h === 'Productivity' || h === 'Score') ? 'center' : 'left',
+                    textAlign: (h === 'Efficiency' || h === 'Score') ? 'center' : 'left',
                     fontSize: '11px', fontWeight: 500, color: '#9E9B94',
                     textTransform: 'uppercase', letterSpacing: '0.06em',
                   } as React.CSSProperties}>{h}</th>
@@ -216,7 +216,8 @@ export default function EmployeesPage() {
                 <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading team members…</td></tr>
               ) : employees.map(user => {
                 const roleBadge = ROLE_BADGES[user.role] || ROLE_BADGES.technician;
-                const productivity = (user as any).productivity_pct || 85;
+                const efficiency = (user as any).avg_efficiency;
+                const hasEfficiency = efficiency != null && Number.isFinite(Number(efficiency)) && Number(efficiency) > 0;
                 const invited = inviteSent === user.id || !!(user as any).invite_sent_at;
                 return (
                   <tr
@@ -246,7 +247,7 @@ export default function EmployeesPage() {
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', justifyContent: 'center' }}>
-                        <ProductivityRing pct={productivity} />
+                        {hasEfficiency ? <ProductivityRing pct={Number(efficiency)} /> : <span style={{ fontSize: '13px', color: '#9E9B94' }}>—</span>}
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
