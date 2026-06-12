@@ -3,9 +3,23 @@ import { db } from "@workspace/db";
 import { satisfactionSurveysTable, jobsTable, clientsTable, usersTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, desc, isNotNull, avg, count, sql, gte, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { captureSurveyScore } from "../lib/scorecard-engine.js";
 import crypto from "crypto";
 
 const router = Router();
+
+// Send an SMS via the tenant's Twilio REST credentials. No SDK dependency.
+async function sendTwilioSms(sid: string, authToken: string, from: string, to: string, body: string): Promise<void> {
+  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: {
+      "Authorization": "Basic " + Buffer.from(`${sid}:${authToken}`).toString("base64"),
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ From: from, To: to, Body: body }).toString(),
+  });
+  if (!resp.ok) throw new Error(`Twilio ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+}
 
 // ── POST /api/satisfaction/send — with 30-day throttle ──
 router.post("/send", requireAuth, async (req, res) => {
@@ -43,15 +57,60 @@ router.post("/send", requireAuth, async (req, res) => {
       return res.json({ sent: false, reason: "throttled", survey });
     }
 
-    const [survey] = await db.insert(satisfactionSurveysTable).values({
-      company_id: companyId,
-      job_id: parseInt(job_id),
-      customer_id: parseInt(customer_id),
-      token,
-      sent_at: new Date(),
-    }).returning();
+    // Tenant survey/Twilio config + customer phone. The SMS only actually sends
+    // when survey + Twilio are enabled, creds present, COMMS on, and a phone
+    // exists — otherwise the survey row is created but suppressed with the
+    // reason (Twilio is OFF until go-live, so today it suppresses, by design).
+    const [company] = await db
+      .select({
+        survey_enabled: companiesTable.survey_enabled,
+        survey_message_template: companiesTable.survey_message_template,
+        twilio_enabled: companiesTable.twilio_enabled,
+        twilio_account_sid: companiesTable.twilio_account_sid,
+        twilio_auth_token: companiesTable.twilio_auth_token,
+        twilio_from_number: companiesTable.twilio_from_number,
+      })
+      .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
+    const [client] = await db
+      .select({ phone: clientsTable.phone, first_name: clientsTable.first_name })
+      .from(clientsTable).where(eq(clientsTable.id, parseInt(customer_id))).limit(1);
 
-    return res.status(201).json({ sent: true, ...survey, survey_url: `/survey/${token}` });
+    const gate =
+      !company?.survey_enabled ? "survey_disabled"
+      : !company?.twilio_enabled ? "twilio_disabled"
+      : !(company.twilio_account_sid && company.twilio_auth_token && company.twilio_from_number) ? "twilio_unconfigured"
+      : process.env.COMMS_ENABLED !== "true" ? "comms_disabled"
+      : !client?.phone ? "no_phone"
+      : null;
+
+    if (gate) {
+      const [survey] = await db.insert(satisfactionSurveysTable).values({
+        company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
+        token, sent_at: new Date(), suppressed: true, suppressed_reason: gate,
+      }).returning();
+      return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}` });
+    }
+
+    const base = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
+    const link = `${base}/survey/${token}`;
+    const body = (company.survey_message_template || "How was your cleaning? Rate us: {{survey_link}}")
+      .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
+      .replace(/\{\{\s*survey_link\s*\}\}/g, link);
+    try {
+      await sendTwilioSms(company.twilio_account_sid!, company.twilio_auth_token!, company.twilio_from_number!, client!.phone!, body);
+    } catch (e: any) {
+      const [survey] = await db.insert(satisfactionSurveysTable).values({
+        company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
+        token, sent_at: new Date(), suppressed: true, suppressed_reason: `twilio_error: ${String(e?.message ?? e).slice(0, 120)}`,
+      }).returning();
+      return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link });
+    }
+
+    const [survey] = await db.insert(satisfactionSurveysTable).values({
+      company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
+      token, sent_at: new Date(),
+    }).returning();
+    return res.status(201).json({ sent: true, ...survey, survey_url: link });
   } catch (err) {
     console.error("[satisfaction/send]", err);
     return res.status(500).json({ error: "Server error" });
@@ -61,7 +120,9 @@ router.post("/send", requireAuth, async (req, res) => {
 // ── POST /api/satisfaction/respond — PUBLIC, no auth ──
 router.post("/respond", async (req, res) => {
   try {
-    const { token, nps_score, rating, comment } = req.body;
+    // survey_score = MaidCentral 0–4 satisfaction (the scorecard input).
+    // nps_score/rating still accepted for back-compat with the legacy page.
+    const { token, survey_score, nps_score, rating, comment } = req.body;
     if (!token) return res.status(400).json({ error: "token required" });
 
     const survey = await db.select().from(satisfactionSurveysTable)
@@ -70,10 +131,14 @@ router.post("/respond", async (req, res) => {
     if (!survey[0]) return res.status(404).json({ error: "Survey not found" });
     if (survey[0].responded_at) return res.status(409).json({ error: "Already responded" });
 
-    const follow_up_required = nps_score != null && nps_score <= 6;
+    const score04 = survey_score != null && Number.isFinite(Number(survey_score))
+      ? Math.max(0, Math.min(4, Math.round(Number(survey_score)))) : null;
+    // Follow-up when the 0–4 score signals concerns (≤2), or legacy NPS ≤6.
+    const follow_up_required = (score04 != null && score04 <= 2) || (nps_score != null && nps_score <= 6);
 
     const [updated] = await db.update(satisfactionSurveysTable)
       .set({
+        survey_score: score04,
         nps_score: nps_score ?? null,
         rating: rating ?? null,
         comment: comment || null,
@@ -82,6 +147,21 @@ router.post("/respond", async (req, res) => {
       })
       .where(eq(satisfactionSurveysTable.token, token))
       .returning();
+
+    // Attribute the 0–4 to the job's tech(s) → scorecard_entries → recompute.
+    if (score04 != null && updated.job_id) {
+      try {
+        const [job] = await db.select({ dt: jobsTable.scheduled_date })
+          .from(jobsTable).where(eq(jobsTable.id, updated.job_id)).limit(1);
+        const entryDate = job?.dt ? String(job.dt).slice(0, 10) : new Date().toISOString().slice(0, 10);
+        await captureSurveyScore({
+          companyId: updated.company_id, jobId: updated.job_id, surveyId: updated.id,
+          score: score04, entryDate, notes: comment || null,
+        });
+      } catch (e: any) {
+        console.error("[satisfaction/respond] scorecard capture failed (non-fatal):", e?.message ?? e);
+      }
+    }
 
     return res.json(updated);
   } catch (err) {

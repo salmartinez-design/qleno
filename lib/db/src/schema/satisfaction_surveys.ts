@@ -13,6 +13,10 @@ export const satisfactionSurveysTable = pgTable("satisfaction_surveys", {
   responded_at: timestamp("responded_at"),
   nps_score: integer("nps_score"),
   rating: integer("rating"),
+  // MaidCentral 0–4 satisfaction scale (4 Thrilled … 0 Considering Another
+  // Company) — the scorecard input. Replaces nps/rating going forward; old
+  // columns kept for back-compat with any legacy responses.
+  survey_score: integer("survey_score"),
   comment: text("comment"),
   follow_up_required: boolean("follow_up_required").notNull().default(false),
   suppressed: boolean("suppressed").notNull().default(false),

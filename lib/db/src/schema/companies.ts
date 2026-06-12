@@ -131,6 +131,19 @@ export const companiesTable = pgTable("companies", {
   ot_seventh_day_rule: boolean("ot_seventh_day_rule").notNull().default(false),
   ot_multiplier: numeric("ot_multiplier", { precision: 4, scale: 2 }).notNull().default("1.50"),
   ot_doubletime_multiplier: numeric("ot_doubletime_multiplier", { precision: 4, scale: 2 }).notNull().default("2.00"),
+  // ── Post-job customer survey (scorecard input) — Company Settings → Customer
+  //    Comms. Per-tenant. The SMS send is Twilio-gated and OFF until go-live. ──
+  survey_enabled: boolean("survey_enabled").notNull().default(false),
+  survey_message_template: text("survey_message_template").default(
+    "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
+  ),
+  survey_send_after_hours: integer("survey_send_after_hours").notNull().default(0),
+  // Per-tenant Twilio connection (Settings → Integrations). twilio_from_number
+  // already exists above. twilio_enabled is the go-live gate — surveys/SMS only
+  // actually send when this is true AND creds are set AND COMMS_ENABLED=true.
+  twilio_enabled: boolean("twilio_enabled").notNull().default(false),
+  twilio_account_sid: text("twilio_account_sid"),
+  twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
