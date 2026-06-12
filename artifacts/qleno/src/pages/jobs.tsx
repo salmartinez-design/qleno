@@ -1614,8 +1614,15 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     const existingIds = new Set<number>();
     for (const t of (job.technicians ?? [])) existingIds.add(t.user_id);
     if (job.assigned_user_id) existingIds.add(job.assigned_user_id);
-    const excludeParam = existingIds.size ? `?exclude=${Array.from(existingIds).join(",")}` : "";
-    fetch(`${_API3}/api/users/techs-with-status${excludeParam}`, { headers: { Authorization: `Bearer ${token}` } })
+    // [pool 2026-06-12] Branch-isolate the candidate pool: an Oak Lawn job
+    // should only offer Oak Lawn (or branch-less) techs. The endpoint already
+    // supports ?branch_id and treats NULL home_branch as dispatchable anywhere;
+    // the modal just never passed it.
+    const params = new URLSearchParams();
+    if (existingIds.size) params.set("exclude", Array.from(existingIds).join(","));
+    if (job.branch_id != null) params.set("branch_id", String(job.branch_id));
+    const qs = params.toString() ? `?${params}` : "";
+    fetch(`${_API3}/api/users/techs-with-status${qs}`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
       .then(d => setAddTechList(Array.isArray(d?.data) ? d.data : []))
       .catch(() => setAddTechList([]))
