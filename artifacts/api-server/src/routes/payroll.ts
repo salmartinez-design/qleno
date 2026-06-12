@@ -885,6 +885,174 @@ router.get("/detail", requireAuth, async (req, res) => {
   }
 });
 
+// ── Reconciliation audit (MC transition) ─────────────────────────────────────
+// [recon-audit 2026-06-12] One screen instead of tab-flipping into MaidCentral.
+// For a pay window, surfaces every job/day whose pay inputs look wrong, in the
+// exact categories the Juan Salazar penny-reconciliation exposed:
+//   1. commercial_misroutes — job's service type is a commercial scope (from
+//      the tenant-managed commercial_service_types table + the built-in legacy
+//      slugs) but the client carries no account link / commercial flag, so the
+//      engine paid the residential % instead of commercial hourly. Reports the
+//      paid-vs-expected delta per job (4009 W 93rd Condo: $145.87 vs $44).
+//   2. solo_pools — big residential pool jobs (allowed >= 5h) carrying <= 1
+//      tech: the likely missing-split-partner case (Cameron Goth: one tech
+//      took the whole 32% pool that MC split two ways).
+//   3. stale_scheduled — past jobs in the window never marked complete. They
+//      pay nobody and bill nothing (the May revenue hole + the all-$0 current
+//      week both come from this).
+//   4. clocked_no_job — tech punched a clock on a day with no completed job
+//      attached to them (job missing from Qleno entirely, e.g. Issa Sweis 6/6).
+//   5. unlinked_jobs — completed jobs with neither client_id nor account_id.
+// Read-only; office fixes the data through the normal surfaces.
+router.get("/reconciliation-audit", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const from = String(req.query.from ?? "");
+    const to = String(req.query.to ?? "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: "Bad Request", message: "from and to (YYYY-MM-DD) are required" });
+    }
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+
+    // Company comp config — same resilient waterfall as /detail.
+    let compSettings: any = {
+      res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32,
+      commercial_hourly_rate: 20.0, commercial_comp_mode: "allowed_hours",
+    };
+    try {
+      const rows = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+      if (rows.rows[0]) compSettings = rows.rows[0];
+    } catch { /* tiered columns absent — defaults */ }
+    const resRates = parseResRatesRow(compSettings);
+    const commercialRate = parseFloat(String(compSettings.commercial_hourly_rate ?? 20));
+
+    // Commercial scopes: tenant-managed slugs (active AND deactivated — old
+    // jobs keep their slug) plus the built-in legacy set that predates the
+    // commercial_service_types table.
+    const commercialSlugs = new Set<string>(["commercial_cleaning", "office_cleaning", "common_areas", "ppm_turnover"]);
+    try {
+      const r = await db.execute(sql`SELECT slug FROM commercial_service_types WHERE company_id = ${companyId}`);
+      for (const row of r.rows as any[]) commercialSlugs.add(String(row.slug).toLowerCase());
+    } catch { /* table absent on a fresh tenant */ }
+
+    const [completedRows, staleRows, staleCountRow, clockRows] = await Promise.all([
+      db.execute(sql`
+        SELECT j.id, j.scheduled_date::text AS date, j.service_type::text AS service_type,
+               j.account_id, j.client_id, j.base_fee, j.billed_amount, j.allowed_hours,
+               COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''), a.account_name) AS name,
+               c.client_type,
+               NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS tech,
+               (SELECT COUNT(*)::int FROM job_technicians jt WHERE jt.job_id = j.id) AS tech_count,
+               COALESCE((SELECT SUM(EXTRACT(EPOCH FROM (tc.clock_out_at - tc.clock_in_at)) / 3600.0)
+                           FROM timeclock tc WHERE tc.job_id = j.id AND tc.clock_out_at IS NOT NULL), 0) AS clocked_hours
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          LEFT JOIN accounts a ON a.id = j.account_id
+          LEFT JOIN users u ON u.id = j.assigned_user_id
+         WHERE j.company_id = ${companyId} AND j.status = 'complete'
+           AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
+      `),
+      db.execute(sql`
+        SELECT j.id, j.scheduled_date::text AS date, j.status::text AS status,
+               COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''), a.account_name) AS name,
+               NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS tech,
+               COALESCE(CAST(j.billed_amount AS NUMERIC), CAST(j.base_fee AS NUMERIC), 0) AS amount
+          FROM jobs j
+          LEFT JOIN clients c ON c.id = j.client_id
+          LEFT JOIN accounts a ON a.id = j.account_id
+          LEFT JOIN users u ON u.id = j.assigned_user_id
+         WHERE j.company_id = ${companyId}
+           AND j.status IN ('scheduled', 'in_progress')
+           AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
+           AND j.scheduled_date <= (now() AT TIME ZONE 'America/Chicago')::date
+         ORDER BY j.scheduled_date, j.id
+         LIMIT 50
+      `),
+      db.execute(sql`
+        SELECT COUNT(*)::int AS n FROM jobs j
+         WHERE j.company_id = ${companyId}
+           AND j.status IN ('scheduled', 'in_progress')
+           AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
+           AND j.scheduled_date <= (now() AT TIME ZONE 'America/Chicago')::date
+      `),
+      db.execute(sql`
+        SELECT tc.user_id,
+               NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS name,
+               tc.clock_in_at::date::text AS date,
+               ROUND(SUM(EXTRACT(EPOCH FROM (COALESCE(tc.clock_out_at, tc.clock_in_at) - tc.clock_in_at)) / 3600.0)::numeric, 1) AS hours
+          FROM timeclock tc
+          JOIN users u ON u.id = tc.user_id
+         WHERE tc.company_id = ${companyId}
+           AND tc.clock_in_at::date >= ${from} AND tc.clock_in_at::date <= ${to}
+           AND COALESCE(u.is_sandbox, false) = false
+           AND NOT EXISTS (
+             SELECT 1 FROM jobs j
+              WHERE j.company_id = ${companyId} AND j.status = 'complete'
+                AND j.assigned_user_id = tc.user_id
+                AND j.scheduled_date = tc.clock_in_at::date)
+           AND NOT EXISTS (
+             SELECT 1 FROM job_technicians jt
+              JOIN jobs j2 ON j2.id = jt.job_id
+              WHERE jt.user_id = tc.user_id AND j2.status = 'complete'
+                AND j2.scheduled_date = tc.clock_in_at::date)
+         GROUP BY tc.user_id, u.first_name, u.last_name, tc.clock_in_at::date
+         ORDER BY tc.clock_in_at::date, name
+      `),
+    ]);
+
+    const commercial_misroutes: any[] = [];
+    const solo_pools: any[] = [];
+    const unlinked_jobs: any[] = [];
+    for (const r of completedRows.rows as any[]) {
+      const st = String(r.service_type ?? "").toLowerCase();
+      const allowed = parseFloat(String(r.allowed_hours ?? "0")) || 0;
+      const clocked = r2(parseFloat(String(r.clocked_hours ?? "0")) || 0);
+      const jobTotal = parseFloat(String(r.billed_amount ?? "")) || parseFloat(String(r.base_fee ?? "")) || 0;
+      const isCommercialRouted = r.account_id != null || r.client_type === "commercial";
+
+      if (r.client_id == null && r.account_id == null) {
+        unlinked_jobs.push({ job_id: r.id, date: r.date, service_type: st, tech: r.tech, amount: r2(jobTotal) });
+      }
+      if (!isCommercialRouted && commercialSlugs.has(st)) {
+        const pct = resolveResidentialPayPct(st, resRates);
+        const paid = r2(jobTotal * pct);
+        // Hours signal mirrors the engine: allowed when present, else clocked.
+        const hrs = allowed > 0 ? allowed : clocked;
+        const expected = r2(commercialRate * hrs);
+        commercial_misroutes.push({
+          job_id: r.id, date: r.date, name: r.name, service_type: st, tech: r.tech,
+          job_total: r2(jobTotal), pct_paid: Math.round(pct * 100), paid_residential: paid,
+          hours: r2(hrs), expected_commercial: expected, delta: r2(paid - expected),
+        });
+      }
+      if (!isCommercialRouted && !commercialSlugs.has(st) && allowed >= 5 && Number(r.tech_count) <= 1) {
+        const pct = resolveResidentialPayPct(st, resRates);
+        solo_pools.push({
+          job_id: r.id, date: r.date, name: r.name, service_type: st, tech: r.tech,
+          allowed_hours: r2(allowed), clocked_hours: clocked,
+          tech_count: Number(r.tech_count), pool_paid: r2(jobTotal * pct),
+        });
+      }
+    }
+    commercial_misroutes.sort((a, b) => b.delta - a.delta);
+
+    return res.json({
+      data: {
+        from, to,
+        commercial_misroutes,
+        solo_pools,
+        stale_scheduled: { total: Number((staleCountRow.rows[0] as any)?.n ?? 0), rows: staleRows.rows },
+        clocked_no_job: clockRows.rows,
+        unlinked_jobs,
+        potential_overpay: r2(commercial_misroutes.reduce((s, m) => s + m.delta, 0)),
+      },
+    });
+  } catch (err) {
+    console.error("Payroll reconciliation-audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to run reconciliation audit" });
+  }
+});
+
 // ── Payroll-to-Revenue trend (weekly, with YOY overlay) ───────────────────────
 // [payroll-trend 2026-06-08] Company-level weekly revenue vs payroll for the
 // Payroll summary chart (MaidCentral "Payroll to Revenue" parity + a YOY
