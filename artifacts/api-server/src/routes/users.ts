@@ -118,6 +118,11 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
                ORDER BY tc.clock_in_at DESC LIMIT 1) AS active_job_id
         FROM users u
        WHERE u.is_active = true
+         -- [real-techs-only 2026-06-12] Exclude sandbox/test logins and archived
+         -- staff (e.g. "Test Auditor", "Generic Cleaner") — the canonical
+         -- "real active tech" filter used elsewhere (admin.ts).
+         AND u.archived_at IS NULL
+         AND COALESCE(u.is_sandbox, false) = false
          -- [add-team-member fix 2026-06-11] Match the dispatch board field-worker
          -- rule EXACTLY (routes/dispatch.ts): any active user who is not
          -- office/admin/owner, plus office/admin explicitly tagged field or
