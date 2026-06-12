@@ -82,11 +82,28 @@ const qualityColor = (q: number | null | undefined) =>
 // and unlinked jobs. Read-only — fixes happen in the normal surfaces.
 function ReconciliationAudit({ from, to }: { from: string; to: string }) {
   const [collapsed, setCollapsed] = useState(false);
+  const qc = useQueryClient();
+  const [marking, setMarking] = useState<number | null>(null);
   const { data, isLoading } = useQuery<any>({
     queryKey: ['payroll-recon-audit', from, to],
     queryFn: () => apiFetch(`/payroll/reconciliation-audit?from=${from}&to=${to}`),
     enabled: !!from && !!to,
   });
+  // [one-click-fix 2026-06-12] Flip the client to commercial right from the
+  // misroute row — the same PUT the Edit Client modal's type toggle uses.
+  // The row disappears from the audit (and the engine repays hourly) on the
+  // refetch, which is the confirmation.
+  const markCommercial = async (clientId: number) => {
+    setMarking(clientId);
+    try {
+      await apiFetch(`/clients/${clientId}`, { method: 'PUT', body: JSON.stringify({ client_type: 'commercial' }) });
+      qc.invalidateQueries({ queryKey: ['payroll-recon-audit'] });
+      qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+      qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+    } finally {
+      setMarking(null);
+    }
+  };
   const d = data?.data;
   const findings = d
     ? d.commercial_misroutes.length + d.solo_pools.length + d.stale_scheduled.total + d.clocked_no_job.length + d.unlinked_jobs.length
@@ -144,7 +161,7 @@ function ReconciliationAudit({ from, to }: { from: string; to: string }) {
         'Commercial work paid as residential %',
         'Service type is a commercial scope, but the client has no account link or commercial flag, so the engine paid the residential pool. Fix: mark the client commercial or link the account, then the row pays hourly.',
         String(d.commercial_misroutes.length),
-        ['Date', 'Client', 'Scope', 'Paid', 'Should be', 'Overpay'],
+        ['Date', 'Client', 'Scope', 'Paid', 'Should be', 'Overpay', ''],
         d.commercial_misroutes.map((m: any) => (
           <tr key={m.job_id}>
             <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
@@ -153,6 +170,14 @@ function ReconciliationAudit({ from, to }: { from: string; to: string }) {
             <td style={td}>{m.pct_paid}% of {money(m.job_total)} = <b>{money(m.paid_residential)}</b></td>
             <td style={td}>hourly × {Number(m.hours).toFixed(1)}h = <b>{money(m.expected_commercial)}</b></td>
             <td style={{ ...td, color: '#DC2626', fontWeight: 700 }}>{money(m.delta)}</td>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>
+              {m.client_id != null && (
+                <button onClick={() => markCommercial(m.client_id)} disabled={marking === m.client_id}
+                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--brand)', background: 'transparent', color: 'var(--brand)', fontSize: 11, fontWeight: 700, cursor: marking === m.client_id ? 'wait' : 'pointer', fontFamily: 'inherit' }}>
+                  {marking === m.client_id ? 'Saving…' : 'Mark commercial'}
+                </button>
+              )}
+            </td>
           </tr>
         )),
       )}

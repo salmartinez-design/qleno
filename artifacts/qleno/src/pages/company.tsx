@@ -473,7 +473,7 @@ function GeneralTab() {
   const { toast } = useToast();
   const { activeBranchId } = useBranch();
   const [name, setName] = useState('');
-  const [payCadence, setPayCadence] = useState('biweekly');
+  const [payCadence, setPayCadence] = useState('weekly');
   const [paymentTermsDays, setPaymentTermsDays] = useState(0);
   const [overheadRatePct, setOverheadRatePct] = useState(10);
   const [dispatchStartHour, setDispatchStartHour] = useState(8);
@@ -483,7 +483,10 @@ function GeneralTab() {
   useEffect(() => {
     if (company) {
       setName(company.name || '');
-      setPayCadence(company.pay_cadence || 'biweekly');
+      // Default WEEKLY when unset — matches the payroll page's useCadence
+      // fallback. The old 'biweekly' fallback made the two surfaces disagree
+      // for tenants that never explicitly saved a cadence.
+      setPayCadence(company.pay_cadence || 'weekly');
       setPaymentTermsDays((company as any).payment_terms_days ?? 0);
       setOverheadRatePct(parseFloat(String((company as any).overhead_rate_pct ?? 10)));
       setDispatchStartHour((company as any).dispatch_start_hour ?? 8);
@@ -526,7 +529,17 @@ function GeneralTab() {
       <Section title="Pay Cadence" desc="How often payroll is processed.">
         <div style={{ display: 'flex', gap: '8px' }}>
           {[{ id: 'weekly', label: 'Weekly' }, { id: 'biweekly', label: 'Bi-weekly' }, { id: 'semimonthly', label: 'Semi-monthly' }].map(opt => (
-            <button key={opt.id} onClick={() => setPayCadence(opt.id)} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: FF, cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B7280' }}>
+            <button key={opt.id} onClick={() => {
+              setPayCadence(opt.id);
+              // [cadence-save 2026-06-12] Persist immediately. The section's
+              // save button sits far below the fold, so Sal kept clicking
+              // Weekly without it ever reaching the DB — payroll then
+              // re-seeded a 14-day window from the stored 'biweekly'.
+              updateCompany.mutate({ data: { pay_cadence: opt.id } as any }, {
+                onSuccess: () => toast({ title: "Pay cadence saved", description: `Payroll defaults to ${opt.label.toLowerCase()} periods now.` }),
+                onError: () => toast({ variant: "destructive", title: "Error", description: "Failed to save pay cadence." }),
+              });
+            }} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: FF, cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B7280' }}>
               {opt.label}
             </button>
           ))}
