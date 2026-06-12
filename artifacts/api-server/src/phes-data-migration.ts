@@ -1316,6 +1316,25 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE account_properties ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES clients(id)` },
     { label: "idx_account_properties_client",
       stmt: `CREATE INDEX IF NOT EXISTS idx_account_properties_client ON account_properties(account_id, client_id)` },
+
+    // ── Per-employee efficiency by service type (MaidCentral parity) ──
+    // One row per (employee, service_type, period). 0%/blank not stored
+    // (means no jobs of that type in the window, not real 0%).
+    { label: "CREATE employee_efficiency", stmt: `
+      CREATE TABLE IF NOT EXISTS employee_efficiency (
+        id             SERIAL PRIMARY KEY,
+        company_id     INTEGER NOT NULL REFERENCES companies(id),
+        employee_id    INTEGER NOT NULL REFERENCES users(id),
+        service_type   TEXT NOT NULL,
+        efficiency_pct NUMERIC(6,2) NOT NULL,
+        source         TEXT NOT NULL DEFAULT 'mc',
+        period         TEXT NOT NULL DEFAULT 'all_time',
+        updated_at     TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_employee_efficiency UNIQUE (company_id, employee_id, service_type, period)
+      )
+    ` },
+    { label: "idx_employee_efficiency_emp",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_employee_efficiency_emp ON employee_efficiency(company_id, employee_id)` },
   ];
 
   for (const { label, stmt } of guards) {

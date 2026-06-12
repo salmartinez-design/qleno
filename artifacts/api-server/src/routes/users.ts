@@ -56,7 +56,10 @@ router.get("/", requireAuth, async (req, res) => {
     const usersRows = await db.execute(sql`
       SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
              u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
-             u.hire_date, u.avatar_url, u.scorecard_pct
+             u.hire_date, u.avatar_url, u.scorecard_pct,
+             (SELECT ROUND(AVG(ee.efficiency_pct))::int FROM employee_efficiency ee
+               WHERE ee.employee_id = u.id AND ee.company_id = u.company_id
+                 AND ee.efficiency_pct > 0) AS avg_efficiency
         FROM users u
        WHERE ${whereClause}
        ORDER BY u.first_name, u.last_name

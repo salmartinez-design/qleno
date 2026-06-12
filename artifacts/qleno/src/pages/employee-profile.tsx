@@ -605,6 +605,21 @@ export default function EmployeeProfilePage() {
   });
   const scEntries: any[] = scEntriesData?.entries || [];
 
+  // Efficiency by Qleno package/scope (MaidCentral parity). catalog = every
+  // Qleno package; rows = the ones with data. No-data packages render blank.
+  const { data: efficiencyData } = useQuery({
+    queryKey: ['efficiency-emp', userId],
+    queryFn: () => apiFetch(`/efficiency/${userId}`),
+    enabled: userId > 0,
+  });
+  const effCatalog: string[] = efficiencyData?.catalog || [];
+  const effByPackage = new Map<string, number>(
+    (efficiencyData?.rows || []).map((r: any) => [r.service_type, parseFloat(r.efficiency_pct)]),
+  );
+  // Only the budgeted/time-target packages (the catalog) are shown — pure-hourly
+  // packages are intentionally excluded from efficiency entirely.
+  const effPackages = effCatalog;
+
   const { data: incentivesData = [] } = useQuery<any[]>({
     queryKey: ['incentives-earned', userId],
     queryFn: () => apiFetch(`/incentives/earned?employee_id=${userId}`),
@@ -861,18 +876,28 @@ export default function EmployeeProfilePage() {
 
             <div style={{ background:'#F7F6F3', borderRadius:10, padding:'14px 16px', flex: isMobile ? '1 1 0' : undefined, minWidth: isMobile ? 0 : undefined }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Productivity</p>
-                <span style={{ fontSize:10,color:'#9E9B94' }}>This month</span>
+                <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Efficiency by Service</p>
+                <span style={{ fontSize:10,color:'#9E9B94' }}>Allowed ÷ Actual</span>
               </div>
-              {['Standard Clean','Deep Clean','Move In/Move Out'].map((type, i) => {
-                const pct = [94, 87, 108][i];
-                return (
-                  <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                    <span style={{ fontSize:12,color:'#1A1917' }}>{type}</span>
-                    <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#EF4444' }}>{pct}%</span>
-                  </div>
-                );
-              })}
+              <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                {effPackages.length === 0 && (
+                  <p style={{ fontSize:11, color:'#9E9B94', margin:'4px 0' }}>No efficiency data yet.</p>
+                )}
+                {effPackages.map((type) => {
+                  const pct = effByPackage.get(type);
+                  const hasData = pct != null && Number.isFinite(pct) && pct > 0;
+                  return (
+                    <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6, gap:8 }}>
+                      <span style={{ fontSize:12,color:'#1A1917' }}>{type}</span>
+                      {hasData ? (
+                        <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#EF4444', whiteSpace:'nowrap' }}>{Math.round(pct)}%</span>
+                      ) : (
+                        <span style={{ fontSize:12,color:'#C9C6BF',whiteSpace:'nowrap' }}>—</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
