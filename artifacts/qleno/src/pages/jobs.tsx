@@ -2427,10 +2427,35 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   ) : addTechList.length === 0 ? (
                     <div style={{ padding: 20, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No available technicians</div>
                   ) : (() => {
-                    // [AF] Split into two groups: free right now vs currently on a job.
-                    // Alphabetized within each by first_name (endpoint already
-                    // returns in that order, but re-sort defensively so subtitle
-                    // changes on re-fetch don't desync ordering).
+                    // [smart-suggest 2026-06-12] Scan each candidate's schedule
+                    // (from the dispatch `employees` data already in hand) and
+                    // surface 1–2 quick picks above the full list: prefer techs
+                    // free at THIS job's time, same zone, lighter load; otherwise
+                    // the one who frees up soonest. The whole team still lists
+                    // below for manual selection.
+                    const durOf = (j: DispatchJob) => (j.duration_minutes && j.duration_minutes > 0 ? j.duration_minutes : (j.allowed_hours ? j.allowed_hours * 60 : 120));
+                    const jobStart = timeToMins(job.scheduled_time);
+                    const jobEnd = jobStart + durOf(job);
+                    const jobZone = job.zone_id ?? null;
+                    const fmtAmpm = (mins: number) => { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ap = h < 12 ? "AM" : "PM"; const h12 = ((h + 11) % 12) + 1; return `${h12}:${String(m).padStart(2, "0")} ${ap}`; };
+                    const scored = addTechList.map(t => {
+                      const emp = employees.find(e => e.id === t.id);
+                      const empJobs = (emp?.jobs ?? []).filter(j => j.id !== job.id && j.scheduled_time);
+                      const overlapping = empJobs.filter(j => { const s = timeToMins(j.scheduled_time!); return s < jobEnd && (s + durOf(j)) > jobStart; });
+                      const available = overlapping.length === 0;
+                      const sameZone = jobZone != null && !!emp?.zone && emp.zone.zone_id === jobZone;
+                      const freeAt = available ? jobStart : Math.max(...overlapping.map(j => timeToMins(j.scheduled_time!) + durOf(j)));
+                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null };
+                    });
+                    const suggested = [...scored].sort((a, b) => {
+                      if (a.available !== b.available) return a.available ? -1 : 1;
+                      if (a.available) { if (a.sameZone !== b.sameZone) return a.sameZone ? -1 : 1; return a.jobCount - b.jobCount; }
+                      return a.freeAt - b.freeAt;
+                    }).slice(0, 2);
+                    const reasonFor = (s: typeof scored[number]) => s.available
+                      ? (s.sameZone ? `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open` : (s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today"))
+                      : `Frees up ${fmtAmpm(s.freeAt)}`;
+
                     const free = addTechList.filter(t => !t.is_clocked_in).sort((a, b) => a.name.localeCompare(b.name));
                     const working = addTechList.filter(t => t.is_clocked_in).sort((a, b) => a.name.localeCompare(b.name));
                     const groupHeader = (text: string) => (
@@ -2438,8 +2463,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         {text}
                       </div>
                     );
-                    const row = (t: TechRow) => (
-                      <button key={t.id} onClick={() => addTechToJob(t.id)} disabled={addTechBusy}
+                    const row = (t: TechRow, subtitle?: string, keyId?: string) => (
+                      <button key={keyId ?? String(t.id)} onClick={() => addTechToJob(t.id)} disabled={addTechBusy}
                         style={{ display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "10px 8px", border: "none", background: "transparent", cursor: addTechBusy ? "wait" : "pointer", borderRadius: 8, fontFamily: FF, textAlign: "left" }}
                         onMouseEnter={e => e.currentTarget.style.background = "#F7F6F3"}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -2449,21 +2474,27 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           ) : undefined} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.name}</div>
-                          <div style={{ fontSize: 11, color: "#9E9B94", textTransform: "capitalize" }}>{(t.role || "").replace("_", " ")}</div>
-                          {t.currently_at && (
-                            <div style={{ fontSize: 11, color: "#6B6860", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                              Currently at: {t.currently_at}
-                            </div>
-                          )}
+                          {subtitle ? (
+                            <div style={{ fontSize: 11, color: "#00936F", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{subtitle}</div>
+                          ) : (<>
+                            <div style={{ fontSize: 11, color: "#9E9B94", textTransform: "capitalize" }}>{(t.role || "").replace("_", " ")}</div>
+                            {t.currently_at && (
+                              <div style={{ fontSize: 11, color: "#6B6860", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                Currently at: {t.currently_at}
+                              </div>
+                            )}
+                          </>)}
                         </div>
                       </button>
                     );
                     return (
                       <>
+                        {suggested.length > 0 && groupHeader("Suggested")}
+                        {suggested.map(s => row(s.t, reasonFor(s), `sug-${s.t.id}`))}
                         {free.length > 0 && groupHeader("Available")}
-                        {free.map(row)}
+                        {free.map(t => row(t))}
                         {working.length > 0 && groupHeader("Currently on a job")}
-                        {working.map(row)}
+                        {working.map(t => row(t))}
                       </>
                     );
                   })()}
