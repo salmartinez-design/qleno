@@ -139,21 +139,32 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
        ORDER BY u.first_name, u.last_name
     `);
 
-    // Fetch client names for any active_job_ids (small set — typically < 30 techs).
+    // Client-name enrichment for the "currently at <client>" label. BEST-EFFORT
+    // ONLY — it must never be able to blank out the whole tech list.
+    // [fix 2026-06-12] The previous `sql\`id = ANY(${activeJobIds})\`` bound a JS
+    // array straight into ANY(), which throws — and this block only runs when a
+    // tech is clocked in, so during work hours it 500'd the endpoint and the Add
+    // Tech picker showed "No available technicians". Use inArray() for a correct
+    // array bind, and wrap in try/catch so a failure degrades the label, not the
+    // list.
     const activeJobIds = Array.from(new Set((rows.rows as any[]).map(r => r.active_job_id).filter((v): v is number => typeof v === "number")));
     const clientByJob = new Map<number, string>();
     if (activeJobIds.length > 0) {
-      const jobRows = await db
-        .select({
-          job_id: jobsTable.id,
-          first_name: clientsTable.first_name,
-          last_name: clientsTable.last_name,
-        })
-        .from(jobsTable)
-        .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
-        .where(and(eq(jobsTable.company_id, companyId), sql`${jobsTable.id} = ANY(${activeJobIds})`));
-      for (const j of jobRows) {
-        clientByJob.set(j.job_id, `${j.first_name ?? ""} ${j.last_name ?? ""}`.trim() || "Unknown");
+      try {
+        const jobRows = await db
+          .select({
+            job_id: jobsTable.id,
+            first_name: clientsTable.first_name,
+            last_name: clientsTable.last_name,
+          })
+          .from(jobsTable)
+          .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+          .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.id, activeJobIds)));
+        for (const j of jobRows) {
+          clientByJob.set(j.job_id, `${j.first_name ?? ""} ${j.last_name ?? ""}`.trim() || "Unknown");
+        }
+      } catch (enrichErr) {
+        console.error("techs-with-status client-name enrichment failed (non-fatal):", enrichErr);
       }
     }
 
