@@ -597,6 +597,14 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Scorecards',
   });
 
+  // MaidCentral % model: per-job history (scorecard_entries) + authoritative %.
+  const { data: scEntriesData } = useQuery({
+    queryKey: ['scorecard-entries', userId],
+    queryFn: () => apiFetch(`/scorecards/entries/${userId}`),
+    enabled: activeTab === 'Scorecards',
+  });
+  const scEntries: any[] = scEntriesData?.entries || [];
+
   const { data: incentivesData = [] } = useQuery<any[]>({
     queryKey: ['incentives-earned', userId],
     queryFn: () => apiFetch(`/incentives/earned?employee_id=${userId}`),
@@ -1267,17 +1275,18 @@ export default function EmployeeProfilePage() {
           {activeTab === 'Scorecards' && (
             <div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:20, marginBottom:20 }}>
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'24px', display:'flex', flexDirection:'column', alignItems:'center', gap:12 }}>
-                  <p style={{ fontSize:36,fontWeight:700,color:'var(--brand)',margin:0 }}>
-                    {scoreAvg ? `${scoreAvg.toFixed(1)} / 4.0` : '— / 4.0'}
+                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'24px', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
+                  <p style={{ fontSize:44,fontWeight:700,color:'var(--brand)',margin:0 }}>
+                    {scorePct != null ? `${scorePct.toFixed(0)}%` : '—'}
                   </p>
-                  {scoreAvg && <p style={{ fontSize:20,color:'#6B7280',margin:0 }}>{(scoreAvg/4*100).toFixed(0)}%</p>}
-                  <StarRating score={scoreAvg || 0}/>
+                  <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Scorecard Score</p>
+                  {scEntries.length > 0 && <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>{scEntries.length} job{scEntries.length === 1 ? '' : 's'} scored</p>}
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Trend — Last 12 Months</p>
-                  <ScoreTrendChart scores={(scorecardsData?.data||[]).slice(-12).map((s: any, i: number) => ({
-                    month: String(i), score: parseFloat(s.score),
+                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Trend — Recent Jobs</p>
+                  <ScoreTrendChart scores={scEntries.slice(0, 12).reverse().map((s: any, i: number) => ({
+                    month: String(i),
+                    score: parseFloat(s.max_value) > 0 ? (parseFloat(s.score_value) / parseFloat(s.max_value)) * 4 : 0,
                   }))}/>
                 </div>
               </div>
@@ -1289,29 +1298,31 @@ export default function EmployeeProfilePage() {
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                      {['Date','Job','Client','Score','Notes'].map(h=>(
+                      {['Date','Job','Source','Score','Notes'].map(h=>(
                         <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {(scorecardsData?.data || []).map((s: any) => {
-                      const sc = parseFloat(s.score);
+                    {scEntries.map((s: any) => {
+                      const val = parseFloat(s.score_value);
+                      const max = parseFloat(s.max_value) || 100;
+                      const scoreLabel = max === 100 ? `${val.toFixed(0)}%` : `${val.toFixed(1)} / ${max.toFixed(0)}`;
                       return (
                         <tr key={s.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(s.created_at).toLocaleDateString()}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(s.entry_date + 'T00:00:00').toLocaleDateString()}</td>
                           <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.job_id ? `#${s.job_id}` : '—'}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>—</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.source === 'mc' ? 'MaidCentral' : 'Qleno'}</td>
                           <td style={{ padding:'12px 16px' }}>
-                            <span style={{ background:SCORE_BGS[Math.round(sc)]||'#F3F4F6', color:SCORE_COLORS[Math.round(sc)]||'#6B7280', padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>
-                              {sc.toFixed(1)} — {SCORE_LABELS[Math.round(sc)]||'—'}
+                            <span style={{ background:'var(--brand-dim)', color:'var(--brand)', padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>
+                              {scoreLabel}
                             </span>
                           </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.comments || '—'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.notes || '—'}</td>
                         </tr>
                       );
                     })}
-                    {!(scorecardsData?.data||[]).length && (
+                    {!scEntries.length && (
                       <tr><td colSpan={5} style={{ padding:'32px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No scorecard entries yet</td></tr>
                     )}
                   </tbody>
