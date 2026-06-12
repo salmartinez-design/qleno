@@ -243,7 +243,12 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                   </div>
                 </div>
 
-                {/* Customer quality — the emphasis: how well the customer was served */}
+                {/* Customer quality — only when something was actually rated.
+                    [panel-cleanup 2026-06-12] The always-on empty-state card
+                    was pure noise (Sal: "lots going on, needs to look
+                    cleaner"); the collapsed header already says
+                    "No quality scores". */}
+                {emp.totals.quality_count > 0 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', marginTop: 12, background: '#fff', border: `1px solid ${emp.totals.quality_avg != null ? qualityColor(emp.totals.quality_avg) + '66' : '#E5E2DC'}`, borderRadius: 12, padding: '14px 18px' }}>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Customer quality</div>
@@ -255,11 +260,10 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     </div>
                   </div>
                   <div style={{ fontSize: 12, color: '#6B6860', maxWidth: 320 }}>
-                    {emp.totals.quality_count > 0
-                      ? `${emp.totals.quality_count} of ${emp.totals.job_count} job${emp.totals.job_count !== 1 ? 's' : ''} rated by customers this period.`
-                      : 'No customer ratings logged for this period yet.'}
+                    {`${emp.totals.quality_count} of ${emp.totals.job_count} job${emp.totals.job_count !== 1 ? 's' : ''} rated by customers this period.`}
                   </div>
                 </div>
+                )}
 
                 {/* Hours & efficiency — for records */}
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Hours &amp; efficiency · for records</p>
@@ -280,58 +284,83 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
 
                 {/* Per-client breakdown */}
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 2px' }}>Per-client breakdown</p>
+                {/* [panel-cleanup 2026-06-12] Day-grouped, 4-5 columns instead
+                    of the old 9-column wall: date becomes a slim day header
+                    with a per-day subtotal, scope + basis tuck under the
+                    client name, done/allowed merge into one Hours cell, Eff
+                    renders as a colored pill, and the Quality column only
+                    exists when at least one job in the panel was rated. */}
                 <div style={{ overflowX: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
-                      <tr>
-                        <th style={th}>Date</th>
-                        <th style={th}>Client</th>
-                        <th style={th}>Scope</th>
-                        <th style={th}>Basis</th>
-                        <th style={{ ...th, textAlign: 'right' }}>Allowed</th>
-                        <th style={{ ...th, textAlign: 'right' }}>Done</th>
-                        <th style={{ ...th, textAlign: 'right' }} title="Allowed hours ÷ actual hours — over 100% means under budget">Eff</th>
-                        <th style={{ ...th, textAlign: 'right' }}>Quality</th>
-                        <th style={{ ...th, textAlign: 'right' }}>Pay</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {emp.jobs.map((job: any) => (
-                        <tr key={job.job_id}>
-                          <td style={{ ...td, color: '#6B6860', whiteSpace: 'nowrap' }}>{mdy(job.date)}</td>
-                          <td style={{ ...td, fontWeight: 600 }}>{job.client || '—'}</td>
-                          <td style={{ ...td, color: '#6B6860', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
-                          <td style={{ ...td, color: '#9E9B94', whiteSpace: 'nowrap' }} title="How this line's pay was computed">{job.pay_basis || '—'}</td>
-                          <td style={{ ...td, textAlign: 'right', color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
-                          <td style={{ ...td, textAlign: 'right', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
-                          {/* [job-eff 2026-06-12] Per-job efficiency = Allowed ÷ Actual
-                              (the one canonical formula — >100% is under budget).
-                              Suppressed while the row rides the ≈ scheduled fallback:
-                              allowed ÷ allowed would always read a meaningless 100%. */}
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            {!job.hrs_estimated && job.hrs_worked > 0 && job.hrs_scheduled > 0 ? (() => {
-                              const eff = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
-                              return <span style={{ fontWeight: 700, color: eff >= 100 ? '#16A34A' : eff >= 85 ? '#D97706' : '#DC2626' }}>{eff}%</span>;
-                            })() : <span style={{ color: '#C4C0B8' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right' }}>
-                            {job.quality_score != null
-                              ? <span style={{ fontWeight: 700, color: qualityColor(job.quality_score) }}>{job.quality_score}/4</span>
-                              : <span style={{ color: '#C4C0B8' }}>—</span>}
-                          </td>
-                          <td style={{ ...td, textAlign: 'right', fontWeight: 700, color: 'var(--brand)' }}>${job.commission.toFixed(2)}</td>
-                        </tr>
-                      ))}
-                      <tr>
-                        <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }} colSpan={4}>{emp.totals.job_count} jobs</td>
-                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
-                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked.toFixed(1)}h</td>
-                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
-                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', color: qualityColor(emp.totals.quality_avg) }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>
-                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', color: 'var(--brand)', borderTop: '2px solid #E5E2DC' }}>${emp.totals.commission.toFixed(2)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
+                  {(() => {
+                    const hasQuality = emp.jobs.some((j: any) => j.quality_score != null);
+                    const cols = hasQuality ? 5 : 4;
+                    const fmtScope = (s: string) => String(s || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+                    const dayName = (d: string) => new Date(`${String(d).slice(0, 10)}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+                    const byDay: Record<string, any[]> = {};
+                    for (const j of emp.jobs) { const k = String(j.date).slice(0, 10); (byDay[k] = byDay[k] || []).push(j); }
+                    const days = Object.keys(byDay).sort();
+                    const effPill = (job: any) => {
+                      if (job.hrs_estimated || !(job.hrs_worked > 0) || !(job.hrs_scheduled > 0)) {
+                        return <span style={{ color: '#C4C0B8' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>;
+                      }
+                      const e = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
+                      const [fg, bg] = e >= 100 ? ['#16A34A', '#DCFCE7'] : e >= 85 ? ['#B45309', '#FEF3E2'] : ['#DC2626', '#FEE2E2'];
+                      return <span style={{ fontSize: 11, fontWeight: 800, color: fg, background: bg, borderRadius: 999, padding: '2px 8px' }}>{e}%</span>;
+                    };
+                    return (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={th}>Client</th>
+                            <th style={{ ...th, textAlign: 'right' }}>Done / Allowed</th>
+                            <th style={{ ...th, textAlign: 'center' }} title="Allowed hours ÷ actual hours — over 100% means under budget">Eff</th>
+                            {hasQuality && <th style={{ ...th, textAlign: 'center' }}>Quality</th>}
+                            <th style={{ ...th, textAlign: 'right' }}>Pay</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {days.map(d => (
+                            <Fragment key={d}>
+                              <tr>
+                                <td colSpan={cols} style={{ padding: '12px 0 4px', borderTop: '1px solid #EEECE7' }}>
+                                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{dayName(d)} · {mdy(d)}</span>
+                                  <span style={{ float: 'right', fontSize: 11, fontWeight: 700, color: '#9E9B94' }}>{money(byDay[d].reduce((s, j) => s + Number(j.commission || 0), 0))}</span>
+                                </td>
+                              </tr>
+                              {byDay[d].map((job: any) => (
+                                <tr key={job.job_id}>
+                                  <td style={{ ...td, borderTop: 'none', paddingTop: 5, paddingBottom: 5 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1917' }}>{job.client || '—'}</div>
+                                    <div style={{ fontSize: 11, color: '#9E9B94' }} title="How this line's pay was computed">{fmtScope(job.scope)}{job.pay_basis ? ` · ${job.pay_basis}` : ''}</div>
+                                  </td>
+                                  <td style={{ ...td, borderTop: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                    <span style={{ fontWeight: 700, color: job.hrs_estimated ? '#B45309' : '#1A1917' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</span>
+                                    <span style={{ color: '#9E9B94' }}> / {job.hrs_scheduled.toFixed(1)}h</span>
+                                  </td>
+                                  <td style={{ ...td, borderTop: 'none', textAlign: 'center' }}>{effPill(job)}</td>
+                                  {hasQuality && (
+                                    <td style={{ ...td, borderTop: 'none', textAlign: 'center' }}>
+                                      {job.quality_score != null
+                                        ? <span style={{ fontWeight: 700, color: qualityColor(job.quality_score) }}>{job.quality_score}/4</span>
+                                        : <span style={{ color: '#C4C0B8' }}>—</span>}
+                                    </td>
+                                  )}
+                                  <td style={{ ...td, borderTop: 'none', textAlign: 'right', fontWeight: 700, color: 'var(--brand)', whiteSpace: 'nowrap' }}>${job.commission.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </Fragment>
+                          ))}
+                          <tr>
+                            <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }}>{emp.totals.job_count} jobs</td>
+                            <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', whiteSpace: 'nowrap' }}>{emp.totals.hrs_worked.toFixed(1)}h / {emp.totals.hrs_scheduled.toFixed(1)}h</td>
+                            <td style={{ ...td, fontWeight: 800, textAlign: 'center', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
+                            {hasQuality && <td style={{ ...td, fontWeight: 800, textAlign: 'center', borderTop: '2px solid #E5E2DC', color: qualityColor(emp.totals.quality_avg) }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>}
+                            <td style={{ ...td, fontWeight: 800, textAlign: 'right', color: 'var(--brand)', borderTop: '2px solid #E5E2DC' }}>${emp.totals.commission.toFixed(2)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    );
+                  })()}
                 </div>
 
                 {/* Additional pay & reimbursements */}
