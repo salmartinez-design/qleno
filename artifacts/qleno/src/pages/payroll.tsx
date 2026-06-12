@@ -75,6 +75,157 @@ function useCadence(): string {
 const qualityColor = (q: number | null | undefined) =>
   q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
 
+// [recon-audit 2026-06-12] MC-transition reconciliation audit. Surfaces, for
+// the loaded pay window, every pay-input problem the Juan Salazar penny-recon
+// exposed: commercial work paid residential %, big pool jobs missing a split
+// partner, past jobs never marked complete, clock time with no completed job,
+// and unlinked jobs. Read-only — fixes happen in the normal surfaces.
+function ReconciliationAudit({ from, to }: { from: string; to: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const { data, isLoading } = useQuery<any>({
+    queryKey: ['payroll-recon-audit', from, to],
+    queryFn: () => apiFetch(`/payroll/reconciliation-audit?from=${from}&to=${to}`),
+    enabled: !!from && !!to,
+  });
+  const d = data?.data;
+  const findings = d
+    ? d.commercial_misroutes.length + d.solo_pools.length + d.stale_scheduled.total + d.clocked_no_job.length + d.unlinked_jobs.length
+    : 0;
+  const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const th: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '6px 10px 4px 0', textAlign: 'left', whiteSpace: 'nowrap' };
+  const td: React.CSSProperties = { fontSize: 12, color: '#1A1917', padding: '5px 10px 5px 0', borderTop: '1px solid #F4F3F0', verticalAlign: 'middle' };
+  const section = (title: string, hint: string, countLabel: string, headers: string[], body: React.ReactNode) => (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1A1917' }}>
+        {title} <span style={{ color: '#DC2626' }}>({countLabel})</span>
+      </div>
+      <div style={{ fontSize: 11, color: '#9E9B94', margin: '2px 0 4px' }}>{hint}</div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead><tr>{headers.map(x => <th key={x} style={th}>{x}</th>)}</tr></thead>
+        <tbody>{body}</tbody>
+      </table>
+    </div>
+  );
+
+  if (isLoading || !d) {
+    return (
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '14px 18px', fontSize: 12, color: '#9E9B94' }}>
+        Reconciliation audit: {isLoading ? 'running checks for this period…' : 'unavailable'}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: '#fff', border: `1px solid ${findings > 0 ? '#F3D9B0' : '#E5E2DC'}`, borderRadius: 10, padding: '14px 18px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setCollapsed(c => !c)}>
+        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1A1917' }}>Reconciliation Audit</span>
+        {findings > 0 ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#B45309', background: '#FEF3E2', border: '1px solid #F3D9B0', borderRadius: 5, padding: '2px 8px' }}>
+            {findings} finding{findings === 1 ? '' : 's'}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: 5, padding: '2px 8px' }}>
+            Clean
+          </span>
+        )}
+        {d.potential_overpay > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626' }}>Potential overpay {money(d.potential_overpay)}</span>
+        )}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9E9B94' }}>{collapsed ? 'Show' : 'Hide'}</span>
+      </div>
+
+      {!collapsed && findings === 0 && (
+        <div style={{ fontSize: 12, color: '#6B6860', marginTop: 8 }}>
+          No findings — this period's pay inputs look clean against the MC-transition checks.
+        </div>
+      )}
+
+      {!collapsed && d.commercial_misroutes.length > 0 && section(
+        'Commercial work paid as residential %',
+        'Service type is a commercial scope, but the client has no account link or commercial flag, so the engine paid the residential pool. Fix: mark the client commercial or link the account, then the row pays hourly.',
+        String(d.commercial_misroutes.length),
+        ['Date', 'Client', 'Scope', 'Paid', 'Should be', 'Overpay'],
+        d.commercial_misroutes.map((m: any) => (
+          <tr key={m.job_id}>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
+            <td style={td}>{m.name || `Job #${m.job_id}`}</td>
+            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
+            <td style={td}>{m.pct_paid}% of {money(m.job_total)} = <b>{money(m.paid_residential)}</b></td>
+            <td style={td}>hourly × {Number(m.hours).toFixed(1)}h = <b>{money(m.expected_commercial)}</b></td>
+            <td style={{ ...td, color: '#DC2626', fontWeight: 700 }}>{money(m.delta)}</td>
+          </tr>
+        )),
+      )}
+
+      {!collapsed && d.solo_pools.length > 0 && section(
+        'Possible missing split partner',
+        'Big pool job (5+ allowed hours) with one tech attached — if a second cleaner worked it, the attached tech is being paid the entire pool. Fix: add the partner tech to the job.',
+        String(d.solo_pools.length),
+        ['Date', 'Client', 'Scope', 'Allowed', 'Clocked', 'Techs', 'Pool paid'],
+        d.solo_pools.map((m: any) => (
+          <tr key={m.job_id}>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
+            <td style={td}>{m.name || `Job #${m.job_id}`}</td>
+            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
+            <td style={td}>{Number(m.allowed_hours).toFixed(1)}h</td>
+            <td style={td}>{Number(m.clocked_hours).toFixed(1)}h</td>
+            <td style={{ ...td, fontWeight: 700 }}>{m.tech_count}</td>
+            <td style={{ ...td, fontWeight: 700 }}>{money(m.pool_paid)} to {m.tech || 'unassigned'}</td>
+          </tr>
+        )),
+      )}
+
+      {!collapsed && d.stale_scheduled.total > 0 && section(
+        'Past jobs never marked complete',
+        'These pay nobody and count no revenue — the May hole and $0 weeks come from here. Fix: mark complete (or cancel) from the dispatch board.',
+        d.stale_scheduled.total > d.stale_scheduled.rows.length
+          ? `showing ${d.stale_scheduled.rows.length} of ${d.stale_scheduled.total}`
+          : String(d.stale_scheduled.total),
+        ['Date', 'Client', 'Status', 'Tech', 'Amount'],
+        d.stale_scheduled.rows.map((m: any) => (
+          <tr key={m.id}>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
+            <td style={td}>{m.name || `Job #${m.id}`}</td>
+            <td style={{ ...td, color: '#B45309', fontWeight: 600 }}>{m.status}</td>
+            <td style={td}>{m.tech || 'Unassigned'}</td>
+            <td style={td}>{money(Number(m.amount))}</td>
+          </tr>
+        )),
+      )}
+
+      {!collapsed && d.clocked_no_job.length > 0 && section(
+        'Clock time with no completed job',
+        'The tech punched a clock that day but has no completed job attached — the job may be missing from Qleno entirely (the Issa Sweis case) or just not completed yet.',
+        String(d.clocked_no_job.length),
+        ['Date', 'Tech', 'Hours on clock'],
+        d.clocked_no_job.map((m: any, i: number) => (
+          <tr key={`${m.user_id}-${m.date}-${i}`}>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
+            <td style={td}>{m.name || `User #${m.user_id}`}</td>
+            <td style={td}>{Number(m.hours).toFixed(1)}h</td>
+          </tr>
+        )),
+      )}
+
+      {!collapsed && d.unlinked_jobs.length > 0 && section(
+        'Completed jobs with no client or account',
+        'No client_id and no account_id — these render nameless and skip per-client stats. Fix: attach the client or account on the job.',
+        String(d.unlinked_jobs.length),
+        ['Date', 'Job', 'Scope', 'Tech', 'Amount'],
+        d.unlinked_jobs.map((m: any) => (
+          <tr key={m.job_id}>
+            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
+            <td style={td}>Job #{m.job_id}</td>
+            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
+            <td style={td}>{m.tech || 'Unassigned'}</td>
+            <td style={td}>{money(Number(m.amount))}</td>
+          </tr>
+        )),
+      )}
+    </div>
+  );
+}
+
 function WeeklyDetailView() {
   const cadence = useCadence();
   const [period, setPeriod] = useState(() => periodForCadence('weekly'));
@@ -130,7 +281,7 @@ function WeeklyDetailView() {
             style={{ padding: '7px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
             Load
           </button>
-          <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 'auto' }}>Commission rate: {resPct}% of job total</span>
+          <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 'auto' }}>Pay rules: {resPct}% residential · tiered deep/move % · commercial hourly</span>
         </div>
       </div>
 
@@ -158,6 +309,8 @@ function WeeklyDetailView() {
           ))}
         </div>
       )}
+
+      <ReconciliationAudit from={period.start} to={period.end} />
 
       {isLoading && <div style={{ padding: '40px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>}
 
