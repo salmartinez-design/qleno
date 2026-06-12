@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { scorecardsTable, scorecardEntriesTable, usersTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, avg, count, desc, sql } from "drizzle-orm";
+import { eq, and, avg, count, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
 const router = Router();
@@ -188,7 +188,7 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
       await db.delete(scorecardEntriesTable).where(and(
         eq(scorecardEntriesTable.company_id, companyId),
         eq(scorecardEntriesTable.source, "mc"),
-        sql`${scorecardEntriesTable.employee_id} = ANY(${[...resolvedEntryEmps]}::int[])`,
+        inArray(scorecardEntriesTable.employee_id, [...resolvedEntryEmps]),
       ));
     }
 

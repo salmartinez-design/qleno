@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { employeeEfficiencyTable, usersTable } from "@workspace/db/schema";
-import { eq, and, sql, desc } from "drizzle-orm";
+import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
 const router = Router();
@@ -14,7 +14,10 @@ const MC_TO_QLENO: Record<string, string> = {
   "Deep Clean or Move In/Out": "Deep Clean or Move In/Out",
   "Commercial Cleaning": "Commercial Cleaning",
   "Multi-Unit Common Areas": "Common Areas",
+  // MC emits this label with a comma; accept comma, slash, and no-punctuation forms.
+  "One-Time, Flat-Rate Standard Cleaning": "One-Time Flat-Rate Standard Cleaning",
   "One-Time/Flat-Rate Standard Cleaning": "One-Time Flat-Rate Standard Cleaning",
+  "One-Time Flat-Rate Standard Cleaning": "One-Time Flat-Rate Standard Cleaning",
   "PPM Common Areas": "PPM Common Areas",
   "PPM Turnover": "PPM Turnover",
   "Recurring Cleaning": "Recurring Cleaning",
@@ -121,7 +124,9 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
       if (!Number.isFinite(pct) || pct <= 0) { skipped_no_data++; continue; }
       const qleno = MC_TO_QLENO[label];
       if (!qleno) unmapped_labels.add(label);
-      norm.push({ uid, service_type: qleno ?? label, pct, period: r.period ? String(r.period) : "all_time" });
+      // Normalize: MC sends a literal date-range string; the model only has one
+      // window concept, so store it as 'all_time' (keeps the unique key stable).
+      norm.push({ uid, service_type: qleno ?? label, pct, period: "all_time" });
       touchedEmps.add(uid);
     }
 
@@ -129,7 +134,7 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
       await db.delete(employeeEfficiencyTable).where(and(
         eq(employeeEfficiencyTable.company_id, companyId),
         eq(employeeEfficiencyTable.source, "mc"),
-        sql`${employeeEfficiencyTable.employee_id} = ANY(${[...touchedEmps]}::int[])`,
+        inArray(employeeEfficiencyTable.employee_id, [...touchedEmps]),
       ));
     }
 
