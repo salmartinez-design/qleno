@@ -370,6 +370,14 @@ export default function TimeClockPage() {
                 <div style={{ fontSize: 11, color: "#9E9B94" }}>{date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
               </div>
               <input type="date" value={dk}
+                // [calendar-jump 2026-06-12] Chrome only auto-opens the date
+                // picker from the control's indicator icon — invisible here at
+                // opacity 0, so clicking the box focused silently and the
+                // calendar never appeared (Sal: "the full calendar needs to
+                // come up to move quicker"). showPicker() opens the full
+                // month calendar on any click; older browsers fall through to
+                // native focus behavior.
+                onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* pre-showPicker browser — native behavior */ } }}
                 onChange={e => { if (e.target.value) setDate(new Date(`${e.target.value}T00:00:00`)); }}
                 style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }} />
             </label>
