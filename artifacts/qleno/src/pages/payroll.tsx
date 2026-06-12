@@ -46,6 +46,13 @@ const PAY_GROUPS = [
 // Label any additional-pay type. Known types use the map; custom categories
 // (free-text types like 'google_review_bonus', 'birthday') fall back to a
 // readable title-case so owner-defined pay categories display cleanly.
+// [mdy 2026-06-12] Display dates month-first (mm/dd/yy) — Sal: "stop
+// displaying year first, i know what year we are in."
+const mdy = (s: string) => {
+  const [y, m, d] = String(s || '').slice(0, 10).split('-');
+  return y && m && d ? `${m}/${d}/${y.slice(2)}` : String(s || '');
+};
+
 const labelType = (t: string) => PAY_TYPE_LABELS[t] || String(t || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 // [pay-cadence 2026-06-08] The default pay-period window is sized by the
@@ -74,182 +81,6 @@ function useCadence(): string {
 // ≥3.5 green, ≥2.5 amber, else red; muted when nothing's been rated.
 const qualityColor = (q: number | null | undefined) =>
   q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
-
-// [recon-audit 2026-06-12] MC-transition reconciliation audit. Surfaces, for
-// the loaded pay window, every pay-input problem the Juan Salazar penny-recon
-// exposed: commercial work paid residential %, big pool jobs missing a split
-// partner, past jobs never marked complete, clock time with no completed job,
-// and unlinked jobs. Read-only — fixes happen in the normal surfaces.
-function ReconciliationAudit({ from, to }: { from: string; to: string }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const qc = useQueryClient();
-  const [marking, setMarking] = useState<number | null>(null);
-  const { data, isLoading } = useQuery<any>({
-    queryKey: ['payroll-recon-audit', from, to],
-    queryFn: () => apiFetch(`/payroll/reconciliation-audit?from=${from}&to=${to}`),
-    enabled: !!from && !!to,
-  });
-  // [one-click-fix 2026-06-12] Flip the client to commercial right from the
-  // misroute row — the same PUT the Edit Client modal's type toggle uses.
-  // The row disappears from the audit (and the engine repays hourly) on the
-  // refetch, which is the confirmation.
-  const markCommercial = async (clientId: number) => {
-    setMarking(clientId);
-    try {
-      await apiFetch(`/clients/${clientId}`, { method: 'PUT', body: JSON.stringify({ client_type: 'commercial' }) });
-      qc.invalidateQueries({ queryKey: ['payroll-recon-audit'] });
-      qc.invalidateQueries({ queryKey: ['payroll-detail'] });
-      qc.invalidateQueries({ queryKey: ['payroll-overview'] });
-    } finally {
-      setMarking(null);
-    }
-  };
-  const d = data?.data;
-  const findings = d
-    ? d.commercial_misroutes.length + d.solo_pools.length + d.stale_scheduled.total + d.clocked_no_job.length + d.unlinked_jobs.length
-    : 0;
-  const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const th: React.CSSProperties = { fontSize: 10.5, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '6px 10px 4px 0', textAlign: 'left', whiteSpace: 'nowrap' };
-  const td: React.CSSProperties = { fontSize: 12, color: '#1A1917', padding: '5px 10px 5px 0', borderTop: '1px solid #F4F3F0', verticalAlign: 'middle' };
-  const section = (title: string, hint: string, countLabel: string, headers: string[], body: React.ReactNode) => (
-    <div style={{ marginTop: 16 }}>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: '#1A1917' }}>
-        {title} <span style={{ color: '#DC2626' }}>({countLabel})</span>
-      </div>
-      <div style={{ fontSize: 11, color: '#9E9B94', margin: '2px 0 4px' }}>{hint}</div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead><tr>{headers.map(x => <th key={x} style={th}>{x}</th>)}</tr></thead>
-        <tbody>{body}</tbody>
-      </table>
-    </div>
-  );
-
-  if (isLoading || !d) {
-    return (
-      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '14px 18px', fontSize: 12, color: '#9E9B94' }}>
-        Reconciliation audit: {isLoading ? 'running checks for this period…' : 'unavailable'}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ background: '#fff', border: `1px solid ${findings > 0 ? '#F3D9B0' : '#E5E2DC'}`, borderRadius: 10, padding: '14px 18px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setCollapsed(c => !c)}>
-        <span style={{ fontSize: 13.5, fontWeight: 700, color: '#1A1917' }}>Reconciliation Audit</span>
-        {findings > 0 ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#B45309', background: '#FEF3E2', border: '1px solid #F3D9B0', borderRadius: 5, padding: '2px 8px' }}>
-            {findings} finding{findings === 1 ? '' : 's'}
-          </span>
-        ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', background: '#DCFCE7', border: '1px solid #BBF7D0', borderRadius: 5, padding: '2px 8px' }}>
-            Clean
-          </span>
-        )}
-        {d.potential_overpay > 0 && (
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#DC2626' }}>Potential overpay {money(d.potential_overpay)}</span>
-        )}
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9E9B94' }}>{collapsed ? 'Show' : 'Hide'}</span>
-      </div>
-
-      {!collapsed && findings === 0 && (
-        <div style={{ fontSize: 12, color: '#6B6860', marginTop: 8 }}>
-          No findings — this period's pay inputs look clean against the MC-transition checks.
-        </div>
-      )}
-
-      {!collapsed && d.commercial_misroutes.length > 0 && section(
-        'Commercial work paid as residential %',
-        'Service type is a commercial scope, but the client has no account link or commercial flag, so the engine paid the residential pool. Fix: mark the client commercial or link the account, then the row pays hourly.',
-        String(d.commercial_misroutes.length),
-        ['Date', 'Client', 'Scope', 'Paid', 'Should be', 'Overpay', ''],
-        d.commercial_misroutes.map((m: any) => (
-          <tr key={m.job_id}>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
-            <td style={td}>{m.name || `Job #${m.job_id}`}</td>
-            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
-            <td style={td}>{m.pct_paid}% of {money(m.job_total)} = <b>{money(m.paid_residential)}</b></td>
-            <td style={td}>hourly × {Number(m.hours).toFixed(1)}h = <b>{money(m.expected_commercial)}</b></td>
-            <td style={{ ...td, color: '#DC2626', fontWeight: 700 }}>{money(m.delta)}</td>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>
-              {m.client_id != null && (
-                <button onClick={() => markCommercial(m.client_id)} disabled={marking === m.client_id}
-                  style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--brand)', background: 'transparent', color: 'var(--brand)', fontSize: 11, fontWeight: 700, cursor: marking === m.client_id ? 'wait' : 'pointer', fontFamily: 'inherit' }}>
-                  {marking === m.client_id ? 'Saving…' : 'Mark commercial'}
-                </button>
-              )}
-            </td>
-          </tr>
-        )),
-      )}
-
-      {!collapsed && d.solo_pools.length > 0 && section(
-        'Possible missing split partner',
-        'Big pool job (5+ allowed hours) with one tech attached — if a second cleaner worked it, the attached tech is being paid the entire pool. Fix: add the partner tech to the job.',
-        String(d.solo_pools.length),
-        ['Date', 'Client', 'Scope', 'Allowed', 'Clocked', 'Techs', 'Pool paid'],
-        d.solo_pools.map((m: any) => (
-          <tr key={m.job_id}>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
-            <td style={td}>{m.name || `Job #${m.job_id}`}</td>
-            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
-            <td style={td}>{Number(m.allowed_hours).toFixed(1)}h</td>
-            <td style={td}>{Number(m.clocked_hours).toFixed(1)}h</td>
-            <td style={{ ...td, fontWeight: 700 }}>{m.tech_count}</td>
-            <td style={{ ...td, fontWeight: 700 }}>{money(m.pool_paid)} to {m.tech || 'unassigned'}</td>
-          </tr>
-        )),
-      )}
-
-      {!collapsed && d.stale_scheduled.total > 0 && section(
-        'Past jobs never marked complete',
-        'These pay nobody and count no revenue — the May hole and $0 weeks come from here. Fix: mark complete (or cancel) from the dispatch board.',
-        d.stale_scheduled.total > d.stale_scheduled.rows.length
-          ? `showing ${d.stale_scheduled.rows.length} of ${d.stale_scheduled.total}`
-          : String(d.stale_scheduled.total),
-        ['Date', 'Client', 'Status', 'Tech', 'Amount'],
-        d.stale_scheduled.rows.map((m: any) => (
-          <tr key={m.id}>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
-            <td style={td}>{m.name || `Job #${m.id}`}</td>
-            <td style={{ ...td, color: '#B45309', fontWeight: 600 }}>{m.status}</td>
-            <td style={td}>{m.tech || 'Unassigned'}</td>
-            <td style={td}>{money(Number(m.amount))}</td>
-          </tr>
-        )),
-      )}
-
-      {!collapsed && d.clocked_no_job.length > 0 && section(
-        'Clock time with no completed job',
-        'The tech punched a clock that day but has no completed job attached — the job may be missing from Qleno entirely (the Issa Sweis case) or just not completed yet.',
-        String(d.clocked_no_job.length),
-        ['Date', 'Tech', 'Hours on clock'],
-        d.clocked_no_job.map((m: any, i: number) => (
-          <tr key={`${m.user_id}-${m.date}-${i}`}>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
-            <td style={td}>{m.name || `User #${m.user_id}`}</td>
-            <td style={td}>{Number(m.hours).toFixed(1)}h</td>
-          </tr>
-        )),
-      )}
-
-      {!collapsed && d.unlinked_jobs.length > 0 && section(
-        'Completed jobs with no client or account',
-        'No client_id and no account_id — these render nameless and skip per-client stats. Fix: attach the client or account on the job.',
-        String(d.unlinked_jobs.length),
-        ['Date', 'Job', 'Scope', 'Tech', 'Amount'],
-        d.unlinked_jobs.map((m: any) => (
-          <tr key={m.job_id}>
-            <td style={{ ...td, whiteSpace: 'nowrap' }}>{m.date}</td>
-            <td style={td}>Job #{m.job_id}</td>
-            <td style={{ ...td, color: '#6B6860' }}>{m.service_type}</td>
-            <td style={td}>{m.tech || 'Unassigned'}</td>
-            <td style={td}>{money(Number(m.amount))}</td>
-          </tr>
-        )),
-      )}
-    </div>
-  );
-}
 
 // [period-sync 2026-06-12] Period state lives in PayrollPage now (shared with
 // the Summary tab, banners, and the top-right label) — this view just reads
@@ -331,8 +162,6 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
           ))}
         </div>
       )}
-
-      <ReconciliationAudit from={period.start} to={period.end} />
 
       {isLoading && <div style={{ padding: '40px', textAlign: 'center', color: '#9E9B94', fontSize: 13 }}>Loading…</div>}
 
@@ -461,6 +290,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                         <th style={th}>Basis</th>
                         <th style={{ ...th, textAlign: 'right' }}>Allowed</th>
                         <th style={{ ...th, textAlign: 'right' }}>Done</th>
+                        <th style={{ ...th, textAlign: 'right' }} title="Allowed hours ÷ actual hours — over 100% means under budget">Eff</th>
                         <th style={{ ...th, textAlign: 'right' }}>Quality</th>
                         <th style={{ ...th, textAlign: 'right' }}>Pay</th>
                       </tr>
@@ -468,12 +298,22 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     <tbody>
                       {emp.jobs.map((job: any) => (
                         <tr key={job.job_id}>
-                          <td style={{ ...td, color: '#6B6860', whiteSpace: 'nowrap' }}>{job.date}</td>
+                          <td style={{ ...td, color: '#6B6860', whiteSpace: 'nowrap' }}>{mdy(job.date)}</td>
                           <td style={{ ...td, fontWeight: 600 }}>{job.client || '—'}</td>
                           <td style={{ ...td, color: '#6B6860', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{job.scope}</td>
                           <td style={{ ...td, color: '#9E9B94', whiteSpace: 'nowrap' }} title="How this line's pay was computed">{job.pay_basis || '—'}</td>
                           <td style={{ ...td, textAlign: 'right', color: '#6B6860' }}>{job.hrs_scheduled.toFixed(1)}h</td>
                           <td style={{ ...td, textAlign: 'right', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</td>
+                          {/* [job-eff 2026-06-12] Per-job efficiency = Allowed ÷ Actual
+                              (the one canonical formula — >100% is under budget).
+                              Suppressed while the row rides the ≈ scheduled fallback:
+                              allowed ÷ allowed would always read a meaningless 100%. */}
+                          <td style={{ ...td, textAlign: 'right' }}>
+                            {!job.hrs_estimated && job.hrs_worked > 0 && job.hrs_scheduled > 0 ? (() => {
+                              const eff = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
+                              return <span style={{ fontWeight: 700, color: eff >= 100 ? '#16A34A' : eff >= 85 ? '#D97706' : '#DC2626' }}>{eff}%</span>;
+                            })() : <span style={{ color: '#C4C0B8' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>}
+                          </td>
                           <td style={{ ...td, textAlign: 'right' }}>
                             {job.quality_score != null
                               ? <span style={{ fontWeight: 700, color: qualityColor(job.quality_score) }}>{job.quality_score}/4</span>
@@ -486,6 +326,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                         <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }} colSpan={4}>{emp.totals.job_count} jobs</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_scheduled.toFixed(1)}h</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked.toFixed(1)}h</td>
+                        <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', color: qualityColor(emp.totals.quality_avg) }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>
                         <td style={{ ...td, fontWeight: 800, textAlign: 'right', color: 'var(--brand)', borderTop: '2px solid #E5E2DC' }}>${emp.totals.commission.toFixed(2)}</td>
                       </tr>
@@ -904,7 +745,7 @@ export default function PayrollPage() {
                             <tbody>
                               {jobs.map((job: any) => (
                                 <tr key={job.job_id}>
-                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: '#6B6860', whiteSpace: 'nowrap' }}>{job.date}</td>
+                                  <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: '#6B6860', whiteSpace: 'nowrap' }}>{mdy(job.date)}</td>
                                   <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9' }}>{job.client}</td>
                                   <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: '#6B6860' }}>{job.scope}</td>
                                   <td style={{ fontSize: 12, padding: '6px 12px 6px 0', borderTop: '1px solid #F0EEE9', color: job.hrs_estimated ? '#B45309' : '#6B6860' }} title={job.hrs_estimated ? 'Scheduled hours — not clocked yet' : 'Clocked hours'}>{job.hrs_estimated ? '≈' : ''}{Number(job.hrs_worked ?? 0).toFixed(1)}h</td>
