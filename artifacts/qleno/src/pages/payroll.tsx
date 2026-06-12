@@ -226,13 +226,10 @@ function ReconciliationAudit({ from, to }: { from: string; to: string }) {
   );
 }
 
-function WeeklyDetailView() {
-  const cadence = useCadence();
-  const [period, setPeriod] = useState(() => periodForCadence('weekly'));
-  // Re-seed the default window from the tenant's cadence once it loads, unless
-  // the office has manually picked dates.
-  const [periodEdited, setPeriodEdited] = useState(false);
-  useEffect(() => { if (!periodEdited) setPeriod(periodForCadence(cadence)); }, [cadence, periodEdited]);
+// [period-sync 2026-06-12] Period state lives in PayrollPage now (shared with
+// the Summary tab, banners, and the top-right label) — this view just reads
+// and reports changes up.
+function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string; end: string }; onPeriodChange: (p: { start: string; end: string }) => void }) {
   const [expanded, setExpanded] = useState<number[]>([]);
   const FF = "inherit";
   const { activeBranchId } = useBranch();
@@ -274,9 +271,9 @@ function WeeklyDetailView() {
       <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', fontFamily: FF }}>Pay Period:</span>
-          <CalendarPopover value={period.start} onChange={v => { setPeriodEdited(true); setPeriod(p => ({ ...p, start: v })); }} ariaLabel="Pay period start" />
+          <CalendarPopover value={period.start} onChange={v => onPeriodChange({ ...period, start: v })} ariaLabel="Pay period start" />
           <span style={{ fontSize: 12, color: '#9E9B94' }}>to</span>
-          <CalendarPopover value={period.end} onChange={v => { setPeriodEdited(true); setPeriod(p => ({ ...p, end: v })); }} ariaLabel="Pay period end" />
+          <CalendarPopover value={period.end} onChange={v => onPeriodChange({ ...period, end: v })} ariaLabel="Pay period end" />
           <button onClick={() => refetch()}
             style={{ padding: '7px 16px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
             Load
@@ -694,10 +691,16 @@ export default function PayrollPage() {
     return true;
   });
 
-  // Real payroll for the current pay period, sized by the tenant's pay cadence
-  // (weekly for Phes) — same source as the detail view and the Earnings panel.
+  // Pay window shared by BOTH tabs, the top-right label, and the banners.
+  // [period-sync 2026-06-12] Previously By Employee kept its own period state,
+  // so loading May 31 – Jun 6 there left the top-right label, the Summary tab
+  // cards, and the Employee Payroll Summary pinned to the current week (Sal:
+  // "dates on top right not updating based on filter"). One state, one window.
   const cadence = useCadence();
-  const payPeriod = useMemo(() => periodForCadence(cadence), [cadence]);
+  const [periodEdited, setPeriodEdited] = useState(false);
+  const [payPeriod, setPayPeriod] = useState(() => periodForCadence('weekly'));
+  useEffect(() => { if (!periodEdited) setPayPeriod(periodForCadence(cadence)); }, [cadence, periodEdited]);
+  const onPeriodChange = (p: { start: string; end: string }) => { setPeriodEdited(true); setPayPeriod(p); };
   const periodLabel = useMemo(() => {
     const fmt = (s: string) => new Date(`${s}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const yr = new Date(`${payPeriod.end}T00:00:00`).getFullYear();
@@ -759,7 +762,7 @@ export default function PayrollPage() {
           </div>
         </div>
 
-        {activeView === 'weekly-detail' && <WeeklyDetailView />}
+        {activeView === 'weekly-detail' && <WeeklyDetailView period={payPeriod} onPeriodChange={onPeriodChange} />}
 
         {activeView === 'overview' && <>
         {/* Controls */}

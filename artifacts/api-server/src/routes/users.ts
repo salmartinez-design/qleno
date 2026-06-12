@@ -126,7 +126,7 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
     // only when both sides actually carry it (NULL home_branch is fine —
     // those techs are dispatchable to any branch).
     const rows = await db.execute(sql`
-      SELECT u.id, u.first_name, u.last_name, u.role, u.home_branch_id AS branch_id,
+      SELECT u.id, u.first_name, u.last_name, u.role, u.avatar_url, u.home_branch_id AS branch_id,
              (SELECT tc.job_id FROM timeclock tc
                WHERE tc.user_id = u.id
                  AND tc.clock_out_at IS NULL
@@ -202,6 +202,10 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
         last_name: r.last_name,
         name: `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim(),
         role: r.role,
+        // [avatar-parity 2026-06-12] Same photo everywhere: the Add tech
+        // picker fell back to initials for every tech because this endpoint
+        // never returned avatar_url while the roster surfaces did.
+        avatar_url: r.avatar_url ?? null,
         branch_id: r.branch_id ?? null,
         is_clocked_in: r.active_job_id !== null,
         currently_at: r.active_job_id ? (clientByJob.get(r.active_job_id) ?? null) : null,
