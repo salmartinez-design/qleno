@@ -21,15 +21,18 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
     const win = resolveWindow(String(req.query.period ?? "rolling_90d"), {
       anchor: req.query.date, from: req.query.from, to: req.query.to,
     });
-    const base = sql`source = 'qleno' AND excluded = false AND company_id = ${companyId}
-      AND entry_date >= ${win.from} AND entry_date <= ${win.to}`;
+    // Column-qualified WHERE so the company byTech JOIN (users also has
+    // company_id) isn't ambiguous. `a` is a literal alias prefix we control.
+    const cond = (a: string) => sql`${sql.raw(a)}source = 'qleno' AND ${sql.raw(a)}excluded = false
+      AND ${sql.raw(a)}company_id = ${companyId}
+      AND ${sql.raw(a)}entry_date >= ${win.from} AND ${sql.raw(a)}entry_date <= ${win.to}`;
 
     if (scope === "employee") {
       const employeeId = parseInt(String(req.query.employee_id ?? ""));
       if (isNaN(employeeId)) return res.status(400).json({ error: "employee_id required for scope=employee" });
       const r = await db.execute(sql`
         SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
-          FROM scorecard_entries WHERE ${base} AND employee_id = ${employeeId}`);
+          FROM scorecard_entries WHERE ${cond("")} AND employee_id = ${employeeId}`);
       const row: any = r.rows[0] ?? {};
       return res.json({ scope, employee_id: employeeId, window: win, score_pct: row.score_pct != null ? parseFloat(row.score_pct) : null, responses: Number(row.responses ?? 0) });
     }
@@ -37,12 +40,12 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
     // Company: overall (unweighted mean of all responses) + per-tech breakdown.
     const overall = await db.execute(sql`
       SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
-        FROM scorecard_entries WHERE ${base}`);
+        FROM scorecard_entries WHERE ${cond("")}`);
     const byTech = await db.execute(sql`
       SELECT e.employee_id, (u.first_name || ' ' || u.last_name) AS name,
              ROUND(AVG(e.score_value / NULLIF(e.max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
         FROM scorecard_entries e LEFT JOIN users u ON u.id = e.employee_id
-       WHERE ${base} GROUP BY e.employee_id, u.first_name, u.last_name
+       WHERE ${cond("e.")} GROUP BY e.employee_id, u.first_name, u.last_name
        ORDER BY score_pct DESC NULLS LAST`);
     const o: any = overall.rows[0] ?? {};
     return res.json({
