@@ -2064,7 +2064,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <button onClick={() => !isLocked && setAddTechOpen(true)}
                       disabled={isLocked}
                       style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 999, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
-                      <Plus size={11} /> Add helper
+                      <Plus size={11} /> Add tech
                     </button>
                   )}
                 </div>
@@ -2357,7 +2357,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <button onClick={() => !isLocked && setAddTechOpen(true)}
                 disabled={isLocked}
                 style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
-                <Plus size={12} /> Add Team Member
+                <Plus size={12} /> Add tech
               </button>
             </PS>
           )}
@@ -2418,7 +2418,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div onClick={() => setAddTechOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 300 }} />
               <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", zIndex: 301, width: 340, backgroundColor: "#FFFFFF", borderRadius: 12, boxShadow: "0 12px 40px rgba(0,0,0,0.2)", fontFamily: FF, overflow: "hidden" }}>
                 <div style={{ padding: "16px 20px", borderBottom: "1px solid #E5E2DC", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Add Team Member</span>
+                  <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Add tech</span>
                   <button onClick={() => setAddTechOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={16} /></button>
                 </div>
                 <div style={{ padding: "12px 20px", maxHeight: 360, overflowY: "auto" }}>
