@@ -88,6 +88,36 @@ router.post("/", requireAuth, async (req, res) => {
   }
 });
 
+// Per-employee scorecard detail: the authoritative % + the per-job history
+// rows (scorecard_entries) for the employee profile Scorecards tab.
+router.get("/entries/:employee_id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const employeeId = parseInt(req.params.employee_id);
+    if (isNaN(employeeId)) return res.status(400).json({ error: "Invalid employee_id" });
+
+    const [emp] = await db
+      .select({ scorecard_pct: usersTable.scorecard_pct })
+      .from(usersTable)
+      .where(and(eq(usersTable.id, employeeId), eq(usersTable.company_id, companyId)))
+      .limit(1);
+
+    const entries = await db
+      .select()
+      .from(scorecardEntriesTable)
+      .where(and(
+        eq(scorecardEntriesTable.company_id, companyId),
+        eq(scorecardEntriesTable.employee_id, employeeId),
+      ))
+      .orderBy(desc(scorecardEntriesTable.entry_date));
+
+    return res.json({ scorecard_pct: emp?.scorecard_pct ?? null, entries });
+  } catch (err) {
+    console.error("Scorecard entries error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch scorecard entries" });
+  }
+});
+
 // ── MaidCentral scorecard import (bulk) ──────────────────────────────────────
 // Loads (a) each employee's authoritative MC scorecard % into users.scorecard_pct
 // (stored as-is, NOT recomputed) and (b) per-job history into scorecard_entries.
