@@ -3639,6 +3639,16 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────
 
+    // ── efficiency auto-compute (non-blocking) ────────────────────────────
+    // allowed/budgeted hrs ÷ actual clocked hrs → employee_efficiency
+    // (source='qleno'), per package, tenant-scoped. Skips cleanly if the
+    // job lacks allowed_hours or no clock-out yet (the recompute endpoint /
+    // a later run picks it up). Never blocks completion.
+    import("../lib/efficiency-engine.js").then(({ recomputeJobEfficiency }) =>
+      recomputeJobEfficiency(jobId, companyId).catch((e) =>
+        console.error("[efficiency] recompute on complete failed:", e?.message ?? e)),
+    ).catch(() => {});
+
     return res.json({
       ...updated[0],
       client_name: jobDetail[0]?.client_name ?? "",

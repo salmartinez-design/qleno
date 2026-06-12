@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { employeeEfficiencyTable, usersTable } from "@workspace/db/schema";
 import { eq, and, sql, desc, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { recomputeAllEfficiency } from "../lib/efficiency-engine.js";
 
 const router = Router();
 
@@ -60,7 +61,7 @@ router.get("/:employee_id", requireAuth, async (req, res) => {
     const employeeId = parseInt(req.params.employee_id);
     if (isNaN(employeeId)) return res.status(400).json({ error: "Invalid employee_id" });
 
-    const rows = await db
+    const allRows = await db
       .select()
       .from(employeeEfficiencyTable)
       .where(and(
@@ -68,6 +69,15 @@ router.get("/:employee_id", requireAuth, async (req, res) => {
         eq(employeeEfficiencyTable.employee_id, employeeId),
       ))
       .orderBy(desc(employeeEfficiencyTable.efficiency_pct));
+
+    // One effective row per package, preferring live source='qleno' over the
+    // imported 'mc' baseline (qleno wins regardless of value).
+    const byPkg = new Map<string, any>();
+    for (const r of allRows) {
+      const ex = byPkg.get(r.service_type);
+      if (!ex || (r.source === "qleno" && ex.source !== "qleno")) byPkg.set(r.service_type, r);
+    }
+    const rows = [...byPkg.values()];
 
     const catalog = await loadCatalog(companyId);
     const vals = rows.map(r => parseFloat(r.efficiency_pct)).filter(n => Number.isFinite(n) && n > 0);
@@ -77,6 +87,19 @@ router.get("/:employee_id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Efficiency fetch error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch efficiency" });
+  }
+});
+
+// POST /api/efficiency/recompute (owner/admin) — backfill the live source='qleno'
+// efficiency from every completed job (allowed vs actual clocked hours). Safe to
+// re-run; leaves the imported source='mc' baseline untouched.
+router.post("/recompute", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const result = await recomputeAllEfficiency(req.auth!.companyId!);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error("Efficiency recompute error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to recompute efficiency" });
   }
 });
 

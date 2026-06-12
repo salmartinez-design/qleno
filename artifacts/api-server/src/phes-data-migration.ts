@@ -1335,6 +1335,26 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_employee_efficiency_emp",
       stmt: `CREATE INDEX IF NOT EXISTS idx_employee_efficiency_emp ON employee_efficiency(company_id, employee_id)` },
+
+    // ── Efficiency per-job audit (drives the rolled-up employee_efficiency) ──
+    { label: "CREATE efficiency_entries", stmt: `
+      CREATE TABLE IF NOT EXISTS efficiency_entries (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL REFERENCES companies(id),
+        employee_id   INTEGER NOT NULL REFERENCES users(id),
+        job_id        INTEGER NOT NULL REFERENCES jobs(id),
+        package       TEXT NOT NULL,
+        allowed_share NUMERIC(8,3) NOT NULL,
+        actual_hours  NUMERIC(8,3) NOT NULL,
+        ratio         NUMERIC(6,2) NOT NULL,
+        source        TEXT NOT NULL DEFAULT 'qleno',
+        entry_date    DATE NOT NULL,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+        CONSTRAINT uq_efficiency_entries_job_emp UNIQUE (job_id, employee_id)
+      )
+    ` },
+    { label: "idx_efficiency_entries_emp_pkg",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_efficiency_entries_emp_pkg ON efficiency_entries(company_id, employee_id, package)` },
   ];
 
   for (const { label, stmt } of guards) {
