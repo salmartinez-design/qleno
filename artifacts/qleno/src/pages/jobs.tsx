@@ -2464,9 +2464,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     // Time off (PTO/sick/absent) is split out so it can never sit
                     // under "Available"; still listed (amber) for a deliberate
                     // override if the office really needs to assign them.
+                    const scoredById = new Map(scored.map(s => [s.t.id, s] as const));
+                    const isAvail = (id: number) => scoredById.get(id)?.available ?? true; // not on the board → treat as free
+                    const freeAtOf = (id: number) => scoredById.get(id)?.freeAt ?? null;
+                    // Group by SCHEDULE CONFLICT at this job's time window — NOT by
+                    // clock-in status. A tech with a job overlapping the slot is "on
+                    // a job" even if they never clocked in (office-managed techs who
+                    // don't use the field app), so they don't show as Available.
                     const offList = addTechList.filter(t => !!timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
-                    const free = addTechList.filter(t => !t.is_clocked_in && !timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
-                    const working = addTechList.filter(t => t.is_clocked_in && !timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const free = addTechList.filter(t => !timeOffOf(t.id) && isAvail(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const working = addTechList.filter(t => !timeOffOf(t.id) && !isAvail(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const busyLabel = (id: number) => { const f = freeAtOf(id); return f != null ? `On a job · frees up ${fmtAmpm(f)}` : "On a job"; };
                     const offLabel = (id: number) => { const o = timeOffOf(id); return o === "pto" ? "On PTO today" : o === "sick" ? "Out sick today" : o === "absent" ? "Absent today" : ""; };
                     const groupHeader = (text: string) => (
                       <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 2px 6px", marginTop: 4 }}>
@@ -2503,8 +2511,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         {suggested.map(s => row(s.t, reasonFor(s), `sug-${s.t.id}`))}
                         {free.length > 0 && groupHeader("Available")}
                         {free.map(t => row(t))}
-                        {working.length > 0 && groupHeader("Currently on a job")}
-                        {working.map(t => row(t))}
+                        {working.length > 0 && groupHeader("On a job")}
+                        {working.map(t => row(t, busyLabel(t.id), `busy-${t.id}`, "warn"))}
                         {offList.length > 0 && groupHeader("Time off")}
                         {offList.map(t => row(t, offLabel(t.id), `off-${t.id}`, "warn"))}
                       </>
