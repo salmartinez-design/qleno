@@ -12,7 +12,7 @@ import { DocumentsTab } from "./company/documents";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
 
 // [settings-nav 2026-05-26] Grouped sidebar replaces the 14-tab flat strip.
 // Groups reflect how the day actually flows: Business (identity), Pricing &
@@ -52,6 +52,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
     tabs: [
       { id: 'follow-up', label: 'Follow-Up Sequences' },
       { id: 'notifications', label: 'Notifications' },
+      { id: 'survey', label: 'Customer Survey' },
     ],
   },
   {
@@ -125,6 +126,7 @@ export default function CompanyPage() {
             {activeTab === 'branding' && <BrandingTab />}
             {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'notifications' && <NotificationsTab />}
+            {activeTab === 'survey' && <CustomerSurveyTab />}
             {activeTab === 'clock-inout' && <ClockInOutTab />}
             {activeTab === 'invoicing' && <InvoicingTab />}
             {activeTab === 'integrations' && <IntegrationsTab />}
@@ -2768,6 +2770,119 @@ function FollowUpSequencesTab() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// [scorecard-survey 2026-06-12] Customer Comms → Customer Survey. Per-tenant
+// post-job survey config + Twilio connection. SMS only sends once Twilio is
+// connected AND enabled (go-live gate) AND COMMS_ENABLED — off by default.
+function CustomerSurveyTab() {
+  const CS_API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const { toast } = useToast();
+  const { data: company, refetch } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
+  const [f, setF] = useState({
+    survey_enabled: false, survey_message_template: "", survey_send_after_hours: 0,
+    twilio_enabled: false, twilio_account_sid: "", twilio_from_number: "", twilio_auth_token: "",
+  });
+  const [tokenSet, setTokenSet] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const c = company as any;
+    if (!c) return;
+    setF({
+      survey_enabled: !!c.survey_enabled,
+      survey_message_template: c.survey_message_template ?? "",
+      survey_send_after_hours: Number(c.survey_send_after_hours ?? 0),
+      twilio_enabled: !!c.twilio_enabled,
+      twilio_account_sid: c.twilio_account_sid ?? "",
+      twilio_from_number: c.twilio_from_number ?? "",
+      twilio_auth_token: "",
+    });
+    setTokenSet(!!c.twilio_auth_token_set);
+  }, [company]);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const body: any = {
+        survey_enabled: f.survey_enabled,
+        survey_message_template: f.survey_message_template,
+        survey_send_after_hours: f.survey_send_after_hours,
+        twilio_enabled: f.twilio_enabled,
+        twilio_account_sid: f.twilio_account_sid,
+        twilio_from_number: f.twilio_from_number,
+      };
+      if (f.twilio_auth_token) body.twilio_auth_token = f.twilio_auth_token; // write-only
+      const r = await fetch(`${CS_API}/api/companies/me`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Survey settings saved" });
+      setF(p => ({ ...p, twilio_auth_token: "" }));
+      refetch();
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    setSaving(false);
+  }
+
+  const card: React.CSSProperties = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "20px 24px", marginBottom: 20 };
+  const label: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 };
+  const input: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, color: "#1A1917", background: "#FFFFFF", boxSizing: "border-box", fontFamily: "inherit" };
+  const Toggle = ({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) => (
+    <button onClick={() => onChange(!on)} style={{ width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer", background: on ? "var(--brand)" : "#D1CFC9", position: "relative", flexShrink: 0 }}>
+      <span style={{ position: "absolute", top: 2, left: on ? 22 : 2, width: 20, height: 20, borderRadius: "50%", background: "#FFF", transition: "left 0.15s" }} />
+    </button>
+  );
+
+  return (
+    <div style={{ maxWidth: 640 }}>
+      <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Customer Survey</h2>
+      <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 20px" }}>
+        Text a 0–4 satisfaction survey after each job. Responses feed each tech's scorecard. Sending stays off until Twilio is connected and enabled below.
+      </p>
+
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div><div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Send post-job surveys</div>
+            <div style={{ fontSize: 12, color: "#9E9B94" }}>Master toggle for the survey program</div></div>
+          <Toggle on={f.survey_enabled} onChange={v => setF(p => ({ ...p, survey_enabled: v }))} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label style={label}>Message template</label>
+          <textarea rows={3} style={{ ...input, resize: "vertical" }} value={f.survey_message_template}
+            onChange={e => setF(p => ({ ...p, survey_message_template: e.target.value }))} />
+          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 0" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
+        </div>
+        <div style={{ maxWidth: 220 }}>
+          <label style={label}>Send delay after completion (hours)</label>
+          <input type="number" min={0} style={input} value={f.survey_send_after_hours}
+            onChange={e => setF(p => ({ ...p, survey_send_after_hours: Number(e.target.value) || 0 }))} />
+        </div>
+      </div>
+
+      <div style={card}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div><div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Twilio connection <span style={{ fontSize: 11, fontWeight: 600, color: tokenSet ? "var(--brand)" : "#9E9B94" }}>{tokenSet ? "• Connected" : "• Not connected"}</span></div>
+            <div style={{ fontSize: 12, color: "#9E9B94" }}>Go-live gate — surveys/SMS only send when this is on</div></div>
+          <Toggle on={f.twilio_enabled} onChange={v => setF(p => ({ ...p, twilio_enabled: v }))} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+          <div><label style={label}>Account SID</label>
+            <input style={input} value={f.twilio_account_sid} placeholder="AC…" onChange={e => setF(p => ({ ...p, twilio_account_sid: e.target.value }))} /></div>
+          <div><label style={label}>From number</label>
+            <input style={input} value={f.twilio_from_number} placeholder="+1…" onChange={e => setF(p => ({ ...p, twilio_from_number: e.target.value }))} /></div>
+          <div style={{ gridColumn: "1 / -1" }}><label style={label}>Auth token {tokenSet && <span style={{ textTransform: "none", color: "#9E9B94" }}>(leave blank to keep current)</span>}</label>
+            <input type="password" style={input} value={f.twilio_auth_token} placeholder={tokenSet ? "••••••••" : "Auth token"} onChange={e => setF(p => ({ ...p, twilio_auth_token: e.target.value }))} /></div>
+        </div>
+      </div>
+
+      <button onClick={save} disabled={saving}
+        style={{ padding: "10px 22px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: saving ? "default" : "pointer", fontFamily: "inherit" }}>
+        {saving ? "Saving…" : "Save"}
+      </button>
     </div>
   );
 }

@@ -52,6 +52,13 @@ router.get("/me", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Company not found" });
     }
 
+    // Never expose the Twilio auth token to the client; surface a boolean so the
+    // Integrations UI can show "connected" without the secret.
+    if (company.twilio_auth_token !== undefined) {
+      company.twilio_auth_token_set = !!company.twilio_auth_token;
+      delete company.twilio_auth_token;
+    }
+
     return res.json(company);
   } catch (err) {
     console.error("Get company error:", err);
@@ -120,6 +127,21 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (sms_paused_enabled !== undefined) patch.sms_paused_enabled = sms_paused_enabled;
     if (sms_complete_enabled !== undefined) patch.sms_complete_enabled = sms_complete_enabled;
     if (twilio_from_number !== undefined) patch.twilio_from_number = twilio_from_number;
+    // [scorecard-survey 2026-06-12] Per-tenant post-job survey config (Customer
+    // Comms) + Twilio connection (Integrations). twilio_enabled is the go-live
+    // gate; auth token is write-only (only set when a non-empty value is sent).
+    {
+      const {
+        survey_enabled, survey_message_template, survey_send_after_hours,
+        twilio_enabled, twilio_account_sid, twilio_auth_token,
+      } = req.body;
+      if (survey_enabled !== undefined) patch.survey_enabled = !!survey_enabled;
+      if (survey_message_template !== undefined) patch.survey_message_template = survey_message_template;
+      if (survey_send_after_hours !== undefined) patch.survey_send_after_hours = Number(survey_send_after_hours) || 0;
+      if (twilio_enabled !== undefined) patch.twilio_enabled = !!twilio_enabled;
+      if (twilio_account_sid !== undefined) patch.twilio_account_sid = twilio_account_sid || null;
+      if (twilio_auth_token !== undefined && twilio_auth_token !== "") patch.twilio_auth_token = twilio_auth_token;
+    }
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel webhook URLs (estimate drip).
     // https-only; empty string clears (disables the bridge).
     {
