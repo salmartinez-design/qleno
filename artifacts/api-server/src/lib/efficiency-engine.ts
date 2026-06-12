@@ -1,4 +1,5 @@
 import { db } from "@workspace/db";
+import { efficiencyEntriesTable } from "@workspace/db/schema";
 import { sql } from "drizzle-orm";
 
 // Resolve a completed job's service_type → the Qleno package name efficiency is
@@ -110,15 +111,82 @@ export async function recomputeJobEfficiency(jobId: number, companyId: number): 
 }
 
 // Backfill: recompute qleno efficiency from every completed job for a company.
+// Batched/set-based (a handful of queries, not per-job round-trips) so it
+// completes well within the HTTP proxy window even at thousands of jobs.
 // Returns { jobs_scanned, entries_written }.
 export async function recomputeAllEfficiency(companyId: number): Promise<{ jobs_scanned: number; entries_written: number }> {
+  const cmap = await commercialMap(companyId);
+
   const jr = await db.execute(sql`
-    SELECT id FROM jobs WHERE company_id = ${companyId} AND status = 'complete'
-      AND allowed_hours IS NOT NULL AND allowed_hours::numeric > 0
-    ORDER BY id
+    SELECT id, service_type, frequency, recurring_schedule_id,
+           allowed_hours::numeric AS allowed, scheduled_date::text AS dt
+      FROM jobs
+     WHERE company_id = ${companyId} AND status = 'complete'
+       AND allowed_hours IS NOT NULL AND allowed_hours::numeric > 0
   `);
-  const ids = (jr.rows as any[]).map(r => Number(r.id));
-  let entries = 0;
-  for (const id of ids) entries += await recomputeJobEfficiency(id, companyId);
-  return { jobs_scanned: ids.length, entries_written: entries };
+  const jobs = jr.rows as any[];
+  if (!jobs.length) return { jobs_scanned: 0, entries_written: 0 };
+  const jobIds = jobs.map(j => Number(j.id));
+
+  // All per-(job,tech) clocked hours in ONE grouped query.
+  const hr = await db.execute(sql`
+    SELECT job_id, user_id, SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric AS hours
+      FROM timeclock
+     WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
+       AND clock_out_at IS NOT NULL AND source = 'punched'
+     GROUP BY job_id, user_id
+  `);
+  const byJob = new Map<number, Array<{ user: number; hours: number }>>();
+  for (const r of hr.rows as any[]) {
+    const h = parseFloat(r.hours);
+    if (!Number.isFinite(h) || h <= 0) continue;
+    const jid = Number(r.job_id);
+    if (!byJob.has(jid)) byJob.set(jid, []);
+    byJob.get(jid)!.push({ user: Number(r.user_id), hours: h });
+  }
+
+  const rows: any[] = [];
+  for (const j of jobs) {
+    const techs = byJob.get(Number(j.id));
+    if (!techs || !techs.length) continue;
+    const isRec = j.recurring_schedule_id != null || RECURRING_FREQUENCIES.has(String(j.frequency || "").toLowerCase());
+    const pkg = resolvePackage(j.service_type, isRec, cmap);
+    if (!pkg) continue;
+    const allowed = parseFloat(j.allowed);
+    const total = techs.reduce((s, t) => s + t.hours, 0);
+    if (!(allowed > 0) || total <= 0) continue;
+    const dt = String(j.dt).slice(0, 10);
+    for (const t of techs) {
+      const share = allowed * (t.hours / total);
+      const ratio = Math.round((100 * share / t.hours) * 100) / 100;
+      rows.push({
+        company_id: companyId, employee_id: t.user, job_id: Number(j.id), package: pkg,
+        allowed_share: share.toFixed(3), actual_hours: t.hours.toFixed(3),
+        ratio: String(ratio), source: "qleno", entry_date: dt,
+      });
+    }
+  }
+
+  // Replace this company's qleno entries, then bulk insert (chunked).
+  await db.execute(sql`DELETE FROM efficiency_entries WHERE company_id = ${companyId} AND source = 'qleno'`);
+  for (let i = 0; i < rows.length; i += 500) {
+    const chunk = rows.slice(i, i + 500);
+    if (chunk.length) await db.insert(efficiencyEntriesTable).values(chunk);
+  }
+
+  // Set-based rollup → employee_efficiency (source='qleno'): hours-weighted
+  // 100 × Σallowed_share ÷ Σactual_hours per (employee, package).
+  await db.execute(sql`DELETE FROM employee_efficiency WHERE company_id = ${companyId} AND source = 'qleno'`);
+  await db.execute(sql`
+    INSERT INTO employee_efficiency (company_id, employee_id, service_type, efficiency_pct, source, period, updated_at)
+    SELECT company_id, employee_id, package,
+           ROUND(100 * SUM(allowed_share) / NULLIF(SUM(actual_hours), 0), 2), 'qleno', 'all_time', NOW()
+      FROM efficiency_entries
+     WHERE company_id = ${companyId} AND source = 'qleno'
+     GROUP BY company_id, employee_id, package
+    ON CONFLICT (company_id, employee_id, service_type, period)
+    DO UPDATE SET efficiency_pct = EXCLUDED.efficiency_pct, source = 'qleno', updated_at = NOW()
+  `);
+
+  return { jobs_scanned: jobs.length, entries_written: rows.length };
 }
