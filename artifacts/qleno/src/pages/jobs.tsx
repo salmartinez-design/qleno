@@ -78,7 +78,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
-interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -2447,6 +2447,15 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     const fmtAmpm = (mins: number) => { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ap = h < 12 ? "AM" : "PM"; const h12 = ((h + 11) % 12) + 1; return `${h12}:${String(m).padStart(2, "0")} ${ap}`; };
                     const empById = new Map(employees.map(e => [e.id, e] as const));
                     const timeOffOf = (id: number) => empById.get(id)?.time_off ?? null;
+                    // [distance-order 2026-06-12] Real distance from where a tech is
+                    // working to this job, not just same-zone. miles via haversine.
+                    const jLat = job.job_lat ?? null, jLng = job.job_lng ?? null;
+                    const milesBetween = (la1: number, lo1: number, la2: number, lo2: number) => {
+                      const R = 3958.8, toR = Math.PI / 180;
+                      const dLa = (la2 - la1) * toR, dLo = (lo2 - lo1) * toR;
+                      const a = Math.sin(dLa / 2) ** 2 + Math.cos(la1 * toR) * Math.cos(la2 * toR) * Math.sin(dLo / 2) ** 2;
+                      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                    };
                     const scored = addTechList.map(t => {
                       const emp = empById.get(t.id);
                       const empJobs = (emp?.jobs ?? []).filter(j => j.id !== job.id && j.scheduled_time);
@@ -2454,19 +2463,37 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       const available = overlapping.length === 0;
                       const sameZone = jobZone != null && !!emp?.zone && emp.zone.zone_id === jobZone;
                       const freeAt = available ? jobStart : Math.max(...overlapping.map(j => timeToMins(j.scheduled_time!) + durOf(j)));
-                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null };
+                      // Closest the tech's day's work gets to this job (their anchor).
+                      let dist: number | null = null;
+                      if (jLat != null && jLng != null) {
+                        for (const j of (emp?.jobs ?? [])) {
+                          if (j.id === job.id || j.job_lat == null || j.job_lng == null) continue;
+                          const d = milesBetween(jLat, jLng, j.job_lat, j.job_lng);
+                          if (dist == null || d < dist) dist = d;
+                        }
+                      }
+                      // Sort key for distance: real miles when known; else a zone-based
+                      // proxy so same-zone (no coords) still beats far/unknown.
+                      const distScore = dist != null ? dist : (sameZone ? 8 : 25);
+                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null, dist, distScore };
                     });
-                    // SAFEGUARD: never SUGGEST a tech who's on PTO / sick / absent
-                    // today. Best → ok: free at the job's time → same zone →
+                    // SAFEGUARD: never SUGGEST a tech on PTO / sick / absent today.
+                    // Best → ok: free at the job's time → CLOSEST to the job →
                     // lighter load; if none free, whoever frees up soonest.
                     const suggested = scored.filter(s => !s.timeOff).sort((a, b) => {
                       if (a.available !== b.available) return a.available ? -1 : 1;
-                      if (a.available) { if (a.sameZone !== b.sameZone) return a.sameZone ? -1 : 1; return a.jobCount - b.jobCount; }
+                      if (a.available) {
+                        if (Math.abs(a.distScore - b.distScore) > 0.3) return a.distScore - b.distScore;
+                        return a.jobCount - b.jobCount;
+                      }
                       return a.freeAt - b.freeAt;
                     }).slice(0, 2);
-                    const reasonFor = (s: typeof scored[number]) => s.available
-                      ? (s.sameZone ? `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open` : (s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today"))
-                      : `Frees up ${fmtAmpm(s.freeAt)}`;
+                    const reasonFor = (s: typeof scored[number]) => {
+                      if (!s.available) return `Frees up ${fmtAmpm(s.freeAt)}`;
+                      if (s.dist != null) return `${s.dist < 0.1 ? "<0.1" : s.dist.toFixed(1)} mi away${s.sameZone ? " · same zone" : ""}`;
+                      if (s.sameZone) return `Same zone${s.zoneName ? ` · ${s.zoneName}` : ""} · open`;
+                      return s.jobCount > 0 ? `Open · ${s.jobCount} job${s.jobCount > 1 ? "s" : ""} today` : "Open · no jobs today";
+                    };
 
                     // Time off (PTO/sick/absent) is split out so it can never sit
                     // under "Available"; still listed (amber) for a deliberate
@@ -2478,9 +2505,18 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     // clock-in status. A tech with a job overlapping the slot is "on
                     // a job" even if they never clocked in (office-managed techs who
                     // don't use the field app), so they don't show as Available.
+                    // [distance-order 2026-06-12] Available techs sort by real
+                    // distance to the job (closest first), name as the tiebreak.
+                    const distScoreOf = (id: number) => scoredById.get(id)?.distScore ?? 99;
+                    const distOf = (id: number) => scoredById.get(id)?.dist ?? null;
+                    const byDistThenName = (a: TechRow, b: TechRow) => {
+                      const da = distScoreOf(a.id), db_ = distScoreOf(b.id);
+                      return Math.abs(da - db_) > 0.3 ? da - db_ : a.name.localeCompare(b.name);
+                    };
                     const offList = addTechList.filter(t => !!timeOffOf(t.id)).sort((a, b) => a.name.localeCompare(b.name));
-                    const free = addTechList.filter(t => !timeOffOf(t.id) && isAvail(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const free = addTechList.filter(t => !timeOffOf(t.id) && isAvail(t.id)).sort(byDistThenName);
                     const working = addTechList.filter(t => !timeOffOf(t.id) && !isAvail(t.id)).sort((a, b) => a.name.localeCompare(b.name));
+                    const availLabel = (id: number) => { const d = distOf(id); return d != null ? `${d < 0.1 ? "<0.1" : d.toFixed(1)} mi away` : undefined; };
                     const busyLabel = (id: number) => { const f = freeAtOf(id); return f != null ? `On a job · frees up ${fmtAmpm(f)}` : "On a job"; };
                     const offLabel = (id: number) => { const o = timeOffOf(id); return o === "pto" ? "On PTO today" : o === "sick" ? "Out sick today" : o === "absent" ? "Absent today" : ""; };
                     const groupHeader = (text: string) => (
@@ -2517,7 +2553,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         {suggested.length > 0 && groupHeader("Suggested")}
                         {suggested.map(s => row(s.t, reasonFor(s), `sug-${s.t.id}`))}
                         {free.length > 0 && groupHeader("Available")}
-                        {free.map(t => row(t))}
+                        {free.map(t => row(t, availLabel(t.id)))}
                         {working.length > 0 && groupHeader("On a job")}
                         {working.map(t => row(t, busyLabel(t.id), `busy-${t.id}`, "warn"))}
                         {offList.length > 0 && groupHeader("Time off")}
