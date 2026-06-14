@@ -473,6 +473,19 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
               </button>
             );
           })}
+          {/* Cross-tenant owner roll-up — only reachable when the user has ≥2
+              companies (this whole switcher only renders then), and the endpoint
+              itself returns only companies the caller owns. */}
+          <Link href="/all-locations">
+            <a onClick={() => setOpen(false)} style={{
+              display: 'flex', alignItems: 'center', gap: 6, width: '100%', padding: '9px 14px',
+              borderTop: '1px solid #F0EDEA', background: 'transparent', textDecoration: 'none',
+              fontSize: 13, fontWeight: 600, color: 'var(--brand)', cursor: 'pointer',
+              fontFamily: "'Plus Jakarta Sans', sans-serif",
+            }}>
+              <Building2 size={13} /> All Locations
+            </a>
+          </Link>
         </div>
       )}
     </div>
