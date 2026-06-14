@@ -5,7 +5,7 @@ import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
-import { quoteScopesTable } from "./quote_scopes";
+import { pricingScopesTable } from "./pricing";
 
 export const quotesTable = pgTable("quotes", {
   id: serial("id").primaryKey(),
@@ -27,7 +27,7 @@ export const quotesTable = pgTable("quotes", {
   notes: text("notes"),
   created_by: integer("created_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
-  scope_id: integer("scope_id").references(() => quoteScopesTable.id),
+  scope_id: integer("scope_id").references(() => pricingScopesTable.id),
   pricing_method: text("pricing_method"),
   addons: jsonb("addons").default([]),
   discount_code: text("discount_code"),

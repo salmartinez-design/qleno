@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { quotesTable, clientsTable, quoteScopesTable, recurringSchedulesTable, usersTable } from "@workspace/db/schema";
+import { quotesTable, clientsTable, pricingScopesTable, recurringSchedulesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -75,12 +75,12 @@ async function getQuoteWithDetails(id: number, companyId: number) {
       client_last: clientsTable.last_name,
       client_email: clientsTable.email,
       client_phone: clientsTable.phone,
-      scope_name: quoteScopesTable.name,
-      scope_category: quoteScopesTable.category,
+      scope_name: pricingScopesTable.name,
+      scope_category: pricingScopesTable.scope_group,
     })
     .from(quotesTable)
     .leftJoin(clientsTable, eq(quotesTable.client_id, clientsTable.id))
-    .leftJoin(quoteScopesTable, eq(quotesTable.scope_id, quoteScopesTable.id))
+    .leftJoin(pricingScopesTable, eq(quotesTable.scope_id, pricingScopesTable.id))
     .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, companyId)))
     .limit(1);
   return quote;
@@ -142,7 +142,7 @@ router.get("/", requireAuth, async (req, res) => {
         client_first: clientsTable.first_name,
         client_last: clientsTable.last_name,
         client_email: clientsTable.email,
-        scope_name: quoteScopesTable.name,
+        scope_name: pricingScopesTable.name,
         // [quote-breakdown 2026-06-08] who quoted + residential/commercial split.
         created_by: quotesTable.created_by,
         quoted_by_first: usersTable.first_name,
@@ -151,7 +151,7 @@ router.get("/", requireAuth, async (req, res) => {
       })
       .from(quotesTable)
       .leftJoin(clientsTable, eq(quotesTable.client_id, clientsTable.id))
-      .leftJoin(quoteScopesTable, eq(quotesTable.scope_id, quoteScopesTable.id))
+      .leftJoin(pricingScopesTable, eq(quotesTable.scope_id, pricingScopesTable.id))
       .leftJoin(usersTable, eq(quotesTable.created_by, usersTable.id))
       .where(and(...conditions))
       .orderBy(desc(quotesTable.created_at));
@@ -184,7 +184,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       unit_suite, referral_source, office_notes, manual_adjustments,
     } = req.body;
 
-    const scope = scope_id ? await db.select().from(quoteScopesTable).where(eq(quoteScopesTable.id, scope_id)).limit(1) : null;
+    const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
 
     // Resolve branch from client zip for branch tagging
     let quoteBranch = "oak_lawn";

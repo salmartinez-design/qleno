@@ -1540,6 +1540,40 @@ async function runBookingSchemaGuard(): Promise<void> {
               (seq.id, 7, 192, 'email', 'Closing out your quote', 'Hi {{first_name}}, we will pause our follow-ups for now so we are not crowding your inbox. Whenever you are ready for a cleaning, just reply and we will pick right back up. Thank you from the Phes team.');
           END LOOP;
         END $$;` },
+
+    // ── Quote scope_id FK fix (BUG-1) ─────────────────────────────────────────
+    //   The quote builder lists/prices scopes from pricing_scopes (ids 1..N) and
+    //   posts scope_id = pricing_scopes.id, but quotes.scope_id used to FK the
+    //   legacy quote_scopes table (5 rows). Any scope whose pricing id wasn't
+    //   also a quote_scopes id (Move In/Out, Recurring 2/4-wk, Hourly Standard,
+    //   commercial, …) 500'd on save. Every existing quotes.scope_id is already
+    //   a valid pricing_scopes id (verified: 0 orphans across all tenants), so
+    //   repointing the FK changes no rows. Multi-tenant safe; idempotent.
+    { label: "repoint quotes.scope_id FK → pricing_scopes",
+      stmt: `DO $$
+        BEGIN
+          IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quotes_scope_id_quote_scopes_id_fk') THEN
+            ALTER TABLE quotes DROP CONSTRAINT quotes_scope_id_quote_scopes_id_fk;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'quotes_scope_id_pricing_scopes_id_fk') THEN
+            ALTER TABLE quotes ADD CONSTRAINT quotes_scope_id_pricing_scopes_id_fk
+              FOREIGN KEY (scope_id) REFERENCES pricing_scopes(id);
+          END IF;
+        END $$;` },
+
+    // Backfill the secondary mislabel: quotes created before the fix stored
+    // service_type from the WRONG table (quote_scopes name). Correct it to the
+    // pricing_scopes name the operator actually picked. Guarded to only rewrite
+    // rows whose current service_type is a quote_scopes name (the bug signature),
+    // so it never clobbers a correct value and is a no-op once aligned.
+    { label: "backfill quotes.service_type from pricing_scopes",
+      stmt: `UPDATE quotes q
+                SET service_type = ps.name
+               FROM pricing_scopes ps
+              WHERE q.scope_id = ps.id
+                AND q.scope_id IS NOT NULL
+                AND q.service_type IS DISTINCT FROM ps.name
+                AND q.service_type IN (SELECT name FROM quote_scopes)` },
   ];
 
   for (const { label, stmt } of guards) {
