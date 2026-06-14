@@ -225,6 +225,9 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     } as any).returning();
 
     logAudit(req, "CREATE", "quote", q.id, null, { status: q.status, total_price: q.total_price });
+    // Quote→lead: find-or-create the lead + link it (non-blocking).
+    import("../lib/lead-sync.js").then(({ upsertLeadForQuote }) =>
+      upsertLeadForQuote(req.auth!.companyId, q).catch(() => {})).catch(() => {});
     return res.status(201).json(q);
   } catch (err) {
     console.error("Create quote error:", err);
@@ -291,6 +294,14 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
         (q as any).lead_phone ?? null,
       ).catch(() => {});
     });
+    // Quote→lead: advance the lead to Quoted + link the enrollment (non-blocking).
+    import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage, linkEnrollmentToLead }) => {
+      const leadId = await upsertLeadForQuote(companyId, q);
+      if (leadId) {
+        await advanceLeadStage(companyId, leadId, "quoted", { quoteAmount: (q as any).total_price ?? (q as any).base_price ?? null, userId: req.auth!.userId });
+        await linkEnrollmentToLead(companyId, id, leadId);
+      }
+    }).catch(() => {});
     // fire quote_sent notification (non-blocking)
     import("../services/notificationService.js").then(({ sendNotification }) => {
       const mv = {
@@ -439,6 +450,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
         stopEnrollmentsForQuote(id, "booked").catch(() => {});
       });
+      // Quote→lead: advance to Booked (non-blocking).
+      import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
+        const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
+        if (leadId) await advanceLeadStage(companyId, leadId, "booked", { userId: req.auth!.userId });
+      }).catch(() => {});
       return res.json({
         success: true, quote: q, recurring_schedule_id: sched.id, jobs_generated: generated.created,
         message: `Quote converted — recurring schedule created with ${generated.created} visit${generated.created === 1 ? "" : "s"} over the next ${DAYS_AHEAD} days.`,
@@ -527,6 +543,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
       stopEnrollmentsForQuote(id, "booked").catch(() => {});
     });
+    // Quote→lead: advance to Booked + link the job (non-blocking).
+    import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
+      const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
+      if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, userId: req.auth!.userId });
+    }).catch(() => {});
 
     return res.json({ success: true, quote: q, job_id: jobId, message: "Quote converted and job created." });
   } catch (err) {
