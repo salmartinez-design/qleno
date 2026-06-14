@@ -12,6 +12,9 @@ export const branchesTable = pgTable("branches", {
   state: text("state"),
   zip: text("zip"),
   phone: text("phone"),
+  // Per-location Twilio sender. Company holds the account creds + enable gate;
+  // each branch sends from its own number (e.g. Oak Lawn vs Schaumburg).
+  twilio_from_number: text("twilio_from_number"),
   is_default: boolean("is_default").notNull().default(false),
   is_active: boolean("is_active").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
