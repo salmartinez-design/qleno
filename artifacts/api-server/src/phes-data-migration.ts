@@ -1475,6 +1475,71 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `UPDATE branches SET twilio_from_number = '+17737869902' WHERE company_id = 1 AND name = 'Oak Lawn' AND twilio_from_number IS NULL` },
     { label: "phes schaumburg from-number",
       stmt: `UPDATE branches SET twilio_from_number = '+16308844318' WHERE company_id = 1 AND name = 'Schaumburg' AND twilio_from_number IS NULL` },
+
+    // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
+    // Marketing spend per channel + period → CPL / CPA / ROI.
+    { label: "marketing_spend table",
+      stmt: `CREATE TABLE IF NOT EXISTS marketing_spend (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        source TEXT NOT NULL,
+        amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        period_start DATE NOT NULL,
+        period_end DATE NOT NULL,
+        notes TEXT,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "marketing_spend index",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_marketing_spend_company ON marketing_spend (company_id, period_start)` },
+
+    // Owner-set KPI targets (actual-vs-target). One row per (company, metric).
+    { label: "kpi_targets table",
+      stmt: `CREATE TABLE IF NOT EXISTS kpi_targets (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        metric TEXT NOT NULL,
+        target_value NUMERIC(14,2) NOT NULL DEFAULT 0,
+        period TEXT NOT NULL DEFAULT 'monthly',
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "kpi_targets unique",
+      stmt: `CREATE UNIQUE INDEX IF NOT EXISTS uq_kpi_targets_company_metric ON kpi_targets (company_id, metric)` },
+
+    // Configurable headline dashboard cards (default leads / lead→book% / close%).
+    { label: "lead_report_settings table",
+      stmt: `CREATE TABLE IF NOT EXISTS lead_report_settings (
+        company_id INTEGER PRIMARY KEY,
+        headline_cards TEXT[] NOT NULL DEFAULT ARRAY['leads','lead_to_book','close_rate'],
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+
+    // ── Leads PR4 — seed the ONE universal 7-touch quote follow-up cadence ─────
+    //   Locked design (Sal 2026-06): immediate email, ~5-min SMS, Day1 SMS,
+    //   Day3 email, Day5 SMS, Day10 email, Day18 breakup email. delay_hours is
+    //   integer so the ~5-min SMS is a delay-0 step (fires the next cron tick).
+    //   Idempotent: only (re)seeds a quote_followup sequence that lacks a step 7,
+    //   so Sal's later copy edits (and the separately-loaded templates) survive.
+    //   Copy here is an editable fallback; managed templates link via template_id.
+    { label: "seed universal 7-touch quote cadence",
+      stmt: `DO $$
+        DECLARE seq RECORD;
+        BEGIN
+          FOR seq IN
+            SELECT s.id FROM follow_up_sequences s
+            WHERE s.sequence_type = 'quote_followup'
+              AND NOT EXISTS (SELECT 1 FROM follow_up_steps st WHERE st.sequence_id = s.id AND st.step_number = 7)
+          LOOP
+            DELETE FROM follow_up_steps WHERE sequence_id = seq.id;
+            INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template) VALUES
+              (seq.id, 1, 0,   'email', 'Your cleaning quote from Phes', 'Hi {{first_name}}, thank you for reaching out to Phes. Your quote is ready and we would love to get you on the schedule. Reply any time with questions.'),
+              (seq.id, 2, 0,   'sms',   NULL, 'Hi {{first_name}}, this is the Phes office following up on your cleaning quote. Want us to find you a time? Just reply here.'),
+              (seq.id, 3, 24,  'sms',   NULL, 'Hi {{first_name}}, checking in on your Phes quote. Happy to answer any questions or book your first clean whenever you are ready.'),
+              (seq.id, 4, 48,  'email', 'Still here when you are ready', 'Hi {{first_name}}, just following up on your cleaning quote. We have openings this week and can usually match the day that works best for you. Reply to get started.'),
+              (seq.id, 5, 48,  'sms',   NULL, 'Hi {{first_name}}, the Phes team would still love to help with your cleaning. Want me to hold a spot for you this week?'),
+              (seq.id, 6, 120, 'email', 'A clean home is closer than you think', 'Hi {{first_name}}, we know life gets busy. Your Phes quote is still good and booking only takes a minute. Reply and we will take it from there.'),
+              (seq.id, 7, 192, 'email', 'Closing out your quote', 'Hi {{first_name}}, we will pause our follow-ups for now so we are not crowding your inbox. Whenever you are ready for a cleaning, just reply and we will pick right back up. Thank you from the Phes team.');
+          END LOOP;
+        END $$;` },
   ];
 
   for (const { label, stmt } of guards) {
