@@ -142,6 +142,11 @@ export const companiesTable = pgTable("companies", {
   // already exists above. twilio_enabled is the go-live gate — surveys/SMS only
   // actually send when this is true AND creds are set AND COMMS_ENABLED=true.
   twilio_enabled: boolean("twilio_enabled").notNull().default(false),
+  // Per-TENANT comms master. ALL automatic send paths (follow-up cadence +
+  // legacy reminder/review/survey notifications) require the SENDING record's
+  // company.comms_enabled AND the global COMMS_ENABLED. Default OFF so enabling
+  // one tenant can never message another tenant's customers.
+  comms_enabled: boolean("comms_enabled").notNull().default(false),
   twilio_account_sid: text("twilio_account_sid"),
   twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),

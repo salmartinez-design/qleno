@@ -355,7 +355,7 @@ async function processEnrollment(enr: any): Promise<void> {
   const sender = await resolveSender(enr.company_id, branchId);
   // Email rides Resend (not Twilio), so it only needs the master/company/branch
   // gates — not from_number/creds. SMS needs the full sender.reason check.
-  const masterGate = process.env.COMMS_ENABLED === "true" && sender.enabled && sender.branch_comms_enabled;
+  const masterGate = process.env.COMMS_ENABLED === "true" && sender.company_comms_enabled && sender.enabled && sender.branch_comms_enabled;
   try {
     if (step.channel === "sms" && recipientPhone) {
       if (sender.reason) {

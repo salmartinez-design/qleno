@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
 import { notificationTemplatesTable, notificationLogTable, clientsTable, companiesTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { Resend } from "resend";
@@ -97,6 +97,16 @@ export async function sendNotification(
 
     if (!tpl) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "skipped", "Template not found or inactive", {});
+      return;
+    }
+
+    // Per-TENANT comms gate: this company must have comms enabled. Default OFF, so
+    // enabling one tenant can never message another tenant's customers via these
+    // legacy reminder/review/survey notifications. (Raw SQL to avoid coupling to
+    // the regenerated drizzle column type.)
+    const commsRow = await db.execute(sql`SELECT comms_enabled FROM companies WHERE id = ${companyId} LIMIT 1`);
+    if (!(commsRow.rows[0] as any)?.comms_enabled) {
+      await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "company_comms_disabled", {});
       return;
     }
 

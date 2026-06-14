@@ -172,6 +172,33 @@ router.post("/send-one", requireAuth, requireRole("owner", "admin"), async (req,
   }
 });
 
+// ── GET /api/follow-up/comms-gate?company_id= — per-tenant comms gate state ────
+// Owner-only diagnostic. Reports, for a company, whether its sends would be
+// allowed — separating the global master from the per-tenant gate so we can
+// prove tenant isolation (e.g. Schaumburg on, Oak Lawn off → Oak Lawn blocked).
+router.get("/comms-gate", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = parseInt(String(req.query.company_id || req.auth!.companyId));
+    const { resolveSender } = await import("../lib/comms-sender.js");
+    const s = await resolveSender(companyId, null);
+    const globalOn = process.env.COMMS_ENABLED === "true";
+    return res.json({
+      company_id: companyId,
+      global_COMMS_ENABLED: globalOn,
+      company_comms_enabled: s.company_comms_enabled,
+      twilio_enabled: s.enabled,
+      resolve_reason: s.reason ?? "ready",
+      // Would ANY automatic send to this company be possible right now?
+      sends_possible_now: !s.reason,
+      // Would this tenant be blocked purely by its own per-tenant gate (independent of the global master)?
+      blocked_by_tenant_gate: !s.company_comms_enabled,
+    });
+  } catch (err: any) {
+    console.error("GET /follow-up/comms-gate:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
 // ── GET /api/follow-up/resend-status — diagnose the deployed Resend key ────────
 // Reports which account/domains the deployed RESEND_API_KEY can send from, so we
 // can tell whether a from-domain (e.g. phes.io) is actually verified for THIS key.

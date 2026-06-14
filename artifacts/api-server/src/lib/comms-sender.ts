@@ -2,7 +2,8 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 export interface ResolvedSender {
-  enabled: boolean;               // company twilio_enabled gate (company master)
+  enabled: boolean;               // company twilio_enabled gate (Twilio go-live)
+  company_comms_enabled: boolean; // per-TENANT comms master (companies.comms_enabled)
   branch_comms_enabled: boolean;  // per-branch comms gate (false unless branch flipped on)
   account_sid: string | null;
   auth_token: string | null;
@@ -16,7 +17,7 @@ export interface ResolvedSender {
 // COMMS_ENABLED global gate is enforced separately at the call site.
 export async function resolveSender(companyId: number, branchId?: number | null): Promise<ResolvedSender> {
   const cr = await db.execute(sql`
-    SELECT twilio_enabled, twilio_account_sid, twilio_auth_token, twilio_from_number
+    SELECT twilio_enabled, comms_enabled, twilio_account_sid, twilio_auth_token, twilio_from_number
       FROM companies WHERE id = ${companyId} LIMIT 1`);
   const c: any = cr.rows[0] ?? {};
 
@@ -32,18 +33,20 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   const account_sid = c.twilio_account_sid ?? null;
   const auth_token = c.twilio_auth_token ?? null;
   const enabled = !!c.twilio_enabled;
+  const company_comms_enabled = !!c.comms_enabled;
   // When no branch is specified, fall back to the company master for the branch gate.
   const branch_comms_enabled = branchId != null ? branchComms : enabled;
 
   const reason =
     process.env.COMMS_ENABLED !== "true" ? "comms_disabled"          // global master
-    : !enabled ? "twilio_disabled"                                    // company master
+    : !company_comms_enabled ? "company_comms_disabled"               // per-tenant master
+    : !enabled ? "twilio_disabled"                                    // company Twilio go-live
     : !branch_comms_enabled ? "branch_comms_disabled"                 // per-branch gate
     : !(account_sid && auth_token) ? "twilio_unconfigured"
     : !from_number ? "no_from_number"
     : undefined;
 
-  return { enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
+  return { enabled, company_comms_enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
 }
 
 // Send an SMS via Twilio REST (no SDK). Returns the Twilio response (sid, status,
