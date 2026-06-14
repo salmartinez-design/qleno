@@ -2149,7 +2149,7 @@ export default function QuoteBuilderPage() {
                               <div style={{ padding: "12px 14px" }}>
                                 {!isHourly && s.calc && (
                                   <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
-                                    {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"\u2192"} {s.calc.base_hours || estHours} hrs {"\u00D7"} $70/hr = ${s.calc.base_price.toFixed(2)}
+                                    {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"\u2192"} {s.calc.base_hours || estHours} hrs {"\u00D7"} ${Number(s.calc.hourly_rate ?? scope.hourly_rate).toFixed(2)}/hr = ${s.calc.base_price.toFixed(2)}
                                   </div>
                                 )}
                                 {isHourly && (
@@ -2163,7 +2163,7 @@ export default function QuoteBuilderPage() {
                                     <button onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || 0) + 0.5)}
                                       style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                                     <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
-                                      {s.hours ? `= $${(s.hours * 70).toFixed(2)}` : "Enter hours to calculate"}
+                                      {s.hours ? `= $${(s.hours * Number(scope.hourly_rate)).toFixed(2)}` : "Enter hours to calculate"}
                                     </span>
                                   </div>
                                 )}
