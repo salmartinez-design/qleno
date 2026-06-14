@@ -77,10 +77,15 @@ export async function sendNotification(
   companyId: number,
   recipientEmail: string | null,
   recipientPhone: string | null,
-  mergeVars: Record<string, string>
+  mergeVars: Record<string, string>,
+  // Transactional (password reset, user invite, etc.) — triggered by an explicit
+  // user action, so it ALWAYS sends: bypasses both the per-tenant comms gate and
+  // the global COMMS_ENABLED. Marketing/cadence/notification sends leave this false.
+  transactional: boolean = false,
 ): Promise<void> {
   let status = "sent";
   let errorMsg: string | null = null;
+  let providerId: string | null = null;
 
   try {
     // Fetch template
@@ -100,12 +105,13 @@ export async function sendNotification(
       return;
     }
 
-    // Per-TENANT comms gate: this company must have comms enabled. Default OFF, so
-    // enabling one tenant can never message another tenant's customers via these
-    // legacy reminder/review/survey notifications. (Raw SQL to avoid coupling to
-    // the regenerated drizzle column type.)
-    const commsRow = await db.execute(sql`SELECT comms_enabled FROM companies WHERE id = ${companyId} LIMIT 1`);
-    if (!(commsRow.rows[0] as any)?.comms_enabled) {
+    // Per-tenant comms gate + per-tenant send-from address. Raw SQL to avoid
+    // coupling to the regenerated drizzle column types.
+    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const fromAddr = (commsRow.rows[0] as any)?.email_from_address || "info@phes.io";
+    // Marketing/notification sends require the tenant's comms gate. Transactional
+    // sends (reset/invite) skip it — they must always reach the user.
+    if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "company_comms_disabled", {});
       return;
     }
@@ -139,19 +145,23 @@ export async function sendNotification(
       const rawHtml  = applyMerge(bodyHtml, fullVars);
       const wrapped  = applyMerge(wrapEmailHtml(rawHtml), fullVars);
 
-      if (process.env.COMMS_ENABLED !== "true") {
+      if (!transactional && process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });
         await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "COMMS_ENABLED=false", fullVars);
         return;
       }
       const resend = new Resend(process.env.RESEND_API_KEY);
-      await resend.emails.send({
-        from:     "info@phes.io",
-        replyTo:  "info@phes.io",
+      const sendRes: any = await resend.emails.send({
+        from:     fromAddr,
+        replyTo:  fromAddr,
         to:       recipientEmail,
         subject,
         html:     wrapped,
       });
+      // The Resend SDK returns { error } instead of throwing — surface it so a
+      // rejected send isn't logged as success.
+      if (sendRes?.error) throw new Error(`Resend error: ${sendRes.error?.message ?? JSON.stringify(sendRes.error)}`);
+      providerId = sendRes?.data?.id ?? null;
 
     } else if (channel === "sms") {
       if (!recipientPhone) {
@@ -180,7 +190,8 @@ export async function sendNotification(
     templateKey,
     status,
     errorMsg,
-    mergeVars,
+    // Stamp the Resend provider id into metadata for delivery traceability.
+    { ...mergeVars, ...(providerId ? { _provider_id: providerId } : {}) },
   );
 }
 

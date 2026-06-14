@@ -1486,6 +1486,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     // including via the legacy reminder/review/survey notification crons.
     { label: "companies.comms_enabled",
       stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT false` },
+    // Per-tenant send-from email identity (Resend-verified domain).
+    { label: "companies.email_from_address",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS email_from_address text` },
+    // Internal/comped tenant flag — excluded from SaaS MRR/ARR/revenue metrics.
+    { label: "companies.is_internal",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_internal boolean NOT NULL DEFAULT false` },
 
     // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
     // Marketing spend per channel + period → CPL / CPA / ROI.

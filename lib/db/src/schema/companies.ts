@@ -147,6 +147,12 @@ export const companiesTable = pgTable("companies", {
   // company.comms_enabled AND the global COMMS_ENABLED. Default OFF so enabling
   // one tenant can never message another tenant's customers.
   comms_enabled: boolean("comms_enabled").notNull().default(false),
+  // Per-tenant send-from identity for outbound email (must be on a Resend-verified
+  // domain). Falls back to a default when null. e.g. Schaumburg = schaumburg@phes.io.
+  email_from_address: text("email_from_address"),
+  // Internal/comped account — excluded from SaaS MRR/ARR/revenue metrics. Net $0,
+  // no Stripe. Used for owner-comped tenants (e.g. PHES Schaumburg).
+  is_internal: boolean("is_internal").notNull().default(false),
   twilio_account_sid: text("twilio_account_sid"),
   twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),
