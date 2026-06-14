@@ -8,7 +8,9 @@ import {
   UserPlus, Search, ChevronLeft, ChevronRight, X,
   Phone, Mail, MapPin, RefreshCw, Loader2,
   MessageSquare, Briefcase, Activity, Eye, ChevronDown,
+  LayoutGrid, List as ListIcon, SlidersHorizontal, CheckCircle2, Users,
 } from "lucide-react";
+import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -37,6 +39,8 @@ interface Lead {
   assigned_to: number | null;
   assignee_first_name: string | null;
   assignee_last_name: string | null;
+  referral_partner_id: number | null;
+  referral_partner_name: string | null;
   booked_at: string | null;
   contacted_at: string | null;
   quoted_at: string | null;
@@ -54,6 +58,9 @@ interface ActivityEntry {
   performer_last_name: string | null;
   created_at: string;
 }
+
+interface OwnerOpt { id: number; first_name: string; last_name: string | null; }
+interface PartnerOpt { id: number; name: string; }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -283,10 +290,13 @@ const TABS = [
 ];
 
 function LeadDetailDrawer({
-  lead, onClose, onUpdated
-}: { lead: Lead; onClose: () => void; onUpdated: () => void }) {
+  lead, onClose, onUpdated, users, partners
+}: { lead: Lead; onClose: () => void; onUpdated: () => void; users: OwnerOpt[]; partners: PartnerOpt[] }) {
   const { toast } = useToast();
   const [tab, setTab] = useState("overview");
+  const [assignee, setAssignee] = useState<string>(lead.assigned_to ? String(lead.assigned_to) : "");
+  const [partner, setPartner] = useState<string>(lead.referral_partner_id ? String(lead.referral_partner_id) : "");
+  const [savingField, setSavingField] = useState(false);
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [messages, setMessages] = useState<ActivityEntry[]>([]);
   const [jobs, setJobs] = useState<any[]>([]);
@@ -338,6 +348,22 @@ function LeadDetailDrawer({
     } catch {
       toast({ title: "Failed to update status", variant: "destructive" });
     } finally { setStatusChanging(false); }
+  }
+
+  async function patchField(body: Record<string, any>, label: string) {
+    setSavingField(true);
+    try {
+      const r = await fetch(`${API}/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: `${label} updated` });
+      onUpdated();
+    } catch {
+      toast({ title: `Failed to update ${label.toLowerCase()}`, variant: "destructive" });
+    } finally { setSavingField(false); }
   }
 
   async function handleLogNote(actionType = "note_added") {
@@ -467,6 +493,32 @@ function LeadDetailDrawer({
           {/* Overview */}
           {tab === "overview" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+              {/* Owner + attribution (editable) */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12,
+                background: "#F7F6F3", borderRadius: 8, padding: 14 }}>
+                <div>
+                  <label style={lbl}>Owner (who's handling)</label>
+                  <select value={assignee} disabled={savingField}
+                    onChange={e => { setAssignee(e.target.value); patchField({ assigned_to: e.target.value ? parseInt(e.target.value) : null }, "Owner"); }}
+                    style={selectStyle}>
+                    <option value="">Unassigned</option>
+                    {users.map(u => (
+                      <option key={u.id} value={u.id}>{u.first_name} {u.last_name || ""}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={lbl}>Referral Partner</label>
+                  <select value={partner} disabled={savingField}
+                    onChange={e => { setPartner(e.target.value); patchField({ referral_partner_id: e.target.value ? parseInt(e.target.value) : null }, "Referral partner"); }}
+                    style={selectStyle}>
+                    <option value="">None</option>
+                    {partners.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 <InfoField label="Scope" value={lead.scope} />
                 <InfoField label="Sq Ft" value={lead.sqft ? `${lead.sqft.toLocaleString()} sqft` : null} />
@@ -639,6 +691,13 @@ function LeadDetailDrawer({
 
         {/* Footer actions */}
         <div style={{ padding: "16px 24px", borderTop: "1px solid #E5E2DC", display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {editStatus !== "booked" && (
+            <Button onClick={() => handleStatusChange("booked")} disabled={statusChanging}
+              style={{ background: "#059669", color: "#fff", gap: 6, display: "flex", alignItems: "center" }}>
+              <CheckCircle2 size={15} /> Mark Booked
+            </Button>
+          )}
+          <div style={{ flex: 1 }} />
           {!showDeleteConfirm ? (
             <Button variant="outline" onClick={() => setShowDeleteConfirm(true)}
               style={{ color: "#DC2626", borderColor: "#DC2626" }}>
@@ -697,14 +756,40 @@ export default function LeadsPage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const LIMIT = 25;
+  // View + advanced filters
+  const [view, setView] = useState<"list" | "board">(() =>
+    (typeof localStorage !== "undefined" && localStorage.getItem("leads_view") === "board") ? "board" : "list");
+  const [showFilters, setShowFilters] = useState(false);
+  const [fOwner, setFOwner] = useState("");
+  const [fSource, setFSource] = useState("");
+  const [fPartner, setFPartner] = useState("");
+  const [fLocation, setFLocation] = useState("");
+  const [fDateFrom, setFDateFrom] = useState("");
+  const [fDateTo, setFDateTo] = useState("");
+  const [users, setUsers] = useState<OwnerOpt[]>([]);
+  const [partners, setPartners] = useState<PartnerOpt[]>([]);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+
+  const LIMIT = view === "board" ? 300 : 25;
+
+  const activeFilterCount = [fOwner, fSource, fPartner, fLocation, fDateFrom, fDateTo].filter(Boolean).length;
+
+  useEffect(() => {
+    if (typeof localStorage !== "undefined") localStorage.setItem("leads_view", view);
+  }, [view]);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
-      if (statusFilter) params.set("status", statusFilter);
+      const params = new URLSearchParams({ page: String(view === "board" ? 1 : page), limit: String(LIMIT) });
+      if (statusFilter && view === "list") params.set("status", statusFilter);
       if (search) params.set("search", search);
+      if (fOwner) params.set("assigned_to", fOwner);
+      if (fSource) params.set("source", fSource);
+      if (fPartner) params.set("referral_partner", fPartner);
+      if (fLocation) params.set("location", fLocation);
+      if (fDateFrom) params.set("date_from", fDateFrom);
+      if (fDateTo) params.set("date_to", fDateTo);
       const r = await fetch(`${API}/api/leads?${params}`, { headers: getAuthHeaders() });
       if (!r.ok) throw new Error();
       const data = await r.json();
@@ -713,7 +798,7 @@ export default function LeadsPage() {
     } catch {
       toast({ title: "Failed to load leads", variant: "destructive" });
     } finally { setLoading(false); }
-  }, [page, statusFilter, search, toast]);
+  }, [page, statusFilter, search, fOwner, fSource, fPartner, fLocation, fDateFrom, fDateTo, view, LIMIT, toast]);
 
   const loadCounts = useCallback(async () => {
     try {
@@ -722,7 +807,26 @@ export default function LeadsPage() {
     } catch { /* silent */ }
   }, []);
 
+  const loadOptions = useCallback(async () => {
+    try {
+      const [ur, pr] = await Promise.all([
+        fetch(`${API}/api/users`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/referral-partners`, { headers: getAuthHeaders() }),
+      ]);
+      if (ur.ok) {
+        const u = await ur.json();
+        const list = Array.isArray(u) ? u : (u.users || []);
+        setUsers(list.map((x: any) => ({ id: x.id, first_name: x.first_name, last_name: x.last_name })));
+      }
+      if (pr.ok) {
+        const p = await pr.json();
+        setPartners((Array.isArray(p) ? p : []).map((x: any) => ({ id: x.id, name: x.name })));
+      }
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => { loadLeads(); loadCounts(); }, [loadLeads, loadCounts]);
+  useEffect(() => { loadOptions(); }, [loadOptions]);
 
   function handleSearchChange(v: string) {
     setSearchInput(v);
@@ -736,6 +840,30 @@ export default function LeadsPage() {
   function handleStatusFilter(s: string) {
     setStatusFilter(prev => prev === s ? "" : s);
     setPage(1);
+  }
+
+  function resetFilters() {
+    setFOwner(""); setFSource(""); setFPartner(""); setFLocation(""); setFDateFrom(""); setFDateTo("");
+    setPage(1);
+  }
+
+  async function moveLeadToStage(lead: Lead, newStatus: string) {
+    if (lead.status === newStatus) return;
+    // optimistic
+    setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, status: newStatus } : l));
+    try {
+      const r = await fetch(`${API}/api/leads/${lead.id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: `Moved to ${STATUS_CONFIG[newStatus]?.label || newStatus}` });
+      loadCounts();
+    } catch {
+      toast({ title: "Failed to move lead", variant: "destructive" });
+      loadLeads();
+    }
   }
 
   const totalPages = Math.ceil(total / LIMIT);
@@ -762,13 +890,50 @@ export default function LeadsPage() {
               {total.toLocaleString()} total lead{total !== 1 ? "s" : ""}
             </p>
           </div>
-          <Button onClick={() => setShowAdd(true)}
-            style={{ background: "#1A1917", color: "#fff", gap: 6, display: "flex", alignItems: "center" }}>
-            <UserPlus size={15} /> Add Lead
-          </Button>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* View toggle */}
+            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              <button onClick={() => setView("list")} title="List view"
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 13,
+                  fontWeight: 600, fontFamily: "inherit", cursor: "pointer", border: "none",
+                  background: view === "list" ? "#1A1917" : "#fff", color: view === "list" ? "#fff" : "#6B6860" }}>
+                <ListIcon size={14} /> List
+              </button>
+              <button onClick={() => setView("board")} title="Board view"
+                style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 13,
+                  fontWeight: 600, fontFamily: "inherit", cursor: "pointer", border: "none",
+                  background: view === "board" ? "#1A1917" : "#fff", color: view === "board" ? "#fff" : "#6B6860" }}>
+                <LayoutGrid size={14} /> Board
+              </button>
+            </div>
+            <Button variant="outline" onClick={() => setShowFilters(s => !s)}
+              style={{ gap: 6, display: "flex", alignItems: "center",
+                ...(activeFilterCount ? { borderColor: "#1A1917", color: "#1A1917" } : {}) }}>
+              <SlidersHorizontal size={15} /> Filters
+              {activeFilterCount > 0 && (
+                <span style={{ background: "#1A1917", color: "#fff", fontSize: 11, fontWeight: 700,
+                  borderRadius: 999, padding: "0 6px", minWidth: 18, textAlign: "center" }}>{activeFilterCount}</span>
+              )}
+            </Button>
+            <Link href="/leads/partners">
+              <Button variant="outline" style={{ gap: 6, display: "flex", alignItems: "center" }}>
+                <Users size={15} /> Partners
+              </Button>
+            </Link>
+            <Link href="/leads/templates">
+              <Button variant="outline" style={{ gap: 6, display: "flex", alignItems: "center" }}>
+                <MessageSquare size={15} /> Templates
+              </Button>
+            </Link>
+            <Button onClick={() => setShowAdd(true)}
+              style={{ background: "#1A1917", color: "#fff", gap: 6, display: "flex", alignItems: "center" }}>
+              <UserPlus size={15} /> Add Lead
+            </Button>
+          </div>
         </div>
 
-        {/* Status filter pills */}
+        {/* Status filter pills (list view only — board shows stages as columns) */}
+        {view === "list" && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
           <button onClick={() => { setStatusFilter(""); setPage(1); }}
             style={pillStyle(statusFilter === "")}>
@@ -793,6 +958,57 @@ export default function LeadsPage() {
             );
           })}
         </div>
+        )}
+
+        {/* Advanced filter panel */}
+        {showFilters && (
+          <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10,
+            padding: 16, marginBottom: 16, display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+            <div>
+              <label style={lbl}>Owner</label>
+              <select value={fOwner} onChange={e => { setFOwner(e.target.value); setPage(1); }} style={selectStyle}>
+                <option value="">Any owner</option>
+                <option value="unassigned">Unassigned</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.first_name} {u.last_name || ""}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Source</label>
+              <select value={fSource} onChange={e => { setFSource(e.target.value); setPage(1); }} style={selectStyle}>
+                <option value="">Any source</option>
+                {Object.entries(SOURCE_CONFIG).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Referral Partner</label>
+              <select value={fPartner} onChange={e => { setFPartner(e.target.value); setPage(1); }} style={selectStyle}>
+                <option value="">Any partner</option>
+                <option value="none">No partner</option>
+                {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={lbl}>Location (city / ZIP)</label>
+              <Input value={fLocation} onChange={e => { setFLocation(e.target.value); setPage(1); }} placeholder="Oak Lawn, 60453…" />
+            </div>
+            <div>
+              <label style={lbl}>Created From</label>
+              <Input type="date" value={fDateFrom} onChange={e => { setFDateFrom(e.target.value); setPage(1); }} />
+            </div>
+            <div>
+              <label style={lbl}>Created To</label>
+              <Input type="date" value={fDateTo} onChange={e => { setFDateTo(e.target.value); setPage(1); }} />
+            </div>
+            {activeFilterCount > 0 && (
+              <div style={{ display: "flex", alignItems: "flex-end" }}>
+                <Button variant="outline" onClick={resetFilters} style={{ gap: 6 }}>
+                  <X size={14} /> Clear filters
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Search bar */}
         <div style={{ position: "relative", marginBottom: 20, maxWidth: 400 }}>
@@ -812,12 +1028,13 @@ export default function LeadsPage() {
           )}
         </div>
 
-        {/* Table */}
+        {/* Table (list view) */}
+        {view === "list" && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#F7F6F3", borderBottom: "1px solid #E5E2DC" }}>
-                {["Name", "Contact", "Source", "Status", "Scope", "Quote", "Created", ""].map(h => (
+                {["Name", "Contact", "Source", "Status", "Owner", "Scope", "Quote", "Created", ""].map(h => (
                   <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11,
                     fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em",
                     whiteSpace: "nowrap" }}>{h}</th>
@@ -827,13 +1044,13 @@ export default function LeadsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: "60px 0", textAlign: "center" }}>
+                  <td colSpan={9} style={{ padding: "60px 0", textAlign: "center" }}>
                     <Loader2 size={22} className="animate-spin" color="#6B6860" style={{ margin: "0 auto" }} />
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={8} style={{ padding: "60px 0", textAlign: "center" }}>
+                  <td colSpan={9} style={{ padding: "60px 0", textAlign: "center" }}>
                     <UserPlus size={36} color="#D1D5DB" style={{ margin: "0 auto 12px" }} />
                     <div style={{ color: "#6B6860", fontSize: 14 }}>
                       {search || statusFilter ? "No leads match your filters." : "No leads yet — add your first lead."}
@@ -861,8 +1078,20 @@ export default function LeadsPage() {
                       {lead.phone && <div style={{ fontSize: 13, color: "#374151" }}>{lead.phone}</div>}
                       {lead.email && <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 1 }}>{lead.email}</div>}
                     </td>
-                    <td style={{ padding: "12px 14px" }}><SourceBadge source={lead.source} /></td>
+                    <td style={{ padding: "12px 14px" }}>
+                      <SourceBadge source={lead.source} />
+                      {lead.referral_partner_name && (
+                        <div style={{ fontSize: 11, color: "#0D9488", marginTop: 2 }}>
+                          via {lead.referral_partner_name}
+                        </div>
+                      )}
+                    </td>
                     <td style={{ padding: "12px 14px" }}><StatusBadge status={lead.status} /></td>
+                    <td style={{ padding: "12px 14px", fontSize: 13 }}>
+                      {lead.assignee_first_name
+                        ? <span style={{ color: "#374151" }}>{lead.assignee_first_name} {lead.assignee_last_name || ""}</span>
+                        : <span style={{ color: "#D1D5DB" }}>Unassigned</span>}
+                    </td>
                     <td style={{ padding: "12px 14px", color: "#374151", fontSize: 13 }}>
                       {lead.scope || <span style={{ color: "#D1D5DB" }}>—</span>}
                     </td>
@@ -873,7 +1102,17 @@ export default function LeadsPage() {
                     <td style={{ padding: "12px 14px", color: "#9CA3AF", fontSize: 12, whiteSpace: "nowrap" }}>
                       {fmtDate(lead.created_at)}
                     </td>
-                    <td style={{ padding: "12px 14px" }}>
+                    <td style={{ padding: "12px 14px", whiteSpace: "nowrap" }}>
+                      {lead.status !== "booked" && (
+                        <button
+                          onClick={e => { e.stopPropagation(); moveLeadToStage(lead, "booked"); }}
+                          title="Mark booked"
+                          style={{ background: "#ECFDF5", color: "#059669", border: "1px solid #05966930",
+                            borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                            fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 4, marginRight: 8 }}>
+                          <CheckCircle2 size={12} /> Book
+                        </button>
+                      )}
                       <span style={{ fontSize: 12, color: "#5B9BD5" }}>View →</span>
                     </td>
                   </tr>
@@ -882,9 +1121,102 @@ export default function LeadsPage() {
             </tbody>
           </table>
         </div>
+        )}
+
+        {/* Board (kanban) view */}
+        {view === "board" && (
+          loading ? (
+            <div style={{ textAlign: "center", padding: 80 }}>
+              <Loader2 size={24} className="animate-spin" color="#6B6860" style={{ margin: "0 auto" }} />
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 12,
+              alignItems: "flex-start" }}>
+              {STATUS_ORDER.map(stage => {
+                const cfg = STATUS_CONFIG[stage];
+                const colLeads = leads.filter(l => l.status === stage);
+                const isOver = dragOver === stage;
+                return (
+                  <div key={stage}
+                    onDragOver={e => { e.preventDefault(); setDragOver(stage); }}
+                    onDragLeave={() => setDragOver(prev => prev === stage ? null : prev)}
+                    onDrop={e => {
+                      e.preventDefault();
+                      setDragOver(null);
+                      const id = parseInt(e.dataTransfer.getData("text/plain"));
+                      const l = leads.find(x => x.id === id);
+                      if (l) moveLeadToStage(l, stage);
+                    }}
+                    style={{ width: 280, flexShrink: 0, background: isOver ? cfg.bg : "#F2F1ED",
+                      borderRadius: 10, border: isOver ? `2px dashed ${cfg.color}` : "2px solid transparent",
+                      transition: "background 0.1s", maxHeight: "calc(100vh - 320px)", display: "flex",
+                      flexDirection: "column" }}>
+                    <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center",
+                      justifyContent: "space-between", borderBottom: "1px solid #E5E2DC" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700,
+                        color: "#1A1917" }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
+                        {cfg.label}
+                      </span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: "#6B6860",
+                        background: "#fff", borderRadius: 999, padding: "1px 8px" }}>{colLeads.length}</span>
+                    </div>
+                    <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8,
+                      overflowY: "auto", flex: 1 }}>
+                      {colLeads.length === 0 ? (
+                        <div style={{ textAlign: "center", color: "#B7B3AB", fontSize: 12, padding: "20px 0" }}>
+                          Drop here
+                        </div>
+                      ) : colLeads.map(lead => {
+                        const nm = [lead.first_name, lead.last_name].filter(Boolean).join(" ");
+                        return (
+                          <div key={lead.id} draggable
+                            onDragStart={e => e.dataTransfer.setData("text/plain", String(lead.id))}
+                            onClick={() => setSelectedLead(lead)}
+                            style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8,
+                              padding: "10px 12px", cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
+                              <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{nm}</span>
+                              {lead.quote_amount && (
+                                <span style={{ fontSize: 12, fontWeight: 700, color: "#059669", whiteSpace: "nowrap" }}>
+                                  ${parseFloat(lead.quote_amount).toFixed(0)}
+                                </span>
+                              )}
+                            </div>
+                            <div style={{ marginTop: 6 }}><SourceBadge source={lead.source} /></div>
+                            {lead.referral_partner_name && (
+                              <div style={{ fontSize: 11, color: "#0D9488", marginTop: 4 }}>via {lead.referral_partner_name}</div>
+                            )}
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
+                              marginTop: 8 }}>
+                              <span style={{ fontSize: 11, color: lead.assignee_first_name ? "#6B6860" : "#C7C3BB" }}>
+                                {lead.assignee_first_name
+                                  ? `${lead.assignee_first_name} ${lead.assignee_last_name || ""}`.trim()
+                                  : "Unassigned"}
+                              </span>
+                              {stage !== "booked" && (
+                                <button onClick={e => { e.stopPropagation(); moveLeadToStage(lead, "booked"); }}
+                                  title="Mark booked"
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#059669",
+                                    display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 600,
+                                    fontFamily: "inherit", padding: 0 }}>
+                                  <CheckCircle2 size={13} /> Book
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
 
         {/* Pagination */}
-        {totalPages > 1 && (
+        {view === "list" && totalPages > 1 && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
             marginTop: 16, fontSize: 13, color: "#6B6860" }}>
             <span>
@@ -912,6 +1244,8 @@ export default function LeadsPage() {
       {selectedLead && (
         <LeadDetailDrawer
           lead={selectedLead}
+          users={users}
+          partners={partners}
           onClose={() => setSelectedLead(null)}
           onUpdated={() => { loadLeads(); loadCounts(); setSelectedLead(null); }}
         />
