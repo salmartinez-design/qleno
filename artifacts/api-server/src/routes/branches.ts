@@ -53,7 +53,7 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
 router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const branchId = parseInt(req.params.id);
-    const { name, address, city, state, zip, phone, is_active } = req.body;
+    const { name, address, city, state, zip, phone, is_active, comms_enabled } = req.body;
 
     const existing = await db
       .select({ id: branchesTable.id })
@@ -71,6 +71,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
     if (zip !== undefined) updates.zip = zip;
     if (phone !== undefined) updates.phone = phone;
     if (is_active !== undefined) updates.is_active = is_active;
+    if (comms_enabled !== undefined) updates.comms_enabled = comms_enabled;
 
     const [updated] = await db
       .update(branchesTable)

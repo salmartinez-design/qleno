@@ -1476,6 +1476,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "phes schaumburg from-number",
       stmt: `UPDATE branches SET twilio_from_number = '+16308844318' WHERE company_id = 1 AND name = 'Schaumburg' AND twilio_from_number IS NULL` },
 
+    // Per-location comms gate (tenant-generic). Defaults OFF for every branch so
+    // the fully-gated state is preserved until an owner flips a location on.
+    { label: "branches.comms_enabled",
+      stmt: `ALTER TABLE branches ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT false` },
+
     // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
     // Marketing spend per channel + period → CPL / CPA / ROI.
     { label: "marketing_spend table",

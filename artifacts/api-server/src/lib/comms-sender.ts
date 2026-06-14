@@ -2,11 +2,12 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 export interface ResolvedSender {
-  enabled: boolean;          // company twilio_enabled gate (go-live)
+  enabled: boolean;               // company twilio_enabled gate (company master)
+  branch_comms_enabled: boolean;  // per-branch comms gate (false unless branch flipped on)
   account_sid: string | null;
   auth_token: string | null;
-  from_number: string | null; // branch number, else company number
-  reason?: string;            // why a send would be suppressed, if not ready
+  from_number: string | null;     // branch number, else company number
+  reason?: string;                // why a send would be suppressed, if not ready
 }
 
 // Resolve the Twilio sender for a message. Company holds the account creds + the
@@ -20,24 +21,29 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   const c: any = cr.rows[0] ?? {};
 
   let branchNumber: string | null = null;
+  let branchComms = false;
   if (branchId != null) {
     const br = await db.execute(sql`
-      SELECT twilio_from_number FROM branches WHERE id = ${branchId} AND company_id = ${companyId} LIMIT 1`);
+      SELECT twilio_from_number, comms_enabled FROM branches WHERE id = ${branchId} AND company_id = ${companyId} LIMIT 1`);
     branchNumber = (br.rows[0] as any)?.twilio_from_number ?? null;
+    branchComms = !!(br.rows[0] as any)?.comms_enabled;
   }
   const from_number = branchNumber || c.twilio_from_number || null;
   const account_sid = c.twilio_account_sid ?? null;
   const auth_token = c.twilio_auth_token ?? null;
   const enabled = !!c.twilio_enabled;
+  // When no branch is specified, fall back to the company master for the branch gate.
+  const branch_comms_enabled = branchId != null ? branchComms : enabled;
 
   const reason =
-    !enabled ? "twilio_disabled"
+    process.env.COMMS_ENABLED !== "true" ? "comms_disabled"          // global master
+    : !enabled ? "twilio_disabled"                                    // company master
+    : !branch_comms_enabled ? "branch_comms_disabled"                 // per-branch gate
     : !(account_sid && auth_token) ? "twilio_unconfigured"
     : !from_number ? "no_from_number"
-    : process.env.COMMS_ENABLED !== "true" ? "comms_disabled"
     : undefined;
 
-  return { enabled, account_sid, auth_token, from_number, reason };
+  return { enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
 }
 
 // Send an SMS via Twilio REST (no SDK). Throws on non-2xx.

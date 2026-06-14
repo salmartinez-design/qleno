@@ -335,9 +335,14 @@ async function processEnrollment(enr: any): Promise<void> {
 
   let sendStatus = "sent";
   let sendError  = "";
+  // Resolve the per-branch sender once; gates BOTH channels on
+  // global master (COMMS_ENABLED) AND company master AND the branch comms flag.
+  const sender = await resolveSender(enr.company_id, branchId);
+  // Email rides Resend (not Twilio), so it only needs the master/company/branch
+  // gates — not from_number/creds. SMS needs the full sender.reason check.
+  const masterGate = process.env.COMMS_ENABLED === "true" && sender.enabled && sender.branch_comms_enabled;
   try {
     if (step.channel === "sms" && recipientPhone) {
-      const sender = await resolveSender(enr.company_id, branchId);
       if (sender.reason) {
         sendStatus = "blocked";
         sendError  = sender.reason;
@@ -346,7 +351,13 @@ async function processEnrollment(enr: any): Promise<void> {
         await sendSmsVia(sender, recipientPhone, body);
       }
     } else if (step.channel === "email" && recipientEmail) {
-      await sendEmail(recipientEmail, subject, body);
+      if (!masterGate) {
+        sendStatus = "blocked";
+        sendError  = sender.reason || "branch_comms_disabled";
+        console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
+      } else {
+        await sendEmail(recipientEmail, subject, body);
+      }
     } else {
       sendStatus = "failed";
       sendError  = "No recipient contact info";

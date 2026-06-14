@@ -469,6 +469,59 @@ function BranchContactCard({ branchId }: { branchId: number }) {
   );
 }
 
+function BranchCommsCard({ branchId }: { branchId: number }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const { data: branches } = useQuery({
+    queryKey: ['branches-list'],
+    queryFn: async () => {
+      const r = await fetch(`${API}/api/branches`, { headers: getAuthHeaders() });
+      if (!r.ok) throw new Error('Failed');
+      return r.json();
+    },
+  });
+  const branch = Array.isArray(branches) ? branches.find((b: any) => b.id === branchId) : null;
+  const enabled = !!branch?.comms_enabled;
+  const [saving, setSaving] = useState(false);
+  const toggle = async () => {
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/branches/${branchId}`, {
+        method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comms_enabled: !enabled }),
+      });
+      if (!r.ok) throw new Error();
+      qc.invalidateQueries({ queryKey: ['branches-list'] });
+      toast({ title: `Communications ${!enabled ? 'ENABLED' : 'disabled'} for this location` });
+    } catch { toast({ variant: 'destructive', title: 'Failed to update communications setting' }); }
+    setSaving(false);
+  };
+  return (
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Location Communications</p>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+          Master switch for SMS &amp; email from this location. A message only sends when the
+          company comms master AND this location toggle are both on. Defaults off.
+        </p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={toggle} disabled={saving} aria-pressed={enabled}
+          style={{ position: 'relative', width: 46, height: 26, borderRadius: 999, border: 'none',
+            cursor: saving ? 'not-allowed' : 'pointer', backgroundColor: enabled ? 'var(--brand)' : '#CBD2D9',
+            transition: 'background-color 0.15s', flexShrink: 0 }}>
+          <span style={{ position: 'absolute', top: 3, left: enabled ? 23 : 3, width: 20, height: 20,
+            borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
+        </button>
+        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B7280' }}>
+          {enabled ? 'Sending enabled for this location' : 'Sending off for this location'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function GeneralTab() {
   const { data: company } = useGetMyCompany({ request: { headers: getAuthHeaders() } });
   const updateCompany = useUpdateMyCompany({ request: { headers: getAuthHeaders() } });
@@ -521,6 +574,7 @@ function GeneralTab() {
   return (
     <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {activeBranchId !== "all" && <BranchContactCard branchId={activeBranchId as number} />}
+      {activeBranchId !== "all" && <BranchCommsCard branchId={activeBranchId as number} />}
       <Section title="Company Name" desc="">
         <input
           value={name}
