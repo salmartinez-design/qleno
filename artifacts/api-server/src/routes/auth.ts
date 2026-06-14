@@ -182,9 +182,13 @@ router.post("/forgot-password", async (req, res) => {
     const token = randomBytes(32).toString("hex");
     const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    await db.update(usersTable)
-      .set({ reset_token: token, reset_token_expires_at: expires } as any)
-      .where(eq(usersTable.id, user.id));
+    // Raw SQL: reset_token / reset_token_expires_at are real DB columns but are
+    // NOT in the drizzle usersTable schema, so db.update().set({reset_token})
+    // throws (unmappable key) and 500s before any email send. The columns exist
+    // in Postgres, so write them directly.
+    await db.execute(
+      sql`UPDATE users SET reset_token = ${token}, reset_token_expires_at = ${expires} WHERE id = ${user.id}`,
+    );
 
     const resetLink = `https://app.qleno.com/reset-password?token=${token}`;
     const mv = {
@@ -211,17 +215,21 @@ router.post("/reset-password", async (req, res) => {
       return res.status(400).json({ error: "Bad Request", message: "Valid token and password (min 6 chars) required" });
     }
 
-    const [user] = await db.select().from(usersTable)
-      .where(eq((usersTable as any).reset_token, token)).limit(1);
+    // Raw SQL: reset_token columns aren't in the drizzle schema (see
+    // forgot-password). Look the token up directly.
+    const tokenLookup = await db.execute(
+      sql`SELECT * FROM users WHERE reset_token = ${token} LIMIT 1`,
+    );
+    const user = (tokenLookup.rows as any[])[0];
 
-    if (!user || !(user as any).reset_token_expires_at || new Date((user as any).reset_token_expires_at) < new Date()) {
+    if (!user || !user.reset_token_expires_at || new Date(user.reset_token_expires_at) < new Date()) {
       return res.status(400).json({ error: "Bad Request", message: "Invalid or expired reset token" });
     }
 
     const hash = await bcrypt.hash(password, 10);
-    await db.update(usersTable)
-      .set({ password_hash: hash, reset_token: null, reset_token_expires_at: null } as any)
-      .where(eq(usersTable.id, user.id));
+    await db.execute(
+      sql`UPDATE users SET password_hash = ${hash}, reset_token = NULL, reset_token_expires_at = NULL WHERE id = ${user.id}`,
+    );
 
     await logAudit(req, "password_reset", "user", user.id);
     return res.json({ success: true, message: "Password reset successfully. You can now log in." });
