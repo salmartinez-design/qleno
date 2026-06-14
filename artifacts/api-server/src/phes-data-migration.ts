@@ -1384,6 +1384,43 @@ async function runBookingSchemaGuard(): Promise<void> {
     // only fills rows where the baseline isn't captured yet).
     { label: "backfill scorecard_pct_mc",
       stmt: `UPDATE users SET scorecard_pct_mc = scorecard_pct WHERE scorecard_pct IS NOT NULL AND scorecard_pct_mc IS NULL` },
+
+    // ── Lead pipeline foundation ──────────────────────────────────────────
+    // routes/leads.ts (raw SQL) references these columns + lead_activity_log,
+    // but they were never migrated — the lead detail/activity UI errored.
+    // Additive + idempotent. 7 canonical stages: needs_contacted, contacted,
+    // quoted, follow_up, booked, no_response, not_interested.
+    { label: "leads.city",          stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS city TEXT` },
+    { label: "leads.state",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS state TEXT` },
+    { label: "leads.zip",           stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS zip TEXT` },
+    { label: "leads.scope",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS scope TEXT` },
+    { label: "leads.bedrooms",      stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS bedrooms INTEGER` },
+    { label: "leads.bathrooms",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS bathrooms INTEGER` },
+    { label: "leads.quote_amount",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS quote_amount NUMERIC(10,2)` },
+    { label: "leads.assigned_to",   stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS assigned_to INTEGER` },
+    { label: "leads.contacted_at",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_at TIMESTAMPTZ` },
+    { label: "leads.quoted_at",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS quoted_at TIMESTAMPTZ` },
+    { label: "leads.booked_at",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS booked_at TIMESTAMPTZ` },
+    { label: "leads.closed_reason", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_reason TEXT` },
+    { label: "leads.job_id",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_id INTEGER` },
+    { label: "leads.contacted_by",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_by INTEGER` },
+    { label: "leads.status default → needs_contacted",
+      stmt: `ALTER TABLE leads ALTER COLUMN status SET DEFAULT 'needs_contacted'` },
+    { label: "leads.status normalize legacy 'new'",
+      stmt: `UPDATE leads SET status = 'needs_contacted' WHERE status = 'new' OR status IS NULL` },
+    { label: "CREATE lead_activity_log", stmt: `
+      CREATE TABLE IF NOT EXISTS lead_activity_log (
+        id           SERIAL PRIMARY KEY,
+        lead_id      INTEGER NOT NULL,
+        company_id   INTEGER NOT NULL,
+        action_type  TEXT NOT NULL,
+        note         TEXT,
+        performed_by INTEGER,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_lead_activity_log_lead",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_lead_activity_log_lead ON lead_activity_log(company_id, lead_id)` },
   ];
 
   for (const { label, stmt } of guards) {
