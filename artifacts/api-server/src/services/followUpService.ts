@@ -54,11 +54,10 @@ export function clampToBusinessHours(raw: Date): Date {
 // the old env-based single-number sender was removed when branch routing landed.
 
 // ── Resend email sender ────────────────────────────────────────────────────────
-async function sendEmail(to: string, subject: string, body: string): Promise<void> {
-  if (process.env.COMMS_ENABLED !== "true") {
-    console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
-    return;
-  }
+// Raw send — performs the actual Resend call with NO COMMS_ENABLED gate. Only
+// callers that are themselves explicitly scoped/authorized may use this
+// directly (see sendSingleEnrollmentTouch). Returns the Resend message id.
+async function sendEmailRaw(to: string, subject: string, body: string): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
   const { Resend } = await import("resend");
@@ -71,12 +70,21 @@ async function sendEmail(to: string, subject: string, body: string): Promise<voi
 <p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 20px;">${body.replace(/\n/g, "<br>")}</p>
 <p style="font-size:13px;color:#9E9B94;margin:0;">Phes Cleaning &mdash; (773) 706-6000 &mdash; info@phes.io</p>
 </div></div>`;
-  await resend.emails.send({
+  const res: any = await resend.emails.send({
     from: "Phes Cleaning <noreply@phes.io>",
     to: [to],
     subject,
     html: bodyHtml,
   });
+  return res?.data?.id ?? res?.id ?? null;
+}
+
+async function sendEmail(to: string, subject: string, body: string): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
+    return;
+  }
+  await sendEmailRaw(to, subject, body);
 }
 
 // ── Enroll for quote follow-up ─────────────────────────────────────────────────
@@ -404,4 +412,84 @@ async function processEnrollment(enr: any): Promise<void> {
     `);
     console.log(`[follow-up] Enrollment ${enr.id} completed — all steps sent`);
   }
+}
+
+// ── Scoped one-off: send a SINGLE enrollment's current touch ────────────────────
+// Sends ONLY the named enrollment's current step. EMAIL goes via Resend directly
+// (does NOT depend on COMMS_ENABLED — this path is itself the scoped authorization,
+// one enrollment by id). SMS is NOT sent here (needs the per-company Twilio creds);
+// it returns sent:false so callers can surface why. Never touches other enrollments.
+export async function sendSingleEnrollmentTouch(
+  companyId: number, enrollmentId: number,
+): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean }> {
+  const enrRows = await db.execute(sql`
+    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.current_step,
+           fs.name AS sequence_name
+    FROM follow_up_enrollments fe
+    JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+    WHERE fe.id = ${enrollmentId} AND fe.company_id = ${companyId}
+      AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+    LIMIT 1`);
+  if (!enrRows.rows.length) return { sent: false, reason: "enrollment_not_found_or_inactive" };
+  const enr = enrRows.rows[0] as any;
+
+  const stepRows = await db.execute(sql`
+    SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
+    FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step} LIMIT 1`);
+  if (!stepRows.rows.length) return { sent: false, reason: "no_current_step" };
+  const step = stepRows.rows[0] as any;
+
+  // Resolve recipient + zip (branch) from client / quote / lead
+  let firstName = "", recipientEmail: string | null = null, recipientPhone: string | null = null, zip: string | null = null;
+  if (enr.client_id) {
+    const r = await db.execute(sql`SELECT first_name, email, phone, zip FROM clients WHERE id = ${enr.client_id} LIMIT 1`);
+    const c = r.rows[0] as any; if (c) { firstName = c.first_name || ""; recipientEmail = c.email || null; recipientPhone = c.phone || null; zip = c.zip || null; }
+  } else if (enr.quote_id) {
+    const r = await db.execute(sql`SELECT lead_name, lead_email, lead_phone, address FROM quotes WHERE id = ${enr.quote_id} LIMIT 1`);
+    const qd = r.rows[0] as any; if (qd) { firstName = (qd.lead_name || "").split(" ")[0] || ""; recipientEmail = qd.lead_email || null; recipientPhone = qd.lead_phone || null; zip = (String(qd.address || "").match(/\b(\d{5})\b/) || [])[1] || null; }
+  } else if (enr.lead_id) {
+    const r = await db.execute(sql`SELECT first_name, email, phone, zip FROM leads WHERE id = ${enr.lead_id} LIMIT 1`);
+    const l = r.rows[0] as any; if (l) { firstName = l.first_name || ""; recipientEmail = l.email || null; recipientPhone = l.phone || null; zip = l.zip || null; }
+  }
+  const branch = getBranchByZip(zip || "");
+
+  // Prefer managed template, else inline copy; render merge fields
+  let rawBody = step.message_template || "", rawSubject = step.subject || "";
+  if (step.template_id) {
+    const t = await db.execute(sql`SELECT body, subject FROM message_templates WHERE id = ${step.template_id} AND company_id = ${companyId} AND active = true LIMIT 1`);
+    if (t.rows.length) { rawBody = (t.rows[0] as any).body || rawBody; rawSubject = (t.rows[0] as any).subject || rawSubject; }
+  }
+  const mergeVars = { first_name: firstName, company_name: "Phes" };
+  const body = resolveMergeFields(rawBody, mergeVars);
+  const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
+
+  // EMAIL only (SMS needs Twilio creds — not sent here)
+  if (step.channel !== "email") {
+    return { sent: false, channel: step.channel, recipient: recipientPhone, step: step.step_number, reason: "channel_requires_twilio_not_sent" };
+  }
+  if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
+
+  await sendEmailRaw(recipientEmail, subject, body);
+
+  await db.execute(sql`
+    INSERT INTO message_log
+      (company_id, enrollment_id, client_id, channel, recipient_phone, recipient_email,
+       subject, body, status, sequence_name, step_number)
+    VALUES (${companyId}, ${enr.id}, ${enr.client_id || null}, 'email', ${recipientPhone}, ${recipientEmail},
+            ${subject || null}, ${body}, 'sent', ${enr.sequence_name}, ${step.step_number})`);
+
+  // Advance this enrollment only (clamped), or complete if no next step
+  const next = await db.execute(sql`SELECT step_number, delay_hours FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step + 1} LIMIT 1`);
+  let advancedTo: number | null = null, completed = false;
+  if (next.rows.length) {
+    const n = next.rows[0] as any;
+    const fireAt = clampToBusinessHours(new Date(Date.now() + (Number(n.delay_hours) || 0) * 3600 * 1000));
+    await db.execute(sql`UPDATE follow_up_enrollments SET current_step = ${n.step_number}, next_fire_at = ${fireAt.toISOString()} WHERE id = ${enr.id}`);
+    advancedTo = n.step_number;
+  } else {
+    await db.execute(sql`UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}`);
+    completed = true;
+  }
+  console.log(`[follow-up] one-off email sent for enrollment ${enr.id} step ${step.step_number} → ${recipientEmail} [branch=${branch.branch}]`);
+  return { sent: true, channel: "email", recipient: recipientEmail, step: step.step_number, advanced_to_step: advancedTo, completed };
 }

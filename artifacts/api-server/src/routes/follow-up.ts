@@ -15,6 +15,7 @@ import {
   enrollForQuoteSent,
   enrollForJobComplete,
   stopEnrollmentsForQuote,
+  sendSingleEnrollmentTouch,
 } from "../services/followUpService.js";
 
 const router = Router();
@@ -150,6 +151,23 @@ router.post("/process", requireAuth, requireRole("owner", "admin"), async (_req,
   } catch (err) {
     console.error("POST /follow-up/process:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/follow-up/send-one — send ONE enrollment's current touch ────────
+// Scoped one-off: sends only the named enrollment's current step (EMAIL via
+// Resend, independent of COMMS_ENABLED; SMS is not sent here — needs Twilio
+// creds). Never runs the general cron and never touches other enrollments.
+router.post("/send-one", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const enrollmentId = parseInt(req.body?.enrollment_id);
+    if (!enrollmentId) return res.status(400).json({ error: "enrollment_id required" });
+    const result = await sendSingleEnrollmentTouch(companyId, enrollmentId);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("POST /follow-up/send-one:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
   }
 });
 
