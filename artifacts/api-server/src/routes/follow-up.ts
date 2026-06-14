@@ -185,6 +185,19 @@ router.get("/resend-status", requireAuth, requireRole("owner", "admin"), async (
   }
 });
 
+// ── GET /api/follow-up/email-status?id= — actual Resend delivery status ────────
+router.get("/email-status", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const id = String(req.query.id || "");
+    if (!id) return res.status(400).json({ error: "id required" });
+    const { getResendEmailStatus } = await import("../lib/comms-sender.js");
+    return res.json(await getResendEmailStatus(id));
+  } catch (err: any) {
+    console.error("GET /follow-up/email-status:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
 // ── POST /api/follow-up/twilio-check — validate company Twilio creds ───────────
 // Lightweight authenticated GET on the Twilio account resource. Token stays
 // server-side; returns { authenticated, status, detail }.

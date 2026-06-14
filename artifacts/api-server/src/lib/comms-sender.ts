@@ -99,3 +99,26 @@ export async function validateResend(): Promise<{ ok: boolean; key_present: bool
     return { ok: false, key_present: true, key_prefix: key.slice(0, 8), status: -1, domains: [], error: e?.message || "request_failed" };
   }
 }
+
+// Fetch a single sent email's delivery status from Resend by id (server-side,
+// uses the deployed key). Returns the delivery event (delivered/sent/bounced/…)
+// so we can confirm ACTUAL delivery, not just our "sent". Never throws.
+export async function getResendEmailStatus(id: string): Promise<{ ok: boolean; http: number; last_event: string; to: string; subject: string; created_at: string; error?: string }> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, http: 0, last_event: "", to: "", subject: "", created_at: "", error: "RESEND_API_KEY missing" };
+  try {
+    const resp = await fetch(`https://api.resend.com/emails/${encodeURIComponent(id)}`, { headers: { Authorization: "Bearer " + key } });
+    const d: any = await resp.json().catch(() => ({}));
+    return {
+      ok: resp.ok,
+      http: resp.status,
+      last_event: String(d?.last_event ?? d?.status ?? ""),
+      to: Array.isArray(d?.to) ? d.to.join(",") : String(d?.to ?? ""),
+      subject: String(d?.subject ?? ""),
+      created_at: String(d?.created_at ?? ""),
+      error: resp.ok ? undefined : (d?.message || d?.name || `http_${resp.status}`),
+    };
+  } catch (e: any) {
+    return { ok: false, http: -1, last_event: "", to: "", subject: "", created_at: "", error: e?.message || "request_failed" };
+  }
+}
