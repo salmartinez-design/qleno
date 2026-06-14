@@ -1421,6 +1421,60 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     { label: "idx_lead_activity_log_lead",
       stmt: `CREATE INDEX IF NOT EXISTS idx_lead_activity_log_lead ON lead_activity_log(company_id, lead_id)` },
+
+    // ── Lead system PR1: templates, referral partners, per-branch Twilio,
+    //    quote↔lead link, cadence template refs ──────────────────────────────
+    { label: "CREATE message_templates", stmt: `
+      CREATE TABLE IF NOT EXISTS message_templates (
+        id          SERIAL PRIMARY KEY,
+        company_id  INTEGER NOT NULL REFERENCES companies(id),
+        name        TEXT NOT NULL,
+        channel     TEXT NOT NULL,
+        subject     TEXT,
+        body        TEXT NOT NULL,
+        category    TEXT,
+        is_default  BOOLEAN NOT NULL DEFAULT false,
+        active      BOOLEAN NOT NULL DEFAULT true,
+        created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "idx_message_templates_co",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_message_templates_co ON message_templates(company_id, channel)` },
+    { label: "CREATE referral_partners", stmt: `
+      CREATE TABLE IF NOT EXISTS referral_partners (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL REFERENCES companies(id),
+        name          TEXT NOT NULL,
+        type          TEXT NOT NULL DEFAULT 'other',
+        contact_name  TEXT,
+        contact_email TEXT,
+        contact_phone TEXT,
+        client_id     INTEGER REFERENCES clients(id),
+        notes         TEXT,
+        is_active     BOOLEAN NOT NULL DEFAULT true,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "idx_referral_partners_co",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_referral_partners_co ON referral_partners(company_id)` },
+    { label: "branches.twilio_from_number",
+      stmt: `ALTER TABLE branches ADD COLUMN IF NOT EXISTS twilio_from_number TEXT` },
+    { label: "quotes.lead_id",
+      stmt: `ALTER TABLE quotes ADD COLUMN IF NOT EXISTS lead_id INTEGER` },
+    { label: "leads.referral_partner_id",
+      stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS referral_partner_id INTEGER` },
+    { label: "follow_up_steps.template_id",
+      stmt: `ALTER TABLE follow_up_steps ADD COLUMN IF NOT EXISTS template_id INTEGER` },
+    { label: "follow_up_enrollments.lead_id",
+      stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS lead_id INTEGER` },
+
+    // ── Phes per-branch from-numbers (public business numbers, not secrets).
+    //    The Twilio account SID + auth token are entered via Settings →
+    //    Integrations at go-live (never committed to source), and twilio_enabled
+    //    stays false until then. ──────────────────────────────────────────────
+    { label: "phes oak lawn from-number",
+      stmt: `UPDATE branches SET twilio_from_number = '+17737869902' WHERE company_id = 1 AND name = 'Oak Lawn' AND twilio_from_number IS NULL` },
+    { label: "phes schaumburg from-number",
+      stmt: `UPDATE branches SET twilio_from_number = '+16308844318' WHERE company_id = 1 AND name = 'Schaumburg' AND twilio_from_number IS NULL` },
   ];
 
   for (const { label, stmt } of guards) {
