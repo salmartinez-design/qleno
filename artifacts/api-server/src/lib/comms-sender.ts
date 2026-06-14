@@ -82,3 +82,20 @@ export async function validateTwilioCreds(companyId: number): Promise<{ authenti
     return { authenticated: false, status: -1, detail: e?.message || "request_failed" };
   }
 }
+
+// Diagnose the DEPLOYED Resend key: which account/domains it can actually send
+// from. A send from an unverified domain (or a wrong/invalid key) is the classic
+// "API said ok but nothing arrived" — this surfaces it. Never throws.
+export async function validateResend(): Promise<{ ok: boolean; key_present: boolean; key_prefix: string; status: number; domains: Array<{ name: string; status: string; region?: string }>; error?: string }> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { ok: false, key_present: false, key_prefix: "", status: 0, domains: [], error: "RESEND_API_KEY missing" };
+  try {
+    const resp = await fetch("https://api.resend.com/domains", { headers: { Authorization: "Bearer " + key } });
+    const data: any = await resp.json().catch(() => ({}));
+    const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+    const domains = list.map((d: any) => ({ name: d.name, status: d.status, region: d.region }));
+    return { ok: resp.ok, key_present: true, key_prefix: key.slice(0, 8), status: resp.status, domains, error: resp.ok ? undefined : (data?.message || data?.name || `http_${resp.status}`) };
+  } catch (e: any) {
+    return { ok: false, key_present: true, key_prefix: key.slice(0, 8), status: -1, domains: [], error: e?.message || "request_failed" };
+  }
+}

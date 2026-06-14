@@ -172,6 +172,19 @@ router.post("/send-one", requireAuth, requireRole("owner", "admin"), async (req,
   }
 });
 
+// ── GET /api/follow-up/resend-status — diagnose the deployed Resend key ────────
+// Reports which account/domains the deployed RESEND_API_KEY can send from, so we
+// can tell whether a from-domain (e.g. phes.io) is actually verified for THIS key.
+router.get("/resend-status", requireAuth, requireRole("owner", "admin"), async (_req, res) => {
+  try {
+    const { validateResend } = await import("../lib/comms-sender.js");
+    return res.json(await validateResend());
+  } catch (err: any) {
+    console.error("GET /follow-up/resend-status:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
 // ── POST /api/follow-up/twilio-check — validate company Twilio creds ───────────
 // Lightweight authenticated GET on the Twilio account resource. Token stays
 // server-side; returns { authenticated, status, detail }.
