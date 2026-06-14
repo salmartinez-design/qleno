@@ -46,8 +46,9 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   return { enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
 }
 
-// Send an SMS via Twilio REST (no SDK). Throws on non-2xx.
-export async function sendSmsVia(sender: ResolvedSender, to: string, body: string): Promise<void> {
+// Send an SMS via Twilio REST (no SDK). Returns the Twilio response (sid, status,
+// error_code). Throws on non-2xx with the Twilio error body.
+export async function sendSmsVia(sender: ResolvedSender, to: string, body: string): Promise<any> {
   const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sender.account_sid}/Messages.json`, {
     method: "POST",
     headers: {
@@ -56,5 +57,28 @@ export async function sendSmsVia(sender: ResolvedSender, to: string, body: strin
     },
     body: new URLSearchParams({ From: sender.from_number!, To: to, Body: body }).toString(),
   });
-  if (!resp.ok) throw new Error(`Twilio ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const data: any = await resp.json().catch(() => ({}));
+  if (!resp.ok) throw new Error(`Twilio ${resp.status} code=${data?.code ?? "?"}: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
+  return data; // { sid, status, error_code, ... }
+}
+
+// Validate a company's Twilio creds with a lightweight authenticated GET on the
+// account resource. Returns { authenticated, status, detail } — never throws.
+export async function validateTwilioCreds(companyId: number): Promise<{ authenticated: boolean; status: number; detail: string }> {
+  const cr = await db.execute(sql`SELECT twilio_account_sid, twilio_auth_token FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const c: any = cr.rows[0] ?? {};
+  if (!c.twilio_account_sid || !c.twilio_auth_token) return { authenticated: false, status: 0, detail: "creds_missing" };
+  try {
+    const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${c.twilio_account_sid}.json`, {
+      headers: { "Authorization": "Basic " + Buffer.from(`${c.twilio_account_sid}:${c.twilio_auth_token}`).toString("base64") },
+    });
+    const data: any = await resp.json().catch(() => ({}));
+    return {
+      authenticated: resp.ok,
+      status: resp.status,
+      detail: resp.ok ? `account ${data?.friendly_name ?? data?.sid ?? ""} status=${data?.status ?? "?"}` : `code=${data?.code ?? "?"} ${data?.message ?? ""}`.slice(0, 200),
+    };
+  } catch (e: any) {
+    return { authenticated: false, status: -1, detail: e?.message || "request_failed" };
+  }
 }

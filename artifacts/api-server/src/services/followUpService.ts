@@ -420,8 +420,8 @@ async function processEnrollment(enr: any): Promise<void> {
 // one enrollment by id). SMS is NOT sent here (needs the per-company Twilio creds);
 // it returns sent:false so callers can surface why. Never touches other enrollments.
 export async function sendSingleEnrollmentTouch(
-  companyId: number, enrollmentId: number,
-): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean }> {
+  companyId: number, enrollmentId: number, stepOverride?: number,
+): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean; provider_id?: string | null; error?: string }> {
   const enrRows = await db.execute(sql`
     SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.current_step,
            fs.name AS sequence_name
@@ -432,11 +432,12 @@ export async function sendSingleEnrollmentTouch(
     LIMIT 1`);
   if (!enrRows.rows.length) return { sent: false, reason: "enrollment_not_found_or_inactive" };
   const enr = enrRows.rows[0] as any;
+  const stepNum = stepOverride ?? enr.current_step;
 
   const stepRows = await db.execute(sql`
     SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
-    FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step} LIMIT 1`);
-  if (!stepRows.rows.length) return { sent: false, reason: "no_current_step" };
+    FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${stepNum} LIMIT 1`);
+  if (!stepRows.rows.length) return { sent: false, reason: "step_not_found" };
   const step = stepRows.rows[0] as any;
 
   // Resolve recipient + zip (branch) from client / quote / lead
@@ -463,33 +464,63 @@ export async function sendSingleEnrollmentTouch(
   const body = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
 
-  // EMAIL only (SMS needs Twilio creds — not sent here)
-  if (step.channel !== "email") {
-    return { sent: false, channel: step.channel, recipient: recipientPhone, step: step.step_number, reason: "channel_requires_twilio_not_sent" };
-  }
-  if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
+  // ── Send the touch. EMAIL → Resend raw; SMS → Twilio raw via the saved
+  //    company creds + branch from-number. BOTH bypass the global COMMS_ENABLED
+  //    gate — the per-enrollment scope IS the authorization. ──────────────────
+  const branchId = branch.branch === "schaumburg" ? 2 : 1;
+  let providerId: string | null = null;
+  let recipient: string | null = null;
+  let logStatus = "sent", logErr = "";
 
-  await sendEmailRaw(recipientEmail, subject, body);
+  if (step.channel === "email") {
+    if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
+    recipient = recipientEmail;
+    providerId = await sendEmailRaw(recipientEmail, subject, body);
+  } else if (step.channel === "sms") {
+    if (!recipientPhone) return { sent: false, channel: "sms", reason: "no_recipient_phone", step: step.step_number };
+    recipient = recipientPhone;
+    // resolveSender returns creds + branch from-number even when its gate `reason`
+    // is set; we deliberately ignore reason here (scoped one-off) but still
+    // require the physical creds + a from-number to actually send.
+    const sender = await resolveSender(companyId, branchId);
+    if (!sender.account_sid || !sender.auth_token) return { sent: false, channel: "sms", recipient: recipientPhone, step: step.step_number, reason: "twilio_unconfigured" };
+    if (!sender.from_number) return { sent: false, channel: "sms", recipient: recipientPhone, step: step.step_number, reason: "no_from_number" };
+    try {
+      const tw = await sendSmsVia(sender, recipientPhone, body);
+      providerId = tw?.sid ?? null;
+    } catch (e: any) {
+      logStatus = "failed"; logErr = e?.message || "sms_send_error";
+    }
+  } else {
+    return { sent: false, channel: step.channel, step: step.step_number, reason: "unsupported_channel" };
+  }
 
   await db.execute(sql`
     INSERT INTO message_log
       (company_id, enrollment_id, client_id, channel, recipient_phone, recipient_email,
        subject, body, status, sequence_name, step_number)
-    VALUES (${companyId}, ${enr.id}, ${enr.client_id || null}, 'email', ${recipientPhone}, ${recipientEmail},
-            ${subject || null}, ${body}, 'sent', ${enr.sequence_name}, ${step.step_number})`);
+    VALUES (${companyId}, ${enr.id}, ${enr.client_id || null}, ${step.channel}, ${recipientPhone}, ${recipientEmail},
+            ${subject || null}, ${body}, ${logStatus}, ${enr.sequence_name}, ${step.step_number})`);
 
-  // Advance this enrollment only (clamped), or complete if no next step
-  const next = await db.execute(sql`SELECT step_number, delay_hours FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step + 1} LIMIT 1`);
-  let advancedTo: number | null = null, completed = false;
-  if (next.rows.length) {
-    const n = next.rows[0] as any;
-    const fireAt = clampToBusinessHours(new Date(Date.now() + (Number(n.delay_hours) || 0) * 3600 * 1000));
-    await db.execute(sql`UPDATE follow_up_enrollments SET current_step = ${n.step_number}, next_fire_at = ${fireAt.toISOString()} WHERE id = ${enr.id}`);
-    advancedTo = n.step_number;
-  } else {
-    await db.execute(sql`UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}`);
-    completed = true;
+  if (logStatus === "failed") {
+    return { sent: false, channel: step.channel, recipient, step: step.step_number, reason: "send_failed", error: logErr };
   }
-  console.log(`[follow-up] one-off email sent for enrollment ${enr.id} step ${step.step_number} → ${recipientEmail} [branch=${branch.branch}]`);
-  return { sent: true, channel: "email", recipient: recipientEmail, step: step.step_number, advanced_to_step: advancedTo, completed };
+
+  // Advance ONLY when we sent the enrollment's CURRENT step (a stepOverride
+  // re-send of an earlier step must not rewind/advance the cadence).
+  let advancedTo: number | null = null, completed = false;
+  if (step.step_number === enr.current_step) {
+    const next = await db.execute(sql`SELECT step_number, delay_hours FROM follow_up_steps WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step + 1} LIMIT 1`);
+    if (next.rows.length) {
+      const n = next.rows[0] as any;
+      const fireAt = clampToBusinessHours(new Date(Date.now() + (Number(n.delay_hours) || 0) * 3600 * 1000));
+      await db.execute(sql`UPDATE follow_up_enrollments SET current_step = ${n.step_number}, next_fire_at = ${fireAt.toISOString()} WHERE id = ${enr.id}`);
+      advancedTo = n.step_number;
+    } else {
+      await db.execute(sql`UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}`);
+      completed = true;
+    }
+  }
+  console.log(`[follow-up] one-off ${step.channel} sent for enrollment ${enr.id} step ${step.step_number} → ${recipient} [branch=${branch.branch}] provider=${providerId}`);
+  return { sent: true, channel: step.channel, recipient, step: step.step_number, advanced_to_step: advancedTo, completed, provider_id: providerId };
 }
