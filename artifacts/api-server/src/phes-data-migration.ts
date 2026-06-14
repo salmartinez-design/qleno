@@ -1481,6 +1481,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "branches.comms_enabled",
       stmt: `ALTER TABLE branches ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT false` },
 
+    // Per-tenant comms master. Default OFF so enabling one tenant (e.g. Schaumburg
+    // company 4) can never message another tenant's (Oak Lawn company 1) customers,
+    // including via the legacy reminder/review/survey notification crons.
+    { label: "companies.comms_enabled",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT false` },
+
     // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
     // Marketing spend per channel + period → CPL / CPA / ROI.
     { label: "marketing_spend table",
