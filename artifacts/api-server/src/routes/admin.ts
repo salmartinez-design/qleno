@@ -56,8 +56,11 @@ router.get("/dashboard", ...isSuperAdmin, async (_req, res) => {
   try {
     const companies = await db.select().from(companiesTable);
 
+    // Internal/comped tenants are excluded from all paying-revenue metrics.
+    const paying = companies.filter((c) => !(c as any).is_internal);
+
     const totalCompanies = companies.length;
-    const activeSubs = companies.filter(
+    const activeSubs = paying.filter(
       (c) => c.subscription_status === "active"
     ).length;
     const trialSubs = companies.filter(
@@ -70,7 +73,7 @@ router.get("/dashboard", ...isSuperAdmin, async (_req, res) => {
       (c) => c.subscription_status === "canceled"
     ).length;
 
-    const mrr = companies
+    const mrr = paying
       .filter((c) => c.subscription_status === "active")
       .reduce((sum, c) => sum + (PLAN_MRR[c.plan] || 0), 0);
 
@@ -139,7 +142,7 @@ router.get("/companies", ...isSuperAdmin, async (req, res) => {
     const result = filtered.map((c) => ({
       ...c,
       owner: ownerMap[c.id] || null,
-      mrr: c.subscription_status === "active" ? PLAN_MRR[c.plan] || 0 : 0,
+      mrr: (c.subscription_status === "active" && !(c as any).is_internal) ? PLAN_MRR[c.plan] || 0 : 0,
     }));
 
     return res.json(result);
@@ -155,12 +158,12 @@ router.get("/tenants", ...isSuperAdmin, async (_req, res) => {
     const rows = await db.execute(sql`
       SELECT
         c.id, c.name, c.subscription_status, c.plan, c.early_tenant,
-        c.trial_ends_at, c.stripe_customer_id, c.created_at,
+        c.trial_ends_at, c.stripe_customer_id, c.created_at, c.is_internal,
         t.name AS tier_name, t.slug AS tier_slug, t.price_monthly,
         (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.role='technician' AND u.is_active=true AND u.archived_at IS NULL AND u.is_sandbox=false) AS active_techs,
         (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.role IN ('office','admin') AND u.is_active=true AND u.archived_at IS NULL AND u.is_sandbox=false) AS active_office,
         (SELECT COUNT(*)::int FROM users u WHERE u.company_id=c.id AND u.is_active=true AND u.archived_at IS NULL AND u.is_sandbox=false) AS total_users,
-        CASE WHEN c.subscription_status='active' THEN COALESCE(t.price_monthly::numeric, 0) ELSE 0 END AS mrr
+        CASE WHEN c.subscription_status='active' AND c.is_internal IS NOT TRUE THEN COALESCE(t.price_monthly::numeric, 0) ELSE 0 END AS mrr
       FROM companies c
       LEFT JOIN subscription_tiers t ON t.id=c.tier_id
       ORDER BY c.id
@@ -275,7 +278,7 @@ router.get("/billing", ...isSuperAdmin, async (_req, res) => {
     let mrr = 0;
 
     for (const c of companies) {
-      if (c.subscription_status === "active") {
+      if (c.subscription_status === "active" && !(c as any).is_internal) {
         const key = c.plan as keyof typeof byPlan;
         byPlan[key] = (byPlan[key] || 0) + 1;
         mrr += PLAN_MRR[c.plan] || 0;

@@ -186,13 +186,15 @@ router.post("/forgot-password", async (req, res) => {
       .set({ reset_token: token, reset_token_expires_at: expires } as any)
       .where(eq(usersTable.id, user.id));
 
-    const resetLink = `https://clean-ops-pro.replit.app/reset-password?token=${token}`;
+    const resetLink = `https://app.qleno.com/reset-password?token=${token}`;
     const mv = {
       first_name:   user.first_name || "",
       reset_link:   resetLink,
       reset_expiry: "1 hour",
     };
-    await sendNotification("password_reset", "email", user.company_id, user.email, null, mv);
+    // transactional=true → always sends (bypasses the comms gates); a password
+    // reset is user-initiated and must reach them regardless of marketing gating.
+    await sendNotification("password_reset", "email", user.company_id, user.email, null, mv, true);
 
     return res.json({ success: true, message: "If that email exists, a reset link has been sent." });
   } catch (err) {

@@ -57,7 +57,18 @@ export function clampToBusinessHours(raw: Date): Date {
 // Raw send — performs the actual Resend call with NO COMMS_ENABLED gate. Only
 // callers that are themselves explicitly scoped/authorized may use this
 // directly (see sendSingleEnrollmentTouch). Returns the Resend message id.
-async function sendEmailRaw(to: string, subject: string, body: string): Promise<string | null> {
+// Resolve a company's per-tenant send-from address (Resend-verified domain),
+// falling back to the default Phes sender. Raw SQL to avoid the regenerated
+// drizzle column-type coupling.
+async function companyFromAddress(companyId: number): Promise<string> {
+  try {
+    const r = await db.execute(sql`SELECT email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const addr = (r.rows[0] as any)?.email_from_address;
+    return addr ? `Phes Cleaning <${addr}>` : "Phes Cleaning <noreply@phes.io>";
+  } catch { return "Phes Cleaning <noreply@phes.io>"; }
+}
+
+async function sendEmailRaw(to: string, subject: string, body: string, fromAddress = "Phes Cleaning <noreply@phes.io>"): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
   const { Resend } = await import("resend");
@@ -71,7 +82,7 @@ async function sendEmailRaw(to: string, subject: string, body: string): Promise<
 <p style="font-size:13px;color:#9E9B94;margin:0;">Phes Cleaning &mdash; (773) 706-6000 &mdash; info@phes.io</p>
 </div></div>`;
   const res: any = await resend.emails.send({
-    from: "Phes Cleaning <noreply@phes.io>",
+    from: fromAddress,
     to: [to],
     subject,
     html: bodyHtml,
@@ -86,12 +97,12 @@ async function sendEmailRaw(to: string, subject: string, body: string): Promise<
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string): Promise<void> {
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
     return;
   }
-  await sendEmailRaw(to, subject, body);
+  await sendEmailRaw(to, subject, body, fromAddress);
 }
 
 // ── Enroll for quote follow-up ─────────────────────────────────────────────────
@@ -371,7 +382,7 @@ async function processEnrollment(enr: any): Promise<void> {
         sendError  = sender.reason || "branch_comms_disabled";
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
-        await sendEmail(recipientEmail, subject, body);
+        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id));
       }
     } else {
       sendStatus = "failed";
@@ -483,7 +494,7 @@ export async function sendSingleEnrollmentTouch(
     if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
     recipient = recipientEmail;
     try {
-      providerId = await sendEmailRaw(recipientEmail, subject, body);
+      providerId = await sendEmailRaw(recipientEmail, subject, body, await companyFromAddress(companyId));
     } catch (e: any) {
       logStatus = "failed"; logErr = e?.message || "email_send_error";
     }
