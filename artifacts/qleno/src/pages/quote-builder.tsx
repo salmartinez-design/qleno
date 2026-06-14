@@ -324,6 +324,10 @@ export default function QuoteBuilderPage() {
   const [mobileClientSearch, setMobileClientSearch] = useState("");
   const [mobileClientDropdown, setMobileClientDropdown] = useState(false);
   const [mobileStep, setMobileStep] = useState(1);
+  // [new-client-mobile-fix] Reveals the new-prospect entry form on mobile Step 1.
+  // Without it, mobile had no way to enter a brand-new client (the dropdown's
+  // "Enter lead info instead" only closed the dropdown).
+  const [mobileLeadForm, setMobileLeadForm] = useState(false);
   const mobileSearchInputRef = useRef<HTMLInputElement>(null);
 
   // ── Refs for recalc (avoid stale closures) ───────────────────────────────
@@ -1152,7 +1156,7 @@ export default function QuoteBuilderPage() {
                   />
                   {mobileClientDropdown && (
                     <div style={{ position: "absolute", top: 52, left: 0, right: 0, background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 9999, maxHeight: 260, overflowY: "auto" }}>
-                      <div onClick={() => { clearClient(); setMobileClientDropdown(false); setMobileClientSearch(""); mobileSearchInputRef.current?.blur(); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>— Enter lead info instead</div>
+                      <div onClick={() => { clearClient(); setMobileLeadForm(true); setMobileClientDropdown(false); setMobileClientSearch(""); mobileSearchInputRef.current?.blur(); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer", fontSize: 13, color: "#6B6860" }}>+ Enter new client / lead info</div>
                       {mobileFilteredClients.map(c => (
                         <div key={c.id} onClick={() => { selectClient(c); setMobileClientDropdown(false); setMobileClientSearch(""); mobileSearchInputRef.current?.blur(); }} style={{ padding: "12px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}>
                           <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</div>
@@ -1164,6 +1168,43 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
             </div>
+
+            {/* New-client / lead entry — mobile parity with desktop Customer Info.
+                Shows when no existing client is selected and the user opts to
+                enter a new prospect (or has already typed lead details). */}
+            {!selectedClient && (mobileLeadForm || leadFirstName || leadLastName || leadEmail || leadPhone || address) && (
+              <div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FF }}>New Client</div>
+                  <button onClick={() => { setMobileLeadForm(false); setLeadFirstName(""); setLeadLastName(""); setLeadEmail(""); setLeadPhone(""); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", fontSize: 12, fontFamily: FF }}>Clear</button>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                    <input value={leadFirstName} onChange={e => setLeadFirstName(e.target.value)} placeholder="First name" autoComplete="off"
+                      style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
+                    <input value={leadLastName} onChange={e => setLeadLastName(e.target.value)} placeholder="Last name" autoComplete="off"
+                      style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
+                  </div>
+                  <input value={leadEmail} onChange={e => setLeadEmail(e.target.value)} onBlur={e => handleEmailBlur(e.target.value)} placeholder="Email" type="email" inputMode="email" autoComplete="off"
+                    style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
+                  <input value={leadPhone} onChange={e => setLeadPhone(e.target.value)} onBlur={e => handlePhoneBlur(e.target.value)} placeholder="Phone" type="tel" inputMode="tel" autoComplete="off"
+                    style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
+                  <input value={address} onChange={e => setAddress(e.target.value)} placeholder="Service address" autoComplete="off"
+                    style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
+                  <select value={referralSource} onChange={e => setReferralSource(e.target.value)}
+                    style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 12px", fontFamily: FF, background: "#FFF" }}>
+                    <option value="">How did they hear about us?</option>
+                    <option value="google_local_services">Google Local Services</option>
+                    <option value="google_search">Google Search</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="referral">Referral</option>
+                    <option value="Nextdoor">Nextdoor</option>
+                    <option value="manual">Other</option>
+                  </select>
+                </div>
+              </div>
+            )}
 
             {/* Scope cards — categorized */}
             <div>
