@@ -76,6 +76,13 @@ async function sendEmailRaw(to: string, subject: string, body: string): Promise<
     subject,
     html: bodyHtml,
   });
+  // The Resend SDK returns { data, error } and does NOT throw on API errors
+  // (unverified domain, invalid key, etc.). Surface it so callers don't record
+  // a failed send as "sent" — the bug behind "Resend said ok but nothing arrived".
+  if (res?.error) {
+    const e = res.error;
+    throw new Error(`Resend error: ${e?.name ? e.name + " — " : ""}${e?.message ?? JSON.stringify(e)}`);
+  }
   return res?.data?.id ?? res?.id ?? null;
 }
 
@@ -475,7 +482,11 @@ export async function sendSingleEnrollmentTouch(
   if (step.channel === "email") {
     if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
     recipient = recipientEmail;
-    providerId = await sendEmailRaw(recipientEmail, subject, body);
+    try {
+      providerId = await sendEmailRaw(recipientEmail, subject, body);
+    } catch (e: any) {
+      logStatus = "failed"; logErr = e?.message || "email_send_error";
+    }
   } else if (step.channel === "sms") {
     if (!recipientPhone) return { sent: false, channel: "sms", reason: "no_recipient_phone", step: step.step_number };
     recipient = recipientPhone;
