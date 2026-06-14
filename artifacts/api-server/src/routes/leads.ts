@@ -39,6 +39,8 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
       limit = "25",
       date_from,
       date_to,
+      referral_partner,
+      location,
     } = req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -72,6 +74,17 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     }
     if (date_from) conditions.push(`l.created_at >= '${date_from}'::date`);
     if (date_to) conditions.push(`l.created_at < ('${date_to}'::date + interval '1 day')`);
+    if (referral_partner) {
+      if (referral_partner === "none") {
+        conditions.push(`l.referral_partner_id IS NULL`);
+      } else {
+        conditions.push(`l.referral_partner_id = ${parseInt(referral_partner)}`);
+      }
+    }
+    if (location) {
+      const loc = location.replace(/'/g, "''");
+      conditions.push(`(l.city ILIKE '%${loc}%' OR l.zip ILIKE '%${loc}%' OR l.address ILIKE '%${loc}%')`);
+    }
 
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -82,9 +95,11 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
       SELECT
         l.*,
         u.first_name as assignee_first_name,
-        u.last_name as assignee_last_name
+        u.last_name as assignee_last_name,
+        rp.name as referral_partner_name
       FROM leads l
       LEFT JOIN users u ON u.id = l.assigned_to
+      LEFT JOIN referral_partners rp ON rp.id = l.referral_partner_id
       ${where}
       ORDER BY l.created_at DESC
       LIMIT ${limitNum} OFFSET ${offset}
@@ -124,7 +139,7 @@ router.post("/backfill-from-quotes", requireAuth, requireRole("owner", "admin"),
     const companyId = req.auth!.companyId!;
     const { upsertLeadForQuote, advanceLeadStage } = await import("../lib/lead-sync.js");
     const quotes = await db.execute(sql`
-      SELECT id, lead_id, lead_name, lead_email, lead_phone, address, referral_source,
+      SELECT id, lead_id, lead_name, lead_email, lead_phone, address,
              status, total_price, base_price, booked_job_id
         FROM quotes WHERE company_id = ${companyId} AND lead_id IS NULL`);
     let created = 0;
@@ -220,7 +235,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
       source, status, assigned_to, scope, sqft,
       bedrooms, bathrooms, notes, quote_amount,
       quoted_at, contacted_at, booked_at,
-      closed_reason, agreement_signed,
+      closed_reason, agreement_signed, referral_partner_id,
     } = req.body;
 
     const existing = await db.execute(
@@ -229,6 +244,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     if (!existing.rows.length) return res.status(404).json({ error: "Not found" });
 
     const prev = (existing.rows[0] as any).status;
+    const stageChanged = status && status !== prev;
 
     await db.execute(sql`
       UPDATE leads SET
@@ -243,22 +259,23 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
         source     = COALESCE(${source ?? null}, source),
         status     = COALESCE(${status ?? null}, status),
         assigned_to = CASE WHEN ${assigned_to !== undefined ? "TRUE" : "FALSE"} = 'TRUE' THEN ${assigned_to !== undefined ? (assigned_to || null) : null} ELSE assigned_to END,
+        referral_partner_id = ${referral_partner_id !== undefined ? (referral_partner_id ? parseInt(referral_partner_id) : null) : sql`referral_partner_id`},
         scope      = COALESCE(${scope ?? null}, scope),
         sqft       = COALESCE(${sqft != null ? parseInt(sqft) : null}, sqft),
         bedrooms   = COALESCE(${bedrooms != null ? parseInt(bedrooms) : null}, bedrooms),
         bathrooms  = COALESCE(${bathrooms != null ? parseInt(bathrooms) : null}, bathrooms),
         notes      = COALESCE(${notes ?? null}, notes),
         quote_amount = COALESCE(${quote_amount != null ? parseFloat(quote_amount) : null}, quote_amount),
-        quoted_at  = COALESCE(${quoted_at ?? null}, quoted_at),
-        contacted_at = COALESCE(${contacted_at ?? null}, contacted_at),
-        booked_at  = COALESCE(${booked_at ?? null}, booked_at),
+        quoted_at  = COALESCE(${quoted_at ?? null}, quoted_at${stageChanged && status === "quoted" ? sql`, NOW()` : sql``}),
+        contacted_at = COALESCE(${contacted_at ?? null}, contacted_at${stageChanged && status === "contacted" ? sql`, NOW()` : sql``}),
+        booked_at  = COALESCE(${booked_at ?? null}, booked_at${stageChanged && status === "booked" ? sql`, NOW()` : sql``}),
         closed_reason = COALESCE(${closed_reason ?? null}, closed_reason),
         agreement_signed = COALESCE(${agreement_signed ?? null}, agreement_signed),
         updated_at = NOW()
       WHERE id = ${leadId} AND company_id = ${companyId}
     `);
 
-    if (status && status !== prev) {
+    if (stageChanged) {
       await logActivity(leadId, companyId, "status_change", `Status changed from ${prev} to ${status}`, userId);
     }
 
