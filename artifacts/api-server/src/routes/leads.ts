@@ -115,6 +115,34 @@ router.get("/status-counts", requireAuth, requireRole("owner", "admin", "office"
   }
 });
 
+// ── POST /api/leads/backfill-from-quotes ───────────────────────────────────────
+// Create-or-link a lead for every quote that has no lead_id yet, and set the
+// lead's stage from the quote status (booked→booked, sent/viewed→quoted,
+// else needs_contacted). Idempotent; safe to re-run.
+router.post("/backfill-from-quotes", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { upsertLeadForQuote, advanceLeadStage } = await import("../lib/lead-sync.js");
+    const quotes = await db.execute(sql`
+      SELECT id, lead_id, lead_name, lead_email, lead_phone, address, referral_source,
+             status, total_price, base_price, booked_job_id
+        FROM quotes WHERE company_id = ${companyId} AND lead_id IS NULL`);
+    let created = 0;
+    for (const q of quotes.rows as any[]) {
+      const leadId = await upsertLeadForQuote(companyId, q);
+      if (!leadId) continue;
+      created++;
+      const amt = q.total_price ?? q.base_price ?? null;
+      if (q.status === "booked" || q.booked_job_id) await advanceLeadStage(companyId, leadId, "booked", { jobId: q.booked_job_id ?? undefined, quoteAmount: amt });
+      else if (q.status === "sent" || q.status === "viewed") await advanceLeadStage(companyId, leadId, "quoted", { quoteAmount: amt });
+    }
+    return res.json({ ok: true, quotes_processed: (quotes.rows as any[]).length, leads_linked: created });
+  } catch (err) {
+    console.error("[leads] backfill-from-quotes", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Backfill failed" });
+  }
+});
+
 // ── GET /api/leads/:id ─────────────────────────────────────────────────────────
 router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
