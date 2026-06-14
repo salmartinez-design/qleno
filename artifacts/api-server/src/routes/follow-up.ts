@@ -163,10 +163,25 @@ router.post("/send-one", requireAuth, requireRole("owner", "admin"), async (req,
     const companyId = req.auth!.companyId!;
     const enrollmentId = parseInt(req.body?.enrollment_id);
     if (!enrollmentId) return res.status(400).json({ error: "enrollment_id required" });
-    const result = await sendSingleEnrollmentTouch(companyId, enrollmentId);
+    const stepOverride = req.body?.step_number != null ? parseInt(req.body.step_number) : undefined;
+    const result = await sendSingleEnrollmentTouch(companyId, enrollmentId, stepOverride);
     return res.json(result);
   } catch (err: any) {
     console.error("POST /follow-up/send-one:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
+// ── POST /api/follow-up/twilio-check — validate company Twilio creds ───────────
+// Lightweight authenticated GET on the Twilio account resource. Token stays
+// server-side; returns { authenticated, status, detail }.
+router.post("/twilio-check", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const { validateTwilioCreds } = await import("../lib/comms-sender.js");
+    const result = await validateTwilioCreds(req.auth!.companyId!);
+    return res.json(result);
+  } catch (err: any) {
+    console.error("POST /follow-up/twilio-check:", err);
     return res.status(500).json({ error: "Internal Server Error", message: err?.message });
   }
 });
