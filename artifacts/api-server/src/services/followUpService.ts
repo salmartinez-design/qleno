@@ -5,36 +5,53 @@
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
+import { getBranchByZip } from "../lib/branchRouter.js";
 
 // ── Merge field resolver ───────────────────────────────────────────────────────
 function resolveMergeFields(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
 }
 
-// ── Twilio SMS sender ──────────────────────────────────────────────────────────
-async function sendSms(to: string, body: string): Promise<void> {
-  if (process.env.COMMS_ENABLED !== "true") {
-    console.log("[COMMS BLOCKED] Follow-up SMS suppressed:", { to, body: body.substring(0, 80) });
-    return;
+// ── Business-hours clamp (America/Chicago, 8am–9pm) ────────────────────────────
+// Phes sends nothing outside 8:00–21:00 local. A computed next_fire_at before
+// 8am moves to 8am the same day; at/after 9pm moves to 8am the next day.
+const SEND_TZ = "America/Chicago";
+const SEND_START_HOUR = 8;
+const SEND_END_HOUR = 21;
+
+function tzParts(date: Date, tz: string): Record<string, number> {
+  const f = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
+  const p: Record<string, number> = {};
+  for (const { type, value } of f.formatToParts(date)) {
+    if (type !== "literal") p[type] = parseInt(value, 10);
   }
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  const from       = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !from) throw new Error("Twilio not configured");
-  const res = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-    }
-  );
-  const data = await res.json() as any;
-  if (!res.ok) throw new Error(data?.message || "Twilio error");
+  return p;
 }
+
+// Convert a wall-clock time in `tz` to the corresponding UTC instant.
+function wallToUtc(tz: string, y: number, mo: number, d: number, h: number, mi: number): Date {
+  const guess = Date.UTC(y, mo - 1, d, h, mi, 0);
+  const p = tzParts(new Date(guess), tz);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  const offset = asUtc - guess; // local-as-utc minus utc = tz offset
+  return new Date(guess - offset);
+}
+
+export function clampToBusinessHours(raw: Date): Date {
+  const p = tzParts(raw, SEND_TZ);
+  if (p.hour >= SEND_START_HOUR && p.hour < SEND_END_HOUR) return raw;
+  // hour < 8 → 8am same day; hour >= 21 → 8am next day (Date.UTC normalizes overflow)
+  const dayShift = p.hour >= SEND_END_HOUR ? 1 : 0;
+  return wallToUtc(SEND_TZ, p.year, p.month, p.day + dayShift, SEND_START_HOUR, 0);
+}
+
+// SMS is sent per-branch via resolveSender + sendSmsVia (see comms-sender.ts);
+// the old env-based single-number sender was removed when branch routing landed.
 
 // ── Resend email sender ────────────────────────────────────────────────────────
 async function sendEmail(to: string, subject: string, body: string): Promise<void> {
@@ -206,7 +223,7 @@ export async function processDueEnrollments(): Promise<void> {
   try {
     const due = await db.execute(sql`
       SELECT
-        fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id,
+        fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
         fe.current_step,
         fs.name AS sequence_name, fs.sequence_type
       FROM follow_up_enrollments fe
@@ -233,9 +250,9 @@ export async function processDueEnrollments(): Promise<void> {
 }
 
 async function processEnrollment(enr: any): Promise<void> {
-  // Fetch the current step
+  // Fetch the current step (template_id links to a managed message_templates row)
   const stepRows = await db.execute(sql`
-    SELECT id, step_number, delay_hours, channel, subject, message_template
+    SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
     FROM follow_up_steps
     WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step}
     LIMIT 1
@@ -249,30 +266,63 @@ async function processEnrollment(enr: any): Promise<void> {
   }
   const step = stepRows.rows[0] as any;
 
-  // Resolve merge fields from linked client or quote
+  // Resolve recipient + zip (for branch routing) from linked client, quote, or lead.
   let firstName = "";
   let recipientEmail: string | null = null;
   let recipientPhone: string | null = null;
+  let zip: string | null = null;
 
   if (enr.client_id) {
     const clientRows = await db.execute(sql`
-      SELECT first_name, email, phone FROM clients WHERE id = ${enr.client_id} LIMIT 1
+      SELECT first_name, email, phone, zip FROM clients WHERE id = ${enr.client_id} LIMIT 1
     `);
     if (clientRows.rows.length) {
       const c = clientRows.rows[0] as any;
       firstName = c.first_name || "";
       recipientEmail = c.email || null;
       recipientPhone = c.phone || null;
+      zip = c.zip || null;
     }
   } else if (enr.quote_id) {
     const quoteRows = await db.execute(sql`
-      SELECT lead_name, lead_email, lead_phone FROM quotes WHERE id = ${enr.quote_id} LIMIT 1
+      SELECT lead_name, lead_email, lead_phone, address FROM quotes WHERE id = ${enr.quote_id} LIMIT 1
     `);
     if (quoteRows.rows.length) {
       const q = quoteRows.rows[0] as any;
       firstName = (q.lead_name || "").split(" ")[0] || "";
       recipientEmail = q.lead_email || null;
       recipientPhone = q.lead_phone || null;
+      zip = (String(q.address || "").match(/\b(\d{5})\b/) || [])[1] || null;
+    }
+  } else if (enr.lead_id) {
+    const leadRows = await db.execute(sql`
+      SELECT first_name, email, phone, zip FROM leads WHERE id = ${enr.lead_id} LIMIT 1
+    `);
+    if (leadRows.rows.length) {
+      const l = leadRows.rows[0] as any;
+      firstName = l.first_name || "";
+      recipientEmail = l.email || null;
+      recipientPhone = l.phone || null;
+      zip = l.zip || null;
+    }
+  }
+
+  // Per-branch routing — every comm goes through getBranchByZip (CLAUDE.md).
+  const branch = getBranchByZip(zip || "");
+  const branchId = branch.branch === "schaumburg" ? 2 : 1;
+
+  // Prefer the managed template (template_id) over the step's inline copy.
+  let rawBody = step.message_template || "";
+  let rawSubject = step.subject || "";
+  if (step.template_id) {
+    const tplRows = await db.execute(sql`
+      SELECT body, subject FROM message_templates
+      WHERE id = ${step.template_id} AND company_id = ${enr.company_id} AND active = true LIMIT 1
+    `);
+    if (tplRows.rows.length) {
+      const t = tplRows.rows[0] as any;
+      rawBody = t.body || rawBody;
+      rawSubject = t.subject || rawSubject;
     }
   }
 
@@ -280,14 +330,21 @@ async function processEnrollment(enr: any): Promise<void> {
     first_name:   firstName,
     company_name: "Phes",
   };
-  const body    = resolveMergeFields(step.message_template, mergeVars);
-  const subject = step.subject ? resolveMergeFields(step.subject, mergeVars) : "";
+  const body    = resolveMergeFields(rawBody, mergeVars);
+  const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
 
   let sendStatus = "sent";
   let sendError  = "";
   try {
     if (step.channel === "sms" && recipientPhone) {
-      await sendSms(recipientPhone, body);
+      const sender = await resolveSender(enr.company_id, branchId);
+      if (sender.reason) {
+        sendStatus = "blocked";
+        sendError  = sender.reason;
+        console.log(`[follow-up] SMS suppressed (${sender.reason}) enrollment ${enr.id}`);
+      } else {
+        await sendSmsVia(sender, recipientPhone, body);
+      }
     } else if (step.channel === "email" && recipientEmail) {
       await sendEmail(recipientEmail, subject, body);
     } else {
@@ -312,7 +369,7 @@ async function processEnrollment(enr: any): Promise<void> {
        ${enr.sequence_name}, ${step.step_number})
   `);
 
-  // Advance or complete
+  // Advance or complete — next_fire_at clamped to 8am–9pm America/Chicago.
   const nextStepRows = await db.execute(sql`
     SELECT step_number, delay_hours FROM follow_up_steps
     WHERE sequence_id = ${enr.sequence_id} AND step_number = ${enr.current_step + 1}
@@ -321,13 +378,15 @@ async function processEnrollment(enr: any): Promise<void> {
 
   if (nextStepRows.rows.length) {
     const next = nextStepRows.rows[0] as any;
+    const rawNext = new Date(Date.now() + (Number(next.delay_hours) || 0) * 3600 * 1000);
+    const fireAt = clampToBusinessHours(rawNext);
     await db.execute(sql`
       UPDATE follow_up_enrollments
       SET current_step = ${next.step_number},
-          next_fire_at = NOW() + (${next.delay_hours} || ' hours')::INTERVAL
+          next_fire_at = ${fireAt.toISOString()}
       WHERE id = ${enr.id}
     `);
-    console.log(`[follow-up] Enrollment ${enr.id} advanced to step ${next.step_number}`);
+    console.log(`[follow-up] Enrollment ${enr.id} advanced to step ${next.step_number} (fires ${fireAt.toISOString()})`);
   } else {
     await db.execute(sql`
       UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}

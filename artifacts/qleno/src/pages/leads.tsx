@@ -8,7 +8,7 @@ import {
   UserPlus, Search, ChevronLeft, ChevronRight, X,
   Phone, Mail, MapPin, RefreshCw, Loader2,
   MessageSquare, Briefcase, Activity, Eye, ChevronDown,
-  LayoutGrid, List as ListIcon, SlidersHorizontal, CheckCircle2, Users,
+  LayoutGrid, List as ListIcon, SlidersHorizontal, CheckCircle2, Users, TrendingUp,
 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -923,6 +923,11 @@ export default function LeadsPage() {
             <Link href="/leads/templates">
               <Button variant="outline" style={{ gap: 6, display: "flex", alignItems: "center" }}>
                 <MessageSquare size={15} /> Templates
+              </Button>
+            </Link>
+            <Link href="/leads/reports">
+              <Button variant="outline" style={{ gap: 6, display: "flex", alignItems: "center" }}>
+                <TrendingUp size={15} /> Reports
               </Button>
             </Link>
             <Button onClick={() => setShowAdd(true)}
