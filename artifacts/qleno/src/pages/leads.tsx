@@ -771,8 +771,50 @@ export default function LeadsPage() {
   const [users, setUsers] = useState<OwnerOpt[]>([]);
   const [partners, setPartners] = useState<PartnerOpt[]>([]);
   const [dragOver, setDragOver] = useState<string | null>(null);
+  // [bulk-select 2026-06-15] Multi-select + bulk delete. Selection is by lead id;
+  // a lead is "generic" (a placeholder import row) when it has no name/contact/
+  // quote and is still needs_contacted — those are the ones Sal wants to clear.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const LIMIT = view === "board" ? 300 : 25;
+
+  const isGeneric = (l: Lead) => {
+    const nm = [l.first_name, l.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+    return !l.phone && !l.email && !l.address && !l.quote_amount
+      && (nm === "" || nm === "lead") && l.status === "needs_contacted";
+  };
+  const toggleSel = (id: number) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const allOnPageSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
+  const toggleAllOnPage = () => setSelected(s => {
+    const n = new Set(s);
+    if (allOnPageSelected) leads.forEach(l => n.delete(l.id));
+    else leads.forEach(l => n.add(l.id));
+    return n;
+  });
+  const selectGenericOnPage = () => setSelected(s => { const n = new Set(s); leads.filter(isGeneric).forEach(l => n.add(l.id)); return n; });
+  const genericCountOnPage = leads.filter(isGeneric).length;
+
+  const bulkDelete = useCallback(async (body: { ids?: number[]; generic?: boolean }, confirmMsg: string) => {
+    if (!window.confirm(confirmMsg)) return;
+    setBulkBusy(true);
+    try {
+      const r = await fetch(`${API}/api/leads/bulk-delete`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Delete failed");
+      setSelected(new Set());
+      await loadLeads();
+      await loadCounts();
+    } catch (e) {
+      window.alert((e as Error).message || "Delete failed");
+    } finally {
+      setBulkBusy(false);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeFilterCount = [fOwner, fSource, fPartner, fLocation, fDateFrom, fDateTo].filter(Boolean).length;
 
@@ -829,6 +871,9 @@ export default function LeadsPage() {
 
   useEffect(() => { loadLeads(); loadCounts(); }, [loadLeads, loadCounts]);
   useEffect(() => { loadOptions(); }, [loadOptions]);
+  // Drop selection when the visible set changes (page / filter / search) so a
+  // stale id can't be deleted from a list the operator can no longer see.
+  useEffect(() => { setSelected(new Set()); }, [page, statusFilter, search, fOwner, fSource, fPartner, fLocation, fDateFrom, fDateTo]);
 
   function handleSearchChange(v: string) {
     setSearchInput(v);
@@ -1035,12 +1080,41 @@ export default function LeadsPage() {
           )}
         </div>
 
+        {/* Bulk-action bar (list view) */}
+        {view === "list" && (selected.size > 0 || genericCountOnPage > 0) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: selected.size > 0 ? "#0A0E1A" : "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 14px", marginBottom: -6 }}>
+            {selected.size > 0 ? (
+              <>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{selected.size} selected</span>
+                <button disabled={bulkBusy} onClick={() => bulkDelete({ ids: Array.from(selected) }, `Delete ${selected.size} selected lead${selected.size === 1 ? "" : "s"}? This is logged to the audit trail and can't be undone.`)}
+                  style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: bulkBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
+                  {bulkBusy ? "Deleting…" : `Delete ${selected.size}`}
+                </button>
+                <button onClick={() => setSelected(new Set())} style={{ background: "transparent", color: "#fff", border: "1px solid #ffffff40", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
+              </>
+            ) : (
+              <>
+                <span style={{ fontSize: 13, color: "#6B6860" }}>{genericCountOnPage} generic placeholder lead{genericCountOnPage === 1 ? "" : "s"} on this page (no name or contact).</span>
+                <button onClick={selectGenericOnPage} style={{ background: "#F3F4F6", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Select them</button>
+                <button disabled={bulkBusy} onClick={() => bulkDelete({ generic: true }, "Delete ALL generic placeholder leads across every page (no name, no contact, no quote, still Needs Contacted)? This is logged to the audit trail and can't be undone.")}
+                  style={{ background: "transparent", color: "#DC2626", border: "1px solid #DC262640", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 700, cursor: bulkBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
+                  {bulkBusy ? "Deleting…" : "Delete all generic"}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Table (list view) */}
         {view === "list" && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#F7F6F3", borderBottom: "1px solid #E5E2DC" }}>
+                <th style={{ padding: "10px 0 10px 14px", width: 36 }}>
+                  <input type="checkbox" checked={allOnPageSelected} onChange={toggleAllOnPage} aria-label="Select all on page"
+                    style={{ cursor: "pointer", width: 15, height: 15 }} />
+                </th>
                 {["Name", "Contact", "Source", "Status", "Owner", "Scope", "Quote", "Created", ""].map(h => (
                   <th key={h} style={{ padding: "10px 14px", textAlign: "left", fontSize: 11,
                     fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em",
@@ -1051,13 +1125,13 @@ export default function LeadsPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: "60px 0", textAlign: "center" }}>
+                  <td colSpan={10} style={{ padding: "60px 0", textAlign: "center" }}>
                     <Loader2 size={22} className="animate-spin" color="#6B6860" style={{ margin: "0 auto" }} />
                   </td>
                 </tr>
               ) : leads.length === 0 ? (
                 <tr>
-                  <td colSpan={9} style={{ padding: "60px 0", textAlign: "center" }}>
+                  <td colSpan={10} style={{ padding: "60px 0", textAlign: "center" }}>
                     <UserPlus size={36} color="#D1D5DB" style={{ margin: "0 auto 12px" }} />
                     <div style={{ color: "#6B6860", fontSize: 14 }}>
                       {search || statusFilter ? "No leads match your filters." : "No leads yet — add your first lead."}
@@ -1069,12 +1143,17 @@ export default function LeadsPage() {
                 return (
                   <tr key={lead.id}
                     style={{ borderBottom: i < leads.length - 1 ? "1px solid #F3F4F6" : "none",
-                      cursor: "pointer", transition: "background 0.1s" }}
-                    onMouseEnter={e => (e.currentTarget.style.background = "#FAFAF9")}
-                    onMouseLeave={e => (e.currentTarget.style.background = "")}
+                      cursor: "pointer", transition: "background 0.1s",
+                      background: selected.has(lead.id) ? "#F0FDF9" : undefined }}
+                    onMouseEnter={e => (e.currentTarget.style.background = selected.has(lead.id) ? "#E4F8F0" : "#FAFAF9")}
+                    onMouseLeave={e => (e.currentTarget.style.background = selected.has(lead.id) ? "#F0FDF9" : "")}
                     onClick={() => setSelectedLead(lead)}>
+                    <td style={{ padding: "12px 0 12px 14px", width: 36 }} onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(lead.id)} onChange={() => toggleSel(lead.id)}
+                        aria-label={`Select ${name || "lead"}`} style={{ cursor: "pointer", width: 15, height: 15 }} />
+                    </td>
                     <td style={{ padding: "12px 14px" }}>
-                      <div style={{ fontWeight: 600, color: "#1A1917" }}>{name}</div>
+                      <div style={{ fontWeight: 600, color: "#1A1917" }}>{name || <span style={{ color: "#B0ADA6" }}>Lead</span>}</div>
                       {lead.address && (
                         <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 1 }}>
                           {formatAddress(lead.address, lead.city, lead.state, lead.zip)}

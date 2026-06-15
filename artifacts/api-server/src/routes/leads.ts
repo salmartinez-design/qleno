@@ -7,6 +7,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { logAudit } from "../lib/audit.js";
 
 const router = Router();
 
@@ -213,6 +214,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     const leadId = (result.rows[0] as any).id;
 
     await logActivity(leadId, companyId, "status_change", `Lead created with status: ${status}`, userId);
+    await logAudit(req, "lead.create", "lead", leadId, null, { first_name, last_name, email, phone, source, status });
 
     fireOfficeNotification(companyId, leadId, first_name, last_name, source, phone, scope).catch(() => {});
 
@@ -278,6 +280,9 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     if (stageChanged) {
       await logActivity(leadId, companyId, "status_change", `Status changed from ${prev} to ${status}`, userId);
     }
+    await logAudit(req, "lead.update", "lead", leadId,
+      stageChanged ? { status: prev } : null,
+      stageChanged ? { status } : { fields: Object.keys(req.body || {}) });
 
     return res.json({ ok: true });
   } catch (err) {
@@ -291,12 +296,75 @@ router.delete("/:id", requireAuth, requireRole("owner"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const leadId = parseInt(req.params.id);
+    // Snapshot before delete so the audit trail keeps who/what was removed.
+    const snap = await db.execute(
+      sql`SELECT id, first_name, last_name, email, phone, status, source FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`
+    );
+    if (!snap.rows.length) return res.status(404).json({ error: "Not found" });
     await db.execute(
       sql`DELETE FROM leads WHERE id = ${leadId} AND company_id = ${companyId}`
     );
+    await logAudit(req, "lead.delete", "lead", leadId, snap.rows[0] as Record<string, unknown>, null);
     return res.json({ ok: true });
   } catch (err) {
     console.error("DELETE /leads/:id:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/bulk-delete ────────────────────────────────────────────────
+// Owner-only. Two modes:
+//   { ids: number[] }   — delete an explicit selection (the bulk-select UI)
+//   { generic: true }   — delete every placeholder/"generic" lead: no name (or
+//                         first_name = 'Lead'), no email/phone/address, no quote,
+//                         still in 'needs_contacted'. Never touches a lead that
+//                         carries any real contact info or has progressed.
+// Every deleted lead is written to the audit log individually (Sal: "all touches
+// going to audit log"), with a single bulk summary row on top.
+router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { ids, generic } = req.body as { ids?: unknown; generic?: boolean };
+
+    const genericWhere = sql`
+      (first_name IS NULL OR btrim(first_name) = '' OR lower(btrim(first_name)) = 'lead')
+      AND (last_name IS NULL OR btrim(last_name) = '')
+      AND email IS NULL
+      AND phone IS NULL
+      AND (address IS NULL OR btrim(address) = '')
+      AND quote_amount IS NULL
+      AND status = 'needs_contacted'`;
+
+    // Resolve the target rows (snapshot for audit) under either mode.
+    let targets;
+    if (generic === true) {
+      targets = await db.execute(sql`
+        SELECT id, first_name, last_name, email, phone, status, source
+        FROM leads WHERE company_id = ${companyId} AND ${genericWhere}`);
+    } else {
+      const idList = Array.isArray(ids) ? ids.map(Number).filter(n => Number.isInteger(n)) : [];
+      if (idList.length === 0) return res.status(400).json({ error: "Provide ids[] or generic:true" });
+      targets = await db.execute(sql`
+        SELECT id, first_name, last_name, email, phone, status, source
+        FROM leads WHERE company_id = ${companyId} AND id = ANY(${idList}::int[])`);
+    }
+
+    const rows = targets.rows as Array<Record<string, unknown>>;
+    if (rows.length === 0) return res.json({ ok: true, deleted: 0 });
+    const delIds = rows.map(r => Number(r.id));
+
+    await db.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ANY(${delIds}::int[])`);
+
+    // Per-lead audit rows + one summary row.
+    await logAudit(req, "lead.bulk_delete", "lead", null, null,
+      { mode: generic ? "generic" : "selection", count: rows.length, ids: delIds });
+    for (const r of rows) {
+      await logAudit(req, "lead.delete", "lead", Number(r.id), r, null);
+    }
+
+    return res.json({ ok: true, deleted: rows.length });
+  } catch (err) {
+    console.error("POST /leads/bulk-delete:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
