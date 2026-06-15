@@ -13,3 +13,12 @@ createRoot(document.getElementById("root")!).render(<App />);
 
 // Register for push notifications in the native shell (no-op on web).
 void initNativePush();
+
+// Register the Web Push / PWA service worker (web only). Enables installability
+// and lets the app receive push while closed. Registration is harmless without a
+// push subscription; the actual subscribe happens from the Enable-Push UI.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch((e) => console.warn("[sw] register failed", e));
+  });
+}
