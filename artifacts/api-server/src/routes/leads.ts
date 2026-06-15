@@ -360,16 +360,21 @@ router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) 
     const delCsv = delIds.join(",");
     const delArr = sql`ANY(ARRAY[${sql.raw(delCsv)}]::int[])`;
 
-    await db.transaction(async (tx) => {
-      // Clear/clean dependents first so a lead with history deletes cleanly
-      // (and stays clean even if FKs are added later). Each guarded so a
-      // missing table on a fresh tenant can't abort the delete.
-      try { await tx.execute(sql`DELETE FROM lead_activity_log WHERE company_id = ${companyId} AND lead_id = ${delArr}`); } catch { /* table absent */ }
-      try { await tx.execute(sql`DELETE FROM follow_up_enrollments WHERE lead_id = ${delArr}`); } catch { /* table/col absent */ }
-      try { await tx.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* col absent */ }
-      try { await tx.execute(sql`UPDATE sms_messages SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* col absent */ }
-      await tx.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ${delArr}`);
-    });
+    // [delete-fix 2026-06-15] NO shared transaction. leads has no FK
+    // dependents, so the delete stands alone — and wrapping best-effort
+    // cleanups + the delete in one transaction was the bug: when a cleanup
+    // statement errored (e.g. a table/column absent on this DB), Postgres
+    // aborted the whole transaction, so the subsequent DELETE FROM leads
+    // failed with "current transaction is aborted" → 500. Delete the leads
+    // first (the only statement that must succeed), then best-effort cleanup
+    // in isolated autocommit statements where one failure can't poison another.
+    const del = await db.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ${delArr}`);
+    const deleted = (del as any).rowCount ?? rows.length;
+
+    try { await db.execute(sql`DELETE FROM lead_activity_log WHERE company_id = ${companyId} AND lead_id = ${delArr}`); } catch { /* best-effort */ }
+    try { await db.execute(sql`DELETE FROM follow_up_enrollments WHERE lead_id = ${delArr}`); } catch { /* best-effort */ }
+    try { await db.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* best-effort */ }
+    try { await db.execute(sql`UPDATE sms_messages SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* best-effort */ }
 
     await logAudit(req, "lead.bulk_delete", "lead", null, null,
       { mode: generic ? "generic" : "selection", count: rows.length, ids: delIds });
@@ -377,10 +382,12 @@ router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) 
       await logAudit(req, "lead.delete", "lead", Number(r.id), r, null);
     }
 
-    return res.json({ ok: true, deleted: rows.length });
+    return res.json({ ok: true, deleted });
   } catch (err) {
     console.error("POST /leads/bulk-delete:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: (err as Error).message });
+    // Surface the real reason in `error` so the UI alert is actionable, not
+    // a generic "Internal Server Error".
+    return res.status(500).json({ error: `Delete failed: ${(err as Error).message}`, message: (err as Error).message });
   }
 });
 
