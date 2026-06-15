@@ -1498,6 +1498,29 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "companies.lead_notify_phone",
       stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS lead_notify_phone text` },
 
+    // Two-way SMS — unified conversation store (inbound + outbound, leads + clients).
+    { label: "CREATE sms_messages", stmt: `
+      CREATE TABLE IF NOT EXISTS sms_messages (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL,
+        contact_phone TEXT NOT NULL,
+        client_id     INTEGER,
+        lead_id       INTEGER,
+        direction     TEXT NOT NULL,
+        body          TEXT NOT NULL,
+        from_number   TEXT,
+        to_number     TEXT,
+        provider_id   TEXT,
+        status        TEXT NOT NULL DEFAULT 'received',
+        read_at       TIMESTAMP,
+        sent_by       INTEGER,
+        created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "sms_messages thread idx", stmt:
+      `CREATE INDEX IF NOT EXISTS sms_messages_thread_idx ON sms_messages (company_id, contact_phone, created_at)` },
+    { label: "sms_messages unread idx", stmt:
+      `CREATE INDEX IF NOT EXISTS sms_messages_unread_idx ON sms_messages (company_id, read_at)` },
+
     // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
     // Marketing spend per channel + period → CPL / CPA / ROI.
     { label: "marketing_spend table",

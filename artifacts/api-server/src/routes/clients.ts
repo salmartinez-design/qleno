@@ -844,9 +844,29 @@ router.get("/:id/communications", requireAuth, async (req, res) => {
       sent_by_last: usersTable.last_name,
     }).from(clientCommunicationsTable)
       .leftJoin(usersTable, eq(clientCommunicationsTable.sent_by, usersTable.id))
-      .where(and(...conditions))
+      // SMS now lives in the unified sms_messages store (canonical for in+out
+      // threading), so exclude any legacy 'sms' rows here to avoid double-listing.
+      .where(and(...conditions, ne(clientCommunicationsTable.type, "sms")))
       .orderBy(desc(clientCommunicationsTable.created_at));
-    return res.json(comms);
+
+    // Merge in the SMS thread (inbound + outbound) from sms_messages.
+    let merged: any[] = comms as any[];
+    if (!type || type === "all" || type === "sms") {
+      const smsRows = await db.execute(sql`
+        SELECT id, direction, body, from_number, to_number, status, read_at, created_at
+          FROM sms_messages WHERE company_id = ${req.auth!.companyId} AND client_id = ${clientId}
+          ORDER BY created_at DESC`);
+      const sms = (smsRows.rows as any[]).map(r => ({
+        id: `sms-${r.id}`, type: "sms", direction: r.direction, subject: null, body: r.body,
+        from_name: r.direction === "inbound" ? r.from_number : null,
+        to_contact: r.direction === "inbound" ? r.to_number : r.to_number,
+        has_attachment: false, attachment_url: null, created_at: r.created_at,
+        sent_by_first: null, sent_by_last: null, status: r.status,
+      }));
+      merged = type === "sms" ? sms : [...sms, ...(comms as any[])]
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    }
+    return res.json(merged);
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
@@ -872,27 +892,32 @@ router.post("/:id/communications/sms", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);
     const { to, message } = req.body;
-    let twilioResult = null;
+    let twilioResult: any = null;
+    let fromNumber: string | null = null;
+    let status = "suppressed";
     // Per-tenant send only — resolveSender(companyId) picks THIS company's creds
     // + from-number (full gate ladder). No global-env number.
     try {
       const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
       const sender = await resolveSender(req.auth!.companyId, null);
+      fromNumber = sender.from_number;
       if (sender.reason) {
         console.log("[clients] Client SMS suppressed:", sender.reason);
       } else {
         twilioResult = await sendSmsVia(sender, to, message);
+        status = "sent";
       }
     } catch (e: any) {
+      status = "failed";
       console.error("[clients] Client SMS error:", e?.message || e);
     }
-    const [comm] = await db.insert(clientCommunicationsTable).values({
-      company_id: req.auth!.companyId, client_id: clientId,
-      type: "sms", direction: "outbound", body: message, to_contact: to,
-      from_name: req.auth!.email,
-      sent_by: req.auth!.userId,
-    }).returning();
-    return res.status(201).json({ ...comm, twilio: twilioResult });
+    // Persist into the unified SMS conversation store (canonical for threads/inbox).
+    const { recordOutboundSms } = await import("../lib/sms-store.js");
+    const { id } = await recordOutboundSms({
+      companyId: req.auth!.companyId, toRaw: to, fromNumber, body: message,
+      providerId: twilioResult?.sid ?? null, sentBy: req.auth!.userId, clientId, status,
+    });
+    return res.status(201).json({ id, direction: "outbound", type: "sms", body: message, to_contact: to, status, twilio: twilioResult });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }

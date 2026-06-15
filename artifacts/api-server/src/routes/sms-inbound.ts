@@ -36,15 +36,22 @@ async function sendTwilioSms(to: string, from: string, body: string) {
   }
 }
 
+// Persist survey-route SMS into the unified sms_messages store. (The previous
+// implementation INSERTed columns that don't exist on message_log — direction,
+// to_phone, from_phone, job_id — and silently failed, so nothing was ever saved.
+// `toPhone`/`fromPhone` here are the message endpoints; the CUSTOMER's number is
+// the From on inbound and the To on outbound — recordInbound/Outbound key the
+// thread on that.)
 async function logMessage(companyId: number, clientId: number | null, jobId: number | null, direction: string, body: string, toPhone: string, fromPhone: string) {
   try {
-    await db.execute(sql`
-      INSERT INTO message_log (company_id, client_id, job_id, direction, body, to_phone, from_phone, channel, created_at)
-      VALUES (${companyId}, ${clientId}, ${jobId}, ${direction}, ${body}, ${toPhone}, ${fromPhone}, 'sms', NOW())
-      ON CONFLICT DO NOTHING
-    `);
-  } catch {
-    // message_log columns may differ — ignore
+    const { recordInboundSms, recordOutboundSms } = await import("../lib/sms-store.js");
+    if (direction === "inbound") {
+      await recordInboundSms({ companyId, fromRaw: fromPhone, toRaw: toPhone, body });
+    } else {
+      await recordOutboundSms({ companyId, toRaw: toPhone, fromNumber: fromPhone, body, clientId });
+    }
+  } catch (e) {
+    console.warn("[sms-inbound] logMessage persist failed:", e);
   }
 }
 

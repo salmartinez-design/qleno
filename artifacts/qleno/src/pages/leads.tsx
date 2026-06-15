@@ -630,27 +630,29 @@ function LeadDetailDrawer({
           {/* Messages */}
           {tab === "messages" && (
             <div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", marginBottom: 14 }}>Messages Sent</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", marginBottom: 14 }}>SMS Conversation</div>
               {messages.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "40px 0", color: "#6B6860", fontSize: 14 }}>
-                  No messages logged for this lead yet.
+                  No texts with this lead yet.
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  {messages.map(m => (
-                    <div key={m.id} style={{ border: "1px solid #E5E2DC", borderRadius: 8,
-                      padding: "12px 14px", background: "#FAFAF9" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: m.action_type === "sms_sent" ? "#059669" : "#0369A1",
-                          background: m.action_type === "sms_sent" ? "#ECFDF5" : "#EFF6FF",
-                          padding: "1px 7px", borderRadius: 999 }}>
-                          {m.action_type === "sms_sent" ? "SMS" : "Email"}
-                        </span>
-                        <span style={{ fontSize: 11, color: "#9CA3AF" }}>{fmtDateTime(m.created_at)}</span>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {(messages as any[]).map(m => {
+                    const inbound = m.direction === "inbound";
+                    return (
+                      <div key={m.id} style={{ display: "flex", justifyContent: inbound ? "flex-start" : "flex-end" }}>
+                        <div style={{ maxWidth: "78%", padding: "9px 12px", borderRadius: 12,
+                          background: inbound ? "#F1F0EC" : "var(--brand, #00C9A0)",
+                          color: inbound ? "#1A1917" : "#fff",
+                          borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
+                          <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap" }}>{m.body}</div>
+                          <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: "right" }}>
+                            {fmtDateTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
+                          </div>
+                        </div>
                       </div>
-                      {m.note && <div style={{ fontSize: 13, color: "#374151" }}>{m.note}</div>}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
