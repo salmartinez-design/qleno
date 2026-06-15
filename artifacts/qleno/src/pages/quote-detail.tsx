@@ -135,7 +135,14 @@ export default function QuoteDetailPage() {
 
   const statusCfg = STATUS_CONFIG[quote.status] ?? STATUS_CONFIG.draft;
   const clientName = quote.client_name || quote.lead_name || "No client";
-  const addons: { name: string; price: number }[] = Array.isArray(quote.addons) ? quote.addons : [];
+  // Stored add-ons use { name, amount, price_type } (the quote builder's shape);
+  // older/other rows may use { price }. Normalize to a numeric price so the
+  // render's a.price.toFixed() can't crash on a missing field (the cause of the
+  // quote-detail "Something went wrong" page on quotes with add-ons).
+  const addons: { name: string; price: number }[] = (Array.isArray(quote.addons) ? quote.addons : []).map((a: any) => ({
+    name: a?.name ?? "Add-on",
+    price: Number(a?.price ?? a?.amount ?? 0) || 0,
+  }));
   const total = parseFloat(quote.total_price || quote.base_price || "0");
   const basePrice = parseFloat(quote.base_price || "0");
   const discountAmt = parseFloat(quote.discount_amount || "0");
