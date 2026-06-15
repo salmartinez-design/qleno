@@ -20,13 +20,14 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
     // Resolve the recipient's per-category prefs once (role-defaulted). Types
     // without a category mapping always deliver in-app and never email.
     // Broadcasts (userId null) always insert in-app, no email.
-    let inappOk = true, emailOk = false;
+    let inappOk = true, emailOk = false, pushOk = false;
     if (a.userId != null) {
       const { getEffectivePrefs, TYPE_TO_CATEGORY } = await import("./notify-prefs.js");
       const prefs = await getEffectivePrefs(a.userId) as any;
       const cat = TYPE_TO_CATEGORY[a.type];
       inappOk = !cat || prefs[`${cat}_inapp`] === true;
       emailOk = !!cat && prefs[`${cat}_email`] === true;
+      pushOk = !!cat && prefs[`${cat}_push`] === true;
     }
     if (inappOk) {
       await db.execute(sql`
@@ -36,6 +37,9 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
     }
     if (emailOk && a.userId != null) {
       await sendStaffAlertEmail(a.companyId, a.userId, a);
+    }
+    if (pushOk && a.userId != null) {
+      await sendUserWebPush(a.userId, a);
     }
   } catch (e) {
     // Never let an alert failure break the triggering action.
@@ -72,6 +76,25 @@ ${a.body ? `<p style="font-size:14px;line-height:1.5;margin:0 0 16px">${a.body}<
     if (r?.error) console.error("[notify] staff email error:", r.error?.message ?? r.error);
   } catch (e) {
     console.error("[notify] staff email failed:", e);
+  }
+}
+
+// Web Push fan-out to all of the user's subscribed devices. Internal staff push,
+// UNGATED by COMMS_ENABLED (these are staff alerts, never customer-facing). Prunes
+// subscriptions the push service reports as gone (404/410). No-op until VAPID is set.
+async function sendUserWebPush(userId: number, a: NotifyArgs): Promise<void> {
+  try {
+    const { webPushConfigured, sendWebPush } = await import("./webpush.js");
+    if (!webPushConfigured()) return;
+    const subs = await db.execute(sql`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`);
+    if (!subs.rows.length) return;
+    const payload = { title: a.title, body: a.body ?? "", link: a.link ?? "/", tag: a.type, data: a.meta ?? {} };
+    for (const s of subs.rows as any[]) {
+      const r = await sendWebPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload);
+      if (r.dead) await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${s.endpoint}`).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[notify] web push failed:", e);
   }
 }
 

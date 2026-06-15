@@ -216,13 +216,16 @@ router.put("/settings", requireAuth, async (req, res) => {
     const bool = (v: any) => (v === true ? true : v === false ? false : null);
     await db.execute(sql`
       INSERT INTO notification_prefs
-        (user_id, company_id, messages_inapp, messages_email, new_jobs_inapp, new_jobs_email, job_changes_inapp, job_changes_email, updated_at)
-      VALUES (${userId}, ${companyId}, ${bool(b.messages_inapp)}, ${bool(b.messages_email)},
-              ${bool(b.new_jobs_inapp)}, ${bool(b.new_jobs_email)}, ${bool(b.job_changes_inapp)}, ${bool(b.job_changes_email)}, NOW())
+        (user_id, company_id, messages_inapp, messages_email, messages_push,
+         new_jobs_inapp, new_jobs_email, new_jobs_push,
+         job_changes_inapp, job_changes_email, job_changes_push, updated_at)
+      VALUES (${userId}, ${companyId}, ${bool(b.messages_inapp)}, ${bool(b.messages_email)}, ${bool(b.messages_push)},
+              ${bool(b.new_jobs_inapp)}, ${bool(b.new_jobs_email)}, ${bool(b.new_jobs_push)},
+              ${bool(b.job_changes_inapp)}, ${bool(b.job_changes_email)}, ${bool(b.job_changes_push)}, NOW())
       ON CONFLICT (user_id) DO UPDATE SET
-        messages_inapp = EXCLUDED.messages_inapp, messages_email = EXCLUDED.messages_email,
-        new_jobs_inapp = EXCLUDED.new_jobs_inapp, new_jobs_email = EXCLUDED.new_jobs_email,
-        job_changes_inapp = EXCLUDED.job_changes_inapp, job_changes_email = EXCLUDED.job_changes_email,
+        messages_inapp = EXCLUDED.messages_inapp, messages_email = EXCLUDED.messages_email, messages_push = EXCLUDED.messages_push,
+        new_jobs_inapp = EXCLUDED.new_jobs_inapp, new_jobs_email = EXCLUDED.new_jobs_email, new_jobs_push = EXCLUDED.new_jobs_push,
+        job_changes_inapp = EXCLUDED.job_changes_inapp, job_changes_email = EXCLUDED.job_changes_email, job_changes_push = EXCLUDED.job_changes_push,
         updated_at = NOW()`);
     const { getEffectivePrefs } = await import("../lib/notify-prefs.js");
     return res.json(await getEffectivePrefs(userId));
