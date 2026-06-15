@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useGetMyCompany, useUpdateMyCompany } from "@workspace/api-client-react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { applyTenantColor } from "@/lib/tenant-brand";
@@ -66,6 +67,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
 export default function CompanyPage() {
   const [activeTab, setActiveTab] = useState<Tab>('branding');
   const { activeBranchId, activeBranch } = useBranch();
+  const isMobile = useIsMobile();
 
   const branchName = activeBranchId === "all" ? null : activeBranch?.name ?? null;
 
@@ -83,9 +85,9 @@ export default function CompanyPage() {
           )}
         </div>
 
-        {/* Grouped sidebar nav + content */}
-        <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
-          <nav style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
+        {/* Grouped sidebar nav + content — stacks on mobile (rail on top, full-width) */}
+        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 32, alignItems: 'flex-start' }}>
+          <nav style={{ width: isMobile ? '100%' : 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 18 }}>
             {TAB_GROUPS.map(group => (
               <div key={group.label}>
                 <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 12px 6px' }}>
@@ -251,7 +253,7 @@ function BrandingTab() {
   const displayLogoUrl = uploadPreview || logoUrl;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px', alignItems: 'start' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', alignItems: 'start' }}>
       {/* Left: Controls */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
 
