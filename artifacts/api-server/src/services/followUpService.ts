@@ -63,10 +63,23 @@ export function clampToBusinessHours(raw: Date): Date {
 // drizzle column-type coupling.
 async function companyFromAddress(companyId: number): Promise<string> {
   try {
-    const r = await db.execute(sql`SELECT email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
-    const addr = (r.rows[0] as any)?.email_from_address;
-    return addr ? `Phes Cleaning <${addr}>` : "Phes Cleaning <noreply@phes.io>";
+    const r = await db.execute(sql`SELECT name, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const c: any = r.rows[0] ?? {};
+    const brand = c.name || "Phes Cleaning";
+    return c.email_from_address ? `${brand} <${c.email_from_address}>` : `${brand} <noreply@phes.io>`;
   } catch { return "Phes Cleaning <noreply@phes.io>"; }
+}
+
+// Per-tenant company info for cadence merge fields. The base mergeVars used to
+// hardcode company_name:"Phes" — so every tenant's cadence rendered "Phes". This
+// resolves the real name/phone/email per company_id so {{company_name}} etc. are
+// correct for ALL tenants (the multi-tenant branding fix).
+async function companyInfo(companyId: number): Promise<{ name: string; phone: string; email: string }> {
+  try {
+    const r = await db.execute(sql`SELECT name, phone, email FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const c: any = r.rows[0] ?? {};
+    return { name: c.name || "Phes", phone: c.phone || "", email: c.email || "" };
+  } catch { return { name: "Phes", phone: "", email: "" }; }
 }
 
 interface EmailBrand { companyName?: string | null; phone?: string | null; email?: string | null }
@@ -408,9 +421,12 @@ async function processEnrollment(enr: any): Promise<void> {
     }
   }
 
+  const ci = await companyInfo(enr.company_id);
   const mergeVars: Record<string, string> = {
-    first_name:   firstName,
-    company_name: "Phes",
+    first_name:    firstName,
+    company_name:  ci.name,
+    company_phone: ci.phone,
+    company_email: ci.email,
   };
   // Quote-tied enrollments (the quote email/SMS) get the full quote merge set:
   // public estimate link, total, itemized line items, address, contact, brand.
@@ -538,7 +554,8 @@ export async function sendSingleEnrollmentTouch(
     const t = await db.execute(sql`SELECT body, subject FROM message_templates WHERE id = ${step.template_id} AND company_id = ${companyId} AND active = true LIMIT 1`);
     if (t.rows.length) { rawBody = (t.rows[0] as any).body || rawBody; rawSubject = (t.rows[0] as any).subject || rawSubject; }
   }
-  const mergeVars: Record<string, string> = { first_name: firstName, company_name: "Phes" };
+  const ci = await companyInfo(companyId);
+  const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
   const body = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
