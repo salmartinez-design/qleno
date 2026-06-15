@@ -541,6 +541,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         VALUES (${jobId}, ${assignedTechId}, ${companyId}, true)
         ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
       `);
+      // [notifications A.2] Alert the assigned tech of the new booking (in-app).
+      import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+        companyId, userId: assignedTechId, type: "job_assigned",
+        title: "New job assigned",
+        body: `${String(serviceType).replace(/_/g, " ")} on ${jobDate}`,
+        link: "/my-jobs", meta: { job_id: jobId },
+      })).catch(() => {});
     }
 
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
