@@ -598,12 +598,31 @@ export default function EmployeeProfilePage() {
   });
 
   // MaidCentral % model: per-job history (scorecard_entries) + authoritative %.
-  const { data: scEntriesData } = useQuery({
+  const { data: scEntriesData, refetch: refetchScEntries } = useQuery({
     queryKey: ['scorecard-entries', userId],
     queryFn: () => apiFetch(`/scorecards/entries/${userId}`),
     enabled: activeTab === 'Scorecards',
   });
   const scEntries: any[] = scEntriesData?.entries || [];
+
+  // [GAP3] Office reply to customer feedback on a scorecard entry.
+  const canReplyToFeedback = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
+  const [replyOpenId, setReplyOpenId] = useState<number | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySaving, setReplySaving] = useState(false);
+  async function submitFeedbackReply(entryId: number) {
+    setReplySaving(true);
+    try {
+      await apiFetch(`/scorecards/entries/${entryId}/reply`, { method: 'POST', body: JSON.stringify({ reply: replyText }) });
+      setReplyOpenId(null); setReplyText('');
+      await refetchScEntries();
+      showToast('Reply saved');
+    } catch {
+      showToast('Failed to save reply');
+    } finally {
+      setReplySaving(false);
+    }
+  }
 
   // Efficiency by Qleno package/scope (MaidCentral parity). catalog = every
   // Qleno package; rows = the ones with data. No-data packages render blank.
@@ -1343,7 +1362,39 @@ export default function EmployeeProfilePage() {
                               {scoreLabel}
                             </span>
                           </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.notes || '—'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>
+                            <div>{s.notes || '—'}</div>
+                            {s.office_reply && (
+                              <div style={{ marginTop:8, padding:'8px 10px', background:'#F3F8F6', border:'1px solid #D7EBE4', borderRadius:8, color:'#1A1917' }}>
+                                <span style={{ fontSize:11, fontWeight:700, color:'#0A7C63', textTransform:'uppercase', letterSpacing:'0.04em' }}>Office reply</span>
+                                <div style={{ fontSize:13, marginTop:2 }}>{s.office_reply}</div>
+                              </div>
+                            )}
+                            {canReplyToFeedback && (
+                              replyOpenId === s.id ? (
+                                <div style={{ marginTop:8 }}>
+                                  <textarea value={replyText} onChange={e => setReplyText(e.target.value)} rows={2} autoFocus
+                                    placeholder="Write a reply to this feedback…"
+                                    style={{ width:'100%', resize:'vertical', padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontFamily:"'Plus Jakarta Sans', sans-serif" }} />
+                                  <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                                    <button onClick={() => submitFeedbackReply(s.id)} disabled={replySaving}
+                                      style={{ background:'var(--brand)', color:'#04241d', border:'none', borderRadius:6, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', opacity:replySaving?0.6:1 }}>
+                                      {replySaving ? 'Saving…' : 'Save reply'}
+                                    </button>
+                                    <button onClick={() => { setReplyOpenId(null); setReplyText(''); }}
+                                      style={{ background:'none', color:'#6B7280', border:'1px solid #E5E2DC', borderRadius:6, padding:'5px 12px', fontSize:12, cursor:'pointer' }}>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setReplyOpenId(s.id); setReplyText(s.office_reply || ''); }}
+                                  style={{ marginTop:6, background:'none', color:'var(--brand)', border:'none', padding:0, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                                  {s.office_reply ? 'Edit reply' : 'Reply'}
+                                </button>
+                              )
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

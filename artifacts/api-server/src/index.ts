@@ -173,6 +173,13 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
   }
+  // [GAP3] office-reply columns on scorecard_entries
+  try {
+    const { ensureScorecardReplyColumns } = await import("./lib/scorecard-engine.js");
+    await ensureScorecardReplyColumns();
+  } catch (err: any) {
+    console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live

@@ -205,6 +205,38 @@ router.get("/entries/:employee_id", requireAuth, async (req, res) => {
   }
 });
 
+// [GAP3] Office/owner reply to the customer's feedback on a scorecard entry.
+// Surfaces on the employee profile Scorecards tab next to the customer comment.
+// Owner/admin/office only; tenant-scoped. Send reply: "" to clear.
+router.post("/entries/:entryId/reply", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const entryId = parseInt(req.params.entryId);
+    if (isNaN(entryId)) return res.status(400).json({ error: "Invalid entryId" });
+    const reply = typeof req.body?.reply === "string" ? req.body.reply.trim() : "";
+    const cleared = reply.length === 0;
+
+    const updated = await db
+      .update(scorecardEntriesTable)
+      .set({
+        office_reply: cleared ? null : reply.slice(0, 2000),
+        office_reply_by_user_id: cleared ? null : req.auth!.userId,
+        office_reply_at: cleared ? null : new Date(),
+      })
+      .where(and(
+        eq(scorecardEntriesTable.id, entryId),
+        eq(scorecardEntriesTable.company_id, companyId),
+      ))
+      .returning();
+
+    if (!updated[0]) return res.status(404).json({ error: "Not Found", message: "Scorecard entry not found" });
+    return res.json({ entry: updated[0] });
+  } catch (err) {
+    console.error("Scorecard reply error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to save reply" });
+  }
+});
+
 // ── MaidCentral scorecard import (bulk) ──────────────────────────────────────
 // Loads (a) each employee's authoritative MC scorecard % into users.scorecard_pct
 // (stored as-is, NOT recomputed) and (b) per-job history into scorecard_entries.
