@@ -552,22 +552,14 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
 
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
 
-    // Booking confirmation email (job_scheduled). Per-tenant via sendNotification
-    // (company gate + from-address resolved by company). Previously NO confirmation
-    // went out for a quote→job booking; now the customer gets the appointment +
-    // policy details. Non-blocking; gate-respecting.
-    if ((q as any).lead_email) {
-      import("../services/notificationService.js").then(({ sendNotification }) => {
-        const apptDate = (() => { try { return new Date(jobDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" }); } catch { return jobDate; } })();
-        const mv = {
-          first_name:      (q as any).lead_name?.split(" ")[0] || "",
-          appointment_date: apptDate,
-          appointment_time: scheduled_time || "your scheduled window",
-          service_type:    serviceType.replace(/_/g, " "),
-          service_address: (q as any).address || "",
-        };
-        sendNotification("job_scheduled", "email", companyId, (q as any).lead_email, null, mv).catch(() => {});
-      }).catch(() => {});
+    // Booking confirmation (job_scheduled) — email AND SMS, both carrying a
+    // no-login customer appointment-view link. Per-tenant via sendNotification
+    // (company gate + global COMMS_ENABLED + tenant from-address/number all
+    // enforced inside). Fetches client email+phone from the job. Non-blocking.
+    if (jobId) {
+      import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+        sendJobScheduledConfirmation(req, jobId)
+      ).catch(() => {});
     }
 
     // Stop quote_followup enrollment (non-blocking)

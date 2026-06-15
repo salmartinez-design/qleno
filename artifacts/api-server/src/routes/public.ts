@@ -761,6 +761,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       console.error("[new_booking notify] failed:", notifErr);
     }
 
+    // [booking-confirmation GAP1] Customer booking confirmation (email + SMS w/
+    // appointment-view link). Gate-respecting + per-tenant. Non-blocking.
+    import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+      sendJobScheduledConfirmation(req, jobId)
+    ).catch(() => {});
+
     // ── Upsell accepted: create Job 2 (recurring start) + recurring_schedule + rate_lock ───
     let recurringJobId: number | null = null;
     if (upsellAcceptedVal && upsellCadenceVal && upsell_locked_rate) {
