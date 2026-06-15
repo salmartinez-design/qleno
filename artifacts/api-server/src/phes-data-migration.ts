@@ -2593,6 +2593,103 @@ async function runJulianaLoredoAccessRepair(): Promise<void> {
 }
 
 /**
+ * Alejandra Cuervo access repair (2026-06-15, ad-hoc).
+ *
+ * Same pattern as the Diana Vasquez and Juliana Loredo repairs. Sal
+ * provided the canonical email directly: acuervo68@yahoo.com. So this
+ * follows Diana's pattern (overwrite the stored email to the asserted
+ * value) rather than Juliana's (only lowercase whatever is stored).
+ *
+ * On every cold start, idempotent, scoped to company_id=1 (Phes only):
+ *   1. Resolve Alejandra Cuervo by name.
+ *   2. Set email = 'acuervo68@yahoo.com' (Sal-asserted, lowercase).
+ *   3. Ensure password_hash = bcrypt('chicago23'). bcrypt.compare guards
+ *      against rewriting the hash on every boot once it's correct.
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ *
+ * Note: runAleCuervoMigration (line 5015) already does a one-time full
+ * MC data migration for Alejandra — but it only runs once (guarded by a
+ * separate check) and doesn't touch the password. This function is the
+ * surgical credentials-only repair Sal asked for.
+ */
+async function runAlejandraCuervoAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Alejandra";
+  const LAST = "Cuervo";
+  const TARGET_EMAIL = "acuervo68@yahoo.com";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND LOWER(first_name) = LOWER(${FIRST})
+      AND LOWER(last_name) = LOWER(${LAST})
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[alejandra-cuervo-access-repair] no Alejandra Cuervo row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
+    console.log(
+      `[alejandra-cuervo-access-repair] user_id=${row.id} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${TARGET_EMAIL},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[alejandra-cuervo-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -3338,6 +3435,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runJulianaLoredoAccessRepair();
   } catch (err: any) {
     console.warn("[phes-migration] juliana-loredo-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runAlejandraCuervoAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] alejandra-cuervo-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {
