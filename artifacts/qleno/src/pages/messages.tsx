@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getAuthHeaders } from "@/lib/auth";
+import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
@@ -63,6 +63,15 @@ export default function MessagesPage() {
   }, []);
 
   useEffect(() => { loadConvos(); }, [loadConvos]);
+  // Re-scope on company switch: the auth token changes on every switch-company,
+  // so clear the open thread + reload the conversation list for the new tenant
+  // immediately (no manual refresh, no stale co1 data lingering under co4).
+  const authToken = useAuthStore(s => s.token);
+  useEffect(() => {
+    setActive(null); setThread([]); setReply("");
+    loadConvos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken]);
   // Light polling so new inbound shows up without a manual refresh.
   useEffect(() => {
     const t = setInterval(() => { loadConvos(); if (active) loadThread(active); }, 15000);
