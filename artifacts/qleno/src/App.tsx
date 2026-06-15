@@ -220,6 +220,8 @@ function Router() {
         <Route path="/estimates" component={EstimatesPage} />
         {/* Public hosted estimate — no login, tokenized (like /pay/:token). */}
         <Route path="/estimate/:token" component={EstimatePublicPage} />
+        {/* Residential quotes share the hosted page; it self-labels as "Quote" via is_quote. */}
+        <Route path="/quote/:token" component={EstimatePublicPage} />
 
         <Route path="/book/:slug" component={BookPage} />
         <Route path="/pay/:token" component={PayPage} />

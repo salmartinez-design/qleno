@@ -136,7 +136,9 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
   const q: any = r.rows[0];
   if (!q) return {};
   const total = q.total_price ?? q.base_price ?? "0";
-  const link = q.sign_token ? `${appBaseUrl()}/estimate/${q.sign_token}` : `${appBaseUrl()}/estimate`;
+  // Residential quotes use the /quote/ route (the hosted page self-labels as
+  // "Quote"). Commercial estimates use /estimate/. This is a quote, so /quote/.
+  const link = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
   const addons = Array.isArray(q.addons) ? q.addons : [];
   const rows: string[] = [];
   if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);
