@@ -351,6 +351,16 @@ router.post("/", requireAuth, async (req, res) => {
     const jobId = newJob[0].id;
     logAudit(req, "CREATE", "job", jobId, null, newJob[0]);
 
+    // [notifications A.2] Alert the assigned tech of a newly scheduled job (in-app).
+    if (primaryTechId) {
+      import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+        companyId: req.auth!.companyId!, userId: Number(primaryTechId), type: "job_assigned",
+        title: "New job assigned",
+        body: `${String(service_type ?? "Job").replace(/_/g, " ")}${scheduled_date ? ` on ${String(scheduled_date).slice(0, 10)}` : ""}`,
+        link: "/my-jobs", meta: { job_id: jobId },
+      })).catch(() => {});
+    }
+
     // [multi-tech-create 2026-06-04] Write every selected tech to
     // job_technicians (primary = index 0). assigned_user_id was already set to
     // the primary in the insert above, so the dispatch grid + the per-tech
@@ -1243,6 +1253,12 @@ router.put("/:id", requireAuth, async (req, res) => {
         body: dStr ? `A job on your schedule was moved to ${dStr}.` : "A job time on your schedule was updated.",
         data: { type: "job", jobId: String(jobId) },
       });
+      // In-app feed (bell) alongside the device push above.
+      import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+        companyId: req.auth!.companyId!, userId: assignedTech, type: "job_changed",
+        title: "Job time changed", body: dStr ? `A job was moved to ${dStr}` : "A job time was updated",
+        link: "/my-jobs", meta: { job_id: jobId },
+      })).catch(() => {});
     }
 
     return res.json({
@@ -3067,6 +3083,27 @@ router.patch("/:id", requireAuth, async (req, res) => {
     // Keep the job's draft invoice (if any) in step with the new price/discounts.
     await syncJobInvoiceDraft(jobId, companyId);
 
+    // [notifications A.2] Alert the affected tech(s) about this change (in-app,
+    // fire-and-forget). Reassign → new tech "assigned" + old tech "removed";
+    // cancel → current tech "cancelled"; date/time change → current tech "changed".
+    try {
+      const { notifyUser } = await import("../lib/notify.js");
+      const oldAssigned = before.assigned_user_id != null ? Number(before.assigned_user_id) : null;
+      const newAssigned = (updated as any)?.assigned_user_id != null ? Number((updated as any).assigned_user_id) : null;
+      const changedFields = new Set(changes.map((c: any) => c.field));
+      const svc = String((updated as any)?.service_type ?? before.service_type ?? "Job").replace(/_/g, " ");
+      const dateStr = String((updated as any)?.scheduled_date ?? before.scheduled_date ?? "").slice(0, 10);
+      const link = "/my-jobs";
+      if (changedFields.has("status") && (updated as any)?.status === "cancelled") {
+        if (oldAssigned) await notifyUser({ companyId, userId: oldAssigned, type: "job_changed", title: "Job cancelled", body: `${svc} on ${dateStr} was cancelled`, link, meta: { job_id: jobId } });
+      } else if (newAssigned !== oldAssigned) {
+        if (newAssigned) await notifyUser({ companyId, userId: newAssigned, type: "job_assigned", title: "New job assigned", body: `${svc} on ${dateStr}`, link, meta: { job_id: jobId } });
+        if (oldAssigned) await notifyUser({ companyId, userId: oldAssigned, type: "job_changed", title: "Removed from a job", body: `${svc} on ${dateStr} was reassigned`, link, meta: { job_id: jobId } });
+      } else if (changedFields.has("scheduled_date") || changedFields.has("scheduled_time")) {
+        if (newAssigned) await notifyUser({ companyId, userId: newAssigned, type: "job_changed", title: "Job time changed", body: `${svc} now ${dateStr}`, link, meta: { job_id: jobId } });
+      }
+    } catch (e) { console.warn("[jobs PATCH] notify failed:", e); }
+
     return res.json({
       ok: true,
       changed: true,
@@ -4096,6 +4133,12 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
           body: `${row?.who ?? "A job"}${when ? ` · ${when}` : ""}`,
           data: { type: "job", jobId: String(jobId) },
         });
+        // In-app feed (bell) alongside the device push above.
+        import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+          companyId, userId: Number(user_id), type: "job_assigned",
+          title: "New job assigned", body: `${row?.who ?? "A job"}${when ? ` · ${when}` : ""}`,
+          link: "/my-jobs", meta: { job_id: jobId },
+        })).catch(() => {});
       } catch (e: any) { console.warn("[push] assign notify skipped", e?.message); }
     }
 
