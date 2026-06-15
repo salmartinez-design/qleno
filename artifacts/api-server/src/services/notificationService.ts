@@ -134,7 +134,15 @@ export async function sendNotification(
 
       const bodyHtml = tpl.body_html || tpl.body || "";
       const subject  = applyMerge(tpl.subject || "", fullVars);
-      const rawHtml  = applyMerge(bodyHtml, fullVars);
+      let rawHtml    = applyMerge(bodyHtml, fullVars);
+      // [booking-confirmation GAP1] When the caller supplies an appointment_link
+      // (job_scheduled), append a branded "View your appointment" button unless
+      // the template already references the link — so any tenant's confirmation
+      // email gets the customer job-view link without editing their template.
+      const apptLink = fullVars.appointment_link;
+      if (apptLink && !rawHtml.includes(apptLink) && !bodyHtml.includes("appointment_link")) {
+        rawHtml += `<div style="text-align:center;margin:24px 0 8px"><a href="${apptLink}" style="display:inline-block;background:${BRAND.accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your appointment</a></div>`;
+      }
       const wrapped  = applyMerge(wrapEmailHtml(rawHtml), fullVars);
 
       if (!transactional && process.env.COMMS_ENABLED !== "true") {

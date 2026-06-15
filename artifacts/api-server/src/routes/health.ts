@@ -47,6 +47,9 @@ router.get("/health", async (_req, res) => {
     db: dbStatus,
     dispatch_autonomous_mode: process.env.DISPATCH_AUTONOMOUS_MODE === "true",
     recurring_engine_enabled: process.env.RECURRING_ENGINE_ENABLED !== "false",
+    // Global comms master gate. Non-secret boolean (not the value of any
+    // credential) — reports whether email/SMS are allowed to leave the box.
+    comms_enabled: process.env.COMMS_ENABLED === "true",
     services: {
       stripe: process.env.STRIPE_SECRET_KEY ? "configured" : "not_configured",
       resend: process.env.RESEND_API_KEY ? "configured" : "not_configured",

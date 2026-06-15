@@ -351,6 +351,15 @@ router.post("/", requireAuth, async (req, res) => {
     const jobId = newJob[0].id;
     logAudit(req, "CREATE", "job", jobId, null, newJob[0]);
 
+    // [booking-confirmation GAP1] Customer booking confirmation (email + SMS w/
+    // appointment-view link). Gate-respecting + per-tenant; no-ops when the job
+    // has no client contact. Non-blocking.
+    if (client_id) {
+      import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+        sendJobScheduledConfirmation(req, jobId)
+      ).catch(() => {});
+    }
+
     // [notifications A.2] Alert the assigned tech of a newly scheduled job (in-app).
     if (primaryTechId) {
       import("../lib/notify.js").then(({ notifyUser }) => notifyUser({

@@ -166,6 +166,13 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
   }
+  // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
+  try {
+    const { ensureBookingConfirmationSetup } = await import("./lib/booking-confirmation.js");
+    await ensureBookingConfirmationSetup();
+  } catch (err: any) {
+    console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live

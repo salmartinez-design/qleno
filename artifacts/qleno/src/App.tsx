@@ -71,6 +71,7 @@ const InvoiceDetailPage   = lazy(() => import("@/pages/invoice-detail"));
 const PayPage             = lazy(() => import("@/pages/pay"));
 const ZonesPage           = lazy(() => import("@/pages/zones"));
 const SurveyPage          = lazy(() => import("@/pages/survey"));
+const AppointmentPage     = lazy(() => import("@/pages/appointment"));
 const RouteSequencesPage  = lazy(() => import("@/pages/route-sequences"));
 const ChurnBoardPage      = lazy(() => import("@/pages/intelligence/churn"));
 const RetentionBoardPage  = lazy(() => import("@/pages/intelligence/retention"));
@@ -198,6 +199,8 @@ function Router() {
         <Route path="/company/addons" component={AddOnCatalogPage} />
         <Route path="/company/rates" component={RatesPage} />
         <Route path="/survey/:token" component={SurveyPage} />
+        {/* Public customer appointment view — no login, tokenized (booking confirmation link). */}
+        <Route path="/appointment/:token" component={AppointmentPage} />
         <Route path="/route-sequences" component={RouteSequencesPage} />
         <Route path="/intelligence/churn" component={ChurnBoardPage} />
         <Route path="/intelligence/retention" component={RetentionBoardPage} />
