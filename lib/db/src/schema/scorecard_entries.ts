@@ -28,6 +28,11 @@ export const scorecardEntriesTable = pgTable("scorecard_entries", {
   // Links a qleno entry back to its customer survey response.
   survey_id: integer("survey_id"),
   notes: text("notes"),
+  // [GAP3] Office/owner reply to the customer's feedback on this entry. Shown
+  // on the employee profile Scorecards tab next to the customer comment.
+  office_reply: text("office_reply"),
+  office_reply_by_user_id: integer("office_reply_by_user_id").references(() => usersTable.id),
+  office_reply_at: timestamp("office_reply_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("idx_scorecard_entries_emp").on(t.company_id, t.employee_id),

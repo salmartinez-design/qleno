@@ -1,6 +1,20 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
+// [GAP3] Idempotent startup migration for the office-reply columns on
+// scorecard_entries. The drizzle schema declares them; this brings the live DB
+// in line (no auto-migrate). Safe to re-run.
+export async function ensureScorecardReplyColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply text`);
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply_by_user_id integer`);
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply_at timestamp`);
+    console.log("[scorecard-reply] columns ready");
+  } catch (err) {
+    console.error("[scorecard-reply] ensure columns error (non-fatal):", err);
+  }
+}
+
 // MaidCentral-verified scorecard formula: scorecard_pct = unweighted MEAN of
 // non-excluded per-job customer responses (0–4 scale) ÷ max × 100. Written to
 // users.scorecard_pct as the LIVE value (source='qleno'); the imported MC
