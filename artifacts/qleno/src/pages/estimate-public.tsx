@@ -1,11 +1,25 @@
 import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 
+import { QlenoMark } from "@/components/brand/QlenoMark";
+
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
+// Locked brand palette for this priced-doc surface (Phes quote/estimate page).
+const NAVY = "#0A0E1A";
+const MINT = "#00C9A0";
+const SUBLINE = "#9DA3B0";
+// Real Phes logo asset (public/). Used when the tenant has no logo_url of its own.
+const PHES_LOGO = `${API}/phes-logo.jpeg`;
+// Branch contact — fallback only. The public payload carries no per-tenant
+// phone/email yet, so these hardcoded Phes Schaumburg values render until that
+// field is exposed (tracked for a later backend pass).
+const FALLBACK_PHONE = "(847) 538-3729";
+const FALLBACK_PHONE_TEL = "+18475383729";
+const FALLBACK_EMAIL = "schaumburg@phes.io";
 
 type Item = {
   name: string | null;
@@ -33,6 +47,8 @@ type PublicEstimate = {
   service_address: string | null;
   accepted_name: string | null;
   accepted_at: string | null;
+  created_at: string | null;
+  sent_at: string | null;
   company_name: string;
   company_logo: string | null;
   company_brand_color: string | null;
@@ -47,6 +63,13 @@ const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { minimumFr
 const fmtDate = (d: string) => {
   const [y, m, day] = String(d).slice(0, 10).split("-").map(Number);
   return new Date(y, m - 1, day).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+// issue date + N days, returned as YYYY-MM-DD (for a derived "valid until").
+const addDays = (d: string, days: number) => {
+  const [y, m, day] = String(d).slice(0, 10).split("-").map(Number);
+  const dt = new Date(y, m - 1, day);
+  dt.setDate(dt.getDate() + days);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
 };
 
 // [estimate-hosted-page 2026-06-10] The customer-facing estimate: the link the
@@ -104,7 +127,6 @@ export default function EstimatePublicPage() {
     }
   }
 
-  const brand = est?.company_brand_color || "#00C9A0";
   // Doc-type labels. is_quote (from the payload) wins; before load, fall back to
   // the route. Residential quote → "Quote", commercial → "Estimate".
   const isQuote = est?.is_quote ?? routeIsQuote;
@@ -128,6 +150,15 @@ export default function EstimatePublicPage() {
   const isAccepted = est.status === "accepted";
   const isDeclined = est.status === "declined";
   const isExpired = est.status === "expired";
+
+  // Tenant logo if set, else the real Phes logo asset. Masthead wordmark uses
+  // the tenant's own name. Prepared-by falls back to the company name.
+  const logoSrc = est.company_logo || PHES_LOGO;
+  const preparedBy = est.company_name || "Phes Schaumburg";
+  // Issue date = quote created (fallback sent). Valid-until = explicit value,
+  // else issue + 30 days (derived, no new field).
+  const issueDate = est.created_at || est.sent_at || null;
+  const validUntil = est.valid_until || (issueDate ? addDays(issueDate, 30) : null);
 
   return (
     <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: FF, padding: "24px 14px 60px" }}>
@@ -160,37 +191,39 @@ export default function EstimatePublicPage() {
         )}
 
         <div className="est-card" style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 16, overflow: "hidden" }}>
-          {/* Branded header */}
-          <div style={{ padding: "26px 28px 20px", borderBottom: `3px solid ${brand}` }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {est.company_logo && (
-                  <img src={est.company_logo} alt="" style={{ height: 44, width: "auto", borderRadius: 8 }} />
-                )}
-                <div>
-                  <p style={{ fontSize: 18, fontWeight: 800, color: INK, margin: 0, letterSpacing: "-0.01em" }}>{est.company_name}</p>
-                  <p style={{ fontSize: 12, color: MUTE, margin: "2px 0 0", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>{DOC}</p>
-                </div>
+          {/* Navy masthead — logo + wordmark left, doc number right */}
+          <div style={{ background: NAVY, padding: "20px 28px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+              <img src={logoSrc} alt={est.company_name} style={{ height: 40, width: "auto", borderRadius: 8, background: "#fff", objectFit: "contain" }} />
+              <div>
+                <p style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF", margin: 0, letterSpacing: "-0.01em" }}>{est.company_name}</p>
+                <p style={{ fontSize: 12, color: SUBLINE, margin: "2px 0 0" }}>Residential &amp; Commercial Cleaning</p>
               </div>
-              <div style={{ textAlign: "right" }}>
-                {est.estimate_number && <p style={{ fontSize: 13, fontWeight: 700, color: INK, margin: 0 }}>{est.estimate_number}</p>}
-                {est.valid_until && (
-                  <p style={{ fontSize: 12, color: isExpired ? "#991B1B" : MUTE, margin: "3px 0 0" }}>Valid until {fmtDate(est.valid_until)}</p>
-                )}
-              </div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ fontSize: 11, color: SUBLINE, margin: 0, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>{DOC}</p>
+              {est.estimate_number && <p style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", margin: "2px 0 0" }}>{est.estimate_number}</p>}
             </div>
           </div>
 
           <div style={{ padding: "22px 28px" }}>
-            {/* Who / where */}
-            {(est.contact_name || est.property_name || est.service_address) && (
-              <div style={{ marginBottom: 18 }}>
-                <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>Prepared for</p>
-                {est.contact_name && <p style={{ fontSize: 15, fontWeight: 700, color: INK, margin: 0 }}>{est.contact_name}</p>}
-                {est.property_name && <p style={{ fontSize: 13, color: "#4B5563", margin: "2px 0 0" }}>{est.property_name}</p>}
-                {est.service_address && <p style={{ fontSize: 13, color: MUTE, margin: "2px 0 0" }}>{est.service_address}</p>}
+            {/* Prepared for / by + dates */}
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 20, flexWrap: "wrap", marginBottom: 18 }}>
+              {(est.contact_name || est.property_name || est.service_address) && (
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>Prepared for</p>
+                  {est.contact_name && <p style={{ fontSize: 15, fontWeight: 700, color: INK, margin: 0 }}>{est.contact_name}</p>}
+                  {est.property_name && <p style={{ fontSize: 13, color: INK, margin: "2px 0 0" }}>{est.property_name}</p>}
+                  {est.service_address && <p style={{ fontSize: 13, color: MUTE, margin: "2px 0 0" }}>{est.service_address}</p>}
+                </div>
+              )}
+              <div style={{ textAlign: "right" }}>
+                <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>Prepared by</p>
+                <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0 }}>{preparedBy}</p>
+                {issueDate && <p style={{ fontSize: 12, color: MUTE, margin: "4px 0 0" }}>Issued {fmtDate(issueDate)}</p>}
+                {validUntil && <p style={{ fontSize: 12, color: isExpired ? "#991B1B" : MUTE, margin: "2px 0 0" }}>Valid until {fmtDate(validUntil)}</p>}
               </div>
-            )}
+            </div>
 
             {est.title && <h1 style={{ fontSize: 19, fontWeight: 800, color: INK, margin: "0 0 8px" }}>{est.title}</h1>}
             {est.intro_note && <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 18px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.intro_note}</p>}
@@ -227,7 +260,7 @@ export default function EstimatePublicPage() {
               )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
                 <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
-                <span style={{ fontSize: 24, fontWeight: 800, color: INK }}>{money(est.total)}</span>
+                <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}</span>
               </div>
             </div>
 
@@ -244,7 +277,7 @@ export default function EstimatePublicPage() {
         <div className="est-noprint" style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
           {!isAccepted && !isDeclined && !isExpired && (
             <button onClick={() => setShowAccept(true)}
-              style={{ flex: "1 1 200px", height: 50, background: brand, color: "#fff", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
+              style={{ flex: "1 1 200px", height: 50, background: MINT, color: "#04241d", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
               {`Accept ${DOC}`}
             </button>
           )}
@@ -254,9 +287,20 @@ export default function EstimatePublicPage() {
           </button>
         </div>
 
-        <p className="est-noprint" style={{ textAlign: "center", fontSize: 11, color: "#9E9B94", marginTop: 22 }}>
-          Questions? Reply to the message that brought you here and we'll help right away.
-        </p>
+        {/* Contact block */}
+        <div style={{ textAlign: "center", marginTop: 22, fontSize: 13, color: MUTE, lineHeight: 1.6 }}>
+          Questions? Call or text{" "}
+          <a href={`tel:${FALLBACK_PHONE_TEL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_PHONE}</a>
+          {" · "}
+          <a href={`mailto:${FALLBACK_EMAIL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_EMAIL}</a>
+        </div>
+
+        {/* Footer — Powered by Qleno (the only Qleno mention) */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${BORDER}` }}>
+          <span style={{ fontSize: 11, color: "#9E9B94", fontWeight: 500 }}>Powered by</span>
+          <QlenoMark size={15} />
+          <span style={{ fontSize: 11, color: "#9E9B94", fontWeight: 700 }}>Qleno</span>
+        </div>
       </div>
 
       {/* Accept modal */}
@@ -279,7 +323,7 @@ export default function EstimatePublicPage() {
                 Cancel
               </button>
               <button onClick={accept} disabled={submitting}
-                style={{ flex: 1.4, height: 44, background: brand, color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
+                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
                 {submitting ? "Confirming…" : "Confirm Accept"}
               </button>
             </div>
