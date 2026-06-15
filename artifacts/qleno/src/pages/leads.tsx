@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -759,8 +760,12 @@ export default function LeadsPage() {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // View + advanced filters
+  const isMobile = useIsMobile();
   const [view, setView] = useState<"list" | "board">(() =>
     (typeof localStorage !== "undefined" && localStorage.getItem("leads_view") === "board") ? "board" : "list");
+  // Force List view on mobile — the kanban board isn't usable on a phone and
+  // widens the page. (Board toggle is also hidden on mobile in the header.)
+  useEffect(() => { if (isMobile && view === "board") setView("list"); }, [isMobile, view]);
   const [showFilters, setShowFilters] = useState(false);
   const [fOwner, setFOwner] = useState("");
   const [fSource, setFSource] = useState("");
@@ -914,7 +919,7 @@ export default function LeadsPage() {
 
         {/* Page header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-          marginBottom: 24 }}>
+          gap: 12, flexWrap: "wrap", marginBottom: 24 }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: 0 }}>
               Lead Pipeline
@@ -929,8 +934,9 @@ export default function LeadsPage() {
               {total.toLocaleString()} total lead{total !== 1 ? "s" : ""}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            {/* View toggle */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {/* View toggle — Board is hidden on mobile (kanban isn't usable on a phone). */}
+            {!isMobile && (
             <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
               <button onClick={() => setView("list")} title="List view"
                 style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", fontSize: 13,
@@ -945,6 +951,7 @@ export default function LeadsPage() {
                 <LayoutGrid size={14} /> Board
               </button>
             </div>
+            )}
             <Button variant="outline" onClick={() => setShowFilters(s => !s)}
               style={{ gap: 6, display: "flex", alignItems: "center",
                 ...(activeFilterCount ? { borderColor: "#1A1917", color: "#1A1917" } : {}) }}>
@@ -1088,8 +1095,8 @@ export default function LeadsPage() {
 
         {/* Table (list view) */}
         {view === "list" && (
-        <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+        <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, overflowX: "auto", WebkitOverflowScrolling: "touch" as any }}>
+          <table style={{ width: "100%", minWidth: 760, borderCollapse: "collapse", fontSize: 14 }}>
             <thead>
               <tr style={{ background: "#F7F6F3", borderBottom: "1px solid #E5E2DC" }}>
                 <th style={{ padding: "10px 0 10px 14px", width: 36 }}>
