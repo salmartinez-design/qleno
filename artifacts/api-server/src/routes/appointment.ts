@@ -33,7 +33,7 @@ router.get("/:token", async (req, res) => {
       SELECT j.id, j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type, j.status,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name AS client_first,
-             u.first_name AS tech_first,
+             u.first_name AS tech_first, u.avatar_url AS tech_avatar,
              co.name AS company_name, co.logo_url AS company_logo,
              co.brand_color AS company_brand_color, co.phone AS company_phone, co.email AS company_email
       FROM jobs j
@@ -57,7 +57,10 @@ router.get("/:token", async (req, res) => {
       arrival_window: j.arrival_window || null,
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
+      // Cleaner-as-a-person: first name + existing profile photo ONLY. No last
+      // name, phone, or email is ever exposed for the tech.
       tech_first: j.tech_first || null,
+      tech_avatar: j.tech_avatar || null,
       company_name: j.company_name,
       company_logo: j.company_logo,
       company_brand_color: j.company_brand_color,
