@@ -17,6 +17,7 @@ const AcceptInvitePage    = lazy(() => import("@/pages/accept-invite"));
 const CustomersPage       = lazy(() => import("@/pages/customers"));
 const CustomerProfilePage = lazy(() => import("@/pages/customer-profile"));
 const MessagesPage = lazy(() => import("@/pages/messages"));
+const NotificationSettingsPage = lazy(() => import("@/pages/notification-settings"));
 const AddClientPage       = lazy(() => import("@/pages/add-client"));
 const AddEmployeePage     = lazy(() => import("@/pages/add-employee"));
 const InvoicesPage        = lazy(() => import("@/pages/invoices"));
@@ -148,6 +149,7 @@ function Router() {
         <Route path="/customers/:id" component={CustomerProfilePage} />
         <Route path="/customers" component={CustomersPage} />
         <Route path="/messages" component={MessagesPage} />
+        <Route path="/settings/notifications" component={NotificationSettingsPage} />
         <Route path="/invoices/:id" component={InvoiceDetailPage} />
         <Route path="/invoices" component={InvoicesPage} />
         <Route path="/time-clock" component={TimeClockPage} />

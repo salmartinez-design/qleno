@@ -17,6 +17,13 @@ export interface NotifyArgs {
 
 export async function notifyUser(a: NotifyArgs): Promise<void> {
   try {
+    // Respect the user's per-category in-app preference (role-defaulted). Types
+    // without a category mapping are always delivered. Broadcasts (userId null)
+    // skip the per-user check.
+    if (a.userId != null) {
+      const { isAllowed } = await import("./notify-prefs.js");
+      if (!(await isAllowed(a.userId, a.type, "inapp"))) return;
+    }
     await db.execute(sql`
       INSERT INTO notifications (company_id, user_id, type, title, body, link, meta, read, created_at)
       VALUES (${a.companyId}, ${a.userId}, ${a.type}, ${a.title}, ${a.body ?? null},
