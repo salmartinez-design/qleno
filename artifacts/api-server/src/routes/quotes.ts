@@ -476,6 +476,37 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       });
     }
 
+    // [convert-client-materialize] A lead-only quote (no client_id) must become
+    // a real customer when booked — otherwise the job has no contact and the
+    // booking confirmation (which reads the job's client) never fires. Find an
+    // existing client by email/phone within the company, else create one from
+    // the quote's lead info.
+    let clientId: number | null = q.client_id || null;
+    if (!clientId && ((q as any).lead_email || (q as any).lead_phone)) {
+      const emailLc = (q as any).lead_email ? String((q as any).lead_email).toLowerCase().trim() : null;
+      const phone10 = String((q as any).lead_phone || "").replace(/\D/g, "").slice(-10) || null;
+      const match = await db.execute(sql`
+        SELECT id FROM clients WHERE company_id = ${companyId} AND (
+          (${emailLc}::text IS NOT NULL AND lower(email) = ${emailLc}) OR
+          (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${phone10})
+        ) ORDER BY id DESC LIMIT 1`);
+      clientId = (match.rows[0] as any)?.id ?? null;
+      if (!clientId) {
+        const nameParts = String((q as any).lead_name ?? "").trim().split(/\s+/).filter(Boolean);
+        const cFirst = nameParts[0] || (q as any).lead_name || "Client";
+        const cLast = nameParts.slice(1).join(" ") || "";
+        const cIns = await db.execute(sql`
+          INSERT INTO clients (company_id, first_name, last_name, email, phone, address)
+          VALUES (${companyId}, ${cFirst}, ${cLast}, ${(q as any).lead_email ?? null}, ${(q as any).lead_phone ?? null}, ${(q as any).address ?? null})
+          RETURNING id`);
+        clientId = (cIns.rows[0] as any)?.id ?? null;
+      }
+      // Backfill the quote's client link for downstream consistency.
+      if (clientId) {
+        try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ }
+      }
+    }
+
     // [addon-hours 2026-06-04] Carry the quote's estimated hours (which now
     // include add-on time-adds) onto the job as BOTH allowed_hours and
     // estimated_hours. Previously the convert wrote neither, so every
@@ -485,10 +516,10 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, allowed_hours, estimated_hours, created_at
+        frequency, notes, allowed_hours, estimated_hours, address_street, created_at
       ) VALUES (
         ${companyId},
-        ${q.client_id || null},
+        ${clientId},
         ${jobDate},
         ${scheduled_time || null},
         ${sql.raw(`'${serviceType}'::service_type`)},
@@ -499,6 +530,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${q.internal_memo || null},
         ${q.estimated_hours || null},
         ${q.estimated_hours || null},
+        ${(q as any).address || null},
         NOW()
       ) RETURNING id
     `);
