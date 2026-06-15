@@ -86,16 +86,25 @@ function getBottomTabs(role?: string) {
 }
 
 const MORE_CARDS = [
+  // Sales / pipeline (were unreachable on mobile)
+  { title: 'Leads',          href: '/leads',              icon: UserPlus    },
+  { title: 'Quotes',         href: '/quotes',             icon: Receipt     },
+  { title: 'Estimates',      href: '/estimates',          icon: ClipboardList },
+  { title: 'Accounts',       href: '/accounts',           icon: Building2   },
+  // Team / time
   { title: 'Employees',      href: '/employees',         icon: UserCheck   },
+  { title: 'Time Clock',     href: '/time-clock',         icon: Clock       },
+  { title: 'Clock Monitor',  href: '/employees/clocks',  icon: Clock       },
+  // Money / insights
   { title: 'Invoices',       href: '/invoices',           icon: FileText    },
   { title: 'Payroll',        href: '/payroll',            icon: DollarSign  },
   { title: 'Reports',        href: '/reports',            icon: BarChart2   },
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
+  // Other
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
   { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
   { title: 'Training',       href: '/training',           icon: GraduationCap },
   { title: 'Company',        href: '/company',            icon: Settings    },
-  { title: 'Clock Monitor',  href: '/employees/clocks',  icon: Clock       },
 ];
 
 function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void }) {
@@ -162,6 +171,18 @@ function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onC
 
           {/* Account actions */}
           <div style={{ borderTop: '1px solid #EEECE7', marginTop: 16, paddingTop: 12, paddingBottom: 24, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <button
+              onClick={() => { navigate('/settings/notifications'); onClose(); }}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                background: 'none', border: '1px solid #EEECE7', borderRadius: 12,
+                padding: '14px 16px', cursor: 'pointer', color: '#1A1917',
+                fontFamily: "'Plus Jakarta Sans', sans-serif",
+              }}
+            >
+              <Bell size={20} style={{ color: '#6B7280' }} />
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Notification settings</span>
+            </button>
             {onChangePw && (
               <button
                 onClick={onChangePw}
