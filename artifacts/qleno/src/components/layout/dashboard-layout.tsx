@@ -495,6 +495,7 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
 
 // Unread SMS count for the Messages bottom-nav badge (office/manager only).
 function useSmsUnread(role: string | undefined) {
+  const token = useAuthStore(s => s.token); // re-fetch on company switch (token changes)
   const [count, setCount] = useState(0);
   useEffect(() => {
     if (role === "technician") return;
@@ -509,7 +510,7 @@ function useSmsUnread(role: string | undefined) {
     fetch_();
     const iv = setInterval(fetch_, 15000);
     return () => { alive = false; clearInterval(iv); };
-  }, [role]);
+  }, [role, token]);
   return count;
 }
 
@@ -535,6 +536,7 @@ function useUnreadCount(userId: number | undefined) {
 // (global master off OR company.comms_enabled false). No hardcoded flag, so a
 // live tenant (e.g. PHES Schaumburg) never shows a misleading "paused" banner.
 function useCommsPaused() {
+  const token = useAuthStore(s => s.token); // re-fetch on company switch (token changes)
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     let alive = true;
@@ -548,7 +550,7 @@ function useCommsPaused() {
     fetch_();
     const iv = setInterval(fetch_, 30000);
     return () => { alive = false; clearInterval(iv); };
-  }, []);
+  }, [token]);
   return paused;
 }
 
