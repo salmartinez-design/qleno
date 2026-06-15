@@ -1504,21 +1504,44 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "notifications user idx", stmt:
       `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (company_id, user_id, read)` },
 
+    // Web Push (PWA) subscriptions — per user, per device/browser.
+    { label: "CREATE push_subscriptions", stmt: `
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id           SERIAL PRIMARY KEY,
+        user_id      INTEGER NOT NULL,
+        company_id   INTEGER,
+        endpoint     TEXT NOT NULL UNIQUE,
+        p256dh       TEXT NOT NULL,
+        auth         TEXT NOT NULL,
+        user_agent   TEXT,
+        created_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+        last_seen_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+    { label: "push_subscriptions user idx", stmt:
+      `CREATE INDEX IF NOT EXISTS push_subscriptions_user_idx ON push_subscriptions (user_id)` },
+
     // Per-user notification preferences. NULL column = use role default; explicit
     // true/false = the user's choice. Categories: messages / new_jobs / job_changes.
-    // Channels: in-app / email.
+    // Channels: in-app / email / push.
     { label: "CREATE notification_prefs", stmt: `
       CREATE TABLE IF NOT EXISTS notification_prefs (
         user_id           INTEGER PRIMARY KEY,
         company_id        INTEGER,
         messages_inapp    BOOLEAN,
         messages_email    BOOLEAN,
+        messages_push     BOOLEAN,
         new_jobs_inapp    BOOLEAN,
         new_jobs_email    BOOLEAN,
+        new_jobs_push     BOOLEAN,
         job_changes_inapp BOOLEAN,
         job_changes_email BOOLEAN,
+        job_changes_push  BOOLEAN,
         updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
       )` },
+    // push columns for the existing notification_prefs table (added after C).
+    { label: "notification_prefs.messages_push", stmt: `ALTER TABLE notification_prefs ADD COLUMN IF NOT EXISTS messages_push BOOLEAN` },
+    { label: "notification_prefs.new_jobs_push", stmt: `ALTER TABLE notification_prefs ADD COLUMN IF NOT EXISTS new_jobs_push BOOLEAN` },
+    { label: "notification_prefs.job_changes_push", stmt: `ALTER TABLE notification_prefs ADD COLUMN IF NOT EXISTS job_changes_push BOOLEAN` },
 
     // Two-way SMS — unified conversation store (inbound + outbound, leads + clients).
     { label: "CREATE sms_messages", stmt: `

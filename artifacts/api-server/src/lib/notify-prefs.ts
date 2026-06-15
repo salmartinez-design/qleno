@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 // = the user's choice. notification type → category mapping is centralized here.
 
 export type Category = "messages" | "new_jobs" | "job_changes";
-export type Channel = "inapp" | "email";
+export type Channel = "inapp" | "email" | "push";
 
 export const TYPE_TO_CATEGORY: Record<string, Category> = {
   new_message: "messages",
@@ -20,9 +20,11 @@ export const TYPE_TO_CATEGORY: Record<string, Category> = {
 //  - new_jobs    → techs ON, office OFF
 //  - job_changes → techs ON, office OFF
 function roleDefault(role: string, category: Category, channel: Channel): boolean {
-  if (channel === "email") return false;
+  if (channel === "email") return false; // email opt-in everywhere
   const isOffice = ["owner", "admin", "office", "super_admin"].includes(role);
   const isTech = ["technician", "team_lead"].includes(role);
+  // in-app AND push share the same role defaults: techs → job categories on;
+  // office → messages on. (Push only actually fires once the device is subscribed.)
   if (category === "messages") return isOffice;
   if (category === "new_jobs") return isTech;
   if (category === "job_changes") return isTech;
@@ -30,9 +32,9 @@ function roleDefault(role: string, category: Category, channel: Channel): boolea
 }
 
 export interface EffectivePrefs {
-  messages_inapp: boolean; messages_email: boolean;
-  new_jobs_inapp: boolean; new_jobs_email: boolean;
-  job_changes_inapp: boolean; job_changes_email: boolean;
+  messages_inapp: boolean; messages_email: boolean; messages_push: boolean;
+  new_jobs_inapp: boolean; new_jobs_email: boolean; new_jobs_push: boolean;
+  job_changes_inapp: boolean; job_changes_email: boolean; job_changes_push: boolean;
 }
 
 export async function getEffectivePrefs(userId: number): Promise<EffectivePrefs & { role: string }> {
@@ -46,10 +48,13 @@ export async function getEffectivePrefs(userId: number): Promise<EffectivePrefs 
     role,
     messages_inapp: eff("messages_inapp", "messages", "inapp"),
     messages_email: eff("messages_email", "messages", "email"),
+    messages_push: eff("messages_push", "messages", "push"),
     new_jobs_inapp: eff("new_jobs_inapp", "new_jobs", "inapp"),
     new_jobs_email: eff("new_jobs_email", "new_jobs", "email"),
+    new_jobs_push: eff("new_jobs_push", "new_jobs", "push"),
     job_changes_inapp: eff("job_changes_inapp", "job_changes", "inapp"),
     job_changes_email: eff("job_changes_email", "job_changes", "email"),
+    job_changes_push: eff("job_changes_push", "job_changes", "push"),
   };
 }
 
