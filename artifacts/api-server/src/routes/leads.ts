@@ -315,27 +315,27 @@ router.delete("/:id", requireAuth, requireRole("owner"), async (req, res) => {
 // ── POST /api/leads/bulk-delete ────────────────────────────────────────────────
 // Owner-only. Two modes:
 //   { ids: number[] }   — delete an explicit selection (the bulk-select UI)
-//   { generic: true }   — delete every placeholder/"generic" lead: no name (or
-//                         first_name = 'Lead'), no email/phone/address, no quote,
-//                         still in 'needs_contacted'. Never touches a lead that
-//                         carries any real contact info or has progressed.
-// Every deleted lead is written to the audit log individually (Sal: "all touches
-// going to audit log"), with a single bulk summary row on top.
+//   { generic: true }   — delete placeholder leads: no name (or first_name
+//                         'Lead'), no email/phone/address, no quote, still
+//                         needs_contacted. Empty strings count as empty.
+// Child rows (activity log, follow-up enrollments) are removed and quote/sms
+// back-references cleared in the same transaction so nothing orphans. Every
+// deleted lead is audited (Sal: "all touches going to audit log").
 router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const { ids, generic } = req.body as { ids?: unknown; generic?: boolean };
 
+    // NULL-or-empty checks — these placeholder rows carry '' not NULL.
     const genericWhere = sql`
       (first_name IS NULL OR btrim(first_name) = '' OR lower(btrim(first_name)) = 'lead')
       AND (last_name IS NULL OR btrim(last_name) = '')
-      AND email IS NULL
-      AND phone IS NULL
+      AND (email IS NULL OR btrim(email) = '')
+      AND (phone IS NULL OR btrim(phone) = '')
       AND (address IS NULL OR btrim(address) = '')
       AND quote_amount IS NULL
       AND status = 'needs_contacted'`;
 
-    // Resolve the target rows (snapshot for audit) under either mode.
     let targets;
     if (generic === true) {
       targets = await db.execute(sql`
@@ -353,9 +353,17 @@ router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) 
     if (rows.length === 0) return res.json({ ok: true, deleted: 0 });
     const delIds = rows.map(r => Number(r.id));
 
-    await db.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ANY(${delIds}::int[])`);
+    await db.transaction(async (tx) => {
+      // Clear/clean dependents first so a lead with history deletes cleanly
+      // (and stays clean even if FKs are added later). Each guarded so a
+      // missing table on a fresh tenant can't abort the delete.
+      try { await tx.execute(sql`DELETE FROM lead_activity_log WHERE company_id = ${companyId} AND lead_id = ANY(${delIds}::int[])`); } catch { /* table absent */ }
+      try { await tx.execute(sql`DELETE FROM follow_up_enrollments WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* table/col absent */ }
+      try { await tx.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* col absent */ }
+      try { await tx.execute(sql`UPDATE sms_messages SET lead_id = NULL WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* col absent */ }
+      await tx.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ANY(${delIds}::int[])`);
+    });
 
-    // Per-lead audit rows + one summary row.
     await logAudit(req, "lead.bulk_delete", "lead", null, null,
       { mode: generic ? "generic" : "selection", count: rows.length, ids: delIds });
     for (const r of rows) {
@@ -365,7 +373,7 @@ router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) 
     return res.json({ ok: true, deleted: rows.length });
   } catch (err) {
     console.error("POST /leads/bulk-delete:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: "Internal Server Error", message: (err as Error).message });
   }
 });
 
