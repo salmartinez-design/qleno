@@ -6020,6 +6020,10 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Invoices" count={invoices.length || undefined}>
                 <BillingTab invoices={invoices} />
               </CollapsibleSection>
+              {/* Communications log / message history — was desktop-only; now on mobile too. */}
+              <CollapsibleSection title="Communications">
+                <CommLog2 clientId={clientId} />
+              </CollapsibleSection>
             </>)}
             {activeTab === "property" && (<>
               <div style={CS}>
