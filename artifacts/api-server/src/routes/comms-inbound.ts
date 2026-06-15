@@ -1,35 +1,43 @@
 import { Router } from "express";
-import { db } from "@workspace/db";
-import { sql } from "drizzle-orm";
 import { handleInboundReply } from "../lib/lead-sync.js";
+import { resolveTenantByNumber, recordInboundSms } from "../lib/sms-store.js";
 
 const router = Router();
 
 const OPT_OUT = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
 
 // POST /api/comms/inbound — Twilio inbound-SMS webhook (PUBLIC, no auth).
-// Twilio posts form-encoded { From, To, Body }. The `To` number maps to a
-// branch (or company) → tenant; the customer reply stops their active cadence
-// (stop-on-reply) and STOP-words flag an opt-out. Responds 200 (empty TwiML).
+// Twilio posts form-encoded { From, To, Body, MessageSid }. The `To` number maps
+// to a tenant (company number first — unique — then branch). We:
+//   1) persist the inbound message in the unified sms_messages store (matched to
+//      a CLIENT or LEAD by the sender's last-10 digits),
+//   2) stop the active follow-up cadence for the matching lead AND client
+//      (stop-on-reply), flagging opt-out on STOP-words.
+// Always responds 200 with empty TwiML.
 router.post("/inbound", async (req, res) => {
   try {
     const from = String(req.body?.From ?? "");
     const to = String(req.body?.To ?? "");
     const body = String(req.body?.Body ?? "").trim();
+    const sid = String(req.body?.MessageSid ?? req.body?.SmsSid ?? "") || null;
     if (!from || !to) return res.type("text/xml").send("<Response/>");
 
-    // Resolve tenant from the receiving number (branch first, then company).
-    let companyId: number | null = null;
-    const br = await db.execute(sql`SELECT company_id FROM branches WHERE twilio_from_number = ${to} LIMIT 1`);
-    companyId = (br.rows[0] as any)?.company_id ?? null;
-    if (companyId == null) {
-      const co = await db.execute(sql`SELECT id AS company_id FROM companies WHERE twilio_from_number = ${to} LIMIT 1`);
-      companyId = (co.rows[0] as any)?.company_id ?? null;
-    }
+    const companyId = await resolveTenantByNumber(to);
     if (companyId == null) return res.type("text/xml").send("<Response/>");
 
+    // 1) Persist + match (client or lead).
+    const { match } = await recordInboundSms({ companyId, fromRaw: from, toRaw: to, body, providerId: sid });
+
+    // 2) Stop-on-reply + opt-out. Leads via handleInboundReply (matches by phone,
+    //    stops cadence, logs activity). Clients via stopEnrollmentsForClient.
     const optOut = OPT_OUT.has(body.toUpperCase());
     await handleInboundReply(companyId, from, optOut);
+    if (match.client_id != null) {
+      try {
+        const { stopEnrollmentsForClient } = await import("../services/followUpService.js");
+        await stopEnrollmentsForClient(match.client_id, optOut ? "opted_out" : "replied");
+      } catch (e) { console.warn("[comms/inbound] client cadence stop failed:", e); }
+    }
     return res.type("text/xml").send("<Response/>");
   } catch (err) {
     console.error("[comms/inbound]", err);

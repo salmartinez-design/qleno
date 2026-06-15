@@ -54,7 +54,31 @@ router.get("/", requireAuth, async (req, res) => {
       LIMIT ${parseInt(limit as string)}
     `);
 
-    return res.json(rows.rows);
+    // Merge in the unified two-way SMS thread (sms_messages) for this customer so
+    // inbound texts render in the conversation alongside logged comms. SMS is
+    // excluded for non-SMS channel filters (email/phone/in_person/system/staff).
+    let out: any[] = rows.rows as any[];
+    const includeSms = !f || f === "all" || f === "sms" || f === "inbound" || f === "outbound";
+    if (includeSms) {
+      const smsRows = await db.execute(sql`
+        SELECT id, direction, body, from_number, to_number, status, provider_id, created_at
+          FROM sms_messages
+         WHERE company_id = ${companyId} AND client_id = ${parseInt(customer_id as string)}
+         ${f === "inbound" ? sql`AND direction = 'inbound'` : f === "outbound" ? sql`AND direction = 'outbound'` : sql``}
+         ORDER BY created_at DESC LIMIT ${parseInt(limit as string)}`);
+      const sms = (smsRows.rows as any[]).map(r => ({
+        id: `sms-${r.id}`, customer_id: parseInt(customer_id as string), job_id: null,
+        direction: r.direction, channel: "sms", summary: r.body, body: r.body, subject: null,
+        source: r.direction === "inbound" ? "customer" : "staff", sent_by: null,
+        recipient: r.direction === "inbound" ? r.from_number : r.to_number,
+        twilio_message_sid: r.provider_id, resend_email_id: null, delivery_status: r.status,
+        opened_at: null, clicked_at: null, logged_at: r.created_at, created_at: r.created_at,
+        logged_by_name: null, tags: null,
+      }));
+      out = [...out, ...sms].sort((a, b) =>
+        new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    }
+    return res.json(out);
   } catch (err) {
     console.error("[comms GET]", err);
     return res.status(500).json({ error: "Server error" });

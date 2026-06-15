@@ -32,6 +32,7 @@ export * from "./client_homes";
 export * from "./technician_preferences";
 export * from "./client_notifications";
 export * from "./client_communications";
+export * from "./sms_messages";
 export * from "./client_agreements";
 export * from "./quotes";
 export * from "./payments";

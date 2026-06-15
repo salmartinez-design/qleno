@@ -344,25 +344,51 @@ router.post("/:id/activity", requireAuth, requireRole("owner", "admin", "office"
 });
 
 // ── GET /api/leads/:id/messages ───────────────────────────────────────────────
-// Returns activity log entries of type email_sent or sms_sent for the lead
+// The lead's SMS conversation thread (inbound + outbound), chronological.
 router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const leadId = parseInt(req.params.id);
-
     const rows = await db.execute(sql`
-      SELECT a.*, u.first_name as performer_first_name, u.last_name as performer_last_name
-      FROM lead_activity_log a
-      LEFT JOIN users u ON u.id = a.performed_by
-      WHERE a.lead_id = ${leadId}
-        AND a.company_id = ${companyId}
-        AND a.action_type IN ('email_sent', 'sms_sent')
-      ORDER BY a.created_at DESC
-      LIMIT 100
-    `);
+      SELECT id, direction, body, from_number, to_number, status, read_at, created_at
+        FROM sms_messages
+       WHERE company_id = ${companyId} AND lead_id = ${leadId}
+       ORDER BY created_at ASC`);
     return res.json(rows.rows);
   } catch (err) {
     console.error("GET /leads/:id/messages:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/communications/sms — send an SMS to a lead ─────────────
+// Per-tenant send via resolveSender; persists outbound into the sms_messages thread.
+router.post("/:id/communications/sms", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+    const { message } = req.body;
+    if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+    const [lead] = (await db.execute(sql`SELECT phone FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`)).rows as any[];
+    if (!lead?.phone) return res.status(400).json({ error: "Lead has no phone number" });
+
+    let twilioResult: any = null, fromNumber: string | null = null, status = "suppressed";
+    try {
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(companyId, null);
+      fromNumber = sender.from_number;
+      if (sender.reason) { console.log("[leads] SMS suppressed:", sender.reason); }
+      else { twilioResult = await sendSmsVia(sender, lead.phone, message); status = "sent"; }
+    } catch (e: any) { status = "failed"; console.error("[leads] SMS error:", e?.message || e); }
+
+    const { recordOutboundSms } = await import("../lib/sms-store.js");
+    const { id } = await recordOutboundSms({
+      companyId, toRaw: lead.phone, fromNumber, body: message,
+      providerId: twilioResult?.sid ?? null, sentBy: req.auth!.userId, leadId, status,
+    });
+    return res.status(201).json({ id, direction: "outbound", body: message, status, twilio: twilioResult });
+  } catch (err) {
+    console.error("POST /leads/:id/communications/sms:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
