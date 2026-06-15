@@ -344,24 +344,31 @@ router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) 
     } else {
       const idList = Array.isArray(ids) ? ids.map(Number).filter(n => Number.isInteger(n)) : [];
       if (idList.length === 0) return res.status(400).json({ error: "Provide ids[] or generic:true" });
+      // [array-fix 2026-06-15] Build an integer CSV and use ANY(ARRAY[...]) via
+      // sql.raw — drizzle's `ANY(${jsArray})` binding silently fails in raw
+      // db.execute here (same issue that broke techs-with-status). idList is
+      // already integer-filtered so the raw interpolation is injection-safe.
+      const idsCsv = idList.join(",");
       targets = await db.execute(sql`
         SELECT id, first_name, last_name, email, phone, status, source
-        FROM leads WHERE company_id = ${companyId} AND id = ANY(${idList}::int[])`);
+        FROM leads WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(idsCsv)}]::int[])`);
     }
 
     const rows = targets.rows as Array<Record<string, unknown>>;
     if (rows.length === 0) return res.json({ ok: true, deleted: 0 });
-    const delIds = rows.map(r => Number(r.id));
+    const delIds = rows.map(r => Number(r.id)).filter(n => Number.isInteger(n));
+    const delCsv = delIds.join(",");
+    const delArr = sql`ANY(ARRAY[${sql.raw(delCsv)}]::int[])`;
 
     await db.transaction(async (tx) => {
       // Clear/clean dependents first so a lead with history deletes cleanly
       // (and stays clean even if FKs are added later). Each guarded so a
       // missing table on a fresh tenant can't abort the delete.
-      try { await tx.execute(sql`DELETE FROM lead_activity_log WHERE company_id = ${companyId} AND lead_id = ANY(${delIds}::int[])`); } catch { /* table absent */ }
-      try { await tx.execute(sql`DELETE FROM follow_up_enrollments WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* table/col absent */ }
-      try { await tx.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* col absent */ }
-      try { await tx.execute(sql`UPDATE sms_messages SET lead_id = NULL WHERE lead_id = ANY(${delIds}::int[])`); } catch { /* col absent */ }
-      await tx.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ANY(${delIds}::int[])`);
+      try { await tx.execute(sql`DELETE FROM lead_activity_log WHERE company_id = ${companyId} AND lead_id = ${delArr}`); } catch { /* table absent */ }
+      try { await tx.execute(sql`DELETE FROM follow_up_enrollments WHERE lead_id = ${delArr}`); } catch { /* table/col absent */ }
+      try { await tx.execute(sql`UPDATE quotes SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* col absent */ }
+      try { await tx.execute(sql`UPDATE sms_messages SET lead_id = NULL WHERE lead_id = ${delArr}`); } catch { /* col absent */ }
+      await tx.execute(sql`DELETE FROM leads WHERE company_id = ${companyId} AND id = ${delArr}`);
     });
 
     await logAudit(req, "lead.bulk_delete", "lead", null, null,
