@@ -333,7 +333,20 @@ router.post("/public/:token/accept", async (req, res) => {
       SELECT id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
     const est = (rows as any).rows[0];
-    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (!est) {
+      // Fallback: accepting a QUOTE (residential) via its sign_token.
+      const qrows = await db.execute(sql`SELECT id, company_id, status FROM quotes WHERE sign_token = ${token} LIMIT 1`);
+      const qt = (qrows as any).rows[0];
+      if (!qt) return res.status(404).json({ error: "Not Found" });
+      if (qt.status === "accepted" || qt.status === "booked") return res.json({ ok: true, status: "accepted" });
+      await db.execute(sql`UPDATE quotes SET status = 'accepted', accepted_at = now() WHERE id = ${qt.id}`);
+      // Customer accepted → stop the quote-followup cadence (same as office accept).
+      try {
+        const { stopEnrollmentsForQuote } = await import("../services/followUpService.js");
+        await stopEnrollmentsForQuote(Number(qt.id), "accepted");
+      } catch (e) { console.warn("[quote accept] stop cadence failed:", e); }
+      return res.json({ ok: true, status: "accepted" });
+    }
     if (est.status === "accepted") return res.json({ ok: true, status: "accepted" });
     if (est.status === "declined") return res.status(409).json({ error: "Conflict", message: "This estimate was declined" });
     if (est.valid_until && new Date(est.valid_until) < new Date()) {

@@ -37,6 +37,10 @@ type PublicEstimate = {
   company_logo: string | null;
   company_brand_color: string | null;
   items: Item[];
+  // Phes doc-type model: residential = QUOTE, commercial = ESTIMATE. The public
+  // endpoint sets is_quote=true when the token resolved a quote (not an estimate)
+  // so this shared page can label itself correctly. NEVER say "Estimate" for a quote.
+  is_quote?: boolean;
 };
 
 const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -51,8 +55,13 @@ const fmtDate = (d: string) => {
 // acceptor's name) and Download PDF (print-optimized layout — the browser's
 // Save as PDF produces the document).
 export default function EstimatePublicPage() {
-  const [, params] = useRoute("/estimate/:token");
-  const token = params?.token ?? "";
+  // Shared hosted page for both doc types. /quote/:token (residential quotes)
+  // and /estimate/:token (commercial estimates) render the same component; the
+  // record type is confirmed by is_quote in the API payload.
+  const [, pEst] = useRoute("/estimate/:token");
+  const [matchQuote, pQuote] = useRoute("/quote/:token");
+  const token = pQuote?.token ?? pEst?.token ?? "";
+  const routeIsQuote = !!matchQuote;
 
   const [est, setEst] = useState<PublicEstimate | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,7 +78,7 @@ export default function EstimatePublicPage() {
         if (!r.ok) throw new Error();
         setEst(await r.json());
       } catch {
-        setError("This estimate link is invalid or no longer available.");
+        setError(`This ${routeIsQuote ? "quote" : "estimate"} link is invalid or no longer available.`);
       } finally {
         setLoading(false);
       }
@@ -96,16 +105,21 @@ export default function EstimatePublicPage() {
   }
 
   const brand = est?.company_brand_color || "#00C9A0";
+  // Doc-type labels. is_quote (from the payload) wins; before load, fall back to
+  // the route. Residential quote → "Quote", commercial → "Estimate".
+  const isQuote = est?.is_quote ?? routeIsQuote;
+  const DOC = isQuote ? "Quote" : "Estimate";
+  const docLower = isQuote ? "quote" : "estimate";
 
   if (loading) {
-    return <div style={{ minHeight: "100vh", background: "#F7F6F3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF, color: MUTE }}>Loading estimate…</div>;
+    return <div style={{ minHeight: "100vh", background: "#F7F6F3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF, color: MUTE }}>{`Loading ${docLower}…`}</div>;
   }
   if (error || !est) {
     return (
       <div style={{ minHeight: "100vh", background: "#F7F6F3", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF, padding: 20 }}>
         <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: "32px 28px", maxWidth: 420, textAlign: "center" }}>
-          <p style={{ fontSize: 16, fontWeight: 700, color: INK, margin: "0 0 6px" }}>Estimate unavailable</p>
-          <p style={{ fontSize: 14, color: MUTE, margin: 0 }}>{error}</p>
+          <p style={{ fontSize: 16, fontWeight: 700, color: INK, margin: "0 0 6px" }}>{DOC} unavailable</p>
+          <p style={{ fontSize: 14, color: MUTE, margin: 0 }}>{error || `This ${docLower} link is invalid or no longer available.`}</p>
         </div>
       </div>
     );
@@ -136,12 +150,12 @@ export default function EstimatePublicPage() {
         )}
         {isDeclined && (
           <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: "#991B1B", margin: 0 }}>This estimate was declined. Contact us if you'd like a revised proposal.</p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#991B1B", margin: 0 }}>{`This ${docLower} was declined. Contact us if you'd like a revised proposal.`}</p>
           </div>
         )}
         {isExpired && (
           <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: "#92400E", margin: 0 }}>This estimate has expired. Contact us for updated pricing.</p>
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#92400E", margin: 0 }}>{`This ${docLower} has expired. Contact us for updated pricing.`}</p>
           </div>
         )}
 
@@ -155,7 +169,7 @@ export default function EstimatePublicPage() {
                 )}
                 <div>
                   <p style={{ fontSize: 18, fontWeight: 800, color: INK, margin: 0, letterSpacing: "-0.01em" }}>{est.company_name}</p>
-                  <p style={{ fontSize: 12, color: MUTE, margin: "2px 0 0", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>Estimate</p>
+                  <p style={{ fontSize: 12, color: MUTE, margin: "2px 0 0", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>{DOC}</p>
                 </div>
               </div>
               <div style={{ textAlign: "right" }}>
@@ -231,12 +245,12 @@ export default function EstimatePublicPage() {
           {!isAccepted && !isDeclined && !isExpired && (
             <button onClick={() => setShowAccept(true)}
               style={{ flex: "1 1 200px", height: 50, background: brand, color: "#fff", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
-              Accept Estimate
+              {`Accept ${DOC}`}
             </button>
           )}
           <button onClick={() => window.print()}
             style={{ flex: "1 1 160px", height: 50, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 12, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-            Download PDF
+            {`Download ${DOC} PDF`}
           </button>
         </div>
 
@@ -249,7 +263,7 @@ export default function EstimatePublicPage() {
       {showAccept && (
         <div className="est-noprint" style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div style={{ background: "#fff", borderRadius: 16, padding: "24px 22px", width: "100%", maxWidth: 380 }}>
-            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>Accept this estimate</p>
+            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>{`Accept this ${docLower}`}</p>
             <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>Total: <strong style={{ color: INK }}>{money(est.total)}</strong>. Enter your name to confirm.</p>
             <input
               value={acceptName}
