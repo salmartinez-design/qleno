@@ -885,7 +885,23 @@ export default function QuoteBuilderPage() {
         toast.success("Quote converted to job.");
         navigate(selectedDate ? `/dispatch?date=${selectedDate}` : "/jobs");
       } else if (status === "sent") {
-        toast.success(isEdit ? "Quote sent" : "Quote created and marked as sent.");
+        // Saving with status "sent" only persists the row — it does NOT deliver
+        // the quote or advance the lead. The canonical /send endpoint enrolls
+        // the quote-followup cadence (which actually emails + texts the customer
+        // via the tenant sender) and advances the lead to "Quoted". Without this
+        // call the customer received nothing and the lead stayed "Needs
+        // Contacted". Best-effort so a comms hiccup doesn't lose the saved quote.
+        if (savedId) {
+          try {
+            await apiFetch(`/api/quotes/${savedId}/send`, { method: "POST" });
+          } catch (sendErr) {
+            console.error("Quote /send failed:", sendErr);
+            toast.error("Quote saved, but sending failed — open it and try Send again.");
+            navigate(`/quotes/${savedId}`);
+            return;
+          }
+        }
+        toast.success(isEdit ? "Quote sent" : "Quote created and sent.");
         navigate(`/quotes/${savedId}`);
       } else {
         toast.success("Quote saved as draft");

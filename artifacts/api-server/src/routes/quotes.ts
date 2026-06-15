@@ -91,9 +91,11 @@ router.get("/stats", requireAuth, async (req, res) => {
   try {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const { branch_id } = req.query;
+    // NOTE: quotes are NOT branch-columned (the quotes table has no branch_id),
+    // so we do NOT filter by branch here. A prior branch_id filter referenced a
+    // nonexistent column and made the whole query fail → empty list + KPIs at 0
+    // whenever a branch was selected (which single-branch tenants always do).
     const statsConds: any[] = [eq(quotesTable.company_id, req.auth!.companyId)];
-    if (branch_id && branch_id !== "all") statsConds.push(eq(quotesTable.branch_id, parseInt(branch_id as string)));
 
     const allQuotes = await db.select({ status: quotesTable.status, accepted_at: quotesTable.accepted_at, booked_job_id: quotesTable.booked_job_id })
       .from(quotesTable)
@@ -113,11 +115,13 @@ router.get("/stats", requireAuth, async (req, res) => {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, client_id, branch_id } = req.query;
+    const { status, client_id } = req.query;
     const conditions: any[] = [eq(quotesTable.company_id, req.auth!.companyId)];
     if (status && status !== "all") conditions.push(eq(quotesTable.status, status as string));
     if (client_id) conditions.push(eq(quotesTable.client_id, parseInt(client_id as string)));
-    if (branch_id && branch_id !== "all") conditions.push(eq(quotesTable.branch_id, parseInt(branch_id as string)));
+    // No branch filter: quotes have no branch_id column. Filtering by it
+    // referenced a nonexistent column and broke the list whenever a branch was
+    // selected (see /stats note above).
 
     const quotes = await db
       .select({
@@ -267,6 +271,11 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     if (!q) return res.status(404).json({ error: "Not found" });
     const auditAction = updates.status === "draft" ? "DRAFT_SAVED" : "UPDATE";
     logAudit(req, auditAction, "quote", id, null, { status: q.status, total_price: q.total_price });
+    // Keep the linked lead's name/contact/scope in step with quote edits. The
+    // lead is often created bare during draft autosave (empty fields); this
+    // enriches it once the office fills the quote in. Non-blocking.
+    import("../lib/lead-sync.js").then(({ upsertLeadForQuote }) =>
+      upsertLeadForQuote(req.auth!.companyId, q).catch(() => {})).catch(() => {});
     return res.json(q);
   } catch (err) {
     console.error("Update quote error:", err);
