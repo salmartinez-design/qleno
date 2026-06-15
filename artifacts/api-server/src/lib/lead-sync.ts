@@ -23,9 +23,17 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
     const nameParts = String(quote.lead_name ?? "").trim().split(/\s+/).filter(Boolean);
     const first = nameParts[0] || null;
     const last = nameParts.slice(1).join(" ") || null;
-    // Scope label for the lead pipeline (the quote stamps the scope name onto
-    // service_type at create).
-    const scope = quote.service_type || null;
+    // Scope label for the lead pipeline. The quote stamps the scope name onto
+    // service_type at CREATE, but PATCH (the builder's edit/save path) doesn't —
+    // so fall back to resolving the name from scope_id, else the lead's Scope
+    // column stays blank.
+    let scope = quote.service_type || null;
+    if (!scope && quote.scope_id) {
+      try {
+        const sc = await db.execute(sql`SELECT name FROM pricing_scopes WHERE id = ${quote.scope_id} LIMIT 1`);
+        scope = (sc.rows[0] as any)?.name ?? null;
+      } catch { /* leave scope null */ }
+    }
     const address = quote.address ?? null;
 
     // Resolve the lead: the quote's existing link first, else match by
