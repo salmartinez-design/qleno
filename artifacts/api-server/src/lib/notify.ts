@@ -31,10 +31,16 @@ export async function notifyUser(a: NotifyArgs): Promise<void> {
 // so per-user settings can later filter individually). Used for message alerts.
 export async function notifyOfficeUsers(companyId: number, n: Omit<NotifyArgs, "companyId" | "userId">): Promise<void> {
   try {
+    // Office users for this tenant = the tenant's own staff (users.company_id)
+    // PLUS cross-tenant members granted access via user_companies (e.g. an owner
+    // who runs multiple locations). Deduped so each gets exactly one alert.
     const users = await db.execute(sql`
-      SELECT id FROM users
-       WHERE company_id = ${companyId} AND is_active = true
-         AND role IN ('owner', 'admin', 'office')`);
+      SELECT DISTINCT u.id FROM users u
+       WHERE u.is_active = true AND (
+         (u.company_id = ${companyId} AND u.role IN ('owner', 'admin', 'office'))
+         OR u.id IN (SELECT user_id FROM user_companies
+                      WHERE company_id = ${companyId} AND role IN ('owner', 'admin', 'office'))
+       )`);
     for (const u of users.rows as any[]) {
       await notifyUser({ companyId, userId: Number(u.id), ...n });
     }
