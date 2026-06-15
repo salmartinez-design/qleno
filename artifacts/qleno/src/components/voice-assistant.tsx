@@ -1,6 +1,14 @@
 import { useState, useRef } from "react";
+import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { Mic, X, Navigation, Loader2, Volume2 } from "lucide-react";
+
+// Routes whose mobile layout has a bottom-anchored action bar or dense
+// right-edge row controls that the floating mic would overlap (message-thread
+// Send button, dispatch list rows). The FAB is suppressed on these so it can
+// never sit on top of an interactive control. Prefix-matched, route-based
+// (not tenant data) so this stays multi-tenant safe.
+const FAB_HIDDEN_ROUTES = ["/messages", "/jobs"];
 
 // [voice-assistant 2026-06-08] Push-to-talk field assistant for techs. Browser
 // speech-to-text captures the spoken question, POSTs it to /api/assistant/ask
@@ -38,6 +46,7 @@ const T: Record<Lang, Record<string, string>> = {
 };
 
 export function VoiceAssistant() {
+  const [location] = useLocation();
   const [open, setOpen] = useState(false);
   const [lang, setLang] = useState<Lang>("en");
   const [listening, setListening] = useState(false);
@@ -205,6 +214,13 @@ export function VoiceAssistant() {
     try { window.speechSynthesis.cancel(); } catch { /* noop */ }
     setOpen(false);
   };
+
+  // Suppress entirely on routes with their own bottom-edge controls so the
+  // FAB never overlaps a Send button or a dispatch row action.
+  const fabHidden = FAB_HIDDEN_ROUTES.some(
+    (r) => location === r || location.startsWith(r + "/"),
+  );
+  if (fabHidden && !open) return null;
 
   return (
     <>
