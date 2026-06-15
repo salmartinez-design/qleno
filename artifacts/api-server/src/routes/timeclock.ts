@@ -487,6 +487,46 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Time clock entry not found" });
     }
 
+    // [GAP2 end-job completion] When the LAST open clock entry for a job closes,
+    // the job is done (the "day is derived" model). Mark the job complete and
+    // fire the post-job satisfaction survey — the field-app End Job previously
+    // did neither, so the survey only fired from the office "Mark Complete".
+    // The guarded UPDATE (status NOT IN complete/cancelled) makes this a no-op
+    // if the office already completed it, and the 30-day throttle in
+    // /satisfaction/send prevents a double survey either way. Best-effort —
+    // never blocks the clock-out response.
+    try {
+      const jobId = existing[0].job_id;
+      const openLeft = await db.execute(sql`
+        SELECT COUNT(*)::int AS cnt FROM timeclock
+        WHERE job_id = ${jobId} AND clock_out_at IS NULL
+      `);
+      if (((openLeft.rows[0] as any)?.cnt ?? 0) === 0) {
+        const done = await db.execute(sql`
+          UPDATE jobs
+          SET status = 'complete', actual_end_time = ${clockOutAt}, completed_by_user_id = ${req.auth!.userId}
+          WHERE id = ${jobId} AND company_id = ${req.auth!.companyId}
+            AND status NOT IN ('complete', 'cancelled')
+          RETURNING client_id
+        `);
+        // RETURNING is non-empty only when THIS call flipped the status — so the
+        // survey + retention fire exactly once, on the transition.
+        const clientId = (done.rows[0] as any)?.client_id;
+        if (clientId) {
+          fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
+            body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
+          }).catch((e: Error) => console.error("[end-job survey] non-fatal:", e));
+          import("../services/followUpService.js").then(({ enrollForJobComplete }) =>
+            enrollForJobComplete(req.auth!.companyId, jobId, clientId).catch(() => {})
+          ).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error("[end-job completion] non-fatal:", e);
+    }
+
     const user = await db
       .select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
       .from(usersTable)
