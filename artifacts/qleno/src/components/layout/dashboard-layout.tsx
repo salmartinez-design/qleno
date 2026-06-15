@@ -85,6 +85,7 @@ function getBottomTabs(role?: string) {
 }
 
 const MORE_CARDS = [
+  { title: 'Messages',       href: '/messages',           icon: MessageSquare },
   { title: 'Employees',      href: '/employees',         icon: UserCheck   },
   { title: 'Invoices',       href: '/invoices',           icon: FileText    },
   { title: 'Payroll',        href: '/payroll',            icon: DollarSign  },
