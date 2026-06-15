@@ -1204,12 +1204,17 @@ export default function LeadsPage() {
               <Loader2 size={24} className="animate-spin" color="#6B6860" style={{ margin: "0 auto" }} />
             </div>
           ) : (
-            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 12,
-              alignItems: "flex-start" }}>
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 8,
+              alignItems: "stretch", width: "100%" }}>
               {STATUS_ORDER.map(stage => {
                 const cfg = STATUS_CONFIG[stage];
                 const colLeads = leads.filter(l => l.status === stage);
                 const isOver = dragOver === stage;
+                // [board-layout 2026-06-15] Columns flex to share the full width
+                // so all 7 stages are always visible (no more Booked clipped
+                // off-screen / "can't see where you are"). minWidth keeps them
+                // usable + horizontally scrollable only on a narrow screen.
+                const colValue = colLeads.reduce((s, l) => s + (l.quote_amount ? parseFloat(l.quote_amount) : 0), 0);
                 return (
                   <div key={stage}
                     onDragOver={e => { e.preventDefault(); setDragOver(stage); }}
@@ -1221,25 +1226,32 @@ export default function LeadsPage() {
                       const l = leads.find(x => x.id === id);
                       if (l) moveLeadToStage(l, stage);
                     }}
-                    style={{ width: 280, flexShrink: 0, background: isOver ? cfg.bg : "#F2F1ED",
-                      borderRadius: 10, border: isOver ? `2px dashed ${cfg.color}` : "2px solid transparent",
-                      transition: "background 0.1s", maxHeight: "calc(100vh - 320px)", display: "flex",
-                      flexDirection: "column" }}>
-                    <div style={{ padding: "12px 14px 8px", display: "flex", alignItems: "center",
-                      justifyContent: "space-between", borderBottom: "1px solid #E5E2DC" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700,
-                        color: "#1A1917" }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color }} />
-                        {cfg.label}
+                    style={{ flex: "1 1 0", minWidth: 168, maxWidth: 360, background: isOver ? cfg.bg : "#F4F3F0",
+                      borderRadius: 12, border: isOver ? `2px dashed ${cfg.color}` : "1px solid #E9E7E2",
+                      transition: "background 0.1s", height: "calc(100vh - 300px)", display: "flex",
+                      flexDirection: "column", overflow: "hidden" }}>
+                    <div style={{ padding: "11px 13px", display: "flex", alignItems: "center",
+                      justifyContent: "space-between", borderBottom: "1px solid #E5E2DC",
+                      position: "sticky", top: 0, background: isOver ? cfg.bg : "#F4F3F0", borderTopLeftRadius: 12, borderTopRightRadius: 12, zIndex: 1 }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700,
+                        color: "#1A1917", minWidth: 0 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.color, flexShrink: 0 }} />
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cfg.label}</span>
                       </span>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: "#6B6860",
-                        background: "#fff", borderRadius: 999, padding: "1px 8px" }}>{colLeads.length}</span>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: "#6B6860",
+                        background: "#fff", borderRadius: 999, padding: "1px 8px", flexShrink: 0 }}>{colLeads.length}</span>
                     </div>
-                    <div style={{ padding: 10, display: "flex", flexDirection: "column", gap: 8,
+                    {colValue > 0 && (
+                      <div style={{ padding: "5px 13px 0", fontSize: 11, fontWeight: 600, color: "#059669" }}>
+                        ${colValue.toLocaleString(undefined, { maximumFractionDigits: 0 })} pipeline
+                      </div>
+                    )}
+                    <div style={{ padding: 9, display: "flex", flexDirection: "column", gap: 8,
                       overflowY: "auto", flex: 1 }}>
                       {colLeads.length === 0 ? (
-                        <div style={{ textAlign: "center", color: "#B7B3AB", fontSize: 12, padding: "20px 0" }}>
-                          Drop here
+                        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                          color: "#C4C0B8", fontSize: 11.5, border: "1.5px dashed #DDD9D1", borderRadius: 8, minHeight: 60 }}>
+                          {isOver ? "Release to drop" : "Empty"}
                         </div>
                       ) : colLeads.map(lead => {
                         const nm = [lead.first_name, lead.last_name].filter(Boolean).join(" ");
@@ -1250,7 +1262,7 @@ export default function LeadsPage() {
                             style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8,
                               padding: "10px 12px", cursor: "pointer", boxShadow: "0 1px 2px rgba(0,0,0,0.04)" }}>
                             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6 }}>
-                              <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{nm}</span>
+                              <span style={{ fontWeight: 600, fontSize: 13.5, color: nm ? "#1A1917" : "#B0ADA6" }}>{nm || "Lead"}</span>
                               {lead.quote_amount && (
                                 <span style={{ fontSize: 12, fontWeight: 700, color: "#059669", whiteSpace: "nowrap" }}>
                                   ${parseFloat(lead.quote_amount).toFixed(0)}
