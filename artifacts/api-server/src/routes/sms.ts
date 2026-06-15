@@ -123,6 +123,42 @@ router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async
   }
 });
 
+// ── GET /api/sms/contact-search?q= — recipient picker for "New message" ────────
+// Searches the tenant's clients AND leads by name or phone. Returns a unified
+// list ({ type, id, name, phone }) so staff can start a conversation with either.
+router.get("/contact-search", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const raw = String(req.query.q ?? "").trim();
+    if (raw.length < 2) return res.json([]);
+    const like = `%${raw.toLowerCase()}%`;
+    const digits = raw.replace(/\D/g, "");
+    const phoneLike = digits.length >= 3 ? `%${digits}%` : null;
+    const clients = await db.execute(sql`
+      SELECT id, NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name, phone
+        FROM clients
+       WHERE company_id = ${companyId} AND phone IS NOT NULL
+         AND (lower(coalesce(first_name,'')||' '||coalesce(last_name,'')) LIKE ${like}
+              ${phoneLike ? sql`OR regexp_replace(coalesce(phone,''),'\\D','','g') LIKE ${phoneLike}` : sql``})
+       ORDER BY name LIMIT 8`);
+    const leads = await db.execute(sql`
+      SELECT id, NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name, phone
+        FROM leads
+       WHERE company_id = ${companyId} AND phone IS NOT NULL
+         AND (lower(coalesce(first_name,'')||' '||coalesce(last_name,'')) LIKE ${like}
+              ${phoneLike ? sql`OR regexp_replace(coalesce(phone,''),'\\D','','g') LIKE ${phoneLike}` : sql``})
+       ORDER BY name LIMIT 8`);
+    const out = [
+      ...(clients.rows as any[]).map(r => ({ type: "client", id: r.id, name: r.name, phone: r.phone })),
+      ...(leads.rows as any[]).map(r => ({ type: "lead", id: r.id, name: r.name, phone: r.phone })),
+    ];
+    return res.json(out);
+  } catch (err) {
+    console.error("GET /sms/contact-search:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/sms/unread-count — for a nav badge ────────────────────────────────
 router.get("/unread-count", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
