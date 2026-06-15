@@ -771,19 +771,13 @@ export default function LeadsPage() {
   const [users, setUsers] = useState<OwnerOpt[]>([]);
   const [partners, setPartners] = useState<PartnerOpt[]>([]);
   const [dragOver, setDragOver] = useState<string | null>(null);
-  // [bulk-select 2026-06-15] Multi-select + bulk delete. Selection is by lead id;
-  // a lead is "generic" (a placeholder import row) when it has no name/contact/
-  // quote and is still needs_contacted — those are the ones Sal wants to clear.
+  // [bulk-select 2026-06-15] Multi-select + bulk delete, by lead id. Tick rows
+  // or the header select-all, then Delete — no auto "generic" detection.
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
   const LIMIT = view === "board" ? 300 : 25;
 
-  const isGeneric = (l: Lead) => {
-    const nm = [l.first_name, l.last_name].filter(Boolean).join(" ").trim().toLowerCase();
-    return !l.phone && !l.email && !l.address && !l.quote_amount
-      && (nm === "" || nm === "lead") && l.status === "needs_contacted";
-  };
   const toggleSel = (id: number) => setSelected(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const allOnPageSelected = leads.length > 0 && leads.every(l => selected.has(l.id));
   const toggleAllOnPage = () => setSelected(s => {
@@ -792,8 +786,6 @@ export default function LeadsPage() {
     else leads.forEach(l => n.add(l.id));
     return n;
   });
-  const selectGenericOnPage = () => setSelected(s => { const n = new Set(s); leads.filter(isGeneric).forEach(l => n.add(l.id)); return n; });
-  const genericCountOnPage = leads.filter(isGeneric).length;
 
   const bulkDelete = useCallback(async (body: { ids?: number[]; generic?: boolean }, confirmMsg: string) => {
     if (!window.confirm(confirmMsg)) return;
@@ -1080,28 +1072,17 @@ export default function LeadsPage() {
           )}
         </div>
 
-        {/* Bulk-action bar (list view) */}
-        {view === "list" && (selected.size > 0 || genericCountOnPage > 0) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: selected.size > 0 ? "#0A0E1A" : "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 14px", marginBottom: -6 }}>
-            {selected.size > 0 ? (
-              <>
-                <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{selected.size} selected</span>
-                <button disabled={bulkBusy} onClick={() => bulkDelete({ ids: Array.from(selected) }, `Delete ${selected.size} selected lead${selected.size === 1 ? "" : "s"}? This is logged to the audit trail and can't be undone.`)}
-                  style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: bulkBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
-                  {bulkBusy ? "Deleting…" : `Delete ${selected.size}`}
-                </button>
-                <button onClick={() => setSelected(new Set())} style={{ background: "transparent", color: "#fff", border: "1px solid #ffffff40", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
-              </>
-            ) : (
-              <>
-                <span style={{ fontSize: 13, color: "#6B6860" }}>{genericCountOnPage} generic placeholder lead{genericCountOnPage === 1 ? "" : "s"} on this page (no name or contact).</span>
-                <button onClick={selectGenericOnPage} style={{ background: "#F3F4F6", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Select them</button>
-                <button disabled={bulkBusy} onClick={() => bulkDelete({ generic: true }, "Delete ALL generic placeholder leads across every page (no name, no contact, no quote, still Needs Contacted)? This is logged to the audit trail and can't be undone.")}
-                  style={{ background: "transparent", color: "#DC2626", border: "1px solid #DC262640", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 700, cursor: bulkBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
-                  {bulkBusy ? "Deleting…" : "Delete all generic"}
-                </button>
-              </>
-            )}
+        {/* Bulk-action bar (list view) — appears only when rows are selected.
+            [bulk-ux 2026-06-15] Plain selection: tick rows (or the header
+            select-all), then Delete. No auto "delete all generic" button. */}
+        {view === "list" && selected.size > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#0A0E1A", borderRadius: 10, padding: "10px 14px", marginBottom: -6 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#fff" }}>{selected.size} selected</span>
+            <button disabled={bulkBusy} onClick={() => bulkDelete({ ids: Array.from(selected) }, `Delete ${selected.size} selected lead${selected.size === 1 ? "" : "s"}? This is logged to the audit trail and can't be undone.`)}
+              style={{ background: "#DC2626", color: "#fff", border: "none", borderRadius: 7, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: bulkBusy ? "wait" : "pointer", fontFamily: "inherit" }}>
+              {bulkBusy ? "Deleting…" : `Delete ${selected.size}`}
+            </button>
+            <button onClick={() => setSelected(new Set())} style={{ background: "transparent", color: "#fff", border: "1px solid #ffffff40", borderRadius: 7, padding: "7px 12px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Clear</button>
           </div>
         )}
 
