@@ -153,6 +153,13 @@ export const companiesTable = pgTable("companies", {
   // Internal/comped account — excluded from SaaS MRR/ARR/revenue metrics. Net $0,
   // no Stripe. Used for owner-comped tenants (e.g. PHES Schaumburg).
   is_internal: boolean("is_internal").notNull().default(false),
+  // Per-tenant routing for the internal "New Lead" office alert. The alert is
+  // sent TO lead_notify_email (FROM email_from_address) and, when set, an SMS
+  // TO lead_notify_phone (FROM the tenant's own number via resolveSender).
+  // Distinct from companies.email (the tenant's public/from inbox) so alerts can
+  // route to an owner's personal inbox without landing in the public mailbox.
+  lead_notify_email: text("lead_notify_email"),
+  lead_notify_phone: text("lead_notify_phone"),
   twilio_account_sid: text("twilio_account_sid"),
   twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),

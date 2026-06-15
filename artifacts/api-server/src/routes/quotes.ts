@@ -5,6 +5,7 @@ import { eq, and, desc, count, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { getBranchByZip } from "../lib/branchRouter";
+import { randomBytes } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
 
@@ -282,6 +283,16 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, companyId)))
       .returning();
     if (!q) return res.status(404).json({ error: "Not found" });
+
+    // Ensure a public sign_token exists so the customer-facing quote page
+    // (app.qleno.com/estimate/<token>, served by the estimates public endpoint
+    // with a quote fallback) resolves instead of 404ing. Generated once and
+    // reused; idempotent on re-send.
+    if (!(q as any).sign_token) {
+      const tok = randomBytes(24).toString("hex");
+      await db.execute(sql`UPDATE quotes SET sign_token = ${tok} WHERE id = ${id}`);
+      (q as any).sign_token = tok;
+    }
     console.log(`[QUOTE SENT] id=${id} lead_email=${q.lead_email}`);
     // Enroll in quote_followup sequence (non-blocking)
     import("../services/followUpService.js").then(({ enrollForQuoteSent }) => {
@@ -302,19 +313,14 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
         await linkEnrollmentToLead(companyId, id, leadId);
       }
     }).catch(() => {});
-    // fire quote_sent notification (non-blocking)
-    import("../services/notificationService.js").then(({ sendNotification }) => {
-      const mv = {
-        first_name:     (q as any).lead_name?.split(" ")[0] || "",
-        quote_number:   String(id),
-        quote_total:    parseFloat((q as any).total_price || (q as any).base_price || "0").toFixed(2),
-        quote_link:     `https://clean-ops-pro.replit.app/quote/${id}`,
-        quote_expires:  new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
-        service_address: (q as any).address || "",
-      };
-      sendNotification("quote_sent", "email", companyId, (q as any).lead_email ?? null, null, mv).catch(() => {});
-      sendNotification("quote_sent", "sms",   companyId, null, (q as any).lead_phone ?? null, mv).catch(() => {});
-    });
+    // NOTE: the quote email + SMS are delivered by the quote-followup CADENCE
+    // (touch 1 = the MaidCentral-styled quote email, touch 2 = the quote SMS),
+    // enrolled just above via enrollForQuoteSent. The old immediate `quote_sent`
+    // notification was removed — it was the source of the broken Replit link and
+    // the wrong (global-env Oak Lawn) SMS number, and it double-sent on top of
+    // cadence touch 1. The cadence renders the link from sign_token via the
+    // per-tenant sender (resolveSender), so this consolidates quote comms onto a
+    // single correct path.
     return res.json({ success: true, quote: q });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });

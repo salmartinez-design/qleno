@@ -927,31 +927,23 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       }
     }
 
-    // ── Office SMS notification on confirm ───────────────────────────────────
+    // ── Office SMS notification on confirm (per-tenant) ──────────────────────
+    // FROM the tenant's own number via resolveSender; TO the tenant's configured
+    // lead_notify_phone. No global-env number, no hardcoded Oak Lawn recipient.
     try {
-      const accountSid = process.env.TWILIO_ACCOUNT_SID;
-      const authToken  = process.env.TWILIO_AUTH_TOKEN;
-      const fromNum    = process.env.TWILIO_FROM_NUMBER;
-      if (process.env.COMMS_ENABLED !== "true") {
-        console.log("[COMMS BLOCKED] Booking office SMS suppressed:", { first_name, last_name, jobId });
-      } else if (accountSid && authToken && fromNum) {
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(Number(company_id), null);
+      const notifyRow = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${company_id} LIMIT 1`);
+      const officeTo = (notifyRow.rows[0] as any)?.lead_notify_phone || null;
+      if (sender.reason) {
+        console.log("[confirm] Office SMS suppressed:", sender.reason);
+      } else if (officeTo) {
         const dateStr2 = preferred_date
           ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
           : "TBD";
         const windowLabel = arrivalWindowVal === "morning" ? "9AM–12PM" : arrivalWindowVal === "afternoon" ? "12PM–2PM" : "";
         const smsBody = `📋 New Booking — ${first_name} ${last_name} | ${scopeName} | ${sqft} sqft | ${dateStr2}${windowLabel ? ` ${windowLabel}` : ""} | Job #${jobId}${recurringJobId ? ` + #${recurringJobId}` : ""}`;
-        const smsRes = await fetch(
-          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({ To: "+17737869902", From: branchConfig.twilioFrom || fromNum, Body: smsBody }).toString(),
-          }
-        );
-        if (!smsRes.ok) console.error("[confirm] Twilio SMS failed:", await smsRes.text());
+        await sendSmsVia(sender, officeTo, smsBody);
       }
     } catch (smsErr) {
       console.error("[confirm] Office SMS error:", smsErr);
@@ -1372,31 +1364,17 @@ router.post("/leads", rateLimit, async (req, res) => {
     `);
     const leadId = (insertResult.rows[0] as any)?.id;
 
-    // Office SMS alert
+    // Office SMS alert (per-tenant) — FROM the tenant's own number via
+    // resolveSender, TO the tenant's lead_notify_phone. No global-env / Oak Lawn.
     try {
-      const accountSid = process.env.TWILIO_ACCOUNT_SID;
-      const authToken  = process.env.TWILIO_AUTH_TOKEN;
-      const from       = process.env.TWILIO_FROM_NUMBER;
-      const officeNum  = "+17737869902";
-      if (process.env.COMMS_ENABLED !== "true") {
-        console.log("[COMMS BLOCKED] Very-dirty lead office SMS suppressed:", { first_name, last_name, phone });
-      } else if (accountSid && authToken && from) {
-        const smsRes = await fetch(
-          `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
-              "Content-Type": "application/x-www-form-urlencoded",
-            },
-            body: new URLSearchParams({
-              To: officeNum,
-              From: from,
-              Body: `Very Dirty Lead — ${first_name} ${last_name || ""} — ${phone}. Needs manual callback. Lead #${leadId || "N/A"}.`,
-            }).toString(),
-          }
-        );
-        if (!smsRes.ok) console.error("[very-dirty] Twilio SMS failed:", await smsRes.text());
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(Number(company_id), null);
+      const notifyRow = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${company_id} LIMIT 1`);
+      const officeTo = (notifyRow.rows[0] as any)?.lead_notify_phone || null;
+      if (sender.reason) {
+        console.log("[very-dirty] Office SMS suppressed:", sender.reason);
+      } else if (officeTo) {
+        await sendSmsVia(sender, officeTo, `Very Dirty Lead — ${first_name} ${last_name || ""} — ${phone}. Needs manual callback. Lead #${leadId || "N/A"}.`);
       }
     } catch (smsErr) {
       console.error("[very-dirty] SMS error:", smsErr);

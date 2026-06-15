@@ -241,7 +241,60 @@ router.get("/public/:token", async (req, res) => {
       LIMIT 1
     `);
     const est = (rows as any).rows[0];
-    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (!est) {
+      // Fallback: a QUOTE's sign_token. Quotes have no dedicated hosted page,
+      // so the quote email links here (app.qleno.com/estimate/<sign_token>).
+      // Map the quote into the public estimate shape so this same page renders
+      // it (read-only — quote accept/decline stays in the office flow).
+      const qrows = await db.execute(sql`
+        SELECT q.id, q.lead_name, q.address, q.service_type, q.total_price, q.base_price,
+               q.addons, q.status, q.created_at, q.sent_at,
+               c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color
+        FROM quotes q JOIN companies c ON c.id = q.company_id
+        WHERE q.sign_token = ${token} LIMIT 1
+      `);
+      const qt = (qrows as any).rows[0];
+      if (!qt) return res.status(404).json({ error: "Not Found" });
+
+      const items: any[] = [];
+      if (qt.base_price != null) {
+        items.push({
+          name: qt.service_type || "Cleaning service", description: null,
+          pricing_type: "flat", frequency: null, quantity: 1,
+          unit_rate: String(qt.base_price), amount: String(qt.base_price),
+        });
+      }
+      const addons = Array.isArray(qt.addons) ? qt.addons : [];
+      for (const a of addons) {
+        const amt = (a?.amount ?? a?.price);
+        items.push({
+          name: a?.name || "Add-on", description: null,
+          pricing_type: "flat", frequency: null, quantity: 1,
+          unit_rate: amt != null ? String(amt) : null, amount: amt != null ? String(amt) : null,
+        });
+      }
+      const pubStatus = qt.status === "booked" || qt.status === "accepted" ? "accepted" : "sent";
+      return res.json({
+        estimate_number: `Q-${qt.id}`,
+        title: "Your cleaning quote",
+        status: pubStatus,
+        contact_name: qt.lead_name || null,
+        property_name: null,
+        service_address: qt.address || null,
+        subtotal: qt.total_price != null ? String(qt.total_price) : (qt.base_price != null ? String(qt.base_price) : null),
+        total: qt.total_price != null ? String(qt.total_price) : (qt.base_price != null ? String(qt.base_price) : null),
+        valid_until: null,
+        sent_at: qt.sent_at || null,
+        viewed_at: null,
+        accepted_at: null,
+        created_at: qt.created_at || null,
+        company_name: qt.company_name,
+        company_logo: qt.company_logo,
+        company_brand_color: qt.company_brand_color,
+        items,
+        is_quote: true,
+      });
+    }
 
     const expired = est.valid_until && new Date(est.valid_until) < new Date() && est.status !== "accepted";
     if (expired && est.status !== "expired") {
