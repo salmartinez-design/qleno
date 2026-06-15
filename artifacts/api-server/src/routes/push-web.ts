@@ -2,12 +2,14 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
-import { VAPID_PUBLIC_KEY } from "../lib/webpush.js";
+import { VAPID_PUBLIC_KEY, webPushConfigured } from "../lib/webpush.js";
 
 const router = Router();
 
 // GET /api/push/vapid-public-key — the frontend needs this to subscribe.
-router.get("/vapid-public-key", (_req, res) => res.json({ key: VAPID_PUBLIC_KEY }));
+// `configured` reports whether VAPID_PRIVATE_KEY is set on this instance (i.e.
+// the server can actually send, vs the safe no-op). Public diagnostic, no secret.
+router.get("/vapid-public-key", (_req, res) => res.json({ key: VAPID_PUBLIC_KEY, configured: webPushConfigured() }));
 
 // POST /api/push/subscribe — store a PushManager subscription for this user+device.
 // Body: { endpoint, keys: { p256dh, auth } } (the browser PushSubscription JSON).
