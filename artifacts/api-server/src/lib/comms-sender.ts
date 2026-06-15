@@ -23,19 +23,29 @@ export async function resolveSender(companyId: number, branchId?: number | null)
 
   let branchNumber: string | null = null;
   let branchComms = false;
+  let branchFound = false;
   if (branchId != null) {
     const br = await db.execute(sql`
       SELECT twilio_from_number, comms_enabled FROM branches WHERE id = ${branchId} AND company_id = ${companyId} LIMIT 1`);
-    branchNumber = (br.rows[0] as any)?.twilio_from_number ?? null;
-    branchComms = !!(br.rows[0] as any)?.comms_enabled;
+    if (br.rows[0]) {
+      branchFound = true;
+      branchNumber = (br.rows[0] as any)?.twilio_from_number ?? null;
+      branchComms = !!(br.rows[0] as any)?.comms_enabled;
+    }
   }
   const from_number = branchNumber || c.twilio_from_number || null;
   const account_sid = c.twilio_account_sid ?? null;
   const auth_token = c.twilio_auth_token ?? null;
   const enabled = !!c.twilio_enabled;
   const company_comms_enabled = !!c.comms_enabled;
-  // When no branch is specified, fall back to the company master for the branch gate.
-  const branch_comms_enabled = branchId != null ? branchComms : enabled;
+  // Branch gate ONLY applies when the passed branchId actually maps to a branch
+  // of THIS company. When no branch is specified — OR a branchId is passed that
+  // doesn't belong to this company (e.g. the legacy getBranchByZip 1/2 mapping
+  // hitting a tenant whose branches have different ids, like co4) — fall back to
+  // the company-level gate so a stale/foreign branchId can't falsely suppress a
+  // tenant whose company gate is open. Tenants with real matching branches keep
+  // per-branch gating unchanged.
+  const branch_comms_enabled = (branchId != null && branchFound) ? branchComms : enabled;
 
   const reason =
     process.env.COMMS_ENABLED !== "true" ? "comms_disabled"          // global master
