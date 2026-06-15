@@ -34,11 +34,16 @@ router.get("/", requireAuth, async (req, res) => {
 
     const comps = await db.execute(sql`SELECT id, name FROM companies WHERE id = ANY(ARRAY[${sql.raw(idsCsv)}]::int[]) ORDER BY id`);
 
+    // [rollup-fix 2026-06-15] JOBS + REVENUE are COMPLETED work only — the old
+    // query counted every job (future scheduled + cancelled) and summed their
+    // base_fee as "revenue", which inflated both figures. Completed-only matches
+    // how revenue is defined everywhere else (dashboard, payroll, job_history).
+    // UPCOMING stays the forward pipeline of scheduled jobs.
     const jobsAgg = await db.execute(sql`
       SELECT company_id,
-        COUNT(*)::int AS jobs_total,
+        COUNT(*) FILTER (WHERE status='complete')::int AS jobs_total,
         COUNT(*) FILTER (WHERE status='scheduled' AND scheduled_date >= CURRENT_DATE)::int AS jobs_upcoming,
-        COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)), 0) AS revenue
+        COALESCE(SUM(COALESCE(billed_amount, base_fee, 0)) FILTER (WHERE status='complete'), 0) AS revenue
       FROM jobs WHERE company_id = ANY(ARRAY[${sql.raw(idsCsv)}]::int[]) GROUP BY company_id`);
 
     const leadsAgg = await db.execute(sql`
