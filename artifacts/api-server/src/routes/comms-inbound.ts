@@ -28,6 +28,20 @@ router.post("/inbound", async (req, res) => {
     // 1) Persist + match (client or lead).
     const { match } = await recordInboundSms({ companyId, fromRaw: from, toRaw: to, body, providerId: sid });
 
+    // Alert office staff (in-app). Internal staff notification — never customer-facing.
+    try {
+      const { notifyOfficeUsers } = await import("../lib/notify.js");
+      const d = from.replace(/\D/g, "").slice(-10);
+      const who = match.name || (d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : from);
+      await notifyOfficeUsers(companyId, {
+        type: "new_message",
+        title: `New text from ${who}`,
+        body: body.slice(0, 160),
+        link: "/messages",
+        meta: { phone: d, client_id: match.client_id, lead_id: match.lead_id },
+      });
+    } catch (e) { console.warn("[comms/inbound] notify failed:", e); }
+
     // 2) Stop-on-reply + opt-out. Leads via handleInboundReply (matches by phone,
     //    stops cadence, logs activity). Clients via stopEnrollmentsForClient.
     const optOut = OPT_OUT.has(body.toUpperCase());

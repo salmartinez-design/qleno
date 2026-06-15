@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { notificationTemplatesTable, notificationLogTable, inAppNotificationsTable } from "@workspace/db/schema";
+import { notificationTemplatesTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
@@ -131,47 +131,47 @@ router.get("/log", requireAuth, requireRole("owner", "admin"), async (req, res) 
 
 // ── In-app notification center ──────────────────────────────────────────────
 
-router.get("/inbox", requireAuth, requireRole("owner", "office"), async (req, res) => {
+// Per-user inbox (ALL roles). A user sees notifications targeted at them
+// (user_id = me) plus legacy company/office broadcasts (user_id IS NULL) when
+// they're office/owner/admin. Techs see only their own targeted alerts.
+function inboxScope(userId: number, isOffice: boolean) {
+  return isOffice ? sql`(user_id = ${userId} OR user_id IS NULL)` : sql`user_id = ${userId}`;
+}
+
+router.get("/inbox", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const isOffice = ["owner", "admin", "office"].includes(String(req.auth!.role));
     const limit = Math.min(parseInt((req.query.limit as string) || "50"), 100);
     const unreadOnly = req.query.unread === "true";
+    const scope = inboxScope(userId, isOffice);
 
-    const conditions = [eq(inAppNotificationsTable.company_id, companyId)];
-    if (unreadOnly) conditions.push(eq(inAppNotificationsTable.read, false));
-
-    const rows = await db
-      .select()
-      .from(inAppNotificationsTable)
-      .where(and(...conditions))
-      .orderBy(desc(inAppNotificationsTable.created_at))
-      .limit(limit);
-
-    const [countRow] = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(inAppNotificationsTable)
-      .where(and(
-        eq(inAppNotificationsTable.company_id, companyId),
-        eq(inAppNotificationsTable.read, false),
-      ));
-
-    return res.json({ data: rows, unread_count: countRow?.count ?? 0 });
+    const rows = await db.execute(sql`
+      SELECT id, company_id, user_id, type, title, body, link, meta, read, created_at
+        FROM notifications
+       WHERE company_id = ${companyId} AND ${scope}
+       ${unreadOnly ? sql`AND read = false` : sql``}
+       ORDER BY created_at DESC
+       LIMIT ${limit}`);
+    const cnt = await db.execute(sql`
+      SELECT count(*)::int AS count FROM notifications
+       WHERE company_id = ${companyId} AND ${scope} AND read = false`);
+    return res.json({ data: rows.rows, unread_count: (cnt.rows[0] as any)?.count ?? 0 });
   } catch (err) {
     console.error("Inbox fetch error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-router.patch("/inbox/read-all", requireAuth, requireRole("owner", "office"), async (req, res) => {
+router.patch("/inbox/read-all", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    await db
-      .update(inAppNotificationsTable)
-      .set({ read: true })
-      .where(and(
-        eq(inAppNotificationsTable.company_id, companyId),
-        eq(inAppNotificationsTable.read, false),
-      ));
+    const userId = req.auth!.userId!;
+    const isOffice = ["owner", "admin", "office"].includes(String(req.auth!.role));
+    await db.execute(sql`
+      UPDATE notifications SET read = true
+       WHERE company_id = ${companyId} AND read = false AND ${inboxScope(userId, isOffice)}`);
     return res.json({ ok: true });
   } catch (err) {
     console.error("Read-all error:", err);
@@ -179,17 +179,15 @@ router.patch("/inbox/read-all", requireAuth, requireRole("owner", "office"), asy
   }
 });
 
-router.patch("/inbox/:id/read", requireAuth, requireRole("owner", "office"), async (req, res) => {
+router.patch("/inbox/:id/read", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const isOffice = ["owner", "admin", "office"].includes(String(req.auth!.role));
     const id = req.params.id;
-    await db
-      .update(inAppNotificationsTable)
-      .set({ read: true })
-      .where(and(
-        eq(inAppNotificationsTable.id, id),
-        eq(inAppNotificationsTable.company_id, companyId),
-      ));
+    await db.execute(sql`
+      UPDATE notifications SET read = true
+       WHERE id = ${id} AND company_id = ${companyId} AND ${inboxScope(userId, isOffice)}`);
     return res.json({ ok: true });
   } catch (err) {
     console.error("Mark-read error:", err);

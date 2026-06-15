@@ -1498,6 +1498,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "companies.lead_notify_phone",
       stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS lead_notify_phone text` },
 
+    // Per-user in-app notifications: target a specific user (NULL = office broadcast).
+    { label: "notifications.user_id",
+      stmt: `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS user_id integer` },
+    { label: "notifications user idx", stmt:
+      `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (company_id, user_id, read)` },
+
     // Two-way SMS — unified conversation store (inbound + outbound, leads + clients).
     { label: "CREATE sms_messages", stmt: `
       CREATE TABLE IF NOT EXISTS sms_messages (

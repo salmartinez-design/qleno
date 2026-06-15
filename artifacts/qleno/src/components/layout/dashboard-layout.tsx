@@ -641,13 +641,15 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const isManager = user?.role === 'owner' || user?.role === 'office';
 
   const { data: notifData } = useQuery({
-    queryKey: ['notifications-inbox'],
+    // Per-user inbox for ALL roles (techs get job alerts too). token in the key
+    // so a company switch re-scopes the feed cleanly.
+    queryKey: ['notifications-inbox', token],
     queryFn: async () => {
       const r = await fetch(`${API}/api/notifications/inbox?limit=20`, { headers: getAuthHeaders() as any });
       if (!r.ok) return { data: [], unread_count: 0 };
       return r.json();
     },
-    enabled: !!token && isManager,
+    enabled: !!token,
     refetchInterval: 30_000,
     staleTime: 20_000,
   });
@@ -756,6 +758,16 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             <button onClick={() => setChatOpen(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
               <MessageSquare size={19} />
               {unreadCount > 0 && <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: 4, background: '#EF4444', border: '1px solid #fff' }} />}
+            </button>
+
+            {/* Notifications bell → full notifications page (all roles) */}
+            <button onClick={() => setLocation('/notifications')} title="Notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <Bell size={19} />
+              {notifUnread > 0 && (
+                <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: '#EF4444', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 800, padding: '0 2px' }}>
+                  {notifUnread > 9 ? '9+' : notifUnread}
+                </span>
+              )}
             </button>
 
             {/* ── Mobile Quick Create ─────────────────────────────────────── */}
@@ -999,7 +1011,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               <CircleHelp size={18} />
             </button>
 
-            {isManager && (
+            {user && (
               <div ref={notifRef} style={{ position: 'relative' }}>
                 <button
                   onClick={() => setNotifOpen(p => !p)}
@@ -1042,7 +1054,12 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                           No notifications yet
                         </div>
                       ) : notifItems.map((n: any) => {
-                        const icon = n.type === 'new_booking' ? <Bell size={14} style={{ color: '#2563EB' }} /> : n.type === 'late_clockin' ? <AlertTriangle size={14} style={{ color: '#F59E0B' }} /> : <UserMinus size={14} style={{ color: '#DC2626' }} />;
+                        const icon = n.type === 'new_message' ? <MessageSquare size={14} style={{ color: '#00C9A0' }} />
+                          : n.type === 'job_assigned' ? <Briefcase size={14} style={{ color: '#2563EB' }} />
+                          : n.type === 'job_changed' ? <CalendarDays size={14} style={{ color: '#F59E0B' }} />
+                          : n.type === 'new_booking' ? <Bell size={14} style={{ color: '#2563EB' }} />
+                          : n.type === 'late_clockin' ? <AlertTriangle size={14} style={{ color: '#F59E0B' }} />
+                          : <Bell size={14} style={{ color: '#6B7280' }} />;
                         return (
                           <button
                             key={n.id}
