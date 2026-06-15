@@ -278,29 +278,28 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
 
             {isOpen && (
               <div style={{ padding: '16px 20px 18px' }}>
-                {/* Net pay hero — Total pay is commission + tips + mileage −
-                    deductions (advances/breakage), the take-home. Each part
-                    shows as a chip; deductions render red so the net is
-                    explained, not just stated. [payroll-v2 2026-06-13] */}
+                {/* [hierarchy-pass 2026-06-15] Total Pay box — mint (#00A383)
+                    only on the Total Pay headline + Commission chip; every
+                    other figure navy, labels grey. No red/amber. */}
                 {(() => {
                   const deductAmt = sumK('amount_owed');
                   const bonusAmt = sumK('bonus');
                   const chips = [
-                    { label: 'Commission', v: emp.totals.commission, neg: false },
-                    ...(tipsAmt ? [{ label: 'Tips', v: tipsAmt, neg: false }] : []),
-                    ...(mileageAmt ? [{ label: 'Mileage', v: mileageAmt, neg: false }] : []),
-                    ...(bonusAmt ? [{ label: 'Bonus', v: bonusAmt, neg: bonusAmt < 0 }] : []),
-                    ...(timeOffAmt ? [{ label: 'Time Off', v: timeOffAmt, neg: false }] : []),
-                    ...(deductAmt ? [{ label: 'Deductions', v: deductAmt, neg: true }] : []),
+                    { label: 'Commission', v: emp.totals.commission, mint: true, neg: false },
+                    ...(tipsAmt ? [{ label: 'Tips', v: tipsAmt, mint: false, neg: false }] : []),
+                    ...(mileageAmt ? [{ label: 'Mileage', v: mileageAmt, mint: false, neg: false }] : []),
+                    ...(bonusAmt ? [{ label: 'Bonus', v: bonusAmt, mint: false, neg: bonusAmt < 0 }] : []),
+                    ...(timeOffAmt ? [{ label: 'Time Off', v: timeOffAmt, mint: false, neg: false }] : []),
+                    ...(deductAmt ? [{ label: 'Deductions', v: deductAmt, mint: false, neg: true }] : []),
                   ];
                   return (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 30, flexWrap: 'wrap', background: 'linear-gradient(120deg,#F0FDF9,#E9FBF5)', border: '1px solid #B7ECDD', borderRadius: 14, padding: '18px 22px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 30, flexWrap: 'wrap', background: 'linear-gradient(120deg,#F0FDF9,#E9FBF5)', border: '1px solid #B7ECDD', borderRadius: 12, padding: '18px 22px' }}>
                   <div style={{ minWidth: 200 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: '#0A6E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Total pay</div>
-                    <div style={{ fontSize: 30, fontWeight: 800, color: '#04241d', lineHeight: 1 }}>{money(emp.totals.grand_total)}</div>
+                    <div style={{ fontSize: 11, fontWeight: 500, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Total pay</div>
+                    <div style={{ fontSize: 30, fontWeight: 800, color: '#00A383', lineHeight: 1 }}>{money(emp.totals.grand_total)}</div>
                     <div style={{ marginTop: 11 }}>
                       {chips.map(p => (
-                        <span key={p.label} style={{ display: 'inline-block', fontSize: 11, fontWeight: 700, marginRight: 7, marginBottom: 5, borderRadius: 999, padding: '4px 11px', color: p.neg ? '#B91C1C' : '#0A6E5A', background: p.neg ? '#FEE2E2' : '#D7F5EC' }}>
+                        <span key={p.label} style={{ display: 'inline-block', fontSize: 11, fontWeight: 500, marginRight: 7, marginBottom: 5, borderRadius: 999, padding: '4px 11px', color: p.mint ? '#00A383' : '#6B6860', background: p.mint ? '#E9FBF5' : '#F4F3F0' }}>
                           {p.label} {p.neg && p.v > 0 ? '−' : ''}{money(Math.abs(p.v))}
                         </span>
                       ))}
@@ -313,7 +312,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
                       ...(effRate != null ? [{ k: 'Eff. $/hr', v: money(effRate) }] : []),
                     ].map(s => (
-                      <div key={s.k}><div style={{ fontSize: 10, color: '#5C8378', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 17, fontWeight: 800, color: '#04241d', marginTop: 3 }}>{s.v}</div></div>
+                      <div key={s.k}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
                     ))}
                   </div>
                 </div>
@@ -365,13 +364,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     const byDay: Record<string, any[]> = {};
                     for (const j of emp.jobs) { const k = String(j.date).slice(0, 10); (byDay[k] = byDay[k] || []).push(j); }
                     const days = Object.keys(byDay).sort();
+                    // [hierarchy-pass 2026-06-15] Eff is plain grey text for
+                    // every row — no pill, no green/amber/red band. 500% and "—"
+                    // read as ordinary values.
                     const effPill = (job: any) => {
                       if (job.hrs_estimated || !(job.hrs_worked > 0) || !(job.hrs_scheduled > 0)) {
-                        return <span style={{ color: '#C4C0B8' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>;
+                        return <span style={{ color: '#9B9890' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>;
                       }
                       const e = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
-                      const [fg, bg] = e >= 100 ? ['#16A34A', '#DCFCE7'] : e >= 85 ? ['#B45309', '#FEF3E2'] : ['#DC2626', '#FEE2E2'];
-                      return <span style={{ fontSize: 11, fontWeight: 800, color: fg, background: bg, borderRadius: 999, padding: '2px 8px' }}>{e}%</span>;
+                      return <span style={{ fontSize: 12, fontWeight: 400, color: '#9B9890' }}>{e}%</span>;
                     };
                     const laborOf = (billed: number, pay: number) => billed > 0 ? `${Math.round((pay / billed) * 100)}%` : '—';
                     return (
@@ -392,36 +393,38 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             const dayPay = byDay[d].reduce((s, j) => s + Number(j.commission || 0), 0);
                             return (
                             <Fragment key={d}>
+                              {/* Day header — stronger 0.5px divider + breathing
+                                  room above; subtotal in quiet greys. */}
                               <tr>
-                                <td colSpan={cols} style={{ padding: '13px 0 4px', borderTop: '1px solid #EEECE7' }}>
-                                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{dayName(d)} · {mdy(d)}</span>
-                                  <span style={{ float: 'right', fontSize: 11, fontWeight: 700, color: '#6B6860' }}><span style={{ color: '#9E9B94', fontWeight: 600 }}>{money(dayBilled)} billed · </span>{money(dayPay)}</span>
+                                <td colSpan={cols} style={{ padding: '18px 0 5px', borderTop: '0.5px solid #E5E2DC' }}>
+                                  <span style={{ fontSize: 10.5, fontWeight: 500, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{dayName(d)} · {mdy(d)}</span>
+                                  <span style={{ float: 'right', fontSize: 12, fontWeight: 400 }}><span style={{ color: '#9B9890' }}>{money(dayBilled)} billed · </span><span style={{ color: '#6B6860' }}>{money(dayPay)}</span></span>
                                 </td>
                               </tr>
                               {byDay[d].map((job: any) => {
                                 const billed = Number(job.job_total || 0);
                                 return (
                                 <tr key={job.job_id}>
-                                  <td style={{ ...td, borderTop: 'none', paddingTop: 6, paddingBottom: 6 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 600, color: '#1A1917' }}>{job.client || '—'}</div>
-                                    <div style={{ fontSize: 11, color: '#9E9B94' }} title="How this line's pay was computed">{fmtScope(job.scope)}{job.pay_basis ? ` · ${job.pay_basis}` : ''}</div>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', paddingTop: 7, paddingBottom: 7 }}>
+                                    <div style={{ fontSize: 14, fontWeight: 400, color: '#0A0E1A' }}>{job.client || '—'}</div>
+                                    <div style={{ fontSize: 12, color: '#9B9890' }} title="How this line's pay was computed">{fmtScope(job.scope)}{job.pay_basis ? ` · ${job.pay_basis}` : ''}</div>
                                   </td>
-                                  <td style={{ ...td, borderTop: 'none', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{billed > 0 ? money(billed) : '—'}</td>
-                                  <td style={{ ...td, borderTop: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                    <span style={{ fontWeight: 700, color: job.hrs_estimated ? '#B45309' : '#1A1917' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</span>
-                                    <span style={{ color: '#9E9B94' }}> / {job.hrs_scheduled.toFixed(1)}h</span>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, color: '#0A0E1A', whiteSpace: 'nowrap' }}>{billed > 0 ? money(billed) : '—'}</td>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, whiteSpace: 'nowrap' }}>
+                                    <span style={{ color: '#0A0E1A' }} title={job.hrs_estimated ? 'Scheduled — not clocked yet' : 'Clocked'}>{job.hrs_estimated ? '≈' : ''}{job.hrs_worked.toFixed(1)}h</span>
+                                    <span style={{ color: '#9B9890' }}> / {job.hrs_scheduled.toFixed(1)}h</span>
                                   </td>
-                                  <td style={{ ...td, borderTop: 'none', textAlign: 'center' }}>{effPill(job)}</td>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'center' }}>{effPill(job)}</td>
                                   {hasQuality && (
-                                    <td style={{ ...td, borderTop: 'none', textAlign: 'center' }}>
+                                    <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'center' }}>
                                       {job.quality_score != null
-                                        ? <span style={{ fontWeight: 700, color: qualityColor(job.quality_score) }}>{job.quality_score}/4</span>
-                                        : <span style={{ color: '#C4C0B8' }}>—</span>}
+                                        ? <span style={{ fontSize: 12, fontWeight: 400, color: '#9B9890' }}>{job.quality_score}/4</span>
+                                        : <span style={{ color: '#9B9890' }}>—</span>}
                                     </td>
                                   )}
-                                  <td style={{ ...td, borderTop: 'none', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                    <span style={{ fontWeight: 700, color: 'var(--brand)' }}>${job.commission.toFixed(2)}</span>
-                                    <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 6 }}>{laborOf(billed, Number(job.commission || 0))}</span>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                    <span style={{ fontSize: 14, fontWeight: 400, color: '#00A383' }}>${job.commission.toFixed(2)}</span>
+                                    <span style={{ fontSize: 11, fontWeight: 400, color: '#9B9890', marginLeft: 6 }}>{laborOf(billed, Number(job.commission || 0))}</span>
                                   </td>
                                 </tr>
                                 );
@@ -429,15 +432,16 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             </Fragment>
                             );
                           })}
+                          {/* Footer total — weight 500, 1.5px divider, mint pay. */}
                           <tr>
-                            <td style={{ ...td, fontWeight: 800, borderTop: '2px solid #E5E2DC' }}>{emp.totals.job_count} jobs</td>
-                            <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', whiteSpace: 'nowrap' }}>{money(billedTotal)}</td>
-                            <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', whiteSpace: 'nowrap' }}>{emp.totals.hrs_worked.toFixed(1)}h / {emp.totals.hrs_scheduled.toFixed(1)}h</td>
-                            <td style={{ ...td, fontWeight: 800, textAlign: 'center', borderTop: '2px solid #E5E2DC' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
-                            {hasQuality && <td style={{ ...td, fontWeight: 800, textAlign: 'center', borderTop: '2px solid #E5E2DC', color: qualityColor(emp.totals.quality_avg) }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>}
-                            <td style={{ ...td, fontWeight: 800, textAlign: 'right', borderTop: '2px solid #E5E2DC', whiteSpace: 'nowrap' }}>
-                              <span style={{ color: 'var(--brand)' }}>${emp.totals.commission.toFixed(2)}</span>
-                              <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 6 }}>{laborPct != null ? `${laborPct}%` : '—'}</span>
+                            <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.job_count} jobs</td>
+                            <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', textAlign: 'right', borderTop: '1.5px solid #D8D5CD', whiteSpace: 'nowrap' }}>{money(billedTotal)}</td>
+                            <td style={{ ...td, fontWeight: 500, color: '#0A0E1A', textAlign: 'right', borderTop: '1.5px solid #D8D5CD', whiteSpace: 'nowrap' }}>{emp.totals.hrs_worked.toFixed(1)}h / {emp.totals.hrs_scheduled.toFixed(1)}h</td>
+                            <td style={{ ...td, fontWeight: 500, color: '#9B9890', textAlign: 'center', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.hrs_worked > 0 && emp.totals.hrs_scheduled > 0 ? `${Math.round((emp.totals.hrs_scheduled / emp.totals.hrs_worked) * 100)}%` : '—'}</td>
+                            {hasQuality && <td style={{ ...td, fontWeight: 500, color: '#9B9890', textAlign: 'center', borderTop: '1.5px solid #D8D5CD' }}>{emp.totals.quality_avg != null ? `${emp.totals.quality_avg.toFixed(1)}/4` : '—'}</td>}
+                            <td style={{ ...td, fontWeight: 500, textAlign: 'right', borderTop: '1.5px solid #D8D5CD', whiteSpace: 'nowrap' }}>
+                              <span style={{ color: '#00A383' }}>${emp.totals.commission.toFixed(2)}</span>
+                              <span style={{ fontSize: 11, fontWeight: 400, color: '#9B9890', marginLeft: 6 }}>{laborPct != null ? `${laborPct}%` : '—'}</span>
                             </td>
                           </tr>
                         </tbody>

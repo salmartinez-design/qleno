@@ -99,6 +99,15 @@ function displayPrice(q: Quote) {
   return `$${parseFloat(p).toFixed(2)}`;
 }
 
+// [crash-fix 2026-06-15] date-fns format() THROWS on a null/invalid date,
+// which took down the whole Quotes page via the error boundary. Guard it so a
+// bad/missing created_at renders "—" instead of crashing the page.
+function safeDate(value: string | null | undefined, fmt = "MMM d, yyyy") {
+  if (!value) return "—";
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? "—" : format(d, fmt);
+}
+
 function SkeletonCard() {
   return (
     <div style={{ borderBottom: "1px solid #F0EEE9", padding: "16px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -301,7 +310,7 @@ export default function QuotesPage() {
                     </div>
                     {/* Row 3: date */}
                     <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
-                      {format(new Date(quote.created_at), "MMM d, yyyy")}
+                      {safeDate(quote.created_at)}
                     </div>
                   </div>
                 );
@@ -416,7 +425,7 @@ export default function QuotesPage() {
                       <TableCell className="text-sm text-[#6B7280] max-w-[180px] truncate">{quote.address || "—"}</TableCell>
                       <TableCell className="text-sm font-semibold text-[#1A1917]">{displayPrice(quote)}</TableCell>
                       <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.className}`}>{cfg.label}</span></TableCell>
-                      <TableCell className="text-sm text-[#9E9B94]">{format(new Date(quote.created_at), "MMM d, yyyy")}</TableCell>
+                      <TableCell className="text-sm text-[#9E9B94]">{safeDate(quote.created_at)}</TableCell>
                       <TableCell onClick={e => e.stopPropagation()}>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>

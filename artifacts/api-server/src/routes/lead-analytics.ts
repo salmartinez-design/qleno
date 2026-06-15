@@ -7,9 +7,10 @@
  *  GET/POST/PATCH/DELETE /api/lead-analytics/spend      — marketing spend.
  *  GET/PUT /api/lead-analytics/targets                  — KPI targets.
  *
- * Booked revenue convention (approved): sum of actual booked jobs' value
- * (billed_amount ?? base_fee) for lead-sourced jobs whose scheduled_date is in
- * the window.
+ * Booked revenue convention (approved 2026-06-15): sum of actual booked jobs'
+ * value (billed_amount ?? base_fee) for lead-sourced jobs, attributed to the
+ * period the lead was BOOKED in (booked_at, falling back to created_at) — not
+ * the job's scheduled_date. Matches standard sales-report attribution.
  */
 
 import { Router } from "express";
@@ -127,14 +128,21 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
       { bucket: "31+ days", count: num(pr.age_31p) },
     ];
 
-    // Booked revenue = lead-sourced jobs whose scheduled_date in window
+    // Booked revenue = actual job value of leads BOOKED in the window.
+    // [revenue-attribution 2026-06-15] Attribute the won deal to WHEN it was
+    // booked (the conversion event), not when the job is scheduled — standard
+    // sales-report convention, and it stops future-dated jobs from
+    // understating the current period. Value still comes from the real job
+    // (billed_amount ?? base_fee). booked_at falls back to created_at for
+    // bookings made without a stage-change timestamp.
     const revRows = await db.execute(sql`
       SELECT COALESCE(SUM(COALESCE(j.billed_amount, j.base_fee, 0)), 0) AS rev
       FROM leads l
       JOIN jobs j ON j.id = l.job_id
       WHERE l.company_id = ${companyId}
-        AND j.scheduled_date >= ${w.from}::date
-        AND j.scheduled_date < (${w.to}::date + interval '1 day')`);
+        AND l.status = 'booked'
+        AND COALESCE(l.booked_at, l.created_at) >= ${w.from}::date
+        AND COALESCE(l.booked_at, l.created_at) < (${w.to}::date + interval '1 day')`);
     const booked_revenue = num((revRows.rows[0] as any)?.rev);
 
     // Marketing spend overlapping the window → CPL / CPA / ROI
