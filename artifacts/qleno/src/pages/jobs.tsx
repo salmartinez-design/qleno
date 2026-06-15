@@ -5942,8 +5942,13 @@ export default function JobsPage() {
     const newLeft = originalLeft + delta.x;
     const newMins = DAY_START + Math.round(newLeft / SLOT_W) * 30;
     const patch: any = { scheduled_time: minsToStr(newMins) };
-    if (empId !== job.assigned_user_id) {
-      patch.assigned_user_id = empId;
+    // [reassign-fix 2026-06-15] A tech change on drag must go through
+    // /reassign-tech (swaps the primary AND syncs job_technicians), NOT the
+    // PUT path — PUT only writes assigned_user_id, leaving the old tech's
+    // job_technicians row behind so the board showed both. PUT here only
+    // carries the time.
+    const techChanged = Number.isFinite(empId) && empId !== job.assigned_user_id;
+    if (techChanged) {
       // Cross-zone warning: if job zone differs from employee's primary zone
       const targetEmployee = data.employees.find(emp => emp.id === empId);
       if (targetEmployee?.zone && job.zone_id && targetEmployee.zone.zone_id !== job.zone_id) {
@@ -5965,8 +5970,19 @@ export default function JobsPage() {
         : prev.unassigned_jobs;
       return { ...prev, employees: newEmployees, unassigned_jobs: newUnassigned };
     });
-    try { await patchJob(job.id, patch, token); }
-    catch { toast({ title: "Failed to update job", variant: "destructive" }); load(); }
+    try {
+      if (techChanged) {
+        const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+        const r = await fetch(`${API}/api/jobs/${job.id}/reassign-tech`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ new_tech_id: empId }),
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Reassign failed"); }
+      }
+      await patchJob(job.id, patch, token);
+    }
+    catch (e) { toast({ title: "Failed to update job", description: (e as Error).message, variant: "destructive" }); load(); }
   }
   function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
 

@@ -1747,6 +1747,10 @@ async function runScopeZoneFix(): Promise<void> {
 // isn't overridden on boot.
 async function runPhesPayCadenceDefault(): Promise<void> {
   await db.execute(sql`UPDATE companies SET pay_cadence = 'weekly' WHERE id = ${PHES} AND pay_cadence <> 'weekly'`);
+  // [casing 2026-06-15] "PHES Schaumburg" reads as shouty in the company
+  // switcher (Sal). Normalize to title case. Idempotent — only the all-caps
+  // variant matches.
+  await db.execute(sql`UPDATE companies SET name = 'Phes Schaumburg' WHERE name = 'PHES Schaumburg'`);
 }
 
 async function runZoneSync(): Promise<void> {

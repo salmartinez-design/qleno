@@ -4412,8 +4412,18 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
     `);
 
     await db.transaction(async (tx) => {
-      // Demote any existing primary (and any row for the new tech that was
-      // sitting at non-primary before today).
+      // [reassign-fix 2026-06-15] REMOVE the primary being replaced — don't
+      // just demote it. Demoting left the old tech on the job as a non-primary
+      // row, so the dispatch board (which fans out a card per job_technicians
+      // row) kept showing them alongside the new tech. Sal: "drag a job from
+      // Juliana to Jose, it adds Jose and keeps Juliana." Genuine helper rows
+      // (any other user_id) are preserved; only the swapped-out primary goes.
+      if (oldAssignedUserId != null) {
+        await tx.execute(sql`
+          DELETE FROM job_technicians WHERE job_id = ${jobId} AND user_id = ${oldAssignedUserId}
+        `);
+      }
+      // Defensive: clear any lingering primary flags before setting the new one.
       await tx.execute(sql`
         UPDATE job_technicians SET is_primary = false
         WHERE job_id = ${jobId}
