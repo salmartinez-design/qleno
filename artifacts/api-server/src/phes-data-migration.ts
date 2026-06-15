@@ -1576,13 +1576,13 @@ async function runBookingSchemaGuard(): Promise<void> {
           LOOP
             DELETE FROM follow_up_steps WHERE sequence_id = seq.id;
             INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template) VALUES
-              (seq.id, 1, 0,   'email', 'Your cleaning quote from Phes', 'Hi {{first_name}}, thank you for reaching out to Phes. Your quote is ready and we would love to get you on the schedule. Reply any time with questions.'),
-              (seq.id, 2, 0,   'sms',   NULL, 'Hi {{first_name}}, this is the Phes office following up on your cleaning quote. Want us to find you a time? Just reply here.'),
-              (seq.id, 3, 24,  'sms',   NULL, 'Hi {{first_name}}, checking in on your Phes quote. Happy to answer any questions or book your first clean whenever you are ready.'),
+              (seq.id, 1, 0,   'email', 'Your cleaning quote from {{company_name}}', 'Hi {{first_name}}, thank you for reaching out to {{company_name}}. Your quote is ready and we would love to get you on the schedule. Reply any time with questions.'),
+              (seq.id, 2, 0,   'sms',   NULL, 'Hi {{first_name}}, this is the {{company_name}} office following up on your cleaning quote. Want us to find you a time? Just reply here.'),
+              (seq.id, 3, 24,  'sms',   NULL, 'Hi {{first_name}}, checking in on your {{company_name}} quote. Happy to answer any questions or book your first clean whenever you are ready.'),
               (seq.id, 4, 48,  'email', 'Still here when you are ready', 'Hi {{first_name}}, just following up on your cleaning quote. We have openings this week and can usually match the day that works best for you. Reply to get started.'),
-              (seq.id, 5, 48,  'sms',   NULL, 'Hi {{first_name}}, the Phes team would still love to help with your cleaning. Want me to hold a spot for you this week?'),
-              (seq.id, 6, 120, 'email', 'A clean home is closer than you think', 'Hi {{first_name}}, we know life gets busy. Your Phes quote is still good and booking only takes a minute. Reply and we will take it from there.'),
-              (seq.id, 7, 192, 'email', 'Closing out your quote', 'Hi {{first_name}}, we will pause our follow-ups for now so we are not crowding your inbox. Whenever you are ready for a cleaning, just reply and we will pick right back up. Thank you from the Phes team.');
+              (seq.id, 5, 48,  'sms',   NULL, 'Hi {{first_name}}, the {{company_name}} team would still love to help with your cleaning. Want me to hold a spot for you this week?'),
+              (seq.id, 6, 120, 'email', 'A clean home is closer than you think', 'Hi {{first_name}}, we know life gets busy. Your {{company_name}} quote is still good and booking only takes a minute. Reply and we will take it from there.'),
+              (seq.id, 7, 192, 'email', 'Closing out your quote', 'Hi {{first_name}}, we will pause our follow-ups for now so we are not crowding your inbox. Whenever you are ready for a cleaning, just reply and we will pick right back up. Thank you from the {{company_name}} team.');
           END LOOP;
         END $$;` },
 
@@ -5466,6 +5466,29 @@ async function runNotificationTemplateSeed() {
     };
 
     const templates: TplDef[] = [
+      // ── 0. BOOKING CONFIRMATION (job_scheduled) ─────────────────────────
+      {
+        trigger: "job_scheduled", channel: "email",
+        subject: "Your cleaning is confirmed — {{appointment_date}}",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 24px">Your cleaning with <strong>{{company_name}}</strong> is confirmed. We look forward to taking care of your home.</p>
+<p style="margin:0 0 8px;font-weight:600;color:#1A1917">Appointment details</p>
+<table style="margin:0 0 20px;font-size:14px;color:#1A1917;border-collapse:collapse">
+  <tr><td style="padding:3px 16px 3px 0;color:#6B6860">Date</td><td style="padding:3px 0;font-weight:600">{{appointment_date}}</td></tr>
+  <tr><td style="padding:3px 16px 3px 0;color:#6B6860">Time</td><td style="padding:3px 0;font-weight:600">{{appointment_time}}</td></tr>
+  <tr><td style="padding:3px 16px 3px 0;color:#6B6860">Service</td><td style="padding:3px 0;font-weight:600">{{service_type}}</td></tr>
+  <tr><td style="padding:3px 16px 3px 0;color:#6B6860">Address</td><td style="padding:3px 0;font-weight:600">{{service_address}}</td></tr>
+</table>
+<p style="margin:0 0 8px;font-weight:600;color:#1A1917">What to expect</p>
+<p style="margin:0 0 20px;color:#1A1917">Our team arrives within your scheduled window with all supplies. Please have countertops cleared, pets secured, and your entry method ready (key, code, or be home). Running water and electricity should be available.</p>
+<p style="margin:0 0 8px;font-weight:600;color:#1A1917">Cancellation &amp; reschedule policy</p>
+<p style="margin:0 0 20px;color:#1A1917">We require 48 business hours notice to cancel or reschedule (Sundays do not count). Monday appointments: notify us by Friday 6 PM CT; Tuesday: by Saturday noon CT. Cancellations within 48 hours, lockouts, or no-shows are charged 100% of the service fee. One reschedule per appointment.</p>
+<p style="margin:0 0 8px;font-weight:600;color:#1A1917">Our satisfaction guarantee</p>
+<p style="margin:0 0 24px;color:#1A1917">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no charge. As a labor-based service we do not offer refunds &mdash; the re-clean is our remedy.</p>
+<p style="margin:0 0 4px;color:#1A1917">Questions? Call or text <strong>{{company_phone}}</strong> or email <strong>{{company_email}}</strong>.</p>
+<p style="margin:24px 0 0">The {{company_name}} Team</p>`,
+        body_text: "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for {{appointment_date}} at {{appointment_time}} — {{service_type}} at {{service_address}}. 48-hour notice required to reschedule (Sundays excluded). Questions? {{company_phone}}. — The {{company_name}} Team",
+      },
       // ── 1. REMINDER 3 DAY ───────────────────────────────────────────────
       {
         trigger: "reminder_3day", channel: "email",
@@ -5808,14 +5831,14 @@ async function runNotificationTemplateSeed() {
     const seqAId = (seqA.rows[0] as any).id;
 
     const quoteSteps = [
-      { step_number: 1, delay_hours: 0,   channel: 'email', subject: 'Your Phes Cleaning Estimate',
-        message_template: 'Hi {{first_name}}, thank you for reaching out to Phes. Your estimate is attached. We would love to get you scheduled — reply to this email or call us at (773) 706-6000 with any questions.' },
+      { step_number: 1, delay_hours: 0,   channel: 'email', subject: 'Your {{company_name}} Cleaning Estimate',
+        message_template: 'Hi {{first_name}}, thank you for reaching out to {{company_name}}. Your estimate is attached. We would love to get you scheduled — reply to this email or call us at (773) 706-6000 with any questions.' },
       { step_number: 2, delay_hours: 24,  channel: 'sms', subject: null,
-        message_template: 'Hi {{first_name}}, this is the Phes office checking in on your cleaning estimate. Any questions? Reply here or call (773) 706-6000.' },
+        message_template: 'Hi {{first_name}}, this is the {{company_name}} office checking in on your cleaning estimate. Any questions? Reply here or call (773) 706-6000.' },
       { step_number: 3, delay_hours: 72,  channel: 'email', subject: 'Still thinking it over?',
         message_template: 'Hi {{first_name}}, we wanted to follow up on your estimate. We have availability coming up and would love to hold a spot for you. Reply here or call us at (773) 706-6000.' },
       { step_number: 4, delay_hours: 168, channel: 'sms', subject: null,
-        message_template: 'Hi {{first_name}}, last check-in from Phes. We are still here when you are ready — call or text (773) 706-6000 anytime.' },
+        message_template: 'Hi {{first_name}}, last check-in from {{company_name}}. We are still here when you are ready — call or text (773) 706-6000 anytime.' },
     ];
     for (const st of quoteSteps) {
       await db.execute(sql`
@@ -5834,17 +5857,17 @@ async function runNotificationTemplateSeed() {
 
     const retentionSteps = [
       { step_number: 1, delay_hours: 2,    channel: 'sms', subject: null,
-        message_template: 'Hi {{first_name}}, your Phes team just finished up. How did everything look? Reply here and let us know.' },
+        message_template: 'Hi {{first_name}}, your {{company_name}} team just finished up. How did everything look? Reply here and let us know.' },
       { step_number: 2, delay_hours: 720,  channel: 'email', subject: 'Time for your next clean?',
-        message_template: 'Hi {{first_name}}, it has been about a month since your last Phes cleaning. Ready to get back on the schedule? Reply here or book online at phes.io.' },
+        message_template: 'Hi {{first_name}}, it has been about a month since your last {{company_name}} cleaning. Ready to get back on the schedule? Reply here or book online at phes.io.' },
       { step_number: 3, delay_hours: 1440, channel: 'sms', subject: null,
         message_template: 'Hi {{first_name}}, it has been about two months since your last clean. We would love to have you back — call or text us at (773) 706-6000.' },
       { step_number: 4, delay_hours: 2160, channel: 'email', subject: 'We miss you',
-        message_template: 'Hi {{first_name}}, it has been three months since your last Phes cleaning. We would love to reconnect and get your home back on schedule. Reply here or call (773) 706-6000.' },
+        message_template: 'Hi {{first_name}}, it has been three months since your last {{company_name}} cleaning. We would love to reconnect and get your home back on schedule. Reply here or call (773) 706-6000.' },
       { step_number: 5, delay_hours: 4320, channel: 'sms', subject: null,
         message_template: 'Hi {{first_name}}, six months is a long time between cleans. We are here whenever you are ready — (773) 706-6000.' },
       { step_number: 6, delay_hours: 8760, channel: 'email', subject: 'It has been a year',
-        message_template: 'Hi {{first_name}}, it has been a full year since your last Phes cleaning. We would love to earn your business back. Reply here or call (773) 706-6000 — we will make it right.' },
+        message_template: 'Hi {{first_name}}, it has been a full year since your last {{company_name}} cleaning. We would love to earn your business back. Reply here or call (773) 706-6000 — we will make it right.' },
     ];
     for (const st of retentionSteps) {
       await db.execute(sql`
