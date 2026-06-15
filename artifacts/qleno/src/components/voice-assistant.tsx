@@ -7,8 +7,9 @@ import { Mic, X, Navigation, Loader2, Volume2 } from "lucide-react";
 // right-edge row controls that the floating mic would overlap (message-thread
 // Send button, dispatch list rows). The FAB is suppressed on these so it can
 // never sit on top of an interactive control. Prefix-matched, route-based
-// (not tenant data) so this stays multi-tenant safe.
-const FAB_HIDDEN_ROUTES = ["/messages", "/jobs"];
+// (not tenant data) so this stays multi-tenant safe. Note: the dispatch board
+// is /dispatch (JobsPage); /jobs only redirects to the reports list.
+const FAB_HIDDEN_ROUTES = ["/messages", "/dispatch"];
 
 // [voice-assistant 2026-06-08] Push-to-talk field assistant for techs. Browser
 // speech-to-text captures the spoken question, POSTs it to /api/assistant/ask
