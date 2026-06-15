@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -56,6 +56,7 @@ const NAV_SECTIONS = [
       // MULTI_URL_HIGHLIGHT below.
       { title: "Jobs",      url: "/dispatch",  icon: Briefcase },
       { title: "Customers", url: "/customers", icon: Users },
+      { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office"] },
       { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office"] },
     ],
   },
