@@ -309,8 +309,9 @@ export default function JobsListPage() {
           </div>
         </div>
 
-        {/* KPI Strip */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 16, marginBottom: 24 }}>
+        {/* KPI Strip — auto-fit so it wraps to 2–3 per row on phones instead of
+            forcing 5 wide columns off-screen. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 24 }}>
           {[
             { label: "REVENUE", value: kpi ? `${fmtMoney(kpi.revenue_min)} \u2013 ${fmtMoney(kpi.revenue_max)}` : "\u2014", accent: true },
             { label: "COMPLETED", value: kpi?.completed?.toLocaleString() ?? "\u2014" },
