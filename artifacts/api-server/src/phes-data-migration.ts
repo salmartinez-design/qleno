@@ -1504,6 +1504,22 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "notifications user idx", stmt:
       `CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications (company_id, user_id, read)` },
 
+    // Per-user notification preferences. NULL column = use role default; explicit
+    // true/false = the user's choice. Categories: messages / new_jobs / job_changes.
+    // Channels: in-app / email.
+    { label: "CREATE notification_prefs", stmt: `
+      CREATE TABLE IF NOT EXISTS notification_prefs (
+        user_id           INTEGER PRIMARY KEY,
+        company_id        INTEGER,
+        messages_inapp    BOOLEAN,
+        messages_email    BOOLEAN,
+        new_jobs_inapp    BOOLEAN,
+        new_jobs_email    BOOLEAN,
+        job_changes_inapp BOOLEAN,
+        job_changes_email BOOLEAN,
+        updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
+      )` },
+
     // Two-way SMS — unified conversation store (inbound + outbound, leads + clients).
     { label: "CREATE sms_messages", stmt: `
       CREATE TABLE IF NOT EXISTS sms_messages (

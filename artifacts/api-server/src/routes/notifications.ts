@@ -195,4 +195,41 @@ router.patch("/inbox/:id/read", requireAuth, async (req, res) => {
   }
 });
 
+// ── GET /api/notifications/settings — this user's effective prefs ──────────────
+router.get("/settings", requireAuth, async (req, res) => {
+  try {
+    const { getEffectivePrefs } = await import("../lib/notify-prefs.js");
+    const prefs = await getEffectivePrefs(req.auth!.userId!);
+    return res.json(prefs);
+  } catch (err) {
+    console.error("GET /notifications/settings:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PUT /api/notifications/settings — upsert this user's prefs ─────────────────
+router.put("/settings", requireAuth, async (req, res) => {
+  try {
+    const userId = req.auth!.userId!;
+    const companyId = req.auth!.companyId!;
+    const b = req.body ?? {};
+    const bool = (v: any) => (v === true ? true : v === false ? false : null);
+    await db.execute(sql`
+      INSERT INTO notification_prefs
+        (user_id, company_id, messages_inapp, messages_email, new_jobs_inapp, new_jobs_email, job_changes_inapp, job_changes_email, updated_at)
+      VALUES (${userId}, ${companyId}, ${bool(b.messages_inapp)}, ${bool(b.messages_email)},
+              ${bool(b.new_jobs_inapp)}, ${bool(b.new_jobs_email)}, ${bool(b.job_changes_inapp)}, ${bool(b.job_changes_email)}, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET
+        messages_inapp = EXCLUDED.messages_inapp, messages_email = EXCLUDED.messages_email,
+        new_jobs_inapp = EXCLUDED.new_jobs_inapp, new_jobs_email = EXCLUDED.new_jobs_email,
+        job_changes_inapp = EXCLUDED.job_changes_inapp, job_changes_email = EXCLUDED.job_changes_email,
+        updated_at = NOW()`);
+    const { getEffectivePrefs } = await import("../lib/notify-prefs.js");
+    return res.json(await getEffectivePrefs(userId));
+  } catch (err) {
+    console.error("PUT /notifications/settings:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 export default router;

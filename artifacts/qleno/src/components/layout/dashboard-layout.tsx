@@ -1121,6 +1121,13 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                         <KeyRound size={15} style={{ color: '#6B7280' }} />
                         Change Password
                       </button>
+                      <button
+                        onClick={() => { setUserDropOpen(false); setLocation('/settings/notifications'); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#1A1917' }}
+                      >
+                        <Bell size={15} style={{ color: '#6B7280' }} />
+                        Notification settings
+                      </button>
                       <div style={{ height: 1, background: '#F0EDEA', margin: '2px 0' }} />
                       <button
                         onClick={() => { setUserDropOpen(false); logout(); }}
