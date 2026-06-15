@@ -5,15 +5,18 @@ import {
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { appBaseUrl } from "../lib/app-url.js";
 import crypto from "crypto";
 
 const router = Router();
 
 // ─── Helper: get app base URL ─────────────────────────────────────────────────
+// Delegates to the single source of truth (APP_BASE_URL → https://app.qleno.com).
+// The previous implementation had an operator-precedence bug: `A || B ? C : D`
+// parsed as `(A || B) ? C : D`, so it returned the Replit domain even when
+// APP_URL was set, and never returned APP_URL at all.
 function getAppBaseUrl(): string {
-  return process.env.APP_URL || process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : "http://localhost:5173";
+  return appBaseUrl();
 }
 
 // ─── POST /payment-links — create & optionally send ───────────────────────────
@@ -105,7 +108,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       const toPhone = client.billing_contact_phone || client.phone;
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-      const twilioFrom = company.twilio_from_number || process.env.TWILIO_FROM_NUMBER;
+      const twilioFrom = company.twilio_from_number; // per-tenant only — no global-env fallback
       if (!twilioSid || !twilioToken || !twilioFrom || !toPhone) {
         console.warn("Twilio not configured or no phone — skipping SMS");
       } else {

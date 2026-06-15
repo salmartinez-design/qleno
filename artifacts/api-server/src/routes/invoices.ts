@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
 import { sendNotification } from "../services/notificationService.js";
+import { appBaseUrl } from "../lib/app-url.js";
 
 const router = Router();
 
@@ -444,7 +445,11 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
 
     const companyId = req.auth!.companyId;
     const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
-    const invLink = `https://clean-ops-pro.replit.app/pay/${invoiceId}`;
+    // TODO(invoice-pay-token): the public /pay route resolves a payment_links
+    // token, not a bare invoice id. Wiring invoice-send to mint a payment_links
+    // row (Stripe setup-intent) is a separate task; for now this is on the
+    // correct domain (no more Replit) but still id-based.
+    const invLink = `${appBaseUrl()}/pay/${invoiceId}`;
     const mergeVars = {
       first_name:       client?.first_name || "",
       invoice_number:   invNum,
@@ -500,7 +505,7 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
       } else {
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
-      const payLink = `https://clean-ops-pro.replit.app/pay/${invoiceId}`;
+      const payLink = `${appBaseUrl()}/pay/${invoiceId}`;
       await resend.emails.send({
         from: "notifications@phes.io",
         to: clientEmail,

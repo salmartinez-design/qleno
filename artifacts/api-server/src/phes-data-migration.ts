@@ -1493,6 +1493,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "companies.is_internal",
       stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS is_internal boolean NOT NULL DEFAULT false` },
 
+    { label: "companies.lead_notify_email",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS lead_notify_email text` },
+    { label: "companies.lead_notify_phone",
+      stmt: `ALTER TABLE companies ADD COLUMN IF NOT EXISTS lead_notify_phone text` },
+
     // ── Leads PR4 — cost / KPI reporting tables ───────────────────────────────
     // Marketing spend per channel + period → CPL / CPA / ROI.
     { label: "marketing_spend table",

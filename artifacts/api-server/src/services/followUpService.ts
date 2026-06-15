@@ -7,6 +7,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { getBranchByZip } from "../lib/branchRouter.js";
+import { appBaseUrl } from "../lib/app-url.js";
 
 // ── Merge field resolver ───────────────────────────────────────────────────────
 function resolveMergeFields(template: string, vars: Record<string, string>): string {
@@ -68,18 +69,32 @@ async function companyFromAddress(companyId: number): Promise<string> {
   } catch { return "Phes Cleaning <noreply@phes.io>"; }
 }
 
-async function sendEmailRaw(to: string, subject: string, body: string, fromAddress = "Phes Cleaning <noreply@phes.io>"): Promise<string | null> {
+interface EmailBrand { companyName?: string | null; phone?: string | null; email?: string | null }
+
+async function sendEmailRaw(
+  to: string, subject: string, body: string,
+  fromAddress = "Phes Cleaning <noreply@phes.io>",
+  brand?: EmailBrand,
+): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
   const { Resend } = await import("resend");
   const resend = new Resend(key);
+  const brandName  = brand?.companyName || "Phes Cleaning";
+  const brandPhone = brand?.phone || "(773) 706-6000";
+  const brandEmail = brand?.email || "info@phes.io";
+  // A body that already starts with a block tag is rich HTML (e.g. the quote
+  // email) — inject it verbatim. Plain-text bodies get newline→<br> + a <p>.
+  const inner = /^\s*</.test(body)
+    ? body
+    : `<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 20px;">${body.replace(/\n/g, "<br>")}</p>`;
   const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
 <div style="background:#5B9BD5;padding:14px 20px;border-radius:4px;margin-bottom:24px;">
-  <span style="color:#fff;font-size:16px;font-weight:bold;">Phes Cleaning</span>
+  <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
 </div>
-<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 20px;">${body.replace(/\n/g, "<br>")}</p>
-<p style="font-size:13px;color:#9E9B94;margin:0;">Phes Cleaning &mdash; (773) 706-6000 &mdash; info@phes.io</p>
+${inner}
+<p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &mdash; ${brandPhone} &mdash; ${brandEmail}</p>
 </div></div>`;
   const res: any = await resend.emails.send({
     from: fromAddress,
@@ -97,12 +112,51 @@ async function sendEmailRaw(to: string, subject: string, body: string, fromAddre
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string, fromAddress?: string): Promise<void> {
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
     return;
   }
-  await sendEmailRaw(to, subject, body, fromAddress);
+  await sendEmailRaw(to, subject, body, fromAddress, brand);
+}
+
+// Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
+// Pulls the quote's public sign_token (→ the customer-facing estimate page),
+// total, line items, address, contact + the tenant's company/brand info so the
+// MaidCentral-styled quote email renders fully on BOTH the cron and send-one
+// paths. Returns extra vars merged on top of the base {first_name, company_name}.
+async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
+  const r = await db.execute(sql`
+    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.addons,
+           q.sign_token, q.lead_email, q.lead_phone,
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email
+    FROM quotes q JOIN companies c ON c.id = q.company_id
+    WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
+  `);
+  const q: any = r.rows[0];
+  if (!q) return {};
+  const total = q.total_price ?? q.base_price ?? "0";
+  const link = q.sign_token ? `${appBaseUrl()}/estimate/${q.sign_token}` : `${appBaseUrl()}/estimate`;
+  const addons = Array.isArray(q.addons) ? q.addons : [];
+  const rows: string[] = [];
+  if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);
+  for (const a of addons) {
+    const amt = a?.amount ?? a?.price;
+    rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
+  }
+  const lineItems = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
+  return {
+    company_name:    q.company_name || "Phes",
+    company_phone:   q.company_phone || "(773) 706-6000",
+    company_email:   q.company_email || "info@phes.io",
+    estimate_link:   link,
+    quote_number:    String(q.id),
+    quote_total:     Number(total).toFixed(2),
+    service_address: q.address || "",
+    customer_email:  q.lead_email || "",
+    customer_phone:  q.lead_phone || "",
+    line_items:      lineItems,
+  };
 }
 
 // ── Enroll for quote follow-up ─────────────────────────────────────────────────
@@ -356,8 +410,12 @@ async function processEnrollment(enr: any): Promise<void> {
     first_name:   firstName,
     company_name: "Phes",
   };
+  // Quote-tied enrollments (the quote email/SMS) get the full quote merge set:
+  // public estimate link, total, itemized line items, address, contact, brand.
+  if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(enr.company_id, enr.quote_id));
   const body    = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
+  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
 
   let sendStatus = "sent";
   let sendError  = "";
@@ -382,7 +440,7 @@ async function processEnrollment(enr: any): Promise<void> {
         sendError  = sender.reason || "branch_comms_disabled";
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
-        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id));
+        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand);
       }
     } else {
       sendStatus = "failed";
@@ -478,9 +536,11 @@ export async function sendSingleEnrollmentTouch(
     const t = await db.execute(sql`SELECT body, subject FROM message_templates WHERE id = ${step.template_id} AND company_id = ${companyId} AND active = true LIMIT 1`);
     if (t.rows.length) { rawBody = (t.rows[0] as any).body || rawBody; rawSubject = (t.rows[0] as any).subject || rawSubject; }
   }
-  const mergeVars = { first_name: firstName, company_name: "Phes" };
+  const mergeVars: Record<string, string> = { first_name: firstName, company_name: "Phes" };
+  if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
   const body = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
+  const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
 
   // ── Send the touch. EMAIL → Resend raw; SMS → Twilio raw via the saved
   //    company creds + branch from-number. BOTH bypass the global COMMS_ENABLED
@@ -494,7 +554,7 @@ export async function sendSingleEnrollmentTouch(
     if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
     recipient = recipientEmail;
     try {
-      providerId = await sendEmailRaw(recipientEmail, subject, body, await companyFromAddress(companyId));
+      providerId = await sendEmailRaw(recipientEmail, subject, body, await companyFromAddress(companyId), emailBrand);
     } catch (e: any) {
       logStatus = "failed"; logErr = e?.message || "email_send_error";
     }

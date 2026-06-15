@@ -873,17 +873,18 @@ router.post("/:id/communications/sms", requireAuth, async (req, res) => {
     const clientId = parseInt(req.params.id);
     const { to, message } = req.body;
     let twilioResult = null;
-    if (process.env.COMMS_ENABLED !== "true") {
-      console.log("[COMMS BLOCKED] Client SMS suppressed:", { to, message: message?.substring(0, 80) });
-    } else if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
-      try {
-        const fromNum = process.env.TWILIO_FROM_NUMBER || "";
-        const url = `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`;
-        const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
-        const body = new URLSearchParams({ To: to, From: fromNum, Body: message });
-        const r = await fetch(url, { method: "POST", headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" }, body });
-        twilioResult = await r.json();
-      } catch { /* log but don't fail */ }
+    // Per-tenant send only — resolveSender(companyId) picks THIS company's creds
+    // + from-number (full gate ladder). No global-env number.
+    try {
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(req.auth!.companyId, null);
+      if (sender.reason) {
+        console.log("[clients] Client SMS suppressed:", sender.reason);
+      } else {
+        twilioResult = await sendSmsVia(sender, to, message);
+      }
+    } catch (e: any) {
+      console.error("[clients] Client SMS error:", e?.message || e);
     }
     const [comm] = await db.insert(clientCommunicationsTable).values({
       company_id: req.auth!.companyId, client_id: clientId,

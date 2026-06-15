@@ -3,6 +3,7 @@ import { notificationTemplatesTable, notificationLogTable, clientsTable, compani
 import { eq, and, sql } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
+import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
@@ -47,27 +48,18 @@ ${contentHtml}
 }
 
 // ── Twilio SMS sender ─────────────────────────────────────────────────────────
-async function sendTwilioSms(to: string, body: string): Promise<void> {
-  if (process.env.COMMS_ENABLED !== "true") {
-    console.log("[COMMS BLOCKED] SMS suppressed:", { to, body: body.substring(0, 80) });
+// Per-tenant ONLY. Resolves the company's own creds + from-number via
+// resolveSender(companyId) and sends through sendSmsVia. The old global-env
+// path (process.env.TWILIO_FROM_NUMBER = the Oak Lawn / MaidCentral number
+// +17737869902) is GONE — Qleno must never send from a shared global number
+// again. Honors the full gate ladder (global + company + twilio + creds + from).
+async function sendTenantSms(companyId: number, to: string, body: string): Promise<void> {
+  const sender = await resolveSender(companyId, null);
+  if (sender.reason) {
+    console.log(`[COMMS BLOCKED] SMS suppressed (${sender.reason}) company=${companyId} to=${to}`);
     return;
   }
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  const from       = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !from) throw new Error("Twilio not configured");
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: from, Body: body }).toString(),
-  });
-  if (!res.ok) {
-    const err: any = await res.json();
-    throw new Error(err?.message || "Twilio error");
-  }
+  await sendSmsVia(sender, to, body);
 }
 
 // ── Core send function ───────────────────────────────────────────────────────
@@ -168,13 +160,11 @@ export async function sendNotification(
         await logNotification(companyId, "no-phone", channel, templateKey, "skipped", "No recipient phone", fullVars);
         return;
       }
-      if (!process.env.TWILIO_ACCOUNT_SID) {
-        await logNotification(companyId, recipientPhone, channel, templateKey, "skipped", "Twilio not configured", fullVars);
-        return;
-      }
 
       const bodyText = applyMerge(tpl.body_text || tpl.body || "", fullVars);
-      await sendTwilioSms(recipientPhone, bodyText);
+      // Per-tenant send only — resolveSender(companyId) picks THIS company's
+      // creds + from-number. Never the global env number.
+      await sendTenantSms(companyId, recipientPhone, bodyText);
     }
 
   } catch (err: any) {

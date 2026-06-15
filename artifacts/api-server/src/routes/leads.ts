@@ -418,37 +418,44 @@ export async function fireOfficeNotification(
   const fullName = [firstName, lastName].filter(Boolean).join(" ");
   const smsBody = `New lead — ${fullName} — ${source}${phone ? ` — ${phone}` : ""}. Log in to review.`;
 
-  try {
-    const accountSid = process.env.TWILIO_ACCOUNT_SID;
-    const authToken  = process.env.TWILIO_AUTH_TOKEN;
-    const from       = process.env.TWILIO_FROM_NUMBER;
-    const officeNum  = "+17737869902";
-    if (accountSid && authToken && from) {
-      const smsRes = await fetch(
-        `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: "Basic " + Buffer.from(`${accountSid}:${authToken}`).toString("base64"),
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({ To: officeNum, From: from, Body: smsBody }).toString(),
-        }
-      );
-      if (!smsRes.ok) console.error("[leads] Twilio SMS failed:", await smsRes.text());
+  // Per-tenant routing. Email goes TO companies.lead_notify_email FROM
+  // companies.email_from_address; SMS goes TO companies.lead_notify_phone FROM
+  // the tenant's own number via resolveSender. NOTHING is hardcoded to Oak Lawn
+  // anymore (the old +17737869902 / info@phes.io / global-env Twilio path is
+  // gone), so a Schaumburg lead never alerts the Oak Lawn office.
+  const cfgRows = await db.execute(sql`
+    SELECT email_from_address, lead_notify_email, lead_notify_phone, email AS company_email
+    FROM companies WHERE id = ${companyId} LIMIT 1
+  `);
+  const cfg: any = cfgRows.rows[0] ?? {};
+  const notifyEmail = cfg.lead_notify_email || cfg.company_email || null;
+  const notifyPhone = cfg.lead_notify_phone || null;
+  const fromAddr = cfg.email_from_address ? `Qleno <${cfg.email_from_address}>` : "Qleno <noreply@phes.io>";
+
+  // Internal office SMS — only when a per-tenant alert number is configured,
+  // routed through resolveSender (tenant creds + from-number, full gate ladder).
+  if (notifyPhone) {
+    try {
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(companyId, null);
+      if (sender.reason) {
+        console.log(`[leads] office SMS suppressed (${sender.reason}) company=${companyId}`);
+      } else {
+        await sendSmsVia(sender, notifyPhone, smsBody);
+      }
+    } catch (err) {
+      console.error("[leads] office SMS error:", err);
     }
-  } catch (err) {
-    console.error("[leads] office SMS error:", err);
   }
 
   try {
     const resendKey = process.env.RESEND_API_KEY;
-    if (resendKey) {
+    if (resendKey && notifyEmail) {
       const { Resend } = await import("resend");
       const resend = new Resend(resendKey);
       await resend.emails.send({
-        from: "Qleno <noreply@phes.io>",
-        to: ["info@phes.io"],
+        from: fromAddr,
+        to: [notifyEmail],
         subject: `New Lead: ${fullName}`,
         html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
