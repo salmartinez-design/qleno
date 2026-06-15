@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -45,6 +45,13 @@ export default function MessagesPage() {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  // Compose ("New message") state
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [cQuery, setCQuery] = useState("");
+  const [cResults, setCResults] = useState<{ type: string; id: number; name: string | null; phone: string }[]>([]);
+  const [cPick, setCPick] = useState<{ type: string; id: number; name: string | null; phone: string } | null>(null);
+  const [cBody, setCBody] = useState("");
+  const [cSending, setCSending] = useState(false);
 
   const loadConvos = useCallback(async () => {
     try {
@@ -100,15 +107,66 @@ export default function MessagesPage() {
     finally { setSending(false); }
   }
 
+  // ── Compose: recipient search (clients + leads) ──────────────────────────────
+  useEffect(() => {
+    if (!composeOpen || cPick || cQuery.trim().length < 2) { setCResults([]); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API}/api/sms/contact-search?q=${encodeURIComponent(cQuery.trim())}`, { headers: getAuthHeaders() });
+        if (r.ok && alive) setCResults(await r.json());
+      } catch { /* silent */ }
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [cQuery, cPick, composeOpen]);
+
+  function openCompose() { setComposeOpen(true); setCQuery(""); setCResults([]); setCPick(null); setCBody(""); }
+  const rawDigits = cQuery.replace(/\D/g, "");
+  const canUseRaw = !cPick && rawDigits.length >= 10;
+  const composeRecipientPhone = cPick ? cPick.phone : (canUseRaw ? cQuery.trim() : null);
+
+  async function sendCompose() {
+    if (!composeRecipientPhone || !cBody.trim() || cSending) return;
+    setCSending(true);
+    try {
+      const payload: any = { contact_phone: composeRecipientPhone, message: cBody.trim() };
+      if (cPick?.type === "client") payload.client_id = cPick.id;
+      if (cPick?.type === "lead") payload.lead_id = cPick.id;
+      const r = await fetch(`${API}/api/sms/send`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.sent) toast({ title: "Sent" });
+      else if (r.ok && !d.sent) toast({ title: "Not sent", description: `Comms paused (${d.reason || "gated"}) — recorded only`, variant: "destructive" as any });
+      else { toast({ title: "Failed to send", variant: "destructive" as any }); setCSending(false); return; }
+      // Open the (new or existing) conversation threaded by contact_phone.
+      const p10 = composeRecipientPhone.replace(/\D/g, "").slice(-10);
+      const convo: Convo = {
+        contact_phone: p10, last_at: new Date().toISOString(), last_body: cBody.trim(), last_dir: "outbound",
+        unread: 0, client_id: cPick?.type === "client" ? cPick.id : null, lead_id: cPick?.type === "lead" ? cPick.id : null,
+        name: cPick?.name ?? null,
+      };
+      setComposeOpen(false);
+      setActive(convo); loadThread(convo); loadConvos();
+    } catch { toast({ title: "Failed to send", variant: "destructive" as any }); }
+    finally { setCSending(false); }
+  }
+
   const showList = !isMobile || !active;
   const showThread = !isMobile || !!active;
 
   return (
     <DashboardLayout>
       <div style={{ fontFamily: FF, height: "calc(100vh - 120px)", display: "flex", flexDirection: "column" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, color: INK, margin: "0 0 14px", display: "flex", alignItems: "center", gap: 8 }}>
-          <MessageSquare size={20} /> Messages
-        </h1>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 14px" }}>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: INK, margin: 0, display: "flex", alignItems: "center", gap: 8 }}>
+            <MessageSquare size={20} /> Messages
+          </h1>
+          <button onClick={openCompose}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 14px", background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
+            <Plus size={16} /> New message
+          </button>
+        </div>
         <div style={{ display: "flex", flex: 1, gap: 14, minHeight: 0 }}>
 
           {/* Conversation list */}
@@ -192,6 +250,65 @@ export default function MessagesPage() {
           )}
         </div>
       </div>
+
+      {/* Compose / New message modal (desktop + mobile) */}
+      {composeOpen && (
+        <div onClick={() => setComposeOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", padding: isMobile ? 0 : 18, zIndex: 60 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#fff", borderRadius: isMobile ? "16px 16px 0 0" : 16, padding: "20px 20px 18px", width: "100%", maxWidth: 460, fontFamily: FF }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: 0 }}>New message</p>
+              <button onClick={() => setComposeOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }}><X size={18} color={MUTE} /></button>
+            </div>
+
+            {/* Recipient */}
+            {cPick ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, marginBottom: 12, background: "#F7F6F3" }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>{cPick.name || fmtPhone(cPick.phone)}</div>
+                  <div style={{ fontSize: 12, color: MUTE }}>{fmtPhone(cPick.phone)} · {cPick.type === "client" ? "Client" : "Lead"}</div>
+                </div>
+                <button onClick={() => { setCPick(null); setCQuery(""); }} style={{ border: "none", background: "transparent", cursor: "pointer" }}><X size={16} color={MUTE} /></button>
+              </div>
+            ) : (
+              <div style={{ position: "relative", marginBottom: 12 }}>
+                <input value={cQuery} onChange={e => setCQuery(e.target.value)} autoFocus
+                  placeholder="To: search client/lead or type a phone number"
+                  style={{ width: "100%", padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, boxSizing: "border-box" }} />
+                {(cResults.length > 0 || canUseRaw) && (
+                  <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, marginTop: 6, maxHeight: 200, overflowY: "auto" }}>
+                    {cResults.map(r => (
+                      <button key={`${r.type}-${r.id}`} onClick={() => { setCPick(r); setCResults([]); }}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", borderBottom: `1px solid ${BORDER}`, background: "#fff", cursor: "pointer", fontFamily: FF }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: INK }}>{r.name || fmtPhone(r.phone)}</span>
+                        <span style={{ fontSize: 12, color: MUTE }}> · {fmtPhone(r.phone)} · {r.type === "client" ? "Client" : "Lead"}</span>
+                      </button>
+                    ))}
+                    {canUseRaw && (
+                      <button onClick={() => setCPick({ type: "raw", id: 0, name: null, phone: cQuery.trim() })}
+                        style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", border: "none", background: "#fff", cursor: "pointer", fontFamily: FF }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: BRAND }}>Text {fmtPhone(cQuery.trim())}</span>
+                        <span style={{ fontSize: 12, color: MUTE }}> · new number</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <textarea value={cBody} onChange={e => setCBody(e.target.value)} placeholder="Type your message…" rows={4}
+              style={{ width: "100%", resize: "none", padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, boxSizing: "border-box", marginBottom: 12 }} />
+
+            <button onClick={sendCompose} disabled={!composeRecipientPhone || !cBody.trim() || cSending}
+              style={{ width: "100%", height: 46, background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontSize: 15, fontWeight: 800,
+                cursor: composeRecipientPhone && cBody.trim() && !cSending ? "pointer" : "default", opacity: composeRecipientPhone && cBody.trim() && !cSending ? 1 : 0.5,
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontFamily: FF }}>
+              <Send size={16} /> {cSending ? "Sending…" : "Send message"}
+            </button>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
