@@ -14,10 +14,13 @@ const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
   try {
+    // Active branches only — deactivated branches (e.g. the legacy co1
+    // "Schaumburg" satellite, now its own tenant co4) must not appear in the
+    // switcher or any branch picker.
     const branches = await db
       .select()
       .from(branchesTable)
-      .where(eq(branchesTable.company_id, req.auth!.companyId))
+      .where(and(eq(branchesTable.company_id, req.auth!.companyId), eq(branchesTable.is_active, true)))
       .orderBy(branchesTable.name);
     res.json(branches);
   } catch (err) {

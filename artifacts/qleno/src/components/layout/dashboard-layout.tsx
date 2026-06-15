@@ -72,6 +72,7 @@ const BOTTOM_TABS_MANAGER = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
   { href: '/dispatch',  icon: CalendarDays,    label: 'Schedule' },
   { href: '/customers', icon: Users,            label: 'Customers' },
+  { href: '/messages',  icon: MessageSquare,    label: 'Messages' },
 ];
 
 const BOTTOM_TABS_TECH = [
@@ -85,7 +86,6 @@ function getBottomTabs(role?: string) {
 }
 
 const MORE_CARDS = [
-  { title: 'Messages',       href: '/messages',           icon: MessageSquare },
   { title: 'Employees',      href: '/employees',         icon: UserCheck   },
   { title: 'Invoices',       href: '/invoices',           icon: FileText    },
   { title: 'Payroll',        href: '/payroll',            icon: DollarSign  },
@@ -493,6 +493,26 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
   );
 }
 
+// Unread SMS count for the Messages bottom-nav badge (office/manager only).
+function useSmsUnread(role: string | undefined) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (role === "technician") return;
+    let alive = true;
+    const fetch_ = async () => {
+      try {
+        const r = await fetch(`${API}/api/sms/unread-count`, { headers: getAuthHeaders() });
+        const d = await r.json();
+        if (alive) setCount(d.unread || 0);
+      } catch {}
+    };
+    fetch_();
+    const iv = setInterval(fetch_, 15000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [role]);
+  return count;
+}
+
 function useUnreadCount(userId: number | undefined) {
   const [count, setCount] = useState(0);
   useEffect(() => {
@@ -511,11 +531,30 @@ function useUnreadCount(userId: number | undefined) {
   return count;
 }
 
-// Set to false once COMMS_ENABLED=true is set on the API server
-const COMMS_PAUSED = true;
+// Per-tenant comms state — the banner shows only when THIS tenant can't send
+// (global master off OR company.comms_enabled false). No hardcoded flag, so a
+// live tenant (e.g. PHES Schaumburg) never shows a misleading "paused" banner.
+function useCommsPaused() {
+  const [paused, setPaused] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const fetch_ = async () => {
+      try {
+        const r = await fetch(`${API}/api/comms-status`, { headers: getAuthHeaders() });
+        const d = await r.json();
+        if (alive) setPaused(!!d.paused);
+      } catch { /* leave as-is on error */ }
+    };
+    fetch_();
+    const iv = setInterval(fetch_, 30000);
+    return () => { alive = false; clearInterval(iv); };
+  }, []);
+  return paused;
+}
 
-const CommsPausedBanner = () =>
-  COMMS_PAUSED ? (
+const CommsPausedBanner = () => {
+  const paused = useCommsPaused();
+  return paused ? (
     <div style={{
       background: '#FEF3C7', borderBottom: '1px solid #F59E0B',
       padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8,
@@ -526,6 +565,7 @@ const CommsPausedBanner = () =>
       <span><strong>Outbound communications are paused.</strong> SMS, email, and all automated notifications are currently disabled. No messages will be sent to customers or staff.</span>
     </div>
   ) : null;
+};
 
 export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
   const { employeeView, exitView } = useEmployeeView();
@@ -631,6 +671,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
   useTenantBrand();
   const unreadCount = useUnreadCount(user?.id);
+  const smsUnread = useSmsUnread(user?.role);
 
   useEffect(() => {
     if (isError) {
@@ -814,10 +855,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               <Link key={tab.href} href={tab.href} style={{ flex: '1 1 0', minWidth: 0, textDecoration: 'none' }}>
                 <div style={{
                   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-                  minHeight: 56, gap: 3, cursor: 'pointer',
+                  minHeight: 56, gap: 3, cursor: 'pointer', position: 'relative',
                   color: isTab ? 'var(--brand)' : '#9E9B94',
                 }}>
-                  <Icon size={22} strokeWidth={isTab ? 2.5 : 1.8} />
+                  <div style={{ position: 'relative' }}>
+                    <Icon size={22} strokeWidth={isTab ? 2.5 : 1.8} />
+                    {tab.href === '/messages' && smsUnread > 0 && (
+                      <span style={{ position: 'absolute', top: -5, right: -9, background: '#EF4444', color: '#fff', fontSize: 9, fontWeight: 800, lineHeight: '14px', minWidth: 14, height: 14, borderRadius: 7, padding: '0 3px', textAlign: 'center' }}>
+                        {smsUnread > 9 ? '9+' : smsUnread}
+                      </span>
+                    )}
+                  </div>
                   <span style={{ fontSize: 10, fontWeight: isTab ? 600 : 500, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{tab.label}</span>
                   {isTab && <div style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: 'var(--brand)', marginTop: -1 }} />}
                 </div>
