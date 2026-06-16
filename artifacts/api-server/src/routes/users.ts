@@ -260,10 +260,16 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
     }
 
     // Tenant guard: confirm every id belongs to the caller's company.
+    // NOTE: use ANY(ARRAY[<csv>]::int[]) via sql.raw — the bare
+    // ANY(${ids}::int[]) JS-array binding silently matches nothing in this
+    // setup (documented gotcha; same failure that broke leads bulk-delete /
+    // techs-with-status / payroll). ids are integer-filtered above, so the
+    // sql.raw interpolation is injection-safe.
+    const idCsv = ids.join(",");
     const tenantRows = await db
       .select({ id: usersTable.id })
       .from(usersTable)
-      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`));
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`));
     const ownedIds = new Set(tenantRows.map((r) => r.id));
     const foreign = ids.filter((id) => !ownedIds.has(id));
     if (foreign.length > 0) {
@@ -277,7 +283,7 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
     const updated = await db
       .update(usersTable)
       .set({ password_hash: hash } as any)
-      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`))
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`))
       .returning({ id: usersTable.id });
 
     await logAudit(req, "bulk_password_reset", "user", null, {
