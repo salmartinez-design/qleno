@@ -712,6 +712,12 @@ router.get("/detail", requireAuth, async (req, res) => {
     // excluded from the pool. Pay type comes from the 4-cell matrix.
     const jobById = new Map<number, typeof jobs[number]>(jobs.map(j => [j.id, j]));
     const inScopeJobIds = jobs.map(j => j.id);
+    // [payroll-P0 hotfix] Use the codebase-proven inline int-array form
+    // (ARRAY[…]::int[] via sql.raw) for raw db.execute IN-lists. The drizzle
+    // `ANY(${jsArray}::int[])` param form does NOT bind correctly here and was
+    // silently caught, zeroing out the clocked attribution. Ids are our own
+    // integers (number-coerced, finite-filtered) — no injection surface.
+    const intList = (a: number[]) => a.map(Number).filter(Number.isFinite).join(",");
 
     // per-(tech, job) clocked hours, summed
     const clocks: ClockEntry[] = [];
@@ -720,10 +726,10 @@ router.get("/detail", requireAuth, async (req, res) => {
         const cr = await db.execute(sql`
           SELECT user_id, job_id, ROUND(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric, 2) AS hrs
           FROM timeclock
-          WHERE company_id = ${companyId} AND job_id = ANY(${inScopeJobIds}::int[]) AND clock_out_at IS NOT NULL
+          WHERE company_id = ${companyId} AND job_id = ANY(ARRAY[${sql.raw(intList(inScopeJobIds))}]::int[]) AND clock_out_at IS NOT NULL
           GROUP BY user_id, job_id`);
         for (const r of cr.rows as any[]) clocks.push({ user_id: Number(r.user_id), job_id: Number(r.job_id), clocked_hours: parseFloat(String(r.hrs || 0)) });
-      } catch { /* timeclock absent — no clocked attribution possible */ }
+      } catch (err) { console.error("[payroll/detail] clocks query failed:", err); }
     }
 
     // 4-cell pay matrix per clocked tech (single source of truth for pay type)
@@ -733,7 +739,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     if (clockedUserIds.length) {
       const urows = await db.execute(sql`
         SELECT id, first_name, last_name, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate
-        FROM users WHERE company_id = ${companyId} AND id = ANY(${clockedUserIds}::int[])`);
+        FROM users WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(intList(clockedUserIds))}]::int[])`);
       for (const u of urows.rows as any[]) {
         userMap.set(Number(u.id), { first_name: u.first_name ?? "", last_name: u.last_name ?? "" });
         cellByUser.set(Number(u.id), {
@@ -759,7 +765,7 @@ router.get("/detail", requireAuth, async (req, res) => {
       try {
         const po = await db.execute(sql`
           SELECT user_id, job_id, paid_hours FROM payroll_hours_overrides
-          WHERE company_id = ${companyId} AND job_id = ANY(${inScopeJobIds}::int[])`);
+          WHERE company_id = ${companyId} AND job_id = ANY(ARRAY[${sql.raw(intList(inScopeJobIds))}]::int[])`);
         for (const r of po.rows as any[]) if (r.paid_hours != null) paidHoursOverride.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.paid_hours)));
       } catch { /* payroll_hours_overrides table absent pre-migration — none */ }
     }
@@ -768,7 +774,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     const finalPayOverride = new Map<string, number>();
     if (inScopeJobIds.length) {
       try {
-        const fp = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${inScopeJobIds}::int[]) AND final_pay IS NOT NULL`);
+        const fp = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(ARRAY[${sql.raw(intList(inScopeJobIds))}]::int[]) AND final_pay IS NOT NULL`);
         for (const r of fp.rows as any[]) if (r.final_pay != null) finalPayOverride.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
       } catch { /* job_technicians absent — no overrides */ }
     }
