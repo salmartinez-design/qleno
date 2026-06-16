@@ -2,6 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- Logged-in users should never see the marketing landing — bounce them to
+       the app dashboard before the page paints. Runs only on this root landing
+       page; SPA routes (/login, /dashboard, and the public /quote/:token,
+       /estimate/:token, /appointment/:token, /survey/:token token views) are
+       served by the app and unaffected. -->
+  <script>
+    try { if (window.localStorage && localStorage.getItem('qleno_token')) { window.location.replace('/dashboard'); } } catch (e) {}
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Qleno — Software for Residential Cleaning Businesses</title>
   <meta name="description" content="Your cleaning business deserves better software. Online booking, recurring schedules, and team management — starting at $100/month flat. No per-user fees.">
