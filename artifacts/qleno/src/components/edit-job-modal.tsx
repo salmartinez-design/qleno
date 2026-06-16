@@ -2163,11 +2163,12 @@ export default function EditJobModal({
             </div>
           </div>
 
-          {/* Section 6 — Instructions */}
+          {/* Section 6 — Cleaner Notes (#15: was "Instructions"; this field is
+              jobs.notes, the note the technician sees in the field app). */}
           <div style={SECTION}>
-            <span style={LABEL}>Instructions</span>
+            <span style={LABEL}>Cleaner Notes (tech sees this)</span>
             <textarea value={instructions} onChange={e => setInstructions(e.target.value)}
-              placeholder="Notes for technicians on this job…"
+              placeholder="Notes the cleaner sees on this job…"
               rows={4}
               style={{ ...INPUT, height: "auto", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }} />
           </div>
