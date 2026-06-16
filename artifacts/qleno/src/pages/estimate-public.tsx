@@ -57,6 +57,20 @@ type PublicEstimate = {
   // endpoint sets is_quote=true when the token resolved a quote (not an estimate)
   // so this shared page can label itself correctly. NEVER say "Estimate" for a quote.
   is_quote?: boolean;
+  // [multi-frequency] comparison tiers (empty when the quote has no snapshot).
+  frequency?: string | null;
+  selected_frequency?: string | null;
+  options?: FreqOption[];
+};
+
+type FreqOption = {
+  frequency: string;
+  label: string;
+  recurring: boolean;
+  recurring_price: number | null;
+  first_visit_price: number;
+  hours: number;
+  configured: boolean;
 };
 
 const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -93,6 +107,9 @@ export default function EstimatePublicPage() {
   const [acceptName, setAcceptName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  // [multi-frequency] the customer's highlighted tier (defaults to their prior
+  // choice, else the "Most popular" weekly tier, else the first option).
+  const [selectedFreq, setSelectedFreq] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -113,14 +130,21 @@ export default function EstimatePublicPage() {
     setSubmitting(true);
     setActionMsg(null);
     try {
+      // [multi-frequency] include the customer's chosen tier (default = weekly
+      // "most popular" / first option if they didn't tap). Backend persists +
+      // warms the lead (Piece 3); harmless on the current accept until then.
+      const opts = (est?.options || []).filter(o => o.configured);
+      const freq = selectedFreq || est?.selected_frequency
+        || opts.find(o => o.frequency === "weekly")?.frequency
+        || opts[0]?.frequency || null;
       const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: acceptName.trim() }),
+        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setActionMsg(body.message || "Could not accept — please contact us."); return; }
-      setEst(e => e ? { ...e, status: "accepted", accepted_name: acceptName.trim(), accepted_at: new Date().toISOString() } : e);
+      setEst(e => e ? { ...e, status: "accepted", accepted_name: acceptName.trim(), accepted_at: new Date().toISOString(), selected_frequency: freq } : e);
       setShowAccept(false);
     } finally {
       setSubmitting(false);
@@ -159,6 +183,14 @@ export default function EstimatePublicPage() {
   // else issue + 30 days (derived, no new field).
   const issueDate = est.created_at || est.sent_at || null;
   const validUntil = est.valid_until || (issueDate ? addDays(issueDate, 30) : null);
+
+  // [multi-frequency] configured tiers + the customer's current choice.
+  const freqOpts = (Array.isArray(est.options) ? est.options : []).filter(o => o.configured);
+  const hasOptions = freqOpts.length > 0;
+  const chosenFreq = selectedFreq || est.selected_frequency
+    || freqOpts.find(o => o.frequency === "weekly")?.frequency
+    || (freqOpts[0]?.frequency ?? null);
+  const chosenOpt = freqOpts.find(o => o.frequency === chosenFreq) || null;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: FF, padding: "24px 14px 60px" }}>
@@ -228,41 +260,90 @@ export default function EstimatePublicPage() {
             {est.title && <h1 style={{ fontSize: 19, fontWeight: 800, color: INK, margin: "0 0 8px" }}>{est.title}</h1>}
             {est.intro_note && <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 18px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.intro_note}</p>}
 
-            {/* Line items */}
-            <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden", marginBottom: 18 }}>
-              {est.items.map((it, i) => (
-                <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${BORDER}`, alignItems: "flex-start" }}>
-                  <div style={{ minWidth: 0 }}>
-                    <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0 }}>{it.name || "Service"}</p>
-                    <p style={{ fontSize: 12, color: MUTE, margin: "3px 0 0" }}>
-                      {[
-                        it.frequency,
-                        it.pricing_type === "hourly" ? `${Number(it.quantity).toFixed(1)} hrs × ${money(it.unit_rate)}/hr`
-                          : Number(it.quantity) !== 1 ? `${Number(it.quantity)} × ${money(it.unit_rate)}` : null,
-                      ].filter(Boolean).join(" · ")}
-                    </p>
-                    {it.description && <p style={{ fontSize: 12, color: "#4B5563", margin: "4px 0 0", lineHeight: 1.5 }}>{it.description}</p>}
+            {(() => {
+              const opts = (Array.isArray(est.options) ? est.options : []).filter(o => o.configured);
+              // No snapshot → keep the original single line-items + total render.
+              if (opts.length < 1) {
+                return (
+                  <>
+                    {/* Line items */}
+                    <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden", marginBottom: 18 }}>
+                      {est.items.map((it, i) => (
+                        <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 14, padding: "13px 16px", borderTop: i === 0 ? "none" : `1px solid ${BORDER}`, alignItems: "flex-start" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0 }}>{it.name || "Service"}</p>
+                            <p style={{ fontSize: 12, color: MUTE, margin: "3px 0 0" }}>
+                              {[
+                                it.frequency,
+                                it.pricing_type === "hourly" ? `${Number(it.quantity).toFixed(1)} hrs × ${money(it.unit_rate)}/hr`
+                                  : Number(it.quantity) !== 1 ? `${Number(it.quantity)} × ${money(it.unit_rate)}` : null,
+                              ].filter(Boolean).join(" · ")}
+                            </p>
+                            {it.description && <p style={{ fontSize: 12, color: "#4B5563", margin: "4px 0 0", lineHeight: 1.5 }}>{it.description}</p>}
+                          </div>
+                          <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0, flexShrink: 0 }}>{money(it.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ marginBottom: 18 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: MUTE, padding: "3px 0" }}>
+                        <span>Subtotal</span><span>{money(est.subtotal)}</span>
+                      </div>
+                      {Number(est.discount_amount) > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#047857", padding: "3px 0" }}>
+                          <span>Discount</span><span>−{money(est.discount_amount)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
+                        <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}</span>
+                      </div>
+                    </div>
+                  </>
+                );
+              }
+              // Multi-frequency comparison.
+              const activeFreq = chosenFreq;
+              return (
+                <div style={{ marginBottom: 18 }}>
+                  <p style={{ fontSize: 13, fontWeight: 700, color: INK, margin: "0 0 4px" }}>Choose your plan</p>
+                  <p style={{ fontSize: 12, color: MUTE, margin: "0 0 14px" }}>Recurring plans lock in a lower per-visit rate. Tap a plan to select it.</p>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 }}>
+                    {opts.map((o) => {
+                      const active = o.frequency === activeFreq;
+                      const popular = o.frequency === "weekly";
+                      return (
+                        <button key={o.frequency} onClick={() => setSelectedFreq(o.frequency)}
+                          style={{ position: "relative", textAlign: "left", cursor: "pointer", borderRadius: 12, padding: "16px 14px 14px",
+                            background: active ? "#F3FBF8" : "#fff", border: active ? `2px solid ${MINT}` : `1px solid ${BORDER}`,
+                            fontFamily: FF }}>
+                          {popular && (
+                            <span style={{ position: "absolute", top: -9, left: 12, background: NAVY, color: "#fff", fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 999, letterSpacing: "0.02em" }}>Most popular</span>
+                          )}
+                          <div style={{ fontSize: 13, fontWeight: 700, color: INK, marginBottom: 6 }}>{o.label}</div>
+                          {o.recurring ? (
+                            <>
+                              <div style={{ fontSize: 22, fontWeight: 800, color: MINT, letterSpacing: "-0.01em", lineHeight: 1.1 }}>{money(o.recurring_price)}</div>
+                              <div style={{ fontSize: 11, color: MUTE, margin: "1px 0 6px" }}>per visit</div>
+                              <div style={{ fontSize: 11, color: MUTE }}>First visit {money(o.first_visit_price)}</div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: 22, fontWeight: 800, color: MINT, letterSpacing: "-0.01em", lineHeight: 1.1 }}>{money(o.first_visit_price)}</div>
+                              <div style={{ fontSize: 11, color: MUTE, margin: "1px 0 6px" }}>one-time</div>
+                            </>
+                          )}
+                          <div style={{ fontSize: 11, color: MUTE, marginTop: 4 }}>~{o.hours} hrs / visit</div>
+                          <div style={{ marginTop: 10, textAlign: "center", fontSize: 12, fontWeight: 700, color: active ? NAVY : MUTE }}>
+                            {active ? "✓ Selected" : "Select"}
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
-                  <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0, flexShrink: 0 }}>{money(it.amount)}</p>
                 </div>
-              ))}
-            </div>
-
-            {/* Totals */}
-            <div style={{ marginBottom: 18 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: MUTE, padding: "3px 0" }}>
-                <span>Subtotal</span><span>{money(est.subtotal)}</span>
-              </div>
-              {Number(est.discount_amount) > 0 && (
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#047857", padding: "3px 0" }}>
-                  <span>Discount</span><span>−{money(est.discount_amount)}</span>
-                </div>
-              )}
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
-                <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
-                <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}</span>
-              </div>
-            </div>
+              );
+            })()}
 
             {est.terms && (
               <div style={{ background: "#F7F6F3", borderRadius: 10, padding: "12px 14px", marginBottom: 4 }}>
@@ -278,7 +359,7 @@ export default function EstimatePublicPage() {
           {!isAccepted && !isDeclined && !isExpired && (
             <button onClick={() => setShowAccept(true)}
               style={{ flex: "1 1 200px", height: 50, background: MINT, color: "#04241d", border: "none", borderRadius: 12, fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
-              {`Accept ${DOC}`}
+              {hasOptions ? "Select this plan" : `Accept ${DOC}`}
             </button>
           )}
           <button onClick={() => window.print()}
@@ -307,8 +388,18 @@ export default function EstimatePublicPage() {
       {showAccept && (
         <div className="est-noprint" style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div style={{ background: "#fff", borderRadius: 16, padding: "24px 22px", width: "100%", maxWidth: 380 }}>
-            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>{`Accept this ${docLower}`}</p>
-            <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>Total: <strong style={{ color: INK }}>{money(est.total)}</strong>. Enter your name to confirm.</p>
+            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>{hasOptions ? "Confirm your plan" : `Accept this ${docLower}`}</p>
+            {hasOptions && chosenOpt ? (
+              <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>
+                <strong style={{ color: INK }}>{chosenOpt.label}</strong>
+                {chosenOpt.recurring
+                  ? <> — <strong style={{ color: INK }}>{money(chosenOpt.recurring_price)}</strong>/visit (first visit {money(chosenOpt.first_visit_price)})</>
+                  : <> — <strong style={{ color: INK }}>{money(chosenOpt.first_visit_price)}</strong></>}
+                . Enter your name and we'll confirm your booking.
+              </p>
+            ) : (
+              <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>Total: <strong style={{ color: INK }}>{money(est.total)}</strong>. Enter your name to confirm.</p>
+            )}
             <input
               value={acceptName}
               onChange={e => setAcceptName(e.target.value)}
