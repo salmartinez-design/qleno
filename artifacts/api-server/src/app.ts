@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import router from "./routes";
 import stripeWebhookRouter from "./routes/stripe-webhook.js";
+import { resolveShortLink } from "./lib/short-link.js";
 
 const __appDir: string =
   typeof __dirname !== "undefined"
@@ -108,6 +109,18 @@ app.use("/api/clients/:id/communications/email", messageLimiter);
 app.use("/api/job-sms", messageLimiter);
 app.use("/api", generalLimiter);
 app.use("/api", router);
+
+// ── Short-link redirect ───────────────────────────────────────────────────────
+// [sms Pass3] GET /s/:code → 302 to the stored target (the token page). Lets
+// customer SMS carry a clean app.qleno.com/s/<code> instead of a long hex token.
+// Registered before the landing / SPA so it owns the /s/ path.
+app.get("/s/:code", async (req: Request, res: Response) => {
+  const code = String(req.params.code || "").trim();
+  const target = code ? await resolveShortLink(code) : null;
+  if (!target) return res.status(404).send("Link not found or expired.");
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  return res.redirect(302, target);
+});
 
 // ── Landing Page ────────────────────────────────────────────────────────────
 const landingDir = path.resolve(__appDir, "../../../landing");

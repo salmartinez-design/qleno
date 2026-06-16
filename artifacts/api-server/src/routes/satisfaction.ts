@@ -4,6 +4,8 @@ import { satisfactionSurveysTable, jobsTable, clientsTable, usersTable, companie
 import { eq, and, desc, isNotNull, avg, count, sql, gte, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { captureSurveyScore } from "../lib/scorecard-engine.js";
+import { shortenUrl } from "../lib/short-link.js";
+import { SURVEY_SMS } from "../lib/sms-copy.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -63,6 +65,7 @@ router.post("/send", requireAuth, async (req, res) => {
     // reason (Twilio is OFF until go-live, so today it suppresses, by design).
     const [company] = await db
       .select({
+        name: companiesTable.name,
         survey_enabled: companiesTable.survey_enabled,
         survey_message_template: companiesTable.survey_message_template,
         twilio_enabled: companiesTable.twilio_enabled,
@@ -92,8 +95,10 @@ router.post("/send", requireAuth, async (req, res) => {
     }
 
     const base = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
-    const link = `${base}/survey/${token}`;
-    const body = (company.survey_message_template || "How was your cleaning? Rate us: {{survey_link}}")
+    // Clean short link instead of the long hex token URL.
+    const link = (await shortenUrl(`${base}/survey/${token}`, companyId)) || `${base}/survey/${token}`;
+    const body = (company.survey_message_template || SURVEY_SMS)
+      .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
       .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
       .replace(/\{\{\s*survey_link\s*\}\}/g, link);
     try {

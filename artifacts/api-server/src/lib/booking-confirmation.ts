@@ -3,6 +3,8 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
+import { shortenUrl } from "./short-link.js";
+import { BOOKING_SMS } from "./sms-copy.js";
 
 // [booking-confirmation GAP1] Customer booking confirmation: a no-login,
 // token-based "your appointment" view (like /quote/:token, /estimate/:token)
@@ -27,11 +29,7 @@ export async function ensureBookingConfirmationSetup(): Promise<void> {
     // template but no SMS one yet. WHERE NOT EXISTS keeps it idempotent and
     // never clobbers a tenant's customization. The {{appointment_link}} merge
     // var is injected at send time by sendJobScheduledConfirmation().
-    const smsBody =
-      "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for " +
-      "{{appointment_date}} at {{appointment_time}} — {{service_type}} at " +
-      "{{service_address}}. View your appointment: {{appointment_link}} " +
-      "Questions? {{company_phone}}.";
+    const smsBody = BOOKING_SMS;
     await db.execute(sql`
       INSERT INTO notification_templates
         (company_id, trigger, channel, subject, body, body_html, body_text, is_active)
@@ -123,7 +121,10 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     if (!email && !phone) return; // nothing to send to
 
     const token = await ensureJobViewToken(jobId);
-    const link = token ? buildAppointmentLink(req, token) : null;
+    // Clean short link (/s/<code>) instead of the long hex token URL in the SMS
+    // (and the email CTA). Falls back to the full URL if shortening fails.
+    const fullLink = token ? buildAppointmentLink(req, token) : null;
+    const link = await shortenUrl(fullLink, j.company_id);
 
     const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
     const serviceAddress = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");

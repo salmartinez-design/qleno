@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { getBranchByZip } from "../lib/branchRouter.js";
 import { appBaseUrl } from "../lib/app-url.js";
+import { shortenUrl } from "../lib/short-link.js";
 
 // ── Merge field resolver ───────────────────────────────────────────────────────
 function resolveMergeFields(template: string, vars: Record<string, string>): string {
@@ -151,7 +152,10 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
   const total = q.total_price ?? q.base_price ?? "0";
   // Residential quotes use the /quote/ route (the hosted page self-labels as
   // "Quote"). Commercial estimates use /estimate/. This is a quote, so /quote/.
-  const link = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
+  // Clean short link (/s/<code>) for the customer SMS/email instead of the long
+  // hex sign_token URL. Falls back to the full URL on any failure.
+  const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
+  const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   const addons = Array.isArray(q.addons) ? q.addons : [];
   const rows: string[] = [];
   if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);

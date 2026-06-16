@@ -180,6 +180,15 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
   }
+  // [sms Pass3] short-link table + customer-facing SMS copy upgrade
+  try {
+    const { ensureShortLinkTable } = await import("./lib/short-link.js");
+    await ensureShortLinkTable();
+    const { upgradeCustomerSmsCopy } = await import("./lib/sms-copy.js");
+    await upgradeCustomerSmsCopy();
+  } catch (err: any) {
+    console.error("[startup] sms Pass3 setup — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live
