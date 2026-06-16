@@ -406,13 +406,32 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       serviceType = SCOPE_TO_ENUM[scopeName] || "standard_clean";
     }
 
-    // Map frequency to enum
-    const freqRaw = (q.frequency || "onetime").toLowerCase().replace(/[- ]/g, "_");
-    const FREQ_MAP: Record<string, string> = {
-      "weekly": "weekly", "biweekly": "biweekly", "every_2_weeks": "biweekly",
-      "monthly": "monthly", "every_4_weeks": "monthly", "onetime": "on_demand", "one_time": "on_demand",
+    // [multi-frequency] Book the customer's CHOSEN tier. Override precedence:
+    // request body (office picks on convert) → quote.selected_frequency
+    // (customer's pick on the public page) → quote.frequency (stored default).
+    // Price/hours come from the snapshot so the booked figures match exactly
+    // what the customer saw. Decision (d): the FIRST visit is the one-time price;
+    // recurring visits use the lower per-visit recurring price.
+    const SNAP_KEY: Record<string, string> = {
+      onetime: "onetime", one_time: "onetime", on_demand: "onetime",
+      weekly: "weekly", biweekly: "biweekly", every_2_weeks: "biweekly",
+      monthly: "monthly", every_4_weeks: "monthly",
     };
-    const jobFreq = FREQ_MAP[freqRaw] || "on_demand";
+    const chosenRaw = String(req.body?.frequency || (q as any).selected_frequency || q.frequency || "onetime").toLowerCase().replace(/[- ]/g, "_");
+    const snapKey = SNAP_KEY[chosenRaw] || "onetime";
+    const snapOptions = Array.isArray((q as any).frequency_options) ? (q as any).frequency_options : [];
+    const chosenOpt = snapOptions.find((o: any) => o.frequency === snapKey) || null;
+    const FREQ_MAP: Record<string, string> = {
+      onetime: "on_demand", weekly: "weekly", biweekly: "biweekly", monthly: "monthly",
+    };
+    const jobFreq = FREQ_MAP[snapKey] || "on_demand";
+    // Booked price: recurring tiers bill the recurring per-visit rate on the
+    // schedule; the first job gets the one-time first-visit price. One-time bills
+    // the one-time price. Falls back to the quote's stored total when no snapshot.
+    const fallbackFee = q.total_price != null ? Number(q.total_price) : (q.base_price != null ? Number(q.base_price) : null);
+    const recurringFee = chosenOpt ? (snapKey === "onetime" ? chosenOpt.first_visit_price : chosenOpt.recurring_price) : fallbackFee;
+    const firstVisitFee = chosenOpt ? chosenOpt.first_visit_price : fallbackFee;
+    const chosenHours = chosenOpt ? Number(chosenOpt.hours) : (q.estimated_hours != null ? Number(q.estimated_hours) : null);
 
     // [recurring-convert-fix 2026-06-05] A recurring quote must create a
     // recurring_schedule and GENERATE THE SERIES — not a single job. The
@@ -422,11 +441,35 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // the schedule and synchronously generate the next 90 days (first
     // occurrence included). This calls generateJobsFromSchedule directly, so it
     // works regardless of the RECURRING_ENGINE_ENABLED cron flag.
+    // [multi-frequency] Resolve/materialize the client UP FRONT so a recurring
+    // choice on a lead-only quote creates a schedule (not a one-off) and the
+    // booking confirmation has contact info. Find by email/phone, else create.
+    let clientId: number | null = q.client_id || null;
+    if (!clientId && ((q as any).lead_email || (q as any).lead_phone)) {
+      const emailLc = (q as any).lead_email ? String((q as any).lead_email).toLowerCase().trim() : null;
+      const phone10 = String((q as any).lead_phone || "").replace(/\D/g, "").slice(-10) || null;
+      const match = await db.execute(sql`
+        SELECT id FROM clients WHERE company_id = ${companyId} AND (
+          (${emailLc}::text IS NOT NULL AND lower(email) = ${emailLc}) OR
+          (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${phone10})
+        ) ORDER BY id DESC LIMIT 1`);
+      clientId = (match.rows[0] as any)?.id ?? null;
+      if (!clientId) {
+        const np = String((q as any).lead_name ?? "").trim().split(/\s+/).filter(Boolean);
+        const cIns = await db.execute(sql`
+          INSERT INTO clients (company_id, first_name, last_name, email, phone, address)
+          VALUES (${companyId}, ${np[0] || (q as any).lead_name || "Client"}, ${np.slice(1).join(" ") || ""}, ${(q as any).lead_email ?? null}, ${(q as any).lead_phone ?? null}, ${(q as any).address ?? null})
+          RETURNING id`);
+        clientId = (cIns.rows[0] as any)?.id ?? null;
+      }
+      if (clientId) { try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ } }
+    }
+
     const isRecurring = jobFreq !== "on_demand";
-    if (isRecurring && q.client_id) {
+    if (isRecurring && clientId) {
       const [sched] = await db.insert(recurringSchedulesTable).values({
         company_id: companyId,
-        customer_id: q.client_id,
+        customer_id: clientId,
         frequency: jobFreq,
         day_of_week: null, // cadence anchors on start_date's weekday when null
         start_date: jobDate,
@@ -434,8 +477,8 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         assigned_employee_id: assigned_user_id ? parseInt(String(assigned_user_id)) : null,
         service_type: serviceType,
         scheduled_time: scheduled_time || null,
-        duration_minutes: q.estimated_hours ? Math.round(parseFloat(String(q.estimated_hours)) * 60) : null,
-        base_fee: q.total_price != null ? String(q.total_price) : null,
+        duration_minutes: chosenHours != null ? Math.round(chosenHours * 60) : null,
+        base_fee: recurringFee != null ? String(recurringFee) : null,
         notes: q.internal_memo || null,
       }).returning();
 
@@ -453,7 +496,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
 
       let generated = { created: 0, skipped: 0 };
       try {
-        const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable).where(eq(clientsTable.id, q.client_id)).limit(1);
+        const cl = await db.select({ zip: clientsTable.zip }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
         const clientZip = (cl[0]?.zip as any) ?? null;
         const today = new Date();
         const horizon = new Date(today.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
@@ -473,6 +516,16 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         } catch (e) { console.warn("[quote convert] stamping add-ons on generated jobs failed:", e); }
       }
 
+      // [multi-frequency, decision d] First visit is priced at the one-time
+      // first-visit rate; recurring visits keep the schedule's recurring price.
+      if (firstVisitFee != null && firstVisitFee !== recurringFee) {
+        try {
+          await db.execute(sql`
+            UPDATE jobs SET base_fee = ${String(firstVisitFee)}
+            WHERE id = (SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+                        ORDER BY scheduled_date ASC, id ASC LIMIT 1)`);
+        } catch (e) { console.warn("[quote convert] first-visit price stamp failed:", e); }
+      }
       logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", recurring_schedule_id: sched.id, jobs_generated: generated.created });
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
         stopEnrollmentsForQuote(id, "booked").catch(() => {});
@@ -488,36 +541,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       });
     }
 
-    // [convert-client-materialize] A lead-only quote (no client_id) must become
-    // a real customer when booked — otherwise the job has no contact and the
-    // booking confirmation (which reads the job's client) never fires. Find an
-    // existing client by email/phone within the company, else create one from
-    // the quote's lead info.
-    let clientId: number | null = q.client_id || null;
-    if (!clientId && ((q as any).lead_email || (q as any).lead_phone)) {
-      const emailLc = (q as any).lead_email ? String((q as any).lead_email).toLowerCase().trim() : null;
-      const phone10 = String((q as any).lead_phone || "").replace(/\D/g, "").slice(-10) || null;
-      const match = await db.execute(sql`
-        SELECT id FROM clients WHERE company_id = ${companyId} AND (
-          (${emailLc}::text IS NOT NULL AND lower(email) = ${emailLc}) OR
-          (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${phone10})
-        ) ORDER BY id DESC LIMIT 1`);
-      clientId = (match.rows[0] as any)?.id ?? null;
-      if (!clientId) {
-        const nameParts = String((q as any).lead_name ?? "").trim().split(/\s+/).filter(Boolean);
-        const cFirst = nameParts[0] || (q as any).lead_name || "Client";
-        const cLast = nameParts.slice(1).join(" ") || "";
-        const cIns = await db.execute(sql`
-          INSERT INTO clients (company_id, first_name, last_name, email, phone, address)
-          VALUES (${companyId}, ${cFirst}, ${cLast}, ${(q as any).lead_email ?? null}, ${(q as any).lead_phone ?? null}, ${(q as any).address ?? null})
-          RETURNING id`);
-        clientId = (cIns.rows[0] as any)?.id ?? null;
-      }
-      // Backfill the quote's client link for downstream consistency.
-      if (clientId) {
-        try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ }
-      }
-    }
+    // (Client already resolved/materialized above so recurring + one-time share it.)
 
     // [addon-hours 2026-06-04] Carry the quote's estimated hours (which now
     // include add-on time-adds) onto the job as BOTH allowed_hours and
@@ -535,13 +559,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${jobDate},
         ${scheduled_time || null},
         ${sql.raw(`'${serviceType}'::service_type`)},
-        ${q.total_price || '0'},
+        ${firstVisitFee != null ? String(firstVisitFee) : (q.total_price || '0')},
         'scheduled',
         ${assigned_user_id || null},
         ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
-        ${q.estimated_hours || null},
-        ${q.estimated_hours || null},
+        ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
+        ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${(q as any).address || null},
         NOW()
       ) RETURNING id

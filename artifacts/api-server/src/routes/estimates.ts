@@ -341,16 +341,47 @@ router.post("/public/:token/accept", async (req, res) => {
     const est = (rows as any).rows[0];
     if (!est) {
       // Fallback: accepting a QUOTE (residential) via its sign_token.
-      const qrows = await db.execute(sql`SELECT id, company_id, status FROM quotes WHERE sign_token = ${token} LIMIT 1`);
+      const qrows = await db.execute(sql`SELECT id, company_id, status, lead_id, lead_name FROM quotes WHERE sign_token = ${token} LIMIT 1`);
       const qt = (qrows as any).rows[0];
       if (!qt) return res.status(404).json({ error: "Not Found" });
-      if (qt.status === "accepted" || qt.status === "booked") return res.json({ ok: true, status: "accepted" });
-      await db.execute(sql`UPDATE quotes SET status = 'accepted', accepted_at = now() WHERE id = ${qt.id}`);
+      // [multi-frequency] the plan the customer selected (decision b: warm +
+      // accept-intent — record the choice, mark accepted, warm the lead, notify
+      // the office; booking stays office-confirmed, no public self-book).
+      const FREQ_LABELS: Record<string, string> = { onetime: "One-time", weekly: "Weekly", biweekly: "Every 2 weeks", monthly: "Every 4 weeks" };
+      const rawFreq = String(req.body?.selected_frequency || "").trim();
+      const chosenFreq = FREQ_LABELS[rawFreq] ? rawFreq : null;
+      if (qt.status === "accepted" || qt.status === "booked") {
+        if (chosenFreq) await db.execute(sql`UPDATE quotes SET selected_frequency = ${chosenFreq}, selected_frequency_at = now() WHERE id = ${qt.id}`).catch(() => {});
+        return res.json({ ok: true, status: "accepted" });
+      }
+      await db.execute(sql`
+        UPDATE quotes SET status = 'accepted', accepted_at = now(),
+          selected_frequency = ${chosenFreq}, selected_frequency_at = ${chosenFreq ? sql`now()` : sql`NULL`}
+        WHERE id = ${qt.id}`);
       // Customer accepted → stop the quote-followup cadence (same as office accept).
       try {
         const { stopEnrollmentsForQuote } = await import("../services/followUpService.js");
         await stopEnrollmentsForQuote(Number(qt.id), "accepted");
       } catch (e) { console.warn("[quote accept] stop cadence failed:", e); }
+      // Warm the lead + notify the office (non-blocking).
+      const planLabel = chosenFreq ? FREQ_LABELS[chosenFreq] : null;
+      (async () => {
+        try {
+          if (qt.lead_id) {
+            await db.execute(sql`
+              INSERT INTO lead_activity_log (lead_id, company_id, action_type, note, performed_by)
+              VALUES (${qt.lead_id}, ${qt.company_id}, 'interested', ${`Customer accepted${planLabel ? " — " + planLabel + " plan" : ""} (${name})`}, NULL)`).catch(() => {});
+          }
+          const { notifyOfficeUsers } = await import("../lib/notify.js");
+          await notifyOfficeUsers(qt.company_id, {
+            type: "quote_interest",
+            title: "Quote interest",
+            body: `${qt.lead_name || name || "A customer"} accepted quote Q-${qt.id}${planLabel ? ` — ${planLabel} plan` : ""}. Confirm to book.`,
+            link: `/quotes/${qt.id}`,
+            meta: { quote_id: qt.id, selected_frequency: chosenFreq },
+          });
+        } catch (e) { console.warn("[quote accept] warm/notify failed:", e); }
+      })();
       return res.json({ ok: true, status: "accepted" });
     }
     if (est.status === "accepted") return res.json({ ok: true, status: "accepted" });
