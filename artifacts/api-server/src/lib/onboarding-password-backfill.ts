@@ -4,11 +4,12 @@
  *
  * NOT a mass reset. It only touches an explicit allowlist of EMAILS and/or
  * user ids (default: the one new hire who can't log in, Maryury =
- * marjuryj@gmail.com / id 817), and only when:
- *   - COMMS_ENABLED !== 'true' (the window the temp-password email can't send),
- *   - the account is_active, and
- *   - last_login_at IS NULL (never logged in) — so the instant they log in it
- *     stops touching them and can never clobber a real, active password.
+ * marjuryj@gmail.com / id 817), and only while COMMS_ENABLED !== 'true' (the
+ * window the temp-password email can't send). The reset is unconditional for
+ * those explicit targets — no is_active / last_login_at guard — because those
+ * guards silently skip a stuck hire whose account carries an import/seed
+ * last_login_at stamp or an inactive flag, which is the whole failure we're
+ * fixing. The blast radius is the named allowlist, not a mass set.
  *
  * Why email-anchored: login looks the user up by `email` (lowercasing the
  * INPUT but comparing against the stored value as-is). A hand-entered/imported
@@ -52,13 +53,22 @@ export async function bootstrapOnboardingPasswords(): Promise<number> {
   }
   const match = sql.join(conditions, sql` OR `);
 
+  // NOTE: deliberately NO is_active / last_login_at guards here. Those guards
+  // (in the original version) silently skipped the target when the account
+  // carried an import/seed last_login_at stamp or was flagged inactive, which
+  // is exactly how a stuck new hire ends up un-fixable. Because this only ever
+  // touches an explicit, owner-controlled email/id allowlist (not a mass set),
+  // an unconditional reset is the right behavior during the comms-off cutover:
+  // it guarantees the named hire's password becomes the known default. Login
+  // still independently enforces is_active, so an inactive account surfaces a
+  // specific "Account is inactive" message instead of failing silently.
+  // Remove ONBOARDING_RESET_EMAILS / this step after the cutover so it stops
+  // re-asserting the default on restart.
   const r = await db.execute(sql`
     UPDATE users
        SET password_hash = ${hash},
            email = lower(btrim(email))
      WHERE (${match})
-       AND is_active = true
-       AND last_login_at IS NULL
   `);
   return (r as any).rowCount ?? 0;
 }
