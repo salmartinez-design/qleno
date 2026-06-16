@@ -783,11 +783,20 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
             return base + mods;
           }
           // Residential: unchanged. An explicit billed price (e.g. manual
-          // "Change price") wins; otherwise base_fee + add-ons + rate-mods.
+          // "Change price") wins; otherwise base_fee + rate-mods.
+          // [addon-doublecount-fix 2026-06-16] (#2/#14) base_fee is the all-in
+          // residential total — it ALREADY includes the add-on subtotals (the
+          // wizard/quote/edit-modal convention; jobs.ts:388, and
+          // recomputeJobBilledAmount residential = base + mods, no add-ons).
+          // job_add_ons rows are the itemized breakdown of money already inside
+          // base_fee, so re-adding `addOns` here double-counted every
+          // residential add-on job (e.g. converted job 6805: 744.80 base + 248.80
+          // add-ons shown as 993.60). Do NOT re-add add-ons; match the stored
+          // base_fee convention and the recompute helper.
           const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
           if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
-          return base + mods + addOns;
+          return base + mods;
         })(),
         duration_minutes: durationMinutes,
         notes: j.notes,

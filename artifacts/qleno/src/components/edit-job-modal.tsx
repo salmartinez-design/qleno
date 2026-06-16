@@ -281,6 +281,11 @@ export default function EditJobModal({
   // of the tenant default.
   const [addonPriceOverrides, setAddonPriceOverrides] = useState<Map<number, number>>(new Map());
   const [initialAddonPriceOverrides, setInitialAddonPriceOverrides] = useState<Map<number, number>>(new Map());
+  // [deletable-addons-fix 2026-06-16] (#14B) Name/subtotal for the job's
+  // existing add-ons, so an add-on that ISN'T in the current scope's catalog
+  // (e.g. a quote-originated add-on from another scope) can still be rendered
+  // as a removable row. Without this it had no catalog row and no way to delete.
+  const [existingAddonInfo, setExistingAddonInfo] = useState<Map<number, { name: string; subtotal: number }>>(new Map());
 
   // [W2] Client property sqft. Pre-filled from GET /api/jobs/:id which now
   // joins client_homes and surfaces sq_footage. Operator can edit inline;
@@ -572,6 +577,7 @@ export default function EditJobModal({
         const existing = Array.isArray(d.existing_add_ons) ? d.existing_add_ons : [];
         const addonMap = new Map<number, number>();
         const priceMap = new Map<number, number>();
+        const infoMap = new Map<number, { name: string; subtotal: number }>();
         for (const a of existing) {
           if (a.pricing_addon_id != null) {
             const pid = Number(a.pricing_addon_id);
@@ -580,12 +586,15 @@ export default function EditJobModal({
             // input pre-fills with what's actually on the job (not the
             // tenant default). User can then tweak or leave alone.
             if (a.unit_price != null) priceMap.set(pid, Number(a.unit_price));
+            // (#14B) Keep name/subtotal so a non-catalog add-on still renders.
+            infoMap.set(pid, { name: String(a.name ?? "Add-on"), subtotal: Number(a.subtotal ?? 0) });
           }
         }
         setSelectedAddons(addonMap);
         setInitialSelectedAddons(addonMap);
         setAddonPriceOverrides(priceMap);
         setInitialAddonPriceOverrides(priceMap);
+        setExistingAddonInfo(infoMap);
 
         // [W2] sqft pre-fill. The route returns null for legacy MC-imported
         // homes. We set both current + initial to the same value so the
@@ -1874,6 +1883,56 @@ export default function EditJobModal({
                 })}
               </div>
             )}
+
+            {/* [deletable-addons-fix 2026-06-16] (#14B) Add-ons on the job that
+                are NOT in the current scope's catalog (e.g. carried over from
+                the original quote under a different scope) had no row and could
+                not be removed. Render them here as removable rows. Removing one
+                shrinks selectedAddons, which re-fires the price recalc so
+                base_fee drops accordingly. */}
+            {(() => {
+              const catalogIds = new Set(availableAddons.map(a => a.id));
+              const orphans = Array.from(selectedAddons.keys()).filter(id => !catalogIds.has(id));
+              if (orphans.length === 0) return null;
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
+                  <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>From the original quote</span>
+                  {orphans.map(id => {
+                    const info = existingAddonInfo.get(id);
+                    const name = info?.name || "Add-on";
+                    const amt = info?.subtotal ?? 0;
+                    return (
+                      <div key={`orphan-${id}`} style={{
+                        display: "flex", alignItems: "center", gap: 8,
+                        padding: "8px 10px", borderRadius: 8,
+                        border: "1px solid var(--brand, #00C9A0)",
+                        backgroundColor: "rgba(0,201,160,0.05)", fontFamily: FF,
+                      }}>
+                        <span style={{ flex: 1, fontSize: 13, color: "#1A1917" }}>{name}</span>
+                        <span style={{ fontSize: 12, color: "#6B6860" }}>${Number(amt).toFixed(0)}</span>
+                        <button type="button" aria-label={`Remove ${name}`}
+                          onClick={() => {
+                            setSelectedAddons(prev => {
+                              const next = new Map(prev);
+                              next.delete(id);
+                              return next;
+                            });
+                            setAddonPriceOverrides(prev => {
+                              if (!prev.has(id)) return prev;
+                              const next = new Map(prev);
+                              next.delete(id);
+                              return next;
+                            });
+                          }}
+                          style={{ border: "none", background: "none", cursor: "pointer", color: "#B91C1C", fontSize: 16, lineHeight: 1, padding: "0 4px", fontFamily: FF }}>
+                          ×
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* [AI.7.1] Parking-fee day picker. Renders when commercial +
                 recurring + parking is checked. Default = schedule's
