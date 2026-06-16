@@ -15,6 +15,16 @@ import {
 
 const router = Router();
 
+// [onboarding-password 2026-06-16] Until COMMS is enabled (so the temp-password
+// email actually sends), a new hire can't receive a random temp and can't log
+// in. While comms are off, new accounts get a known default the office hands out
+// in person (Sal: "chicago23"). Env-overridable; the moment COMMS_ENABLED=true
+// it reverts to a random per-user temp automatically.
+function onboardingTempPassword(): string {
+  if (process.env.COMMS_ENABLED === "true") return Math.random().toString(36).slice(-8);
+  return process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23";
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { role, is_active, page = "1", limit = "25", branch_id } = req.query;
@@ -295,7 +305,7 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       return res.status(400).json({ error: "email and first_name are required" });
     }
 
-    const tempPassword = Math.random().toString(36).slice(-8);
+    const tempPassword = onboardingTempPassword();
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
     const newUser = await db
@@ -1223,7 +1233,11 @@ router.post(
         });
       }
 
-      const tempPassword = generateLmsTempPassword();
+      // [onboarding-password 2026-06-16] Same default-while-comms-off rule as
+      // POST / — the LMS add path also can't email the temp until comms are on.
+      const tempPassword = process.env.COMMS_ENABLED === "true"
+        ? generateLmsTempPassword()
+        : (process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23");
       const password_hash = await bcrypt.hash(tempPassword, 10);
 
       const inserted = await db

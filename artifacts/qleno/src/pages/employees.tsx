@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -54,13 +54,21 @@ export default function EmployeesPage() {
   const { activeBranchId } = useBranch();
   const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
   const { data, isLoading, refetch } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
+  // [inactive-filter 2026-06-16] Refetch on mount so a just-saved
+  // deactivation can't be masked by a stale cached list.
+  useEffect(() => { refetch(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Hide inactive by default (toggle to show). Order: technicians → office →
-  // other roles (owner/admin) → generic/test stub accounts pinned at the bottom.
+  // Hide inactive by default (toggle to show). "Inactive" = the same set of
+  // signals payroll uses — is_active=false OR a termination date OR archived —
+  // so a tech deactivated by ANY path (Account Active toggle, Termination Date,
+  // archive) drops off the list, not only the Account Active toggle.
+  // [inactive-filter 2026-06-16] Reported: Juan still listed after being made
+  // inactive because only is_active was checked.
+  const isInactive = (u: any) => u.is_active === false || !!u.termination_date || !!u.archived_at;
   const isStub = (u: any) => /\b(generic|test)\b/i.test(`${u.first_name} ${u.last_name} ${u.email ?? ""}`);
   const roleRank = (u: any) => isStub(u) ? 3 : (u.role === "technician" ? 0 : u.role === "office" ? 1 : 2);
   const employees = (data?.data || [])
-    .filter(u => showInactive || (u as any).is_active !== false)
+    .filter(u => showInactive || !isInactive(u))
     .filter(u => !search || `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
       const ra = roleRank(a), rb = roleRank(b);
