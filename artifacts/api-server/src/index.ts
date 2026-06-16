@@ -196,6 +196,12 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureQuotePricingSetup — non-fatal:", err?.message ?? err);
   }
+  try {
+    const { ensurePayrollP0Setup } = await import("./lib/payroll-migrate.js");
+    await ensurePayrollP0Setup();
+  } catch (err: any) {
+    console.error("[startup] ensurePayrollP0Setup — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live

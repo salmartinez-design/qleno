@@ -5,6 +5,8 @@ import { eq, ne, and, gte, lte, sum, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { computeCommissionRows } from "../lib/commission-compute.js";
+// [payroll-P0] per-tech-clocked attribution + 4-cell pay-type + hourly basis.
+import { computePayLines, type PayrollJob, type ClockEntry, type TechCell, type CompanyPayConfig, type HoursBasis } from "../lib/payroll-compute.js";
 import {
   resolveOvertimeRules,
   computeWeekOvertime,
@@ -577,7 +579,10 @@ router.get("/detail", requireAuth, async (req, res) => {
       gte(jobsTable.scheduled_date, pay_period_start as string),
       lte(jobsTable.scheduled_date, pay_period_end as string),
     ];
-    if (filterUserId) jobConditions.push(eq(jobsTable.assigned_user_id, filterUserId));
+    // [payroll-P0] No assigned_user_id filter here — attribution is now
+    // per-tech-CLOCKED, so we load every in-scope job and filter the computed
+    // pay LINES by filterUserId below. A tech earns from any job they clocked,
+    // including ones where they were a helper (not the primary).
 
     const jobs = await db
       .select({
@@ -700,107 +705,132 @@ router.get("/detail", requireAuth, async (req, res) => {
       for (const r of mRows.rows as any[]) mileageByUser.set(Number(r.user_id), parseFloat(String(r.total || 0)));
     } catch { /* mileage_legs absent — skip */ }
 
-    // Group jobs by user
-    const byUser = new Map<number, typeof jobs>();
-    for (const job of jobs) {
-      const uid = job.assigned_user_id ?? 0;
-      if (!byUser.has(uid)) byUser.set(uid, []);
-      byUser.get(uid)!.push(job);
+    // ── [payroll-P0] per-tech-CLOCKED attribution via computePayLines ────────
+    // A tech earns from every job they personally clocked (helpers included).
+    // Residential commission is a pool split among the job's clocked commission
+    // techs (weighted by minutes); clocked hourly techs are paid hourly and
+    // excluded from the pool. Pay type comes from the 4-cell matrix.
+    const jobById = new Map<number, typeof jobs[number]>(jobs.map(j => [j.id, j]));
+    const inScopeJobIds = jobs.map(j => j.id);
+
+    // per-(tech, job) clocked hours, summed
+    const clocks: ClockEntry[] = [];
+    if (inScopeJobIds.length) {
+      try {
+        const cr = await db.execute(sql`
+          SELECT user_id, job_id, ROUND(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric, 2) AS hrs
+          FROM timeclock
+          WHERE company_id = ${companyId} AND job_id = ANY(${inScopeJobIds}::int[]) AND clock_out_at IS NOT NULL
+          GROUP BY user_id, job_id`);
+        for (const r of cr.rows as any[]) clocks.push({ user_id: Number(r.user_id), job_id: Number(r.job_id), clocked_hours: parseFloat(String(r.hrs || 0)) });
+      } catch { /* timeclock absent — no clocked attribution possible */ }
     }
 
-    // Get all relevant users
-    const userIds = [...new Set(jobs.map(j => j.assigned_user_id).filter(Boolean))];
-    const allUsers = userIds.length
-      ? await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name }).from(usersTable).where(inArray(usersTable.id, userIds as number[]))
-      : [];
+    // 4-cell pay matrix per clocked tech (single source of truth for pay type)
+    const clockedUserIds = [...new Set(clocks.map(c => c.user_id))];
+    const cellByUser = new Map<number, TechCell>();
+    const userMap = new Map<number, { first_name: string; last_name: string }>();
+    if (clockedUserIds.length) {
+      const urows = await db.execute(sql`
+        SELECT id, first_name, last_name, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate
+        FROM users WHERE company_id = ${companyId} AND id = ANY(${clockedUserIds}::int[])`);
+      for (const u of urows.rows as any[]) {
+        userMap.set(Number(u.id), { first_name: u.first_name ?? "", last_name: u.last_name ?? "" });
+        cellByUser.set(Number(u.id), {
+          residential_pay_type: u.residential_pay_type === "hourly" ? "hourly" : "commission",
+          residential_pay_rate: parseFloat(String(u.residential_pay_rate ?? resRates.res_tech_pay_pct)),
+          commercial_pay_type: u.commercial_pay_type === "commission" ? "commission" : "hourly",
+          commercial_pay_rate: parseFloat(String(u.commercial_pay_rate ?? commercialHourlyRate)),
+        });
+      }
+    }
 
-    const userMap = new Map(allUsers.map(u => [u.id, u]));
+    // company hours-basis default for hourly techs (greater_of when unset/absent)
+    let hoursBasis: HoursBasis = "greater_of";
+    try {
+      const hb = await db.execute(sql`SELECT payroll_hours_basis FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const v = (hb.rows[0] as any)?.payroll_hours_basis;
+      if (v === "actual_clocked" || v === "allowed_hours" || v === "greater_of") hoursBasis = v;
+    } catch { /* column absent pre-migration — keep greater_of default */ }
+
+    // per-job HOURS overrides (office hand-adjusted paid hours; never dollars)
+    const paidHoursOverride = new Map<string, number>();
+    if (inScopeJobIds.length) {
+      try {
+        const po = await db.execute(sql`
+          SELECT user_id, job_id, paid_hours FROM payroll_hours_overrides
+          WHERE company_id = ${companyId} AND job_id = ANY(${inScopeJobIds}::int[])`);
+        for (const r of po.rows as any[]) if (r.paid_hours != null) paidHoursOverride.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.paid_hours)));
+      } catch { /* payroll_hours_overrides table absent pre-migration — none */ }
+    }
+
+    // existing per-job final_pay DOLLAR overrides (job_technicians) still win
+    const finalPayOverride = new Map<string, number>();
+    if (inScopeJobIds.length) {
+      try {
+        const fp = await db.execute(sql`SELECT user_id, job_id, final_pay FROM job_technicians WHERE job_id = ANY(${inScopeJobIds}::int[]) AND final_pay IS NOT NULL`);
+        for (const r of fp.rows as any[]) if (r.final_pay != null) finalPayOverride.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
+      } catch { /* job_technicians absent — no overrides */ }
+    }
+
+    const payConfig: CompanyPayConfig = {
+      resRates,
+      commercial_hourly_rate: commercialHourlyRate,
+      commercial_comp_mode: commercialCompMode === "actual_hours" ? "actual_hours" : "allowed_hours",
+      hours_basis: hoursBasis,
+    };
+    const jobsForPay: PayrollJob[] = jobs.map(j => ({
+      id: j.id, account_id: (j as any).account_id ?? null, client_type: (j as any).client_type ?? null,
+      service_type: j.service_type, base_fee: j.base_fee, billed_amount: j.billed_amount,
+      allowed_hours: j.allowed_hours, actual_hours: j.actual_hours,
+      scheduled_date: String(j.scheduled_date), branch_id: (j as any).branch_id ?? null,
+    }));
+    const payLines = computePayLines({ jobs: jobsForPay, clocks, cellByUser, config: payConfig, paidHoursOverride, finalPayOverride });
+
+    // group lines by tech (filterUserId applied here — techs see only their own)
+    const linesByUser = new Map<number, typeof payLines>();
+    for (const l of payLines) {
+      if (filterUserId && l.user_id !== filterUserId) continue;
+      if (!linesByUser.has(l.user_id)) linesByUser.set(l.user_id, []);
+      linesByUser.get(l.user_id)!.push(l);
+    }
 
     const result = [];
-    for (const [uid, userJobs] of byUser) {
+    for (const [uid, userLines] of linesByUser) {
       const user = userMap.get(uid) || { first_name: "Unknown", last_name: "" };
       const userAddlPay = addlPay.filter(p => p.user_id === uid);
 
-      // Fetch job_technicians final_pay for this user's jobs in the period
-    const jobIdList = userJobs.map(j => j.id);
-    const jtMap = new Map<number, number>();
-    if (jobIdList.length > 0) {
-      try {
-        const jtRows = await db.execute(
-          sql`SELECT job_id, final_pay FROM job_technicians WHERE user_id = ${uid} AND job_id = ANY(${jobIdList}::int[])`
-        );
-        for (const r of jtRows.rows as any[]) {
-          if (r.final_pay != null) jtMap.set(r.job_id, parseFloat(String(r.final_pay)));
-        }
-      } catch { /* job_technicians may not exist yet; fallback to formula */ }
-    }
-
-    const jobRows = userJobs.map(job => {
-        const jobTotal = parseFloat(String(job.billed_amount || job.base_fee || 0));
-        const allowedHrs = parseFloat(String(job.allowed_hours || 0));
-        const workedHrs = parseFloat(String(job.actual_hours || 0));
-        // [payroll-hours-transition 2026-06-04] Until clock-in/out is fully
-        // adopted in Qleno, fall back to the job's scheduled (allowed) hours
-        // when there's no clocked time, so payroll hours don't read 0 during
-        // the cutover. Self-correcting: the moment a job is actually clocked,
-        // workedHrs > 0 and the real time takes over automatically.
-        const effectiveHrs = workedHrs > 0 ? workedHrs : allowedHrs;
-        const hoursEstimated = workedHrs <= 0 && allowedHrs > 0;
-        // [AI.7.4] Commercial routes on account_id. Hours signal honors
-        // commercial_comp_mode (default 'allowed_hours'). Residential
-        // unchanged — pool-rate × jobTotal.
-        // [commercial-clients 2026-06-02] Commercial CLIENTS (client_type
-        // = 'commercial', no account) are commercial too — Sal's rule:
-        // commercial is ALWAYS hourly × allowed_hours, never a residential %.
-        const isCommercialJob = (job as any).account_id != null
-          || (job as any).client_type === "commercial";
-        const commercialHours = commercialCompMode === "actual_hours" && workedHrs > 0
-          ? workedHrs : allowedHrs;
-        // [tiered-residential] Deep Clean / Move In-Out pay 32% (Phes
-        // bills client $80/hr on those scopes). All other residential
-        // remains 35%. resolveResidentialPayPct routes by service_type.
-        const jobResPct = resolveResidentialPayPct(job.service_type as any, resRates);
-        const calcCommission = isCommercialJob
-          ? Math.round(commercialHourlyRate * commercialHours * 100) / 100
-          : Math.round(jobTotal * jobResPct * 100) / 100;
-        const commission = jtMap.has(job.id) ? jtMap.get(job.id)! : calcCommission;
-        const effectiveRate = effectiveHrs > 0 ? Math.round((commission / effectiveHrs) * 100) / 100 : null;
-        // [payroll-quality 2026-06-08] Per-job customer rating (0–4, excluded
-        // ones drop) + a human pay-basis string ("35% of $X" / "$20/hr × Yh")
-        // so the office sees HOW each line was paid — the explain-the-math column.
-        const scEntry = scoreByJob.get(job.id);
+      const jobRows = userLines.map(l => {
+        const job = jobById.get(l.job_id);
+        const jobTotal = job ? parseFloat(String(job.billed_amount || job.base_fee || 0)) : 0;
+        const allowedHrs = job ? parseFloat(String(job.allowed_hours || 0)) : 0;
+        const scEntry = scoreByJob.get(l.job_id);
         const quality_score = scEntry && !scEntry.excluded ? scEntry.score : null;
-        const pay_basis = jtMap.has(job.id)
-          ? "Manual override"
-          : isCommercialJob
-            ? `$${commercialHourlyRate.toFixed(0)}/hr × ${commercialHours.toFixed(1)}h`
-            : `${Math.round(jobResPct * 100)}% of $${Math.round(jobTotal)}`;
         return {
-          job_id: job.id,
-          date: job.scheduled_date,
-          client: `${job.client_first || ""} ${job.client_last || ""}`.trim() || job.account_name || "",
-          scope: job.service_type,
+          job_id: l.job_id,
+          date: job ? job.scheduled_date : l.scheduled_date,
+          client: job ? (`${job.client_first || ""} ${job.client_last || ""}`.trim() || job.account_name || "") : "",
+          scope: job ? job.service_type : null,
           job_total: jobTotal,
-          commission,
-          commission_overridden: jtMap.has(job.id),
-          commission_basis: isCommercialJob ? "commercial_hourly" : "residential_pool",
-          // [payroll-quality] explain-the-math + customer rating per line.
-          pay_basis,
+          // `commission` keeps its field name for UI compat but now carries the
+          // tech's PAY for this job (hourly, commission-pool-share, or override).
+          commission: l.amount,
+          commission_overridden: l.basis === "manual_override",
+          commission_basis: l.pay_type === "hourly" ? "hourly" : l.basis,
+          // explain-the-math label straight from the engine.
+          pay_basis: l.pay_basis_label,
+          pay_type: l.pay_type,
+          hours_overridden: l.hours_overridden,
           quality_score,
-          // [Model A — Step 5] surfaced so the UI's expanded per-employee
-          // panel can render a "Branch" column and the rollup below stays in
-          // sync with what's shown per job.
-          branch_id: (job as any).branch_id ?? null,
-          branch_name: (job as any).branch_id != null
-            ? (branchNameMap.get((job as any).branch_id) ?? null)
-            : null,
+          branch_id: l.branch_id ?? null,
+          branch_name: l.branch_id != null ? (branchNameMap.get(l.branch_id) ?? null) : null,
           hrs_scheduled: allowedHrs,
-          // hrs_worked is the figure that cascades to payroll: clocked time
-          // when present, else scheduled hours (transition fallback above).
-          hrs_worked: effectiveHrs,
-          hrs_actual: workedHrs,
-          hrs_estimated: hoursEstimated,
-          effective_rate: effectiveRate,
+          // per-tech CLOCKED hours now (not the job's single actual_hours);
+          // paid_hours when an hourly line floored/overrode above the clock.
+          hrs_worked: l.paid_hours > 0 ? l.paid_hours : l.clocked_hours,
+          hrs_actual: l.clocked_hours,
+          hrs_estimated: false,
+          effective_rate: l.clocked_hours > 0 ? Math.round((l.amount / l.clocked_hours) * 100) / 100 : null,
         };
       });
 
