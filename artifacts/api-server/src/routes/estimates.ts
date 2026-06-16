@@ -249,6 +249,7 @@ router.get("/public/:token", async (req, res) => {
       const qrows = await db.execute(sql`
         SELECT q.id, q.lead_name, q.address, q.service_type, q.total_price, q.base_price,
                q.addons, q.status, q.created_at, q.sent_at,
+               q.frequency, q.frequency_options, q.selected_frequency,
                c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color
         FROM quotes q JOIN companies c ON c.id = q.company_id
         WHERE q.sign_token = ${token} LIMIT 1
@@ -293,6 +294,11 @@ router.get("/public/:token", async (req, res) => {
         company_brand_color: qt.company_brand_color,
         items,
         is_quote: true,
+        // [multi-frequency] additive — the comparison tiers (empty array when the
+        // quote has no snapshot, so the Pass-1 single-total render is unaffected).
+        frequency: qt.frequency || null,
+        options: Array.isArray(qt.frequency_options) ? qt.frequency_options : [],
+        selected_frequency: qt.selected_frequency || null,
       });
     }
 

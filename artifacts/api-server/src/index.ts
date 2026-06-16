@@ -189,6 +189,13 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] sms Pass3 setup — non-fatal:", err?.message ?? err);
   }
+  // [multi-frequency] quotes.frequency_options snapshot column
+  try {
+    const { ensureQuotePricingSetup } = await import("./lib/quote-pricing.js");
+    await ensureQuotePricingSetup();
+  } catch (err: any) {
+    console.error("[startup] ensureQuotePricingSetup — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live

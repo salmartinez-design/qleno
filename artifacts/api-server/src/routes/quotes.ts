@@ -233,6 +233,9 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     // Quote→lead: find-or-create the lead + link it (non-blocking).
     import("../lib/lead-sync.js").then(({ upsertLeadForQuote }) =>
       upsertLeadForQuote(req.auth!.companyId, q).catch(() => {})).catch(() => {});
+    // [multi-frequency] snapshot the comparison tiers (non-blocking).
+    import("../lib/quote-pricing.js").then(({ snapshotQuoteFrequencyOptions }) =>
+      snapshotQuoteFrequencyOptions(req.auth!.companyId!, q.id).catch(() => {})).catch(() => {});
     return res.status(201).json(q);
   } catch (err) {
     console.error("Create quote error:", err);
@@ -276,6 +279,9 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     // enriches it once the office fills the quote in. Non-blocking.
     import("../lib/lead-sync.js").then(({ upsertLeadForQuote }) =>
       upsertLeadForQuote(req.auth!.companyId, q).catch(() => {})).catch(() => {});
+    // [multi-frequency] re-snapshot tiers when scope/sqft/add-ons may have changed.
+    import("../lib/quote-pricing.js").then(({ snapshotQuoteFrequencyOptions }) =>
+      snapshotQuoteFrequencyOptions(req.auth!.companyId!, id).catch(() => {})).catch(() => {});
     return res.json(q);
   } catch (err) {
     console.error("Update quote error:", err);
@@ -303,6 +309,12 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       (q as any).sign_token = tok;
     }
     console.log(`[QUOTE SENT] id=${id} lead_email=${q.lead_email}`);
+    // [multi-frequency] Snapshot the comparison tiers BEFORE the cadence sends
+    // the link, so the public page has stable options when the customer opens it.
+    try {
+      const { snapshotQuoteFrequencyOptions } = await import("../lib/quote-pricing.js");
+      await snapshotQuoteFrequencyOptions(companyId!, id);
+    } catch { /* non-fatal — page falls back to single total */ }
     // Enroll in quote_followup sequence (non-blocking)
     import("../services/followUpService.js").then(({ enrollForQuoteSent }) => {
       enrollForQuoteSent(
