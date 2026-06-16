@@ -2620,6 +2620,12 @@ async function runAlejandraCuervoAccessRepair(): Promise<void> {
   const TARGET_EMAIL = "acuervo68@yahoo.com";
   const TARGET_PASSWORD = "chicago23";
 
+  // [2026-06-15 defensive] Lookup by name OR email — the name-only
+  // filter fails silently when a stored name carries accents, a
+  // middle name, hyphenation, or trimming quirks. Anchoring on the
+  // Sal-asserted email closes the gap so the repair runs even when
+  // the name shape drifts. Same pattern PR #516 used for the
+  // onboarding-password bootstrap.
   const rows = await db.execute<{
     id: number;
     email: string;
@@ -2630,8 +2636,10 @@ async function runAlejandraCuervoAccessRepair(): Promise<void> {
     SELECT id, email, password_hash, is_active, archived_at
     FROM users
     WHERE company_id = ${PHES}
-      AND LOWER(first_name) = LOWER(${FIRST})
-      AND LOWER(last_name) = LOWER(${LAST})
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+      )
       AND role != 'owner'
     ORDER BY id ASC
     LIMIT 1

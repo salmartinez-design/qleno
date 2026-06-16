@@ -241,7 +241,7 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
  * or belongs to a different company (defensive — no partial reset across
  * tenants).
  */
-router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const { userIds, newPassword } = req.body as {
@@ -298,7 +298,7 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
   }
 });
 
-router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const {
       email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone,
@@ -553,7 +553,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
-router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const callerRole = req.auth!.role;
@@ -745,7 +745,7 @@ router.patch("/:id/additional-pay/:payId/void", requireAuth, requireRole("owner"
   }
 });
 
-router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const payId = parseInt(req.params.payId);
@@ -873,7 +873,7 @@ router.get(
 router.post(
   "/:id/companies",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const targetUserId = Number(req.params.id);
@@ -941,7 +941,7 @@ router.post(
 router.delete(
   "/:id/companies/:companyId",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const targetUserId = Number(req.params.id);
@@ -1145,7 +1145,7 @@ async function adminGateAllowed(
 router.post(
   "/lms-add",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1315,7 +1315,7 @@ router.post(
 router.patch(
   "/:id/lms-edit",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
