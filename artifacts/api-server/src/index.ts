@@ -13,6 +13,7 @@ import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
+import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -214,6 +215,19 @@ async function startup() {
     }
   } catch (err: any) {
     console.error("[startup] job-history bridge — non-fatal:", err?.message ?? err);
+  }
+  // [onboarding-password 2026-06-16] Narrow login bootstrap for a stuck new
+  // hire during the comms-off cutover (temp-password email can't send while
+  // COMMS_ENABLED=false). Allowlist-scoped + never-logged-in guarded, so it
+  // can't clobber any active password. Self-limiting: once they log in,
+  // last_login_at is set and the UPDATE never matches them again.
+  try {
+    const n = await bootstrapOnboardingPasswords();
+    if (n > 0) {
+      console.log(`[onboarding-password] bootstrapped ${n} stuck onboarding login(s)`);
+    }
+  } catch (err: any) {
+    console.error("[startup] onboarding-password bootstrap — non-fatal:", err?.message ?? err);
   }
   // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
   // is live AND enforced in production. Non-fatal: pay computation
