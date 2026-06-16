@@ -276,6 +276,7 @@ async function sendOnMyWayForJob(
   const [tenantRows, clientRows, techRows] = await Promise.all([
     db
       .select({
+        name: companiesTable.name,
         sms_on_my_way_enabled: companiesTable.sms_on_my_way_enabled,
         twilio_from_number: companiesTable.twilio_from_number,
       })
@@ -339,7 +340,9 @@ async function sendOnMyWayForJob(
   return sendOnMyWaySms({
     toPhone: client?.phone ?? null,
     fromPhone: tenant?.twilio_from_number ?? null,
-    techName: `${tech?.first_name ?? ""} ${tech?.last_name ?? ""}`.trim(),
+    companyName: tenant?.name ?? "",
+    // First name only — never the tech's full name to the customer.
+    techName: tech?.first_name ?? "",
     clientFirstName: client?.first_name ?? "",
     serviceAddress,
     promisedArrivalLabel: promisedLabel,

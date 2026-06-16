@@ -29,6 +29,7 @@ export type OnMyWaySmsResult =
 export async function sendOnMyWaySms(opts: {
   toPhone: string | null | undefined;
   fromPhone: string | null | undefined;
+  companyName: string;
   techName: string;
   clientFirstName: string;
   serviceAddress: string;
@@ -46,11 +47,11 @@ export async function sendOnMyWaySms(opts: {
   if (!opts.clientOptedIn) return { status: "suppressed_client_opted_out" };
   if (!opts.toPhone || !opts.fromPhone) return { status: "suppressed_no_phone" };
 
-  const body = `Hi ${opts.clientFirstName || "there"}! Your cleaner ${
+  // Lead with the tenant's name; tech FIRST name only; concise, no ALL-CAPS.
+  const sender = (opts.companyName || "").trim();
+  const body = `${sender ? sender + ": " : ""}your cleaner ${
     opts.techName
-  } is on the way to ${
-    opts.serviceAddress
-  }. Estimated arrival: ${opts.promisedArrivalLabel}.`;
+  } is on the way, arriving around ${opts.promisedArrivalLabel}.`;
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
