@@ -74,6 +74,13 @@ export async function sendNotification(
   // user action, so it ALWAYS sends: bypasses both the per-tenant comms gate and
   // the global COMMS_ENABLED. Marketing/cadence/notification sends leave this false.
   transactional: boolean = false,
+  // [confirmation-email Pass2] ADDITIVE, opt-in: when provided (email only), the
+  // caller's renderer builds the entire email shell from the merged template body
+  // + merge vars, REPLACING the shared wrapEmailHtml() chrome for THIS send only.
+  // Every other caller omits it → wrapEmailHtml is used exactly as before, so the
+  // other transactional emails are byte-for-byte unchanged. Gating + logging are
+  // untouched. Used solely by the job_scheduled confirmation email.
+  renderEmail?: (mergedBodyHtml: string, vars: Record<string, string>) => string,
 ): Promise<void> {
   let status = "sent";
   let errorMsg: string | null = null;
@@ -140,10 +147,16 @@ export async function sendNotification(
       // the template already references the link — so any tenant's confirmation
       // email gets the customer job-view link without editing their template.
       const apptLink = fullVars.appointment_link;
-      if (apptLink && !rawHtml.includes(apptLink) && !bodyHtml.includes("appointment_link")) {
+      // The GAP1 fallback button only applies when there's no dedicated renderer
+      // (the Pass-2 confirmation renderer supplies its own CTA).
+      if (!renderEmail && apptLink && !rawHtml.includes(apptLink) && !bodyHtml.includes("appointment_link")) {
         rawHtml += `<div style="text-align:center;margin:24px 0 8px"><a href="${apptLink}" style="display:inline-block;background:${BRAND.accent};color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View your appointment</a></div>`;
       }
-      const wrapped  = applyMerge(wrapEmailHtml(rawHtml), fullVars);
+      // Opt-in dedicated renderer (confirmation email) replaces the shared chrome
+      // for this send only; all other emails keep wrapEmailHtml unchanged.
+      const wrapped  = renderEmail
+        ? applyMerge(renderEmail(rawHtml, fullVars), fullVars)
+        : applyMerge(wrapEmailHtml(rawHtml), fullVars);
 
       if (!transactional && process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });

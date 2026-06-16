@@ -2,6 +2,7 @@ import type { Request } from "express";
 import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
 
 // [booking-confirmation GAP1] Customer booking confirmation: a no-login,
 // token-based "your appointment" view (like /quote/:token, /estimate/:token)
@@ -73,16 +74,27 @@ export function buildAppointmentLink(req: Request, token: string): string | null
   return host ? `${proto}://${host}/appointment/${token}` : null;
 }
 
-function fmtApptDate(dateStr: string): string {
+function fmtApptDate(dateStr: any): string {
   try {
-    const [y, m, d] = String(dateStr).slice(0, 10).split("-").map(Number);
+    // scheduled_date comes back from pg as a Date object (timestamp column), not
+    // an ISO string — normalize both shapes to YYYY-MM-DD before formatting.
+    const iso = dateStr instanceof Date ? dateStr.toISOString().slice(0, 10) : String(dateStr).slice(0, 10);
+    const [y, m, d] = iso.split("-").map(Number);
+    if (!y || !m || !d) return String(dateStr);
     return new Date(y, m - 1, d).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-  } catch { return dateStr; }
+  } catch { return String(dateStr); }
 }
 
 function labelService(raw: string | null): string {
   if (!raw) return "Cleaning service";
   return raw.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// Origin (proto + host) from the request, for absolute asset/links in email.
+function originFromReq(req: Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0] || req.protocol || "https";
+  const host = (req.headers["x-forwarded-host"] as string) || req.get("host") || "app.qleno.com";
+  return `${proto}://${host}`;
 }
 
 // ── The send ─────────────────────────────────────────────────────────────────
@@ -94,9 +106,14 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     const rows = await db.execute(sql`
       SELECT j.id, j.company_id, j.scheduled_date, j.scheduled_time, j.service_type,
              j.address_street, j.address_city, j.address_state, j.address_zip,
-             c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone
+             c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
+             u.first_name AS tech_first, u.avatar_url AS tech_avatar,
+             co.name AS company_name, co.logo_url AS company_logo,
+             co.phone AS company_phone, co.email AS company_email
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN users u ON u.id = j.assigned_user_id
+      JOIN companies co ON co.id = j.company_id
       WHERE j.id = ${jobId} LIMIT 1
     `);
     const j: any = rows.rows[0];
@@ -120,8 +137,34 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       appointment_link: link || "",
     };
 
+    // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo
+    // ONLY — no last name/contact. Per-tenant contact from the record, branch
+    // fallback otherwise. The renderer reuses the merged template body's policy
+    // copy verbatim (extractPolicyCopy) and reskins everything else.
+    const origin = originFromReq(req);
+    const FALLBACK_PHONE = "(847) 538-3729", FALLBACK_PHONE_TEL = "+18475383729", FALLBACK_EMAIL = "schaumburg@phes.io";
+    const cPhone = j.company_phone || FALLBACK_PHONE;
+    const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
+    const cEmail = j.company_email || FALLBACK_EMAIL;
+    const renderEmail = (mergedBody: string): string => renderConfirmationEmail({
+      logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
+      companyName: j.company_name || "Phes Schaumburg",
+      clientFirst: (j.first_name || "").trim(),
+      apptDate: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "Your scheduled date",
+      apptTime: fmtTime12h(j.scheduled_time),
+      serviceType: labelService(j.service_type),
+      serviceAddress: serviceAddress || "On file",
+      mapsHref: serviceAddress ? `https://maps.google.com/?q=${encodeURIComponent(serviceAddress)}` : null,
+      techFirst: j.tech_first || null,
+      techAvatar: j.tech_avatar || null,
+      link,
+      phone: cPhone, phoneTel: cPhoneTel, email: cEmail,
+      qlenoMark: `${origin}/images/logo-mark.png`,
+      policyCopyHtml: extractPolicyCopy(mergedBody),
+    });
+
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv).catch(() => {});
+    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail).catch(() => {});
     if (phone) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv).catch(() => {});
   } catch (err) {
     console.error("[booking-confirmation] sendJobScheduledConfirmation failed:", err);
