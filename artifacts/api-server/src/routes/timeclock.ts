@@ -5,6 +5,7 @@ import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 
@@ -510,8 +511,15 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
           RETURNING client_id
         `);
         // RETURNING is non-empty only when THIS call flipped the status — so the
-        // survey + retention fire exactly once, on the transition.
+        // survey + retention + auto-invoice fire exactly once, on the transition.
         const clientId = (done.rows[0] as any)?.client_id;
+        if (done.rows[0]) {
+          // Generate the job's draft invoice on field clock-out — same idempotent
+          // path the office PATCH uses. Fire-and-forget so a slow/failed invoice
+          // never blocks the clock-out response (helper is internally non-fatal).
+          ensureInvoiceForCompletedJob(req.auth!.companyId, jobId, req.auth!.userId)
+            .catch((e: Error) => console.error("[end-job invoice] non-fatal:", e));
+        }
         if (clientId) {
           fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
             method: "POST",

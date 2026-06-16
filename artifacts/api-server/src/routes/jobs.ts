@@ -10,6 +10,7 @@ import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 
 const router = Router();
 
@@ -3520,124 +3521,21 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     }
 
     // ── Auto-invoice on completion ────────────────────────────────────────
+    // Delegates to the shared helper so the office (PATCH) path and the two
+    // field clock-out paths (timeclock / tech-clock) all generate the invoice
+    // through one idempotent code path. The hourly billing block above has
+    // already persisted billed_amount/billed_hours to the job row, so the
+    // helper's fresh fetch sees the same numbers this path used to read inline.
     let autoInvoice: { id: number; status: string; total: string } | null = null;
     let invoiceCreated = false;
     let invoiceError = false;
-
-    try {
-      const companyId = req.auth!.companyId;
-      const job = updated[0] as any;
-
-      const existing = await db
-        .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total })
-        .from(invoicesTable)
-        .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
-        .limit(1);
-
-      if (existing[0]) {
-        autoInvoice = { id: existing[0].id, status: existing[0].status, total: existing[0].total };
-      } else {
-        // If this job belongs to an account, check invoice_frequency before auto-creating
-        let skipAutoInvoice = false;
-        let termsDays = 0;
-        let clientId = job.client_id ?? null;
-
-        if (job.account_id) {
-          const [acct] = await db
-            .select({ invoice_frequency: accountsTable.invoice_frequency, payment_terms_days: accountsTable.payment_terms_days })
-            .from(accountsTable)
-            .where(eq(accountsTable.id, job.account_id))
-            .limit(1);
-          if (acct) {
-            termsDays = acct.payment_terms_days ?? 30;
-            // Only auto-invoice on per_job; weekly/monthly get batched via consolidate endpoint
-            if (acct.invoice_frequency !== "per_job") {
-              skipAutoInvoice = true;
-            }
-          }
-        } else {
-          const [co] = await db
-            .select({ payment_terms_days: companiesTable.payment_terms_days })
-            .from(companiesTable)
-            .where(eq(companiesTable.id, companyId))
-            .limit(1);
-          termsDays = co?.payment_terms_days ?? 0;
-        }
-
-        if (!skipAutoInvoice) {
-          const today = new Date();
-          const due = new Date(today);
-          due.setDate(due.getDate() + termsDays);
-          const dueDateStr = due.toISOString().split("T")[0];
-
-          const termsLabel =
-            termsDays === 30 ? "net_30" :
-            termsDays === 15 ? "net_15" :
-            termsDays === 7  ? "net_7"  : "due_on_receipt";
-
-          // Use billed_amount for hourly jobs; otherwise base_fee
-          const amount = completedJob.billed_amount
-            ? parseFloat(completedJob.billed_amount)
-            : parseFloat(job.base_fee ?? "0");
-          const svcLabel = (job.service_type ?? "Cleaning Service")
-            .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-          const qty = completedJob.billed_hours ? parseFloat(completedJob.billed_hours) : 1;
-          const unitPrice = completedJob.hourly_rate ? parseFloat(completedJob.hourly_rate) : amount;
-
-          const lineItems: any[] = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: amount }];
-
-          // Itemize any discounts applied to this job as negative lines so the
-          // invoice total nets them out (matches the live draft-sync helper).
-          const jobDisc = await db.select().from(jobDiscountsTable)
-            .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
-          let discTotal = 0;
-          for (const d of jobDisc) {
-            const amt = parseFloat(String(d.amount));
-            discTotal += amt;
-            const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
-            lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
-          }
-          const netAmount = Math.max(0, Math.round((amount - discTotal) * 100) / 100);
-
-          const [newInv] = await db
-            .insert(invoicesTable)
-            .values({
-              company_id: companyId,
-              job_id: jobId,
-              client_id: clientId,
-              account_id: job.account_id ?? null,
-              status: "draft",
-              line_items: lineItems,
-              subtotal: netAmount.toFixed(2),
-              total: netAmount.toFixed(2),
-              due_date: dueDateStr,
-              payment_terms: termsLabel,
-              created_by: req.auth!.userId,
-            })
-            .returning({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total });
-
-          autoInvoice = { id: newInv.id, status: newInv.status, total: newInv.total };
-          invoiceCreated = true;
-
-          // [AF] Fire-and-forget QB invoice push. Enqueue a pending row in
-          // qb_sync_queue regardless of whether this tenant is QB-connected —
-          // the cron drain (syncAll) checks getValidToken() and no-ops cleanly
-          // for tenants without a connection, so queueing is always safe.
-          // Does NOT respect COMMS_ENABLED: QB push is accounting, not
-          // outbound customer comms.
-          try {
-            const { syncInvoice } = await import("../services/quickbooks-sync.js");
-            syncInvoice(companyId, newInv.id).catch(qbErr => {
-              console.error("[AF] QB invoice push error (non-fatal):", qbErr);
-            });
-          } catch (qbImportErr) {
-            console.error("[AF] QB sync module load error (non-fatal):", qbImportErr);
-          }
-        }
+    {
+      const inv = await ensureInvoiceForCompletedJob(req.auth!.companyId, jobId, req.auth!.userId);
+      if (inv.invoiceId != null) {
+        autoInvoice = { id: inv.invoiceId, status: inv.status!, total: inv.total! };
       }
-    } catch (invErr) {
-      console.error("Auto-invoice error (non-fatal):", invErr);
-      invoiceError = true;
+      invoiceCreated = inv.created;
+      invoiceError = inv.error;
     }
     // ─────────────────────────────────────────────────────────────────────
 
