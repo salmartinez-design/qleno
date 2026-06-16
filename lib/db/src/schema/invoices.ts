@@ -7,8 +7,14 @@ import { jobsTable } from "./jobs";
 import { usersTable } from "./users";
 import { branchesTable } from "./branches";
 
+// [invoicing-engine 2026-06-16] `void` and `superseded` appended for the
+// invoicing engine: `void` backs the Void action, `superseded` is the status of
+// batch per-visit children that have been folded (zeroed) into a month's parent
+// invoice. Appended at the END so existing ordinals are untouched — the enum
+// values are added to the live DB via pre-push-fix.ts (ALTER TYPE ADD VALUE
+// IF NOT EXISTS) BEFORE drizzle-kit push runs, so push sees no enum diff.
 export const invoiceStatusEnum = pgEnum("invoice_status", [
-  "draft", "sent", "paid", "overdue"
+  "draft", "sent", "paid", "overdue", "void", "superseded"
 ]);
 
 export const invoicesTable = pgTable("invoices", {
@@ -38,6 +44,25 @@ export const invoicesTable = pgTable("invoices", {
   billing_contact_name: text("billing_contact_name"),
   billing_contact_email: text("billing_contact_email"),
   branch_id: integer("branch_id").references(() => branchesTable.id),
+  // [invoicing-engine 2026-06-16] Processor stamped on the invoice at creation,
+  // copied from clients.payment_source ('stripe' | 'square' | 'check' | 'ach').
+  // Drives the office Charge action's routing so a later change to the client's
+  // default source never re-routes an already-issued invoice. Null falls back to
+  // the client's current payment_source at charge time.
+  payment_source: text("payment_source"),
+  // [invoicing-engine 2026-06-16] Batch ("first invoice of the month") workflow.
+  // Per-visit invoices for batch_invoice clients are created with
+  // batch_status='pending' (draft, not sent, not charged) so the month-end
+  // roll-up can find them. Cleared/!= 'pending' once consolidated. Null for
+  // per_visit clients (their invoices are never part of a batch).
+  batch_status: text("batch_status"),
+  // [invoicing-engine 2026-06-16] On a folded child invoice, points at the
+  // month's parent (consolidated) invoice. The child is zeroed and set to
+  // status='superseded'; the parent carries the full month total. Null on
+  // per-visit invoices and on the parent itself. Plain integer (no FK) to match
+  // the self-reference style used elsewhere (e.g. account_id) and avoid a
+  // circular Drizzle self-ref.
+  parent_invoice_id: integer("parent_invoice_id"),
 });
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({ id: true, created_at: true });

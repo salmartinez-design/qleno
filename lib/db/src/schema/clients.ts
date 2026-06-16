@@ -6,6 +6,14 @@ import { branchesTable } from "./branches";
 
 export const clientTypeEnum = pgEnum("client_type", ["residential", "commercial"]);
 export const paymentTermsEnum = pgEnum("client_payment_terms", ["due_on_receipt", "net_15", "net_30"]);
+// [invoicing-engine 2026-06-16] How invoicing behaves for the client:
+//   per_visit (DEFAULT) — invoice auto-creates the moment a job completes.
+//   batch_invoice        — per-visit invoices still generate per completion
+//                          (draft, batch_status='pending'), then fold into the
+//                          month's first invoice at the office consolidate step.
+// Brand-new enum type → drizzle-kit push CREATEs it (push-safe, no pre-push-fix
+// needed). Append-only if values are ever added later (never swap).
+export const billingTermsEnum = pgEnum("billing_terms", ["per_visit", "batch_invoice"]);
 export const referralSourceEnum = pgEnum("referral_source", [
   "google", "nextdoor", "facebook", "yelp", "client_referral",
   "door_hanger", "yard_sign", "website", "other",
@@ -68,6 +76,10 @@ export const clientsTable = pgTable("clients", {
   card_saved_at: timestamp("card_saved_at"),
   stripe_payment_method_id: text("stripe_payment_method_id"),
   payment_source: text("payment_source"),
+  // [invoicing-engine 2026-06-16] per_visit (default) vs batch_invoice. See
+  // billingTermsEnum above. Existing rows backfill to 'per_visit' via the NOT
+  // NULL DEFAULT, preserving today's per-visit-on-completion behavior.
+  billing_terms: billingTermsEnum("billing_terms").notNull().default("per_visit"),
   zone_id: integer("zone_id"),
   account_id: integer("account_id"),
   referral_source: referralSourceEnum("referral_source"),
