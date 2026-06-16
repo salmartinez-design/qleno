@@ -417,9 +417,13 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       weekly: "weekly", biweekly: "biweekly", every_2_weeks: "biweekly",
       monthly: "monthly", every_4_weeks: "monthly",
     };
-    const chosenRaw = String(req.body?.frequency || (q as any).selected_frequency || q.frequency || "onetime").toLowerCase().replace(/[- ]/g, "_");
+    // selected_frequency + frequency_options live on columns added via raw ALTER
+    // (not in the drizzle schema), so the updated `q` above doesn't carry them —
+    // read them with raw SQL.
+    const snap = (await db.execute(sql`SELECT selected_frequency, frequency_options FROM quotes WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`)).rows[0] as any;
+    const chosenRaw = String(req.body?.frequency || snap?.selected_frequency || q.frequency || "onetime").toLowerCase().replace(/[- ]/g, "_");
     const snapKey = SNAP_KEY[chosenRaw] || "onetime";
-    const snapOptions = Array.isArray((q as any).frequency_options) ? (q as any).frequency_options : [];
+    const snapOptions = Array.isArray(snap?.frequency_options) ? snap.frequency_options : [];
     const chosenOpt = snapOptions.find((o: any) => o.frequency === snapKey) || null;
     const FREQ_MAP: Record<string, string> = {
       onetime: "on_demand", weekly: "weekly", biweekly: "biweekly", monthly: "monthly",
