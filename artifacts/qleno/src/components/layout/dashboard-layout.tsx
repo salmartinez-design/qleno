@@ -1037,10 +1037,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                       <img
                         src={(user as any).avatar_url}
                         alt={`${user.first_name} ${user.last_name}`}
-                        style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                        style={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
                       />
                     ) : (
-                      <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600 }}>
                         {initials}
                       </div>
                     )}
