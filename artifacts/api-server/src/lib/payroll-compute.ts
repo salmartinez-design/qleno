@@ -76,7 +76,7 @@ export interface PayLine {
   branch_id: number | null;
   is_commercial: boolean;
   pay_type: PayType;
-  basis: "hourly" | "residential_pool" | "commercial_pool" | "manual_override";
+  basis: "hourly" | "residential_pool" | "commercial_pool" | "hourly_floor" | "manual_override";
   clocked_hours: number;
   paid_hours: number;       // hourly lines only (else 0)
   rate: number | null;      // $/hr for hourly, pct for commission
@@ -161,10 +161,12 @@ export function computePayLines(input: {
     const job = jobById.get(jobId)!;
     const isComm = jobIsCommercial(job);
     const pool = jobPool(job, config);
-
-    // Partition clocked techs into commission vs hourly for THIS job's type.
-    const commissionTechs = jobClocks.filter(c => payTypeFor(cellFor(c.user_id), isComm) === "commission");
-    const totalCommMinutes = commissionTechs.reduce((s, c) => s + c.clocked_hours, 0);
+    // [MC-parity] universal hourly/floor rate ($20). Enhancement B: the
+    // commission pool is split across ALL clocked techs by ACTUAL clocked hours
+    // (hourly techs occupy the denominator and take hourly — their pool share is
+    // forgone, matching MaidCentral on mixed crews).
+    const floorRate = config.commercial_hourly_rate;
+    const totalAllHours = jobClocks.reduce((s, c) => s + c.clocked_hours, 0);
 
     for (const c of jobClocks) {
       const cell = cellFor(c.user_id);
@@ -185,6 +187,26 @@ export function computePayLines(input: {
         continue;
       }
 
+      // Per-job HOURS override pays this line HOURLY at the company rate,
+      // regardless of the job's commission routing. It's an hours lever (not a
+      // dollar one): the office marks "this job was paid $/hr × N hours" — which
+      // is how MaidCentral hand-assigns certain jobs to hourly (incl. jobs a
+      // commission tech would otherwise pool). Commission-pool jobs carry no
+      // override and flow through the pool logic below.
+      if (paidOv.has(k)) {
+        const oh = paidOv.get(k)!;
+        const ovRate = config.commercial_hourly_rate;
+        lines.push({
+          user_id: c.user_id, job_id: jobId, scheduled_date: job.scheduled_date, branch_id: job.branch_id,
+          is_commercial: isComm, pay_type: "hourly", basis: "hourly",
+          clocked_hours: round2(c.clocked_hours), paid_hours: round2(oh), rate: ovRate,
+          pool_total: null, pool_share: null, hours_overridden: true,
+          amount: round2(oh * ovRate),
+          pay_basis_label: `$${ovRate.toFixed(2)}/hr × ${round2(oh)}h (override)`,
+        });
+        continue;
+      }
+
       if (pt === "hourly") {
         const hasOv = paidOv.has(k);
         const paidHours = hasOv ? paidOv.get(k)! : basisHours(config.hours_basis, c.clocked_hours, allowed);
@@ -197,19 +219,26 @@ export function computePayLines(input: {
           pay_basis_label: `$${rate.toFixed(2)}/hr × ${round2(paidHours)}h${hasOv ? " (override)" : ` (${config.hours_basis})`}`,
         });
       } else {
-        // commission: weighted share of the job pool among clocked commission techs
-        const share = totalCommMinutes > 0 ? c.clocked_hours / totalCommMinutes : (commissionTechs.length ? 1 / commissionTechs.length : 0);
+        // residential commission tech: GREATER-OF(pool share, hourly floor).
+        // Enhancement A: floor = clocked actual hrs × $20 (long low-fee job still
+        // clears minimum wage). Enhancement B: pool share weighted by clocked
+        // hours across ALL techs on the job.
+        const shareFrac = totalAllHours > 0 ? c.clocked_hours / totalAllHours : 1;
+        const shareAmt = round2(pool.total * shareFrac);
+        const floorAmt = round2(c.clocked_hours * floorRate);
+        const useFloor = floorAmt > shareAmt;
         lines.push({
           user_id: c.user_id, job_id: jobId, scheduled_date: job.scheduled_date, branch_id: job.branch_id,
           is_commercial: isComm, pay_type: "commission",
-          basis: isComm ? "commercial_pool" : "residential_pool",
-          clocked_hours: round2(c.clocked_hours), paid_hours: 0, rate: isComm ? null : rate,
-          pool_total: pool.total, pool_share: round2(share),
+          basis: useFloor ? "hourly_floor" : (isComm ? "commercial_pool" : "residential_pool"),
+          clocked_hours: round2(c.clocked_hours), paid_hours: useFloor ? round2(c.clocked_hours) : 0,
+          rate: useFloor ? floorRate : rate,
+          pool_total: pool.total, pool_share: round2(shareFrac),
           hours_overridden: false,
-          amount: round2(pool.total * share),
-          pay_basis_label: commissionTechs.length > 1
-            ? `${(share * 100).toFixed(0)}% of ${pool.basisLabel}`
-            : pool.basisLabel,
+          amount: Math.max(shareAmt, floorAmt),
+          pay_basis_label: useFloor
+            ? `$${floorRate.toFixed(2)}/hr × ${round2(c.clocked_hours)}h (floor)`
+            : `${Math.round(shareFrac * 100)}% of ${pool.basisLabel}`,
         });
       }
     }
