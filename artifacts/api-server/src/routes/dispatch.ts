@@ -2,13 +2,22 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 
 const router = Router();
 
-router.get("/", requireAuth, async (req, res) => {
+// [tech-boundary 2026-06-17] All /api/dispatch routes are office-tier
+// only — techs have no business reading the full company dispatch
+// payload (every other tech's name, every client, every job). Was a
+// real leak: dispatch.ts had ZERO requireRole calls before this PR
+// even though every other office route in the codebase gated. A tech
+// with the URL could hit GET /api/dispatch?date=... via devtools/curl
+// and pull the entire day's office data.
+const dispatchOfficeGate = requireRole("owner", "admin", "office", "super_admin");
+
+router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
@@ -1006,7 +1015,7 @@ router.get("/", requireAuth, async (req, res) => {
 // day's full data on demand.
 //
 // Window defaults to current Sunday–Saturday when from/to omitted.
-router.get("/week-summary", requireAuth, async (req, res) => {
+router.get("/week-summary", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const branch_id = req.query.branch_id as string | undefined;
@@ -1110,7 +1119,7 @@ router.get("/week-summary", requireAuth, async (req, res) => {
 //       c_other:            { count, samples: [...] },
 //     },
 //   }
-router.get("/zone-coverage-audit", requireAuth, async (req, res) => {
+router.get("/zone-coverage-audit", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = (req as any).auth!.companyId;
     const today = new Date();
