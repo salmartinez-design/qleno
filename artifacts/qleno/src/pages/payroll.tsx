@@ -113,7 +113,7 @@ function PeriodPicker({ period, onPeriodChange }:
       {open && (
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
-          <div style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 300, background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, boxShadow: '0 18px 50px rgba(10,14,26,.16)', padding: 6, zIndex: 41 }}>
+          <div style={{ position: 'absolute', top: 'calc(100% + 8px)', left: 0, width: 300, background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, boxShadow: '0 18px 50px rgba(10,14,26,.16)', padding: 6, zIndex: 41 }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '8px 12px 4px' }}>{CADENCE_LABEL[cadence] || 'Weekly'} periods</div>
             {weeks.map(w => {
               const sel = w.start === period.start && w.end === period.end;
