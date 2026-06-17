@@ -11,6 +11,27 @@ import type { CommissionInputJob } from "../lib/commission-compute.js";
 
 const router = Router();
 
+// [clock-tz 2026-06-17] Clock times are stored as WALL-CLOCK (the office types
+// "4:24 PM" and that's exactly what's stored + shown — see the time-clock UI's
+// design note). Office-typed naive strings already round-trip correctly on a
+// UTC server. But FIELD-app punches use `new Date()` (a real UTC instant), so a
+// 4:24 PM Central punch was stored as 21:24 and the time-clock screen sliced it
+// to "9:24 PM" (+5h). This converts a real instant to the America/Chicago
+// wall-clock and returns a Date whose UTC components equal those wall digits —
+// so it stores into the `timestamp` column as the Central wall-clock, matching
+// the office convention. Phes is single-timezone; when multi-tz lands this
+// takes the tenant's zone instead of the hardcoded America/Chicago.
+const CLOCK_TZ = "America/Chicago";
+function centralWallClock(instant: Date): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: CLOCK_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(instant);
+  const g = (t: string) => parts.find(p => p.type === t)!.value;
+  let hh = g("hour"); if (hh === "24") hh = "00"; // Intl can emit 24 at midnight
+  return new Date(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+
 function calculateDistanceFt(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 20902231;
   const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -187,12 +208,15 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     // signal and replays it later. client_clock_in_at carries the REAL on-site
     // time the tech tapped (not the sync time). Accept only a sane past stamp
     // (≤ now + 5 min skew, ≥ 24h ago) so it can't be abused to back/forward-date.
-    let clockInAt: Date | undefined;
+    // Always set the stamp to the Central wall-clock of the real instant (the
+    // DB default now() would store a UTC instant → the +5h bug). Default = now;
+    // offline replay overrides with the queued on-site instant.
+    let clockInAt: Date = centralWallClock(new Date());
     if (req.body?.client_clock_in_at) {
       const d = new Date(req.body.client_clock_in_at);
       const now = Date.now();
       if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
-        clockInAt = d;
+        clockInAt = centralWallClock(d);
       }
     }
 
@@ -309,7 +333,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
         user_id: effectiveUserId,
         company_id: req.auth!.companyId,
         branch_id: stampedBranchId,
-        ...(clockInAt ? { clock_in_at: clockInAt } : {}),
+        clock_in_at: clockInAt,
         clock_in_lat: empLat !== null ? String(empLat) : null,
         clock_in_lng: empLng !== null ? String(empLng) : null,
         clock_in_distance_ft: distanceFt !== null ? String(distanceFt) : null,
@@ -380,12 +404,15 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
     // [offline-clock 2026-06-11] Queued clock-out replays the REAL on-site time
     // (client_clock_out_at), not the sync time — so a dead-zone job doesn't
     // record a clock-out 30 min late at the tech's house. Same sanity window.
-    let clockOutAt = new Date();
+    // Store the Central wall-clock of the real instant (matches office-typed
+    // times + the time-clock screen's wall-clock display; raw new Date() would
+    // store a UTC instant → the +5h bug).
+    let clockOutAt = centralWallClock(new Date());
     if (req.body?.client_clock_out_at) {
       const d = new Date(req.body.client_clock_out_at);
       const now = Date.now();
       if (!isNaN(d.getTime()) && d.getTime() <= now + 5 * 60 * 1000 && d.getTime() >= now - 24 * 60 * 60 * 1000) {
-        clockOutAt = d;
+        clockOutAt = centralWallClock(d);
       }
     }
 
@@ -610,7 +637,10 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     const job_id = parseInt(String(req.body?.job_id));
     const user_id = parseInt(String(req.body?.user_id));
     if (!job_id || !user_id) return res.status(400).json({ error: "job_id and user_id are required" });
-    const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : new Date();
+    // Typed time = naive wall-clock string, stored as-is (round-trips on a UTC
+    // server). No time given → stamp the Central wall-clock of now (not a raw
+    // UTC instant).
+    const clockInAt = req.body?.clock_in_at ? new Date(req.body.clock_in_at) : centralWallClock(new Date());
     if (isNaN(clockInAt.getTime())) return res.status(400).json({ error: "Invalid clock_in_at" });
 
     const [jobRow] = await db.select({ id: jobsTable.id, branch_id: jobsTable.branch_id })
@@ -648,7 +678,7 @@ router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "off
     const job_id = parseInt(String(req.body?.job_id));
     const user_id = parseInt(String(req.body?.user_id));
     if (!job_id || !user_id) return res.status(400).json({ error: "job_id and user_id are required" });
-    const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : new Date();
+    const clockOutAt = req.body?.clock_out_at ? new Date(req.body.clock_out_at) : centralWallClock(new Date());
     if (isNaN(clockOutAt.getTime())) return res.status(400).json({ error: "Invalid clock_out_at" });
 
     const [open] = await db.select().from(timeclockTable).where(and(

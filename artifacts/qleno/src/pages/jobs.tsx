@@ -320,7 +320,21 @@ function fmtHour(h: number) { if (h === 12) return "12 PM"; if (h === 0) return 
 function fmtMins(mins: number) { const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60; const ampm = h % 24 < 12 ? "AM" : "PM"; const hr = h % 12 === 0 ? 12 : h % 12; return `${hr}:${String(m).padStart(2, "0")} ${ampm}`; }
 // [office-clock 2026-06-05] Format an ISO timestamp as wall-clock time and a
 // clock-in -> clock-out span, for the desktop Time Clock panel.
-function fmtClock(iso: string) { const d = new Date(iso); return isNaN(d.getTime()) ? "—" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+// [clock-tz 2026-06-17] Clock times are stored WALL-CLOCK (what the tech/office
+// saw on the clock). Slice the HH:MM straight out of the string — never run it
+// through new Date()/toLocaleTimeString(), which re-applies the browser's UTC
+// offset and shifts the displayed time (the dispatch drawer was showing field
+// punches hours off, disagreeing with the Time Clock screen). Mirrors the
+// time-clock page's wall-clock formatter.
+function fmtClock(iso: string | null | undefined) {
+  if (!iso) return "—";
+  const m = String(iso).match(/[T ](\d{2}):(\d{2})/);
+  if (!m) return "—";
+  const h = parseInt(m[1], 10), min = m[2];
+  const ap = h < 12 ? "AM" : "PM";
+  const h12 = ((h + 11) % 12) + 1;
+  return `${h12}:${min} ${ap}`;
+}
 function clockDuration(a: string, b: string) { const ms = new Date(b).getTime() - new Date(a).getTime(); if (isNaN(ms) || ms < 0) return "—"; const mins = Math.round(ms / 60000); const h = Math.floor(mins / 60), m = mins % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
@@ -347,18 +361,21 @@ function ClockEditor({ entry, canEdit, onUpdate }: { entry: ClockEntry; canEdit:
   const [outVal, setOutVal] = useState("");
   const [saving, setSaving] = useState(false);
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  // [clock-tz 2026-06-17] Clock times are WALL-CLOCK. Slice the date+HH:MM
+  // straight out of the stored string (no new Date(), which would re-apply the
+  // browser offset and pre-fill the wrong time); save sends a naive datetime
+  // (no Z) so the server stores exactly what was typed.
   const toLocal = (iso: string | null) => {
     if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+    const m = String(iso).match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})/);
+    return m ? `${m[1]}T${m[2]}` : "";
   };
   function open() { setInVal(toLocal(entry.clock_in_at)); setOutVal(toLocal(entry.clock_out_at)); setEditing(true); }
   async function save() {
     if (!inVal) { toast({ title: "Clock-in time is required", variant: "destructive" }); return; }
     setSaving(true);
     try {
-      const body: any = { clock_in_at: new Date(inVal).toISOString(), clock_out_at: outVal ? new Date(outVal).toISOString() : null };
+      const body: any = { clock_in_at: `${inVal}:00`, clock_out_at: outVal ? `${outVal}:00` : null };
       const r = await fetch(`${API}/api/timeclock/${entry.id}`, { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.message || e.error || "Failed"); }
       toast({ title: "Clock updated" });
@@ -2307,8 +2324,8 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     value={`${variance > 0 ? "+" : ""}${variance.toFixed(1)}h`}
                     color={variance > 0.25 ? "#D97706" : variance < -0.25 ? "#16A34A" : undefined} />
                 )}
-                {ce?.clock_in_at && <KV label="Clock in" value={new Date(ce.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
-                {ce?.clock_out_at && <KV label="Clock out" value={new Date(ce.clock_out_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} />}
+                {ce?.clock_in_at && <KV label="Clock in" value={fmtClock(ce.clock_in_at)} />}
+                {ce?.clock_out_at && <KV label="Clock out" value={fmtClock(ce.clock_out_at)} />}
                 {ce && inDist != null && (
                   <KV label="Distance at clock-in" value={`${Math.round(inDist)} ft${ce.clock_in_outside_geofence ? " (outside)" : ""}`} color={ce.clock_in_outside_geofence ? "#D97706" : undefined} />
                 )}
@@ -3760,7 +3777,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           {job.clock_entry?.clock_in_at && (
             <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#16A34A", fontWeight: 600 }}>
               <Clock size={11} />
-              Clocked in {new Date(job.clock_entry.clock_in_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              Clocked in {fmtClock(job.clock_entry.clock_in_at)}
             </div>
           )}
         </div>
@@ -4322,7 +4339,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
               return (
                 <div>
                   <span style={{ color: "#9E9B94" }}>In:</span>{" "}
-                  {new Date(liveClock.clock_in_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                  {fmtClock(liveClock.clock_in_at)}
                   {d != null && (
                     <span style={{ color: liveClock.clock_in_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
                       ({Math.round(d)} ft{liveClock.clock_in_outside_geofence ? " · outside" : ""})
@@ -4334,7 +4351,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
             {liveClock.clock_out_at && (
               <div>
                 <span style={{ color: "#9E9B94" }}>Out:</span>{" "}
-                {new Date(liveClock.clock_out_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                {fmtClock(liveClock.clock_out_at)}
                 {liveClock.clock_out_distance_ft != null && (
                   <span style={{ color: liveClock.clock_out_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
                     ({Math.round(liveClock.clock_out_distance_ft)} ft{liveClock.clock_out_outside_geofence ? " · outside" : ""})
