@@ -478,6 +478,88 @@ router.post("/", requireAuth, async (req, res) => {
       }
     }
 
+    // [recurrence-fanout-fix 2026-06-17] (#1) The dispatch "New Job" wizard used
+    // to stamp a recurring `frequency` onto this single job but never create a
+    // recurring_schedules row or generate the rest of the series — so
+    // "scheduling a recurrence" only ever produced the first visit (313
+    // historical jobs carry a recurring frequency with NULL
+    // recurring_schedule_id). Mirror the quote-convert fan-out: build the
+    // schedule, link THIS job as the first occurrence (so the generator's
+    // dedupe skips its date — no duplicate first visit), and synchronously
+    // generate the next 90 days. Calls generateJobsFromSchedule directly, so it
+    // works regardless of the disabled RECURRING_ENGINE cron. Gated by a
+    // FEE-GUARD: never fan out a $0/blank series (the 744-phantom-job incident).
+    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks"]);
+    const _feeNum = Number(base_fee);
+    if (
+      client_id &&
+      typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
+      Number.isFinite(_feeNum) && _feeNum > 0
+    ) {
+      try {
+        const _durationMin = allowed_hours != null && Number(allowed_hours) > 0
+          ? Math.round(Number(allowed_hours) * 60)
+          : (estimated_hours != null && Number(estimated_hours) > 0 ? Math.round(Number(estimated_hours) * 60) : null);
+
+        const [sched] = await db
+          .insert(recurringSchedulesTable)
+          .values({
+            company_id: req.auth!.companyId!,
+            customer_id: client_id,
+            frequency: frequency as any, // narrowed to string; column wants the freq enum union
+            day_of_week: null, // cadence anchors on start_date's weekday when null
+            start_date: scheduled_date,
+            end_date: null,
+            assigned_employee_id: primaryTechId ? Number(primaryTechId) : null,
+            service_type,
+            scheduled_time: scheduled_time || null,
+            duration_minutes: _durationMin,
+            base_fee: String(base_fee),
+            notes: notes || null,
+          })
+          .returning();
+
+        // Link THIS job as the first occurrence so the generator dedupe skips it.
+        await db.update(jobsTable).set({ recurring_schedule_id: sched.id }).where(eq(jobsTable.id, jobId));
+
+        // Carry the wizard's add-ons onto the schedule template so future
+        // occurrences inherit them (the generator only stamps parking itself).
+        const _schedAddons = (Array.isArray(add_ons) ? add_ons : [])
+          .map((a: any) => ({ pricing_addon_id: Number(a?.pricing_addon_id ?? a?.id), qty: Number(a?.qty ?? a?.quantity ?? 1) || 1 }))
+          .filter((a) => Number.isFinite(a.pricing_addon_id) && a.pricing_addon_id > 0);
+        for (const a of _schedAddons) {
+          try {
+            await db.execute(sql`
+              INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
+              VALUES (${sched.id}, ${a.pricing_addon_id}, ${a.qty})
+            `);
+          } catch (e) { console.warn("[job-create recurrence] schedule add-on insert failed:", e); }
+        }
+
+        const { generateJobsFromSchedule, DAYS_AHEAD } = await import("../lib/recurring-jobs.js");
+        const _today = new Date();
+        const _horizon = new Date(_today.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+        const _gen = await generateJobsFromSchedule(sched as any, _today, _horizon, null, geoZip);
+
+        // Stamp schedule add-ons onto the newly-generated occurrences only — the
+        // first job already has its own add-ons (persistJobAddOns above).
+        if (_schedAddons.length) {
+          try {
+            const genRows = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${req.auth!.companyId} AND id <> ${jobId}`);
+            for (const row of (genRows as any).rows) {
+              await persistJobAddOns(db, Number(row.id), req.auth!.companyId!, _schedAddons);
+            }
+          } catch (e) { console.warn("[job-create recurrence] stamping add-ons on generated jobs failed:", e); }
+        }
+        newJob[0] = { ...newJob[0], recurring_schedule_id: sched.id } as any;
+        console.log(`[job-create recurrence] job ${jobId} → schedule ${sched.id}, generated ${_gen.created} additional occurrence(s) over ${DAYS_AHEAD} days`);
+      } catch (genErr: any) {
+        // Never fail the job create because the series fan-out hiccuped — the
+        // first visit is already saved and will be returned.
+        console.error("[job-create recurrence] fan-out failed (first visit still created):", genErr?.message ?? genErr);
+      }
+    }
+
     return res.status(201).json({
       ...newJob[0],
       client_name: displayClientName,

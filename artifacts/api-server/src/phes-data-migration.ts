@@ -4185,6 +4185,10 @@ export async function runPhesDataMigration(): Promise<void> {
       { name: "Recurring Cleaning",                  method: "sqft",   rate: "55.00", min: "120.00" },
       { name: "Hourly Deep Clean",                   method: "hourly", rate: "70.00", min: "210.00" },
       { name: "Hourly Standard Cleaning",            method: "hourly", rate: "60.00", min: "150.00" },
+      // (#11 2026-06-17) Hourly Move In/Out is its OWN service, distinct from the
+      // flat-rate (sqft) "Move In / Move Out" above — Sal confirmed separate.
+      // method=hourly so it bills hourly_rate × hours like the other hourly scopes.
+      { name: "Hourly Move In / Move Out",           method: "hourly", rate: "70.00", min: "210.00" },
       { name: "Commercial Cleaning",                 method: "hourly", rate: "65.00", min: "200.00" },
       { name: "PPM Turnover",                       method: "sqft",   rate: "65.00", min: "250.00" },
       // Commercial scopes for plain commercial CLIENTS (not the PPM account).
