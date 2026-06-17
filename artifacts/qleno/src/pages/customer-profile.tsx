@@ -5670,6 +5670,20 @@ export default function CustomerProfilePage() {
 
           {/* Right column */}
           <div>
+            {/* Technician Preferences — surfaced on the main Client tab so the
+                office can capture who the client prefers (or doesn't want)
+                without digging into the Admin tab. Same component + API as the
+                Admin copy; edits sync via refetch. */}
+            <div style={CS}>
+              <SectionHead title="Technician Preferences" />
+              {(profile.tech_preferences || []).some((p: any) => p.preference === "do_not_schedule") && (
+                <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 10 }}>
+                  Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
+                </div>
+              )}
+              <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
+            </div>
+
             {/* Invoices */}
             <div style={CS}>
               <SectionHead title="Invoices" />
