@@ -100,6 +100,11 @@ export const companiesTable = pgTable("companies", {
   // clients.cancel_fee_pct / clients.lockout_fee_pct.
   default_cancel_fee_pct: numeric("default_cancel_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
   default_lockout_fee_pct: numeric("default_lockout_fee_pct", { precision: 5, scale: 2 }).notNull().default("100.00"),
+  // [cancel-fee-flat 2026-06-17] Optional FLAT cancellation/lockout fee ($).
+  // When > 0 it overrides the percentage above, so a tenant can bill either a
+  // flat rate or a % of the job cost. 0 = use the percentage.
+  default_cancel_fee_flat: numeric("default_cancel_fee_flat", { precision: 10, scale: 2 }).notNull().default("0"),
+  default_lockout_fee_flat: numeric("default_lockout_fee_flat", { precision: 10, scale: 2 }).notNull().default("0"),
   // Tech-pay-on-cancellation policy. When a charging action (cancel /
   // lockout) fires we still owe the assigned tech(s) something — they
   // showed up. Two modes:
