@@ -47,6 +47,17 @@ export default function EmployeesPage() {
   const [search, setSearch] = useState('');
   const [inviteModal, setInviteModal] = useState(false);
   const isOwner = getTokenRole() === 'owner';
+  // [office-perms 2026-06-17] Who can act on (view-as / manage) a given row.
+  // Mirrors the backend guards: owner → any non-owner; admin → non-admins;
+  // office → technicians/team_leads only (never a peer or the owner).
+  const myRole = getTokenRole() || '';
+  const canActOn = (u: any) => {
+    if (u.role === 'owner') return false;
+    if (myRole === 'owner') return true;
+    if (myRole === 'admin') return u.role !== 'admin';
+    if (myRole === 'office') return u.role === 'technician' || u.role === 'team_lead';
+    return false;
+  };
   const { activateView } = useEmployeeView();
   const [sendingInvite, setSendingInvite] = useState<number | null>(null);
   const [inviteSent, setInviteSent] = useState<number | null>(null);
@@ -179,7 +190,7 @@ export default function EmployeesPage() {
                     </div>
                   </div>
                   <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }} onClick={e => e.stopPropagation()}>
-                    {isOwner && user.role !== 'owner' && (
+                    {canActOn(user) && (
                       <button
                         onClick={async e => {
                           e.stopPropagation();
@@ -286,7 +297,7 @@ export default function EmployeesPage() {
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'right' }} onClick={e => e.stopPropagation()}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
-                        {isOwner && user.role !== 'owner' && (
+                        {canActOn(user) && (
                           <button
                             onClick={async e => {
                               e.stopPropagation();
