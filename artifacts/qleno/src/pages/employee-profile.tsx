@@ -4,6 +4,7 @@ import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
+import { AvatarCropModal } from "@/components/avatar-crop-modal";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
@@ -25,32 +26,9 @@ async function apiFetch(path: string, opts?: RequestInit) {
   return r.json();
 }
 
-// Read a chosen image file and downscale it to a small (max 256px) JPEG data
-// URL so the avatar stays a lightweight DB value — same data-URL convention
-// the app uses for job photos.
-async function fileToAvatarDataUrl(file: File): Promise<string> {
-  const dataUrl: string = await new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(String(fr.result));
-    fr.onerror = () => rej(new Error("read failed"));
-    fr.readAsDataURL(file);
-  });
-  const img: HTMLImageElement = await new Promise((res, rej) => {
-    const im = new Image();
-    im.onload = () => res(im);
-    im.onerror = () => rej(new Error("decode failed"));
-    im.src = dataUrl;
-  });
-  const max = 256;
-  const scale = Math.min(max / img.width, max / img.height, 1);
-  const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
-  const canvas = document.createElement("canvas");
-  canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return dataUrl;
-  ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/jpeg", 0.85);
-}
+// Avatar upload now goes through AvatarCropModal (drag-to-reposition + zoom),
+// which exports the framed square as a JPEG data URL directly. The old
+// fileToAvatarDataUrl helper (raw downscale, no framing) is retired.
 
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
@@ -501,16 +479,23 @@ export default function EmployeeProfilePage() {
   const userId = parseInt(id!);
   const qc = useQueryClient();
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [cropFile, setCropFile] = useState<File | null>(null);
 
-  async function onPhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
+  function onPhotoSelected(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (!file) return;
+    if (file) setCropFile(file);   // open the adjust/crop modal instead of uploading raw
+  }
+
+  async function savePhoto(avatar_url: string) {
     setPhotoBusy(true);
     try {
-      const avatar_url = await fileToAvatarDataUrl(file);
       await apiFetch(`/users/${userId}`, { method: "PUT", body: JSON.stringify({ avatar_url }) });
       refetchUser();
+      // Refresh the top-right header emblem (/me) so an owner editing their own
+      // photo sees it update immediately, not just in this profile card.
+      qc.invalidateQueries();
+      setCropFile(null);
     } catch { /* leave existing photo */ }
     finally { setPhotoBusy(false); }
   }
@@ -842,10 +827,18 @@ export default function EmployeeProfilePage() {
               : <InitialAvatar name={fullName} size={isMobile ? 72 : 96} />
             }
             <label style={{ fontSize:11, color:'var(--brand)', cursor: photoBusy ? 'default' : 'pointer', fontWeight:600, fontFamily:'inherit', opacity: photoBusy ? 0.6 : 1 }}>
-              <Camera size={11} style={{ marginRight:3, verticalAlign:'middle' }}/> {photoBusy ? 'Uploading…' : 'Edit photo'}
+              <Camera size={11} style={{ marginRight:3, verticalAlign:'middle' }}/> {photoBusy ? 'Saving…' : (user.avatar_url ? 'Change photo' : 'Add photo')}
               <input type="file" accept="image/*" disabled={photoBusy} onChange={onPhotoSelected} style={{ display:'none' }} />
             </label>
           </div>
+          {cropFile && (
+            <AvatarCropModal
+              file={cropFile}
+              saving={photoBusy}
+              onCancel={() => setCropFile(null)}
+              onSave={savePhoto}
+            />
+          )}
 
           {/* Center: info */}
           <div style={{ flex:1, minWidth:0 }}>
