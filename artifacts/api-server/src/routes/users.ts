@@ -241,7 +241,7 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
  * or belongs to a different company (defensive — no partial reset across
  * tenants).
  */
-router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
+router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const { userIds, newPassword } = req.body as {
@@ -267,11 +267,19 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "
     // sql.raw interpolation is injection-safe.
     const idCsv = ids.join(",");
     const tenantRows = await db
-      .select({ id: usersTable.id })
+      .select({ id: usersTable.id, role: usersTable.role })
       .from(usersTable)
       .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`));
     const ownedIds = new Set(tenantRows.map((r) => r.id));
     const foreign = ids.filter((id) => !ownedIds.has(id));
+    // [office-perms 2026-06-17] Office may reset a tech's password but never an
+    // admin/office/owner peer's. Owner/admin/super_admin are unrestricted.
+    if (req.auth!.role === "office") {
+      const protectedTargets = tenantRows.filter(r => !["technician", "team_lead"].includes(String(r.role)));
+      if (protectedTargets.length > 0) {
+        return res.status(403).json({ error: "Forbidden", message: "Office staff can only reset technician passwords." });
+      }
+    }
     if (foreign.length > 0) {
       return res.status(403).json({
         error: "Forbidden",
@@ -298,7 +306,7 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "
   }
 });
 
-router.post("/", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const {
       email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone,
@@ -309,6 +317,14 @@ router.post("/", requireAuth, requireRole("owner", "admin", "super_admin"), asyn
     // .toLowerCase() and surfaced as an opaque 500 / apparent hang.
     if (!email || !first_name) {
       return res.status(400).json({ error: "email and first_name are required" });
+    }
+
+    // [office-perms 2026-06-17] Office staff can onboard field techs, but must
+    // NOT be able to create admin/office/owner peers. Owner/admin/super_admin
+    // are unrestricted.
+    const effectiveRole = role || "technician";
+    if (req.auth!.role === "office" && !["technician", "team_lead"].includes(effectiveRole)) {
+      return res.status(403).json({ error: "Forbidden", message: "Office staff can only add technicians or team leads." });
     }
 
     const tempPassword = onboardingTempPassword();
@@ -322,7 +338,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "super_admin"), asyn
         password_hash,
         first_name,
         last_name,
-        role: role || "technician",
+        role: effectiveRole,
         // Empty-string numerics would error on a NUMERIC column.
         ...(pay_rate !== undefined && pay_rate !== "" && { pay_rate }),
         ...(pay_type && { pay_type }),
@@ -455,6 +471,23 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       }
     }
 
+    // [office-perms 2026-06-17] Office can edit techs but never a peer (other
+    // office), an admin, or the owner — and not their own record. Same
+    // counterpart rule as admins, scoped to office.
+    if (callerRole === "office") {
+      const target = await db
+        .select({ role: usersTable.role })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (target[0] && !["technician", "team_lead"].includes(String(target[0].role))) {
+        return res.status(403).json({
+          error: "Forbidden",
+          message: "Office staff can only edit technician records.",
+        });
+      }
+    }
+
     const {
       first_name, last_name, role, pay_rate, pay_type, is_active,
       hire_date, phone, skills, avatar_url,
@@ -553,10 +586,26 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
-router.delete("/:id", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const callerRole = req.auth!.role;
+
+    // [office-perms 2026-06-17] Office may deactivate techs, never a peer/owner
+    // or themselves. Owner/admin keep their existing counterpart rules below.
+    if (callerRole === "office") {
+      if (userId === req.auth!.userId) {
+        return res.status(403).json({ error: "Forbidden", message: "You cannot deactivate your own account." });
+      }
+      const target = await db
+        .select({ role: usersTable.role })
+        .from(usersTable)
+        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
+        .limit(1);
+      if (target[0] && !["technician", "team_lead"].includes(String(target[0].role))) {
+        return res.status(403).json({ error: "Forbidden", message: "Office staff can only deactivate technicians." });
+      }
+    }
 
     // 2026-05-22 (Sal): admins cannot deactivate themselves OR another
     // admin (same counterpart rule as PUT / lms-edit). Only the owner
