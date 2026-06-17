@@ -755,10 +755,14 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
              j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
+             -- Commercial jobs carry their customer on account_id (client_id is
+             -- NULL), so fall back to the account name — otherwise the row read
+             -- a useless literal "Client" and the office couldn't reconcile it.
              COALESCE(NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
-                      c.company_name, 'Client') AS client_name
+                      a.account_name, c.company_name, 'Client') AS client_name
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
       WHERE j.company_id = ${companyId}
         AND j.scheduled_date::date = ${date}::date
         AND j.status IS DISTINCT FROM 'cancelled'
