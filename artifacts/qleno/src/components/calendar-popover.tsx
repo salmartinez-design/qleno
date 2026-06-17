@@ -56,10 +56,13 @@ export function CalendarPopover({
   value,
   onChange,
   ariaLabel,
+  block,
 }: {
   value: string;
   onChange: (ymd: string) => void;
   ariaLabel?: string;
+  /** Full-width trigger that matches a form text input (vs. inline pill). */
+  block?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -107,26 +110,29 @@ export function CalendarPopover({
   const monthLabel = visibleMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   return (
-    <div ref={wrapRef} style={{ position: "relative", display: "inline-block" }}>
+    <div ref={wrapRef} style={{ position: "relative", display: block ? "block" : "inline-block", width: block ? "100%" : undefined }}>
       <button
         type="button"
         aria-label={ariaLabel}
         onClick={() => setOpen((o) => !o)}
         style={{
-          height: 34,
+          height: block ? 38 : 34,
+          width: block ? "100%" : undefined,
           padding: "0 12px",
           border: "1px solid #E5E2DC",
-          borderRadius: 6,
+          borderRadius: block ? 8 : 6,
           fontSize: 13,
-          color: INK,
+          color: selected ? INK : MUTED,
           background: "#fff",
           outline: "none",
           fontFamily: FF,
           fontWeight: 600,
           cursor: "pointer",
-          display: "inline-flex",
+          display: block ? "flex" : "inline-flex",
           alignItems: "center",
+          justifyContent: block ? "flex-start" : undefined,
           gap: 8,
+          boxSizing: "border-box",
         }}
       >
         <CalendarIcon size={14} color={MUTED} />
