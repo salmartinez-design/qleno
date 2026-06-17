@@ -4,8 +4,9 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { ChangePasswordModal } from "@/components/change-password-modal";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
@@ -16,6 +17,14 @@ import { enqueueClock, isOfflineError, flushClockQueue, queueLength } from "@/li
 import { shiftForWeekday } from "@/lib/business-hours";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// Row style for the mobile account-menu items (Time Off / Notifications / etc.).
+const acctItemStyle: React.CSSProperties = {
+  display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+  borderRadius: 7, background: "none", border: "none", cursor: "pointer",
+  width: "100%", textAlign: "left", fontFamily: "'Plus Jakarta Sans', sans-serif",
+  fontSize: 13, fontWeight: 500, color: "#1A1917",
+};
 
 function apiFetch(path: string, opts?: RequestInit) {
   const token = useAuthStore.getState().token;
@@ -1206,6 +1215,30 @@ export default function MyJobsPage() {
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showPay, setShowPay] = useState(false);
 
+  // [tech-experience 2026-06-17] Account menu on the mobile My Jobs header —
+  // the avatar is now tappable (was a dead circle) and carries Time Off,
+  // Notification settings, Change Password, Sign Out, plus the tech's photo.
+  const logout = useAuthStore(state => state.logout);
+  const [acctOpen, setAcctOpen] = useState(false);
+  const [changePwOpen, setChangePwOpen] = useState(false);
+  const acctRef = useRef<HTMLDivElement>(null);
+  const { data: meData } = useQuery({
+    // JWT carries no avatar_url, so fetch it for the header photo.
+    queryKey: ["my-jobs-me", token],
+    queryFn: async () => { const r = await apiFetch("/auth/me"); return r.ok ? r.json() : null; },
+    enabled: !!token,
+    staleTime: 60_000,
+  });
+  const avatarUrl: string | null = meData?.avatar_url ?? null;
+  useEffect(() => {
+    if (!acctOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (acctRef.current && !acctRef.current.contains(e.target as Node)) setAcctOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [acctOpen]);
+
   let userInfo: { firstName: string; lastName: string } | null = null;
   if (token) {
     try {
@@ -1382,20 +1415,58 @@ export default function MyJobsPage() {
             <WeatherChip lat={wxLat} lng={wxLng} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button onClick={() => setShowPay(p => !p)}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <DollarSign size={13}/> Pay
+            </button>
             <Link href="/training">
               <a style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
                 <GraduationCap size={13}/> Training
               </a>
             </Link>
-            <button onClick={() => setShowPay(p => !p)}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-              <DollarSign size={13}/> Pay
-            </button>
-            <div title={initials} style={{ width: 28, height: 28, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
-              {initials}
+            {/* Account menu — tap the avatar */}
+            <div ref={acctRef} style={{ position: "relative" }}>
+              <button onClick={() => setAcctOpen(o => !o)} aria-label="Account menu"
+                style={{ display: "flex", alignItems: "center", background: "none", border: "none", padding: 0, cursor: "pointer", borderRadius: "50%" }}>
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={initials}
+                    style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", flexShrink: 0, border: "1px solid #E5E2DC" }} />
+                ) : (
+                  <div title={initials} style={{ width: 30, height: 30, borderRadius: "50%", backgroundColor: "var(--brand-dim)", color: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, flexShrink: 0 }}>
+                    {initials}
+                  </div>
+                )}
+              </button>
+              {acctOpen && (
+                <div style={{
+                  position: "absolute", top: "calc(100% + 8px)", right: 0,
+                  background: "#fff", borderRadius: 12, border: "1px solid #E5E2DC",
+                  boxShadow: "0 12px 36px rgba(10,14,26,0.16)", minWidth: 210, zIndex: 300,
+                  padding: 6, display: "flex", flexDirection: "column", gap: 2,
+                }}>
+                  <button onClick={() => { setAcctOpen(false); navigate("/leave"); }}
+                    style={acctItemStyle}>
+                    <Plane size={15} style={{ color: "#6B7280" }} /> Time Off
+                  </button>
+                  <button onClick={() => { setAcctOpen(false); navigate("/settings/notifications"); }}
+                    style={acctItemStyle}>
+                    <Bell size={15} style={{ color: "#6B7280" }} /> Notification settings
+                  </button>
+                  <button onClick={() => { setAcctOpen(false); setChangePwOpen(true); }}
+                    style={acctItemStyle}>
+                    <KeyRound size={15} style={{ color: "#6B7280" }} /> Change Password
+                  </button>
+                  <div style={{ height: 1, background: "#F0EDEA", margin: "2px 0" }} />
+                  <button onClick={() => { setAcctOpen(false); logout(); }}
+                    style={{ ...acctItemStyle, color: "#DC2626" }}>
+                    <LogOut size={15} /> Sign Out
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
+        <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
         {/* Day navigation — page to other days; tap the date to jump back to today. */}
         <div style={{
