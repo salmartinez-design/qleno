@@ -511,7 +511,13 @@ export default function EmployeeProfilePage() {
       const avatar_url = await fileToAvatarDataUrl(file);
       await apiFetch(`/users/${userId}`, { method: "PUT", body: JSON.stringify({ avatar_url }) });
       refetchUser();
-    } catch { /* leave existing photo */ }
+    } catch (err: any) {
+      // [2026-06-16] Was a silent catch — a 403 from the office-tier
+      // gate (super_admin not in the list, fixed in this PR) made the
+      // upload appear to do nothing. Surface the failure so the next
+      // mis-gate or network blip is diagnostic instead of invisible.
+      setToast(`Couldn't upload photo (${err?.message || "error"})`);
+    }
     finally { setPhotoBusy(false); }
   }
   const isMobile = useIsMobile();

@@ -422,7 +422,7 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.put("/:id", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const callerRole = req.auth!.role;
@@ -685,7 +685,7 @@ router.get("/:id/additional-pay", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const { amount, type, notes, job_id, date } = req.body;
@@ -718,7 +718,7 @@ router.post("/:id/additional-pay", requireAuth, requireRole("owner", "admin", "o
   }
 });
 
-router.patch("/:id/additional-pay/:payId/void", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.patch("/:id/additional-pay/:payId/void", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const payId = parseInt(req.params.payId);
@@ -768,7 +768,7 @@ router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "a
   }
 });
 
-router.get("/:id/payroll-history", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.get("/:id/payroll-history", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const employeeId = parseInt(req.params.id);
 
