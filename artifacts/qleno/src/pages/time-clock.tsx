@@ -132,6 +132,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || "Failed");
       onChanged();
+      toastFn({ title: "Pay saved" });
     } catch (e: any) { toastFn({ title: e.message || "Pay save failed" }); }
     finally { setBusy(false); }
   }
@@ -215,6 +216,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         if (!r.ok) throw new Error(d.error || "Failed");
       }
       onChanged();
+      toastFn({ title: "Times saved" });
     } catch (e: any) { toastFn({ title: e.message || "Save failed" }); }
     finally { setBusy(false); }
   }
