@@ -175,8 +175,11 @@ export default function MyJobDetailPage() {
                           <span style={{ fontSize: 12, color: "#6B6860", fontWeight: 600, flexShrink: 0 }}>{Number(v.hours).toFixed(1)} hrs</span>
                         )}
                       </div>
+                      {/* [no-prev-tech 2026-06-17] Deliberately do NOT show who
+                          did past visits — Sal: avoid tech-vs-tech conflict over
+                          "who left it dirty". Date + service type only. */}
                       <p style={{ fontSize: 12, color: "#6B6860", margin: "3px 0 0" }}>
-                        {formatServiceType(v.service_type)}{v.techs ? ` · ${v.techs}` : ""}
+                        {formatServiceType(v.service_type)}
                       </p>
                       {v.tech_notes && (
                         <div style={{ backgroundColor: "#F7F6F3", borderRadius: 8, padding: "8px 10px", marginTop: 8 }}>
