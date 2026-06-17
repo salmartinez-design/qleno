@@ -852,17 +852,35 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
         if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
       }
-      const jobTechsForCalc: JobTechRow[] = techRows.map((t: any) => ({
-        job_id: Number(t.job_id), user_id: Number(t.user_id), is_primary: t.is_primary === true,
-        pay_type: t.pay_type ?? null, hourly_rate: t.hourly_rate ?? null, commission_pct: t.commission_pct ?? null,
-        pay_deduction_pct: t.pay_deduction_pct ?? null, pay_deduction_flat: t.pay_deduction_flat ?? null,
-      }));
-      const jobsForCalc = jobs.map((j: any) => ({
-        id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
-        service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
-        billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
-        branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date, client_type: j.client_type ?? null,
-      })) as CommissionInputJob[];
+      // [lockout-pay 2026-06-17] Jobs charged via Cancel/Lockout pay the tech
+      // the cancellation fee (an additional_pay 'cancellation_pay' row), NOT the
+      // job's normal commission — exclude them from the commission calc so the
+      // tech isn't double-paid (commission + cancellation fee).
+      const chargedCancelJobIds = new Set<number>();
+      if (inList) {
+        try {
+          const cc = await db.execute(sql`
+            SELECT DISTINCT job_id FROM cancellation_log
+             WHERE company_id = ${companyId} AND job_id IN (${inList})
+               AND cancel_action IN ('cancel','lockout')`);
+          for (const r of cc.rows as any[]) chargedCancelJobIds.add(Number(r.job_id));
+        } catch { /* cancellation_log absent — no exclusion */ }
+      }
+      const jobTechsForCalc: JobTechRow[] = techRows
+        .filter((t: any) => !chargedCancelJobIds.has(Number(t.job_id)))
+        .map((t: any) => ({
+          job_id: Number(t.job_id), user_id: Number(t.user_id), is_primary: t.is_primary === true,
+          pay_type: t.pay_type ?? null, hourly_rate: t.hourly_rate ?? null, commission_pct: t.commission_pct ?? null,
+          pay_deduction_pct: t.pay_deduction_pct ?? null, pay_deduction_flat: t.pay_deduction_flat ?? null,
+        }));
+      const jobsForCalc = jobs
+        .filter((j: any) => !chargedCancelJobIds.has(Number(j.job_id)))
+        .map((j: any) => ({
+          id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
+          service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
+          billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
+          branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date, client_type: j.client_type ?? null,
+        })) as CommissionInputJob[];
       for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
         payByKey.set(`${r.job_id}:${r.user_id}`, r.amount);
       }
