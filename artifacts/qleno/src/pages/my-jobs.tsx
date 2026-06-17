@@ -900,7 +900,12 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         // stale creation stamp and only a fallback. New treatment: lead with the
         // "N Allowed Hours" budget chip, then the clean start–end window
         // (e.g. "9:00 AM – 12:00 PM") — same on every job, list and detail.
-        const hrs = job.allowed_hours ?? job.estimated_hours;
+        // [labor-split 2026-06-17] allowed_hours is the TEAM-aggregated budget.
+        // Divide by team size so each tech sees THEIR calendar time: a 6h job
+        // with 2 techs is 3h on the clock for each, and the window ends at +3h.
+        const teamCount = job.team_count && job.team_count > 1 ? job.team_count : 1;
+        const rawHrs = job.allowed_hours ?? job.estimated_hours;
+        const hrs = rawHrs != null ? rawHrs / teamCount : rawHrs;
         const allowed = job.allowed_hours != null;
         const hasHrs = hrs != null && hrs > 0;
         const start = job.scheduled_time ? formatTime(job.scheduled_time) : null;
@@ -1355,8 +1360,13 @@ export default function MyJobsPage() {
       if (actual > 0) {
         const t = j.service_type || "other";
         const b = effByType.get(t) || { allowed: 0, actual: 0 };
-        b.allowed += j.allowed_hours; b.actual += actual; effByType.set(t, b);
-        totAllowed += j.allowed_hours; totActual += actual;
+        // [labor-split 2026-06-17] Compare the tech's actual clocked time to
+        // THEIR share of the budget (allowed ÷ team size), not the full team
+        // budget — otherwise a 2-tech job reads as ~200% efficient.
+        const teamCount = j.team_count && j.team_count > 1 ? j.team_count : 1;
+        const allowedPerTech = j.allowed_hours / teamCount;
+        b.allowed += allowedPerTech; b.actual += actual; effByType.set(t, b);
+        totAllowed += allowedPerTech; totActual += actual;
       }
     }
   }
@@ -1386,7 +1396,8 @@ export default function MyJobsPage() {
       shiftStart = formatTime(earliest.scheduled_time);
       let maxEndMins = -1;
       for (const j of timedJobs) {
-        const hrs = j.allowed_hours ?? j.estimated_hours ?? 0;
+        const teamCount = j.team_count && j.team_count > 1 ? j.team_count : 1;
+        const hrs = (j.allowed_hours ?? j.estimated_hours ?? 0) / teamCount;
         const [h, m] = j.scheduled_time!.split(":").map(Number);
         const endMins = (h || 0) * 60 + (m || 0) + Math.round(hrs * 60);
         if (endMins > maxEndMins) { maxEndMins = endMins; shiftEnd = addHoursToTime(j.scheduled_time!, hrs); }
