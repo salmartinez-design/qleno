@@ -394,6 +394,12 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       "recurring cleaning - every 4 weeks": "recurring",
       "hourly deep clean": "deep_clean",
       "hourly standard cleaning": "standard_clean",
+      // (#11) Hourly Move In/Out → move_out enum (the clean TYPE); the hourly
+      // billing is carried by the scope's method + the quote's hours, exactly
+      // like "hourly deep clean" → deep_clean. Without this it fell back to
+      // standard_clean and the office "didn't recognize the hourly option".
+      "hourly move in / move out": "move_out",
+      "hourly move in/move out": "move_out",
       "commercial cleaning": "office_cleaning",
       "ppm turnover": "ppm_turnover",
       "ppm common areas": "common_areas",
