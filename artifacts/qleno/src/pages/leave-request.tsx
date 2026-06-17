@@ -125,7 +125,7 @@ export default function LeaveRequestPage() {
   return (
     <DashboardLayout>
       <div style={{ fontFamily: FF, color: INK, padding: "8px 0 32px", maxWidth: 760 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>My Leave</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0 }}>My Time Off</h1>
         <div style={{ fontSize: 12, color: MUTED, marginBottom: 16 }}>
           Submit a request and check your balances.
         </div>
