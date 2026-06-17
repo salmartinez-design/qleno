@@ -189,8 +189,15 @@ router.get("/:id/jobs", requireAuth, async (req, res) => {
     const { page = "1", limit = "25", status, from, to } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
+    // [employee-jobs 2026-06-17] Include every job the tech worked, not just
+    // the ones where they're the primary (assigned_user_id). A tech added as a
+    // team member lives in job_technicians, so match either — otherwise their
+    // profile only shows the handful where they happened to be primary.
     const conditions = [
-      eq(jobsTable.assigned_user_id, userId),
+      sql`(
+        ${jobsTable.assigned_user_id} = ${userId}
+        OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})
+      )`,
       eq(jobsTable.company_id, req.auth!.companyId),
     ];
     if (status) conditions.push(eq(jobsTable.status, status as any));
