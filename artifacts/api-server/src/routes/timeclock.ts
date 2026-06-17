@@ -783,8 +783,25 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
-             j.account_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
+             -- Service address so the office can tell apart multiple jobs for the
+             -- same client/account on one day (e.g. several PPM units) without
+             -- opening the schedule. Prefer the job's own address, then the
+             -- account property (with its unit/property name), then the client.
+             COALESCE(
+               NULLIF(TRIM(
+                 COALESCE(j.address_street,'') ||
+                 CASE WHEN NULLIF(j.address_city,'')  IS NOT NULL THEN ', ' || j.address_city  ELSE '' END ||
+                 CASE WHEN NULLIF(j.address_state,'') IS NOT NULL THEN ', ' || j.address_state ELSE '' END ||
+                 CASE WHEN NULLIF(j.address_zip,'')   IS NOT NULL THEN ' '  || j.address_zip   ELSE '' END
+               ), ''),
+               NULLIF(TRIM(
+                 COALESCE(ap.address,'') ||
+                 CASE WHEN NULLIF(ap.property_name,'') IS NOT NULL THEN ' (' || ap.property_name || ')' ELSE '' END
+               ), ''),
+               NULLIF(TRIM(c.address), '')
+             ) AS address,
              -- Commercial jobs carry their customer on account_id (client_id is
              -- NULL), so fall back to the account name — otherwise the row read
              -- a useless literal "Client" and the office couldn't reconcile it.
@@ -793,6 +810,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN account_properties ap ON ap.id = j.account_property_id
       WHERE j.company_id = ${companyId}
         AND j.scheduled_date::date = ${date}::date
         AND j.status IS DISTINCT FROM 'cancelled'
@@ -944,6 +962,9 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     } catch (e) { console.error("[TC-DAY] pay compute error:", e); }
 
     type Row = { job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
+                 // address + ids so the office can tell apart same-client jobs and
+                 // click through to the customer/account + employee profiles.
+                 address: string | null; client_id: number | null; account_id: number | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
@@ -1024,6 +1045,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         const e = entryByJobUser.get(key) || null;
         ensureEmp(t.user_id).rows.push({
           job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
+          address: j.address ?? null, client_id: j.client_id != null ? Number(j.client_id) : null, account_id: j.account_id != null ? Number(j.account_id) : null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
@@ -1037,6 +1059,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const j = jobById.get(Number(e.job_id));
       ensureEmp(Number(e.user_id)).rows.push({
         job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
+        address: j?.address ?? null, client_id: j?.client_id != null ? Number(j.client_id) : null, account_id: j?.account_id != null ? Number(j.account_id) : null,
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
