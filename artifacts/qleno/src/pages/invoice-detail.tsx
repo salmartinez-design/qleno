@@ -114,6 +114,8 @@ export default function InvoiceDetailPage() {
   const [showMarkPaid, setShowMarkPaid] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [sendingInvoice, setSendingInvoice] = useState(false);
+  const [charging, setCharging] = useState(false);
+  const [voiding, setVoiding] = useState(false);
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ["invoice", invoiceId],
@@ -144,6 +146,40 @@ export default function InvoiceDetailPage() {
       toast({ title: "Failed to send reminder", variant: "destructive" });
     }
     setSendingReminder(false);
+  }
+
+  // Office-triggered charge. Routes by payment_source server-side; charges once,
+  // never retries. The response tells us what happened (paid / failed / manual).
+  async function handleCharge() {
+    if (!window.confirm("Charge this invoice now? Charging happens once and is never auto-retried.")) return;
+    setCharging(true);
+    try {
+      const r = await apiFetch(`/api/invoices/${invoiceId}/charge`, { method: "POST" });
+      if (r.outcome === "paid") {
+        toast({ title: `Charged $${(r.amount || 0).toFixed(2)} via ${r.source}` });
+      } else if (r.outcome === "needs_manual") {
+        toast({ title: r.message });
+      } else {
+        toast({ title: r.message || "Charge failed", variant: "destructive" });
+      }
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Charge failed", variant: "destructive" });
+    }
+    setCharging(false);
+  }
+
+  async function handleVoid() {
+    if (!window.confirm("Void this invoice? This cannot be undone.")) return;
+    setVoiding(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}/void`, { method: "POST" });
+      toast({ title: "Invoice voided" });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to void invoice", variant: "destructive" });
+    }
+    setVoiding(false);
   }
 
   const CARD: React.CSSProperties = {
@@ -213,6 +249,10 @@ export default function InvoiceDetailPage() {
           )}
           {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
             <>
+              <button onClick={handleCharge} disabled={charging}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                <CreditCard size={14} /> {charging ? "Charging..." : "Charge Now"}
+              </button>
               <button onClick={() => setShowMarkPaid(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 <DollarSign size={14} /> Mark as Paid
@@ -225,7 +265,18 @@ export default function InvoiceDetailPage() {
               )}
             </>
           )}
+          {(invoice.status === "draft" || effectiveStatus === "sent" || effectiveStatus === "overdue") && (
+            <button onClick={handleVoid} disabled={voiding}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {voiding ? "Voiding..." : "Void"}
+            </button>
+          )}
         </div>
+        {invoice.payment_failed && (effectiveStatus === "sent" || effectiveStatus === "overdue") && (
+          <div style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", display: "flex", alignItems: "center", gap: 8 }}>
+            <AlertCircle size={15} /> Last charge attempt failed — contact the client for a backup payment method. Charges are never auto-retried.
+          </div>
+        )}
 
         <div style={CARD}>
           <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Invoice Details</h3>

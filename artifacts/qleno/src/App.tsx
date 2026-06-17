@@ -97,6 +97,7 @@ const AllLocationsPage    = lazy(() => import("@/pages/all-locations"));
 const AdminDashboard      = lazy(() => import("@/pages/admin/index"));
 const AdminCompanies      = lazy(() => import("@/pages/admin/companies"));
 const AdminBilling        = lazy(() => import("@/pages/admin/billing"));
+const AdminBatchInvoicing = lazy(() => import("@/pages/admin/batch-invoicing"));
 const AdminCleancyclopedia= lazy(() => import("@/pages/admin/cleancyclopedia"));
 const NotificationsPage   = lazy(() => import("@/pages/notifications"));
 const TrainingPage        = lazy(() => import("@/pages/training"));
@@ -247,6 +248,7 @@ function Router() {
         <Route path="/admin" component={AdminDashboard} />
         <Route path="/admin/companies" component={AdminCompanies} />
         <Route path="/admin/billing" component={AdminBilling} />
+        <Route path="/admin/batch-invoicing" component={AdminBatchInvoicing} />
         <Route path="/admin/cleancyclopedia" component={AdminCleancyclopedia} />
 
         <Route component={NotFound} />
