@@ -18,6 +18,25 @@ import {
 
 const router = Router();
 
+// [lockout-pay 2026-06-17] Jobs charged via Cancel/Lockout pay the tech the
+// cancellation fee (an additional_pay 'cancellation_pay' row), NOT the job's
+// normal commission. Return the set of such job ids so callers can drop them
+// from the commission engine and avoid double-paying. Safe ANY(ARRAY[csv])
+// binding; ids are integers.
+async function chargedCancelJobIds(companyId: number, jobIds: number[]): Promise<Set<number>> {
+  const set = new Set<number>();
+  if (!jobIds.length) return set;
+  try {
+    const cc = await db.execute(sql`
+      SELECT DISTINCT job_id FROM cancellation_log
+       WHERE company_id = ${companyId}
+         AND job_id IN (${sql.raw(jobIds.join(","))})
+         AND cancel_action IN ('cancel','lockout')`);
+    for (const r of cc.rows as any[]) set.add(Number(r.job_id));
+  } catch { /* cancellation_log absent — no exclusion */ }
+  return set;
+}
+
 router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { pay_period_start, pay_period_end, branch_id } = req.query;
@@ -275,8 +294,9 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
         } catch { /* job_technicians may be absent */ }
       }
 
+      const ccOut = await chargedCancelJobIds(companyId, jobIds);
       const rows = computeCommissionRows({
-        jobs: cJobs as any,
+        jobs: cJobs.filter(j => !ccOut.has(j.id)) as any,
         resRates,
         commercial: {
           commercial_hourly_rate: parseFloat(String(comp.commercial_hourly_rate ?? 20)),
@@ -1168,7 +1188,8 @@ router.get("/revenue-trend", requireAuth, requireRole("owner", "admin", "office"
           for (const r of ov.rows as any[]) overrides.set(`${r.user_id}:${r.job_id}`, parseFloat(String(r.final_pay)));
         } catch { /* job_technicians absent */ }
       }
-      const rows = computeCommissionRows({ jobs: cJobs as any, resRates, commercial, overrides });
+      const ccOut2 = await chargedCancelJobIds(companyId, jobIds);
+      const rows = computeCommissionRows({ jobs: cJobs.filter(j => !ccOut2.has(j.id)) as any, resRates, commercial, overrides });
       for (const row of rows) touch(mondayOf(row.scheduled_date)).payroll += row.amount;
 
       // Additional pay + applied pay_adjustments by their created_at week.
