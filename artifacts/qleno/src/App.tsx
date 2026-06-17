@@ -1,11 +1,12 @@
-import { lazy, Suspense } from "react";
-import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
+import { lazy, Suspense, useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, Redirect, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { BranchProvider } from "@/contexts/branch-context";
 import { EmployeeViewProvider } from "@/contexts/employee-view-context";
+import { useAuthStore } from "@/lib/auth";
 
 const Login               = lazy(() => import("@/pages/login"));
 const Dashboard           = lazy(() => import("@/pages/dashboard"));
@@ -126,9 +127,71 @@ function PageLoader() {
   );
 }
 
+// [tech-boundary 2026-06-17] Sal report: techs could log in on desktop
+// and view office surfaces (dispatch, payroll, customers, etc.). The
+// login flow already routes techs to /my-jobs after sign-in, but a
+// tech who knows a URL — or hits "/" — sees the full office page.
+//
+// This guard runs at the Router level. When the authenticated user is
+// role=technician or team_lead and the current path is NOT in the tech
+// allowlist below, redirect to /my-jobs. Owner / admin / office /
+// super_admin pass through to the full route.
+//
+// Allowlist (not denylist) so a forgotten future office route can
+// only cost a tech UX bug — never a data leak.
+const TECH_ALLOWED_PREFIXES = [
+  "/login",
+  "/accept-invite",
+  "/my-jobs",
+  "/my-day",
+  "/training",
+  "/leave",
+  "/notifications",
+  "/pay/",        // token-based payment link
+  "/sign/",       // token-based document sign
+  "/sign-doc/",   // token-based document sign
+  "/onboard/",    // token-based onboarding
+  "/book/",       // token-based booking
+  "/survey/",     // token-based survey
+  "/portal/",     // public client portal
+];
+
+function isTechAllowedPath(pathname: string): boolean {
+  // /lms is allowed but /lms/admin* is owner/admin only.
+  if (pathname.startsWith("/lms/admin")) return false;
+  if (pathname === "/lms" || pathname.startsWith("/lms/")) return true;
+  // /employees/:id — let techs view their OWN profile only (they hit
+  // this via the avatar menu). The page itself self-gates on whether
+  // the viewed userId matches the auth userId. Allowing the path here
+  // is consistent with how the LMS routes a tech to their own LMS
+  // profile page via /lms/admin/employee/:id (admin-only — blocked
+  // above) vs the regular /employees/:id (their own self-view).
+  // For now, BLOCK /employees/:id on desktop for techs — they can
+  // change their password / avatar from the avatar menu modal, which
+  // doesn't need the full profile page.
+  return TECH_ALLOWED_PREFIXES.some(
+    (p) => pathname === p.replace(/\/$/, "") || pathname.startsWith(p),
+  );
+}
+
+function TechRouteGuard({ children }: { children: React.ReactNode }) {
+  const role = useAuthStore((s) => s.user?.role);
+  const [location, navigate] = useLocation();
+  const isTech = role === "technician" || role === "team_lead";
+  const blocked = isTech && !isTechAllowedPath(location);
+
+  useEffect(() => {
+    if (blocked) navigate("/my-jobs");
+  }, [blocked, navigate]);
+
+  if (blocked) return null;
+  return <>{children}</>;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
+      <TechRouteGuard>
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/login" component={Login} />
@@ -251,6 +314,7 @@ function Router() {
 
         <Route component={NotFound} />
       </Switch>
+      </TechRouteGuard>
     </Suspense>
   );
 }

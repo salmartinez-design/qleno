@@ -2,17 +2,24 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { computeCommissionRows, type CommissionInputJob } from "../lib/commission-compute.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 
 const router = Router();
 
+// [tech-boundary 2026-06-17] All /api/dashboard routes are office-tier
+// only. Was zero requireRole calls before this PR — a tech with the
+// URL could pull /metrics, /today, /kpis, /revenue-chart, etc. The
+// payload includes per-employee performance and company financials
+// that techs should never see.
+const officeGate = requireRole("owner", "admin", "office", "super_admin");
+
 // ── Weekly forecast in-memory cache (5 min TTL, keyed by companyId + week start) ──
 const wfCache = new Map<string, { data: unknown; ts: number }>();
 
-router.get("/metrics", requireAuth, async (req, res) => {
+router.get("/metrics", requireAuth, officeGate, async (req, res) => {
   try {
     const { period = "week", branch_id } = req.query;
     const branchFilter = branch_id && branch_id !== "all" ? parseInt(branch_id as string) : null;
@@ -160,7 +167,7 @@ router.get("/metrics", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/today", requireAuth, async (req, res) => {
+router.get("/today", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
@@ -350,7 +357,7 @@ router.get("/today", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/kpis", requireAuth, async (req, res) => {
+router.get("/kpis", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
@@ -796,7 +803,7 @@ router.get("/kpis", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/revenue-chart", requireAuth, async (req, res) => {
+router.get("/revenue-chart", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
 
@@ -867,7 +874,7 @@ router.get("/revenue-chart", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/techs-today", requireAuth, async (req, res) => {
+router.get("/techs-today", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
@@ -928,7 +935,7 @@ router.get("/techs-today", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/commercial-alerts", requireAuth, async (req, res) => {
+router.get("/commercial-alerts", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const todayStr = new Date().toISOString().split("T")[0];
@@ -1020,7 +1027,7 @@ router.get("/commercial-alerts", requireAuth, async (req, res) => {
 });
 
 // ── GET /api/dashboard/weekly-forecast ──────────────────────────────────────
-router.get("/weekly-forecast", requireAuth, async (req, res) => {
+router.get("/weekly-forecast", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
@@ -1381,7 +1388,7 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
 }
 
 // Desktop BUSINESS HEALTH section. Same source-of-truth helpers as mobile.
-router.get("/business-health", requireAuth, async (req, res) => {
+router.get("/business-health", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const [bh, pay] = await Promise.all([computeBusinessHealth(companyId), computeLastWeekPayrollPct(companyId)]);
@@ -1398,7 +1405,7 @@ router.get("/business-health", requireAuth, async (req, res) => {
 // Branch-aware for job/client-based cards (jobs.branch_id / clients.branch_id);
 // leads + quotes are company-wide (quotes has no reliable branch_id column).
 // Desktop endpoints are untouched.
-router.get("/mobile-cards", requireAuth, async (req, res) => {
+router.get("/mobile-cards", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const branchRaw = req.query.branch_id;
@@ -1556,7 +1563,7 @@ router.get("/mobile-cards", requireAuth, async (req, res) => {
 // Per-user mobile dashboard card preference (selected cards + order).
 // Reuses user_column_preferences with page='mobile_dashboard' — no schema change.
 // No rows = user hasn't customized → frontend shows the role default.
-router.get("/card-prefs", requireAuth, async (req, res) => {
+router.get("/card-prefs", requireAuth, officeGate, async (req, res) => {
   try {
     const userId = req.auth!.userId;
     const companyId = req.auth!.companyId;
@@ -1617,7 +1624,7 @@ router.delete("/card-prefs", requireAuth, async (req, res) => {
 // reads like "what happened to my jobs/quotes/invoices/clients lately", with a
 // link back to each record. Raw fields go to the client; the dashboard maps
 // them to a friendly label + route (the frontend owns the route table).
-router.get("/recent-activity", requireAuth, async (req, res) => {
+router.get("/recent-activity", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const limit = Math.min(parseInt(String(req.query.limit ?? "15")) || 15, 50);
