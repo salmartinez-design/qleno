@@ -10,6 +10,7 @@ import { useAuthStore } from "@/lib/auth";
 import { useTenantBrand } from "@/lib/tenant-brand";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
 import { QlenoMark } from "@/components/brand/QlenoMark";
+import { EmployeeAvatar } from "@/components/employee-avatar";
 import { useEffect, useState, useCallback } from "react";
 
 function useNeedsContactedCount(role: string | undefined) {
@@ -161,6 +162,21 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
   const initials = userInfo
     ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
     : '??';
+
+  // [avatar-cascade 2026-06-17] The JWT carries no avatar_url, so the footer
+  // emblem fell back to initials. Fetch /me so the uploaded profile photo shows
+  // here too (same emblem as the top-right header + employee lists).
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+    fetch(`${base}/api/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (alive && d) setAvatarUrl(d.avatar_url ?? null); })
+      .catch(() => { /* keep initials fallback */ });
+    return () => { alive = false; };
+  }, [token]);
 
   const EXACT_MATCH_URLS = ['/dashboard', '/company', '/dispatch', '/jobs'];
   // [2026-04-22] The merged "Jobs" sidebar item is configured with
@@ -387,9 +403,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
       {/* User footer */}
       {expanded ? (
         <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 30, height: 30, borderRadius: '50%', backgroundColor: 'var(--brand-soft)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-            {initials}
-          </div>
+          <EmployeeAvatar name={`${userInfo?.firstName ?? ''} ${userInfo?.lastName ?? ''}`} avatarUrl={avatarUrl} size={30} fontSize={11} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ margin: 0, fontSize: 12, fontWeight: 600, color: '#1A1917', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
               {userInfo?.firstName} {userInfo?.lastName}
@@ -406,12 +420,8 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
         </div>
       ) : (
         <div style={{ padding: '12px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-          <div
-            style={{ width: 30, height: 30, borderRadius: '50%', backgroundColor: 'var(--brand-soft)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, cursor: 'default', fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-            title={`${userInfo?.firstName} ${userInfo?.lastName} (${userInfo?.role})`}
-          >
-            {initials}
-          </div>
+          <EmployeeAvatar name={`${userInfo?.firstName ?? ''} ${userInfo?.lastName ?? ''}`} avatarUrl={avatarUrl} size={30} fontSize={11}
+            title={`${userInfo?.firstName} ${userInfo?.lastName} (${userInfo?.role})`} />
           <button
             onClick={() => logout()}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 4, display: 'flex', alignItems: 'center' }}
