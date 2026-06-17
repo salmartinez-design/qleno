@@ -1310,4 +1310,48 @@ router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), a
   }
 });
 
+// ── [Phase 2] PUBLISH PAYROLL — snapshot a period's pay into locked records ───
+// Office/admin/owner only. Idempotent: re-publish upserts the snapshot.
+router.post("/publish", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const byUserId = (req as any).auth!.userId;
+    const { pay_period_start, pay_period_end } = req.body || {};
+    if (!pay_period_start || !pay_period_end) return res.status(400).json({ error: "pay_period_start and pay_period_end are required" });
+    const { publishPeriod } = await import("../lib/payroll-snapshot.js");
+    const out = await publishPeriod(companyId, String(pay_period_start), String(pay_period_end), byUserId);
+    return res.json({ ok: true, ...out, pay_period_start, pay_period_end });
+  } catch (err: any) {
+    console.error("POST /payroll/publish:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
+// ── [Phase 2] PAY HISTORY — published snapshots for the employee-profile Pay
+// section. ACCESS SCOPING: a technician sees ONLY their own; office/admin/owner
+// may pass ?user_id= to view any tech. A tech who passes someone else's id is
+// silently forced back to their own (never another tech's pay).
+router.get("/pay-history", requireAuth, async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const role = (req as any).auth!.role;
+    const myId = (req as any).auth!.userId;
+    const canSeeAll = role === "owner" || role === "admin" || role === "office";
+    const requested = req.query.user_id ? parseInt(String(req.query.user_id)) : myId;
+    const targetUserId = canSeeAll ? requested : myId; // techs locked to self
+    const { db } = await import("@workspace/db");
+    const { sql } = await import("drizzle-orm");
+    const rows = (await db.execute(sql`
+      SELECT pay_period_start::text AS pay_period_start, pay_period_end::text AS pay_period_end,
+             gross, base, hours, tips, overtime, bonus, adjustments, breakdown, published_at
+      FROM payroll_period_snapshots
+      WHERE company_id = ${companyId} AND user_id = ${targetUserId}
+      ORDER BY pay_period_start DESC`)).rows;
+    return res.json({ user_id: targetUserId, scoped: canSeeAll ? "all" : "self", weeks: rows });
+  } catch (err: any) {
+    console.error("GET /payroll/pay-history:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
 export default router;

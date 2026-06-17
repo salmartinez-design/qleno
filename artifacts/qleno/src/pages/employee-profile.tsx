@@ -88,7 +88,7 @@ const SCORE_BGS   = ['', '#FEE2E2', '#FEF3C7', '#DBEAFE', '#DCFCE7'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
-  'Information','Earnings','Tags & Skills','Attendance','Availability',
+  'Information','Pay','Earnings','Tags & Skills','Attendance','Availability',
   'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
@@ -572,7 +572,17 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Payroll History',
   });
 
+  // [Phase 2] Published-pay snapshots for this tech. Access-scoping is enforced
+  // server-side: a technician token always gets its own pay regardless of the
+  // user_id passed; office/admin/owner can view any tech.
+  const { data: payData } = useQuery({
+    queryKey: ['pay-history', userId],
+    queryFn: () => apiFetch(`/payroll/pay-history?user_id=${userId}`),
+    enabled: activeTab === 'Pay',
+  });
+
   const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+  const [expandedPayWeek, setExpandedPayWeek] = useState<string | null>(null);
   const [voidingId, setVoidingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [bulkPayModal, setBulkPayModal] = useState(false);
@@ -946,6 +956,76 @@ export default function EmployeeProfilePage() {
           {activeTab === 'Earnings' && (
             <EarningsPanel userId={userId} />
           )}
+
+          {/* ── PAY TAB ── published pay snapshots: current week + full history */}
+          {activeTab === 'Pay' && (() => {
+            const weeks: any[] = payData?.weeks ?? [];
+            const money = (n: any) => `$${Number(n || 0).toFixed(2)}`;
+            const fmtRange = (s: string, e: string) => {
+              const d = (x: string) => { const [y, m, day] = x.split('-'); return `${parseInt(m)}/${parseInt(day)}`; };
+              return `${d(s)} – ${d(e)}, ${s.slice(0, 4)}`;
+            };
+            return (
+              <div>
+                <SectionCard title="Published Pay">
+                  {weeks.length === 0 ? (
+                    <div style={{ padding:'24px', color:'#6B6860', fontSize:'14px' }}>No published pay yet. Once the office publishes a pay period, your weekly pay and history appear here.</div>
+                  ) : (
+                    <div style={{ display:'flex', flexDirection:'column', gap:'10px' }}>
+                      {weeks.map((w: any) => {
+                        const key = `${w.pay_period_start}_${w.pay_period_end}`;
+                        const open = expandedPayWeek === key;
+                        const jobs: any[] = Array.isArray(w.breakdown) ? w.breakdown : [];
+                        return (
+                          <div key={key} style={{ border:'1px solid #E5E2DC', borderRadius:'10px', overflow:'hidden', background:'#FFFFFF' }}>
+                            <button onClick={() => setExpandedPayWeek(open ? null : key)}
+                              style={{ width:'100%', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
+                              <div>
+                                <div style={{ fontWeight:700, color:'#1A1917', fontSize:'15px' }}>{fmtRange(w.pay_period_start, w.pay_period_end)}</div>
+                                <div style={{ fontSize:'12px', color:'#9DA3B0', marginTop:'2px' }}>{Number(w.hours).toFixed(2)} hrs · published {String(w.published_at).slice(0, 10)}</div>
+                              </div>
+                              <div style={{ fontWeight:800, color:'#00C9A0', fontSize:'18px' }}>{money(w.gross)}</div>
+                            </button>
+                            {open && (
+                              <div style={{ borderTop:'1px solid #E5E2DC', padding:'14px 16px', background:'#F7F6F3' }}>
+                                <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:'8px 24px', fontSize:'13px', marginBottom:'14px' }}>
+                                  {[['Base pay (jobs)', w.base], ['Tips', w.tips], ['Overtime', w.overtime], ['Bonus', w.bonus], ['Adjustments', w.adjustments], ['Gross', w.gross]].map(([lbl, val]: any, i: number) => (
+                                    <div key={i} style={{ display:'flex', justifyContent:'space-between', borderBottom:'1px solid #E5E2DC', paddingBottom:'4px' }}>
+                                      <span style={{ color:'#6B6860' }}>{lbl}</span>
+                                      <span style={{ fontWeight: lbl === 'Gross' ? 800 : 600, color: lbl === 'Gross' ? '#00C9A0' : '#1A1917' }}>{money(val)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                {jobs.length > 0 && (
+                                  <table style={{ width:'100%', borderCollapse:'collapse', fontSize:'12px' }}>
+                                    <thead><tr style={{ textAlign:'left', color:'#9DA3B0' }}>
+                                      <th style={{ padding:'4px 0' }}>Date</th><th>Job</th><th>Basis</th>
+                                      <th style={{ textAlign:'right' }}>Hrs</th><th style={{ textAlign:'right' }}>Pay</th>
+                                    </tr></thead>
+                                    <tbody>
+                                      {jobs.map((j: any, i: number) => (
+                                        <tr key={i} style={{ borderTop:'1px solid #E5E2DC' }}>
+                                          <td style={{ padding:'5px 0' }}>{String(j.date).slice(5)}</td>
+                                          <td>{j.client}</td>
+                                          <td style={{ color:'#6B6860' }}>{j.basis}</td>
+                                          <td style={{ textAlign:'right' }}>{Number(j.hours).toFixed(2)}</td>
+                                          <td style={{ textAlign:'right', fontWeight:600 }}>{money(j.amount)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </SectionCard>
+              </div>
+            );
+          })()}
 
           {/* ── INFORMATION TAB ── */}
           {activeTab === 'Information' && (

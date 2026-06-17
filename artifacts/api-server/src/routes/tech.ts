@@ -22,7 +22,7 @@ import {
   serviceZonesTable,
   timeclockTable,
 } from "@workspace/db/schema";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, or, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
 const router = Router();
@@ -120,7 +120,16 @@ router.get("/today", requireAuth, async (req, res) => {
       .where(
         and(
           eq(jobsTable.company_id, companyId),
-          eq(jobsTable.assigned_user_id, userId),
+          // [2026-06-17] Was assigned_user_id only — missed helpers/teammates
+          // (same fix as /api/jobs/my-jobs). Dispatch reads job_technicians
+          // as truth; this read path must match or a tech added via Add Team
+          // Member as a non-primary helper sees nothing on /my-day. The
+          // privacy rule from the 1B spec ("tech sees only their own day")
+          // is preserved — we still anchor on req.auth!.userId.
+          or(
+            eq(jobsTable.assigned_user_id, userId),
+            sql`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})`,
+          ),
           eq(jobsTable.scheduled_date, date),
         ),
       )

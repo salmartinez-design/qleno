@@ -44,65 +44,85 @@ function useNeedsContactedCount(role: string | undefined) {
 // no longer surfaces a missing-zip badge; the data layer fixes
 // itself.
 
+// [tech-boundary 2026-06-17] Office-side sections. Items without a
+// `roles` array previously fell through and rendered for techs too —
+// that's why Maryury saw Dashboard / Jobs / Customers / Employees /
+// Invoices in her sidebar even though she had no business being on any
+// of them. Added the office-tier `roles` allowlist on every item that
+// was missing one. Techs (`technician` / `team_lead`) now see ZERO
+// items from these sections — the per-item filter drops them all.
 const NAV_SECTIONS = [
   {
     label: "Operations",
     items: [
-      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
+      { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, roles: ["owner", "admin", "office", "super_admin"] },
       // [2026-04-22] Consolidated "Dispatch Board" + "Jobs" → single "Jobs"
       // entry pointing at /dispatch (the Gantt). /jobs and /jobs/list still
       // resolve to JobsListPage via direct URL; the sidebar just prefers the
       // Gantt as the default view. Active-highlight covers all 3 urls via
       // MULTI_URL_HIGHLIGHT below.
-      { title: "Jobs",      url: "/dispatch",  icon: Briefcase },
-      { title: "Customers", url: "/customers", icon: Users },
-      { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office"] },
-      { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office"] },
+      { title: "Jobs",      url: "/dispatch",  icon: Briefcase, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Customers", url: "/customers", icon: Users, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
   {
     label: "Sales",
     items: [
-      { title: "Leads",  url: "/leads",  icon: UserPlus,   roles: ["owner", "admin", "office"], badge: "needs_contacted" },
-      { title: "Quotes", url: "/quotes", icon: FileTextIcon, roles: ["owner", "admin", "office"] },
-      { title: "Estimates", url: "/estimates", icon: Calculator, roles: ["owner", "admin", "office"] },
+      { title: "Leads",  url: "/leads",  icon: UserPlus,   roles: ["owner", "admin", "office", "super_admin"], badge: "needs_contacted" },
+      { title: "Quotes", url: "/quotes", icon: FileTextIcon, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Estimates", url: "/estimates", icon: Calculator, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
   {
     label: "Team",
     items: [
-      { title: "Employees", url: "/employees", icon: UserCheck },
-      { title: "Time Clock", url: "/time-clock", icon: Clock, roles: ["owner", "admin", "office"] },
-      { title: "Payroll",   url: "/payroll",   icon: DollarSign, roles: ["owner", "admin"] },
+      { title: "Employees", url: "/employees", icon: UserCheck, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Time Clock", url: "/time-clock", icon: Clock, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Payroll",   url: "/payroll",   icon: DollarSign, roles: ["owner", "admin", "super_admin"] },
     ],
   },
   {
     label: "Money",
     items: [
-      { title: "Invoices", url: "/invoices", icon: FileText },
+      { title: "Invoices", url: "/invoices", icon: FileText, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
   {
     label: "Insights",
     items: [
-      { title: "Reports",        url: "/reports",                icon: BarChart2,     roles: ["owner", "admin", "office"] },
-      { title: "Core KPIs",      url: "/reports/insights",       icon: TrendingUp,    roles: ["owner", "admin", "office"] },
-      { title: "Churn Board",    url: "/intelligence/churn",     icon: AlertTriangle, roles: ["owner", "admin"] },
-      { title: "Tech Retention", url: "/intelligence/retention", icon: HeartPulse,    roles: ["owner", "admin"] },
+      { title: "Reports",        url: "/reports",                icon: BarChart2,     roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Core KPIs",      url: "/reports/insights",       icon: TrendingUp,    roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Churn Board",    url: "/intelligence/churn",     icon: AlertTriangle, roles: ["owner", "admin", "super_admin"] },
+      { title: "Tech Retention", url: "/intelligence/retention", icon: HeartPulse,    roles: ["owner", "admin", "super_admin"] },
     ],
   },
   {
     label: "Learning",
     items: [
+      // Cleancyclopedia + Training are reference / training surfaces —
+      // techs DO get these. No roles array → visible to everyone.
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
       { title: "Training",        url: "/training",        icon: GraduationCap },
       { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
     ],
   },
   {
+    label: "My Day",
+    items: [
+      // Tech-facing sidebar entries. Office tiers don't need these (they
+      // navigate via Dashboard / Jobs above), so cap on technician /
+      // team_lead. Without these the tech sidebar was just Training and
+      // Cleancyclopedia, with no quick path back to their schedule.
+      { title: "My Jobs",   url: "/my-jobs",   icon: Briefcase,    roles: ["technician", "team_lead"] },
+      { title: "Leave",     url: "/leave",     icon: FileText,     roles: ["technician", "team_lead"] },
+    ],
+  },
+  {
     label: "Admin",
     items: [
-      { title: "Settings", url: "/company", icon: Settings, roles: ["owner", "admin"] },
+      { title: "Settings", url: "/company", icon: Settings, roles: ["owner", "admin", "super_admin"] },
     ],
   },
 ];
@@ -250,7 +270,17 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
 
       {/* Nav */}
       <nav style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 0 12px' }}>
-        {NAV_SECTIONS.map(section => (
+        {NAV_SECTIONS.map(section => {
+          // [tech-boundary 2026-06-17] Pre-filter items by role. When
+          // every item in a section is filtered out for this user
+          // (e.g. a tech viewing an office-only "Operations" / "Sales"
+          // / "Insights" / etc. section) skip the section entirely so
+          // we don't render an orphan label with nothing under it.
+          const visibleItems = section.items.filter(
+            (item: any) => !item.roles || (userInfo && item.roles.includes(userInfo.role)),
+          );
+          if (visibleItems.length === 0) return null;
+          return (
           <div key={section.label}>
             {/* Section label — only when expanded */}
             {expanded && (
@@ -264,8 +294,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
               </p>
             )}
             {!expanded && <div style={{ height: 12 }} />}
-            {section.items
-              .filter(item => !item.roles || (userInfo && item.roles.includes(userInfo.role)))
+            {visibleItems
               .map(item => {
                 const active = isActive(item.url);
                 const Icon = item.icon;
@@ -346,7 +375,8 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
                 );
               })}
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       <div style={{ borderTop: '1px solid #EEECE7' }} />
