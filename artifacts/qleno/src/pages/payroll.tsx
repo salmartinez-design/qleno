@@ -237,13 +237,18 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
         const mileageAmt = sumK('mileage', 'mileage_reimbursement');
         const timeOffAmt = sumK('sick_pay', 'holiday_pay', 'vacation_pay');
         const hoursWorked = Number(emp.totals?.hrs_worked ?? 0);
+        const allowedHrs = Number(emp.totals?.hrs_scheduled ?? 0);
         const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         const eff = Number(emp.totals?.hrs_worked) > 0 ? Math.round((Number(emp.totals?.hrs_scheduled || 0) / Number(emp.totals.hrs_worked)) * 100) : null;
         const effRate = emp.totals?.effective_rate;
         const billedTotal = Number(emp.totals?.job_total ?? 0);
         const laborPct = billedTotal > 0 ? Math.round((emp.totals.commission / billedTotal) * 100) : null;
         const rollup: any[] = [
-          { label: 'Hours', value: hoursWorked.toFixed(1) },
+          // Allowed + Worked hrs side by side per tech — mirrors the team
+          // header so the office reads budget-vs-actual on each row, not just
+          // in the aggregate (Sal request 2026-06-17).
+          { label: 'Allowed', value: allowedHrs.toFixed(1) },
+          { label: 'Worked', value: hoursWorked.toFixed(1) },
           ...(eff != null ? [{ label: 'Eff', value: `${eff}%` }] : []),
           { label: 'Billed', value: money(billedTotal) },
           { label: 'Total Pay', value: money(emp.totals.grand_total), strong: true, accent: true },
