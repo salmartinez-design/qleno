@@ -22,10 +22,12 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 }
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
-  paid:    { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
-  overdue: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
-  draft:   { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
-  sent:    { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
+  paid:       { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
+  overdue:    { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
+  draft:      { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
+  sent:       { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
+  void:       { background: "#F3F4F6", color: "#9CA3AF", border: "1px solid #E5E7EB" },
+  superseded: { background: "#F5F3FF", color: "#6D28D9", border: "1px solid #DDD6FE" },
 };
 
 const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
@@ -453,7 +455,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   );
 }
 
-type TabId = "all" | "draft" | "sent" | "paid" | "overdue";
+type TabId = "all" | "draft" | "sent" | "paid" | "overdue" | "void";
 
 export default function InvoicesPage() {
   const [, navigate] = useLocation();
@@ -536,6 +538,7 @@ export default function InvoicesPage() {
     { id: "sent", label: "Sent" },
     { id: "paid", label: "Paid" },
     { id: "overdue", label: "Overdue" },
+    { id: "void", label: "Void" },
   ];
 
   const invoices = ((data?.data || []) as any[]).filter((i: any) =>

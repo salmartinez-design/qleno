@@ -39,6 +39,7 @@ import { haversineMeters, companyGeofenceMeters } from "../lib/distance.js";
 import { estimateEtaMinutes } from "../lib/eta.js";
 import { sendOnMyWaySms } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
+import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 
 const router = Router();
 
@@ -501,6 +502,12 @@ async function handleClockEvent(
         .where(
           and(eq(jobsTable.company_id, companyId), eq(jobsTable.id, job.id)),
         );
+      // Generate the job's draft invoice on field clock-out — same idempotent
+      // path the office PATCH uses, so field completions never go uninvoiced.
+      // Fire-and-forget so it never blocks the clock-out response (the helper
+      // is internally non-fatal and skips if an invoice already exists).
+      ensureInvoiceForCompletedJob(companyId, job.id, userId)
+        .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
     }
 
     return res.json({

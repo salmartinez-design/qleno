@@ -174,6 +174,13 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
   }
+  // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
+  try {
+    const { ensurePaymentSourceBackfill } = await import("./lib/payment-source-backfill.js");
+    await ensurePaymentSourceBackfill();
+  } catch (err: any) {
+    console.error("[startup] ensurePaymentSourceBackfill — non-fatal:", err?.message ?? err);
+  }
   // [GAP3] office-reply columns on scorecard_entries
   try {
     const { ensureScorecardReplyColumns } = await import("./lib/scorecard-engine.js");

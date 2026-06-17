@@ -1,44 +1,16 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, companiesTable } from "@workspace/db/schema";
+import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable } from "@workspace/db/schema";
 import { eq, and, desc, count, sum, sql, lt, isNull, or, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
 import { sendNotification } from "../services/notificationService.js";
 import { appBaseUrl } from "../lib/app-url.js";
+import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
+import { chargeInvoice } from "../lib/charge-invoice.js";
 
 const router = Router();
-
-function generateInvoiceNumber(id: number): string {
-  const year = new Date().getFullYear();
-  return `INV-${year}-${String(id).padStart(4, "0")}`;
-}
-
-async function getNextInvoiceNumber(companyId: number, fallbackId: number): Promise<string> {
-  try {
-    const [company] = await db
-      .select({ invoice_sequence_start: companiesTable.invoice_sequence_start })
-      .from(companiesTable)
-      .where(eq(companiesTable.id, companyId))
-      .limit(1);
-
-    const seqStart = company?.invoice_sequence_start ?? 1;
-
-    // Get max numeric invoice number for this company
-    const [maxRow] = await db.execute(
-      sql`SELECT COALESCE(MAX(CAST(invoice_number AS INTEGER)), 0) as max_num
-          FROM invoices
-          WHERE company_id = ${companyId}
-          AND invoice_number ~ '^[0-9]+$'`
-    );
-    const maxNum = parseInt((maxRow as any)?.max_num ?? "0") || 0;
-    const next = Math.max(maxNum + 1, seqStart);
-    return String(next);
-  } catch {
-    return generateInvoiceNumber(fallbackId);
-  }
-}
 
 function daysOverdue(dueDateStr: string | null): number {
   if (!dueDateStr) return 0;
@@ -590,6 +562,72 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
   } catch (err) {
     console.error("Mark paid error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to mark invoice as paid" });
+  }
+});
+
+// ── Office-triggered charge (Scope 3) ──────────────────────────────────────
+// Routes by the invoice's effective payment_source. Office-only. Charges at most
+// once — NO auto-retry. stripe → off-session charge; square → Square (when
+// configured); check/ach → no charge, office marks paid manually.
+router.post("/:id/charge", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const result = await chargeInvoice(req.auth!.companyId, invoiceId, req.auth!.userId);
+
+    logAudit(req, "PAYMENT_CHARGED", "invoice", invoiceId, null, {
+      outcome: result.outcome, source: result.source, amount: result.amount ?? null,
+    });
+
+    // 200 for paid + the no-charge routes (manual is a valid routing outcome);
+    // 402 for a real charge failure so the UI can flag it; 409 for bad state.
+    const httpStatus =
+      result.outcome === "paid" || result.outcome === "needs_manual" ? 200 :
+      result.outcome === "failed" ? 402 : 409;
+    return res.status(httpStatus).json(result);
+  } catch (err) {
+    console.error("Charge invoice error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to charge invoice" });
+  }
+});
+
+// ── Void (Scope 4) ──────────────────────────────────────────────────────────
+// Office-only. Voids a draft/sent/overdue invoice. Paid invoices must be
+// refunded, not voided; superseded children are already inert.
+router.post("/:id/void", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const [invoice] = await db
+      .select({ id: invoicesTable.id, status: invoicesTable.status })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (invoice.status === "paid") return res.status(409).json({ error: "Conflict", message: "A paid invoice cannot be voided — issue a refund instead" });
+    if (invoice.status === "superseded") return res.status(409).json({ error: "Conflict", message: "A superseded (folded) invoice is already inert" });
+    if (invoice.status === "void") return res.json({ ok: true, already_void: true });
+
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ status: "void" })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, { status: invoice.status }, { status: "void" });
+
+    // Reflect the void in QuickBooks (one-way; no-op when not connected).
+    queueSync(async () => {
+      const { voidQbInvoice } = await import("../services/quickbooks-sync.js");
+      await voidQbInvoice(req.auth!.companyId, invoiceId);
+    });
+
+    return res.json(formatInvoice({ ...updated, client_name: null }));
+  } catch (err) {
+    console.error("Void invoice error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to void invoice" });
   }
 });
 

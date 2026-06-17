@@ -65,6 +65,17 @@ async function main() {
       $$;
     `);
 
+    // Step C: [invoicing-engine 2026-06-16] append 'void' and 'superseded' to
+    // the invoice_status enum. ALTER TYPE ... ADD VALUE IF NOT EXISTS is the
+    // ONLY safe way to extend a Postgres enum — drizzle-kit push would otherwise
+    // try to drop/recreate the type (destructive, and blocked by the dependent
+    // column). Adding the values HERE first means push sees the DB enum already
+    // matching the schema array and generates no enum diff. Idempotent. Each
+    // runs in its own statement (ADD VALUE cannot share a tx with its use).
+    await client.query(`ALTER TYPE "public"."invoice_status" ADD VALUE IF NOT EXISTS 'void'`);
+    await client.query(`ALTER TYPE "public"."invoice_status" ADD VALUE IF NOT EXISTS 'superseded'`);
+    console.log("pre-push-fix: ensured invoice_status has 'void' + 'superseded'");
+
     console.log("pre-push-fix: done");
   } finally {
     await client.end();
