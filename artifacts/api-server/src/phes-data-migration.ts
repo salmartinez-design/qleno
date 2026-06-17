@@ -2620,6 +2620,12 @@ async function runAlejandraCuervoAccessRepair(): Promise<void> {
   const TARGET_EMAIL = "acuervo68@yahoo.com";
   const TARGET_PASSWORD = "chicago23";
 
+  // [2026-06-15 defensive] Lookup by name OR email — the name-only
+  // filter fails silently when a stored name carries accents, a
+  // middle name, hyphenation, or trimming quirks. Anchoring on the
+  // Sal-asserted email closes the gap so the repair runs even when
+  // the name shape drifts. Same pattern PR #516 used for the
+  // onboarding-password bootstrap.
   const rows = await db.execute<{
     id: number;
     email: string;
@@ -2630,8 +2636,10 @@ async function runAlejandraCuervoAccessRepair(): Promise<void> {
     SELECT id, email, password_hash, is_active, archived_at
     FROM users
     WHERE company_id = ${PHES}
-      AND LOWER(first_name) = LOWER(${FIRST})
-      AND LOWER(last_name) = LOWER(${LAST})
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+      )
       AND role != 'owner'
     ORDER BY id ASC
     LIMIT 1
@@ -2684,6 +2692,108 @@ async function runAlejandraCuervoAccessRepair(): Promise<void> {
 
   console.log(
     `[alejandra-cuervo-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
+ * Maryury Colmenares access repair (2026-06-16, ad-hoc).
+ *
+ * Same pattern as the Diana / Juliana / Alejandra repairs. PR #516
+ * landed a more generic bootstrapOnboardingPasswords() that also
+ * targets Maryury, but it gates on `COMMS_ENABLED !== 'true'` and
+ * Sal asked for an unconditional hard-wire so she works regardless of
+ * the comms-gate state.
+ *
+ * On every cold start (idempotent, scoped to company_id=1):
+ *   1. Resolve Maryury Colmenares by name OR email OR id=817.
+ *   2. Set email = 'marjuryj@gmail.com' (Sal-asserted; matches the
+ *      login email visible in the LMS admin profile).
+ *   3. Ensure password_hash = bcrypt('chicago23'). bcrypt.compare
+ *      guards make every subsequent boot a no-op SELECT once correct.
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ *
+ * Lookup is broad on purpose — name OR canonical email OR id=817
+ * (the value documented in PR #516's notes). If any of the three
+ * matches, the function runs against her row.
+ */
+async function runMaryuryColmenaresAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Maryury";
+  const LAST = "Colmenares";
+  const TARGET_EMAIL = "marjuryj@gmail.com";
+  const KNOWN_USER_ID = 817;
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+        OR id = ${KNOWN_USER_ID}
+      )
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[maryury-colmenares-access-repair] no Maryury Colmenares row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
+    console.log(
+      `[maryury-colmenares-access-repair] user_id=${row.id} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${TARGET_EMAIL},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[maryury-colmenares-access-repair] user_id=${row.id} updated: ` +
       `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
       `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
   );
@@ -3441,6 +3551,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runAlejandraCuervoAccessRepair();
   } catch (err: any) {
     console.warn("[phes-migration] alejandra-cuervo-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runMaryuryColmenaresAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] maryury-colmenares-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {

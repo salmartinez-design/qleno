@@ -768,7 +768,9 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
                 )}
               </div>
               <div>{lbl("Client Since")}<input value={form.client_since} onChange={upd("client_since")} type="date" style={inp} /></div>
-              <div>{lbl("Internal Notes")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
+              {/* #15: clients.notes is shown to the cleaner every visit ("Client
+                  Notes — every visit" in the field app), not internal-only. */}
+              <div>{lbl("Client Notes (cleaner sees)")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
             </div>
           </div>
           {/* Cancellation policy overrides — both blank means "use the

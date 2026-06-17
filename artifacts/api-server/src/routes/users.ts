@@ -15,6 +15,16 @@ import {
 
 const router = Router();
 
+// [onboarding-password 2026-06-16] Until COMMS is enabled (so the temp-password
+// email actually sends), a new hire can't receive a random temp and can't log
+// in. While comms are off, new accounts get a known default the office hands out
+// in person (Sal: "chicago23"). Env-overridable; the moment COMMS_ENABLED=true
+// it reverts to a random per-user temp automatically.
+function onboardingTempPassword(): string {
+  if (process.env.COMMS_ENABLED === "true") return Math.random().toString(36).slice(-8);
+  return process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23";
+}
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { role, is_active, page = "1", limit = "25", branch_id } = req.query;
@@ -231,7 +241,7 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
  * or belongs to a different company (defensive — no partial reset across
  * tenants).
  */
-router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const { userIds, newPassword } = req.body as {
@@ -250,10 +260,16 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
     }
 
     // Tenant guard: confirm every id belongs to the caller's company.
+    // NOTE: use ANY(ARRAY[<csv>]::int[]) via sql.raw — the bare
+    // ANY(${ids}::int[]) JS-array binding silently matches nothing in this
+    // setup (documented gotcha; same failure that broke leads bulk-delete /
+    // techs-with-status / payroll). ids are integer-filtered above, so the
+    // sql.raw interpolation is injection-safe.
+    const idCsv = ids.join(",");
     const tenantRows = await db
       .select({ id: usersTable.id })
       .from(usersTable)
-      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`));
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`));
     const ownedIds = new Set(tenantRows.map((r) => r.id));
     const foreign = ids.filter((id) => !ownedIds.has(id));
     if (foreign.length > 0) {
@@ -267,7 +283,7 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
     const updated = await db
       .update(usersTable)
       .set({ password_hash: hash } as any)
-      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(${ids}::int[])`))
+      .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`))
       .returning({ id: usersTable.id });
 
     await logAudit(req, "bulk_password_reset", "user", null, {
@@ -282,7 +298,7 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin"), 
   }
 });
 
-router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.post("/", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const {
       email, first_name, last_name, role, pay_rate, pay_type, hire_date, phone,
@@ -295,7 +311,7 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       return res.status(400).json({ error: "email and first_name are required" });
     }
 
-    const tempPassword = Math.random().toString(36).slice(-8);
+    const tempPassword = onboardingTempPassword();
     const password_hash = await bcrypt.hash(tempPassword, 10);
 
     const newUser = await db
@@ -537,7 +553,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
-router.delete("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const callerRole = req.auth!.role;
@@ -729,7 +745,7 @@ router.patch("/:id/additional-pay/:payId/void", requireAuth, requireRole("owner"
   }
 });
 
-router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.delete("/:id/additional-pay/:payId", requireAuth, requireRole("owner", "admin", "super_admin"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const payId = parseInt(req.params.payId);
@@ -857,7 +873,7 @@ router.get(
 router.post(
   "/:id/companies",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const targetUserId = Number(req.params.id);
@@ -925,7 +941,7 @@ router.post(
 router.delete(
   "/:id/companies/:companyId",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const targetUserId = Number(req.params.id);
@@ -1129,7 +1145,7 @@ async function adminGateAllowed(
 router.post(
   "/lms-add",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
@@ -1223,7 +1239,11 @@ router.post(
         });
       }
 
-      const tempPassword = generateLmsTempPassword();
+      // [onboarding-password 2026-06-16] Same default-while-comms-off rule as
+      // POST / — the LMS add path also can't email the temp until comms are on.
+      const tempPassword = process.env.COMMS_ENABLED === "true"
+        ? generateLmsTempPassword()
+        : (process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23");
       const password_hash = await bcrypt.hash(tempPassword, 10);
 
       const inserted = await db
@@ -1295,7 +1315,7 @@ router.post(
 router.patch(
   "/:id/lms-edit",
   requireAuth,
-  requireRole("owner", "admin"),
+  requireRole("owner", "admin", "super_admin"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;

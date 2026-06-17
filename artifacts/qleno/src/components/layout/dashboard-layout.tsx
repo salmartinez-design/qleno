@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useState, useCallback, useRef, FormEvent } from "react";
+import { ReactNode, useEffect, useState, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppSidebar } from "./app-sidebar";
 import { useAuthStore } from "@/lib/auth";
@@ -11,13 +11,14 @@ import { VoiceAssistant } from "@/components/voice-assistant";
 import { GlobalSearch } from "@/components/global-search";
 import { ChatPanel } from "@/components/chat-panel";
 import { KeyboardShortcutsOverlay, useKeyboardShortcuts } from "@/components/keyboard-shortcuts";
+import { ChangePasswordModal } from "@/components/change-password-modal";
 import { useBranch } from "@/contexts/branch-context";
 import {
   LayoutDashboard, CalendarDays, ClipboardList, Users,
   UserCheck, FileText, DollarSign, BarChart2, TrendingUp,
   BookOpen, Star, Settings, Clock,
   MoreHorizontal, Search, MessageSquare, X, ChevronRight,
-  ChevronDown, Eye, LogOut, CircleHelp, Lock, KeyRound, Bell,
+  ChevronDown, Eye, LogOut, CircleHelp, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
   Building2,
@@ -38,6 +39,7 @@ const ROUTE_TITLES: Record<string, string> = {
   '/dispatch':                     'Jobs',
   '/jobs':                         'Jobs',
   '/my-jobs':                      'My Jobs',
+  '/leave':                        'Time Off',
   '/employees':                    'Employees',
   '/employees/clocks':             'Clock Monitor',
   '/customers':                    'Customers',
@@ -213,106 +215,6 @@ function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onC
         </div>
       </div>
     </>
-  );
-}
-
-function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const token = useAuthStore(state => state.token);
-  const [current, setCurrent] = useState('');
-  const [next, setNext] = useState('');
-  const [confirm, setConfirm] = useState('');
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const FF = "'Plus Jakarta Sans', sans-serif";
-
-  useEffect(() => {
-    if (!open) { setCurrent(''); setNext(''); setConfirm(''); setError(''); setSuccess(false); }
-  }, [open]);
-
-  if (!open) return null;
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError('');
-    if (next.length < 6) { setError('New password must be at least 6 characters.'); return; }
-    if (next !== confirm) { setError('Passwords do not match.'); return; }
-    setLoading(true);
-    try {
-      const res = await fetch(`${API}/api/auth/change-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ currentPassword: current, newPassword: next }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.message || 'Failed to update password.'); return; }
-      setSuccess(true);
-    } catch {
-      setError('Network error. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
-    fontSize: 14, fontFamily: FF, outline: 'none', boxSizing: 'border-box', color: '#1A1917',
-    backgroundColor: '#FAFAF9',
-  };
-  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6B7280', fontFamily: FF, marginBottom: 4, display: 'block' };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' }}
-      onClick={onClose}>
-      <div style={{ background: '#fff', borderRadius: 16, width: 380, padding: 28, boxShadow: '0 20px 60px rgba(0,0,0,0.18)' }}
-        onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--brand-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <KeyRound size={18} style={{ color: 'var(--brand)' }} />
-            </div>
-            <div>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: '#1A1917', fontFamily: FF }}>Change Password</p>
-              <p style={{ margin: 0, fontSize: 12, color: '#9E9B94', fontFamily: FF }}>Update your login credentials</p>
-            </div>
-          </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 4 }}><X size={18} /></button>
-        </div>
-
-        {success ? (
-          <div style={{ textAlign: 'center', padding: '20px 0' }}>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-              <Lock size={22} style={{ color: '#059669' }} />
-            </div>
-            <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#1A1917', fontFamily: FF }}>Password Updated</p>
-            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#6B7280', fontFamily: FF }}>Your new password is active.</p>
-            <button onClick={onClose} style={{ padding: '10px 24px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>Done</button>
-          </div>
-        ) : (
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div>
-              <label style={labelStyle}>Current Password</label>
-              <input type="password" value={current} onChange={e => setCurrent(e.target.value)} style={inputStyle} required autoComplete="current-password" />
-            </div>
-            <div>
-              <label style={labelStyle}>New Password</label>
-              <input type="password" value={next} onChange={e => setNext(e.target.value)} style={inputStyle} required autoComplete="new-password" />
-            </div>
-            <div>
-              <label style={labelStyle}>Confirm New Password</label>
-              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} style={inputStyle} required autoComplete="new-password" />
-            </div>
-            {error && <p style={{ margin: 0, fontSize: 13, color: '#DC2626', fontFamily: FF }}>{error}</p>}
-            <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: '10px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#6B7280', fontFamily: FF }}>Cancel</button>
-              <button type="submit" disabled={loading} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: 'var(--brand)', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#fff', fontFamily: FF, opacity: loading ? 0.7 : 1 }}>
-                {loading ? 'Saving...' : 'Save Password'}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -660,6 +562,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
 
   const isManager = user?.role === 'owner' || user?.role === 'office';
+  // [tech-experience 2026-06-17] Keyboard shortcuts + the shortcuts overlay /
+  // help button are office-tier only — every shortcut targets an office page
+  // (Quotes, Dispatch, Payroll, Employees…). Techs (technician/team_lead) see
+  // none of it: no listener, no "?" overlay, no help button, no ⇧/ hint.
+  const canUseShortcuts = !!user?.role && ['owner', 'admin', 'office', 'super_admin'].includes(user.role);
 
   const { data: notifData } = useQuery({
     // Per-user inbox for ALL roles (techs get job alerts too). token in the key
@@ -722,16 +629,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === '?') setShortcutsOpen(p => !p);
+      if (e.key === '?' && canUseShortcuts) setShortcutsOpen(p => !p);
       if (e.key === 'Escape') { setSearchOpen(false); setChatOpen(false); setShortcutsOpen(false); setMoreOpen(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [canUseShortcuts]);
 
   useKeyboardShortcuts({
     onOpenSearch: useCallback(() => setSearchOpen(true), []),
     onNewJob,
+    enabled: canUseShortcuts,
   });
 
   if (!token) return null;
@@ -755,7 +663,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", backgroundColor: '#F7F6F3', minHeight: '100dvh', color: '#1A1917', position: 'relative' }}>
         {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
-        {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+        {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
         <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
         <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} />
 
@@ -938,7 +846,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
       {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
-      {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+      {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
       <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -956,7 +864,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, cursor: 'pointer', color: '#9E9B94', fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
               <Search size={14} />
               <span>Search</span>
-              <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>
+              {canUseShortcuts && <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>}
             </button>
 
             <button onClick={() => setChatOpen(p => !p)} title="Team Chat"
@@ -1027,10 +935,12 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               )}
             </div>
 
-            <button onClick={() => setShortcutsOpen(true)} title="Keyboard Shortcuts"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}>
-              <CircleHelp size={18} />
-            </button>
+            {canUseShortcuts && (
+              <button onClick={() => setShortcutsOpen(true)} title="Keyboard Shortcuts"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}>
+                <CircleHelp size={18} />
+              </button>
+            )}
 
             {user && (
               <div ref={notifRef} style={{ position: 'relative' }}>
@@ -1123,9 +1033,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                     <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--brand)', backgroundColor: 'var(--brand-dim)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
                       {user.role}
                     </span>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
-                      {initials}
-                    </div>
+                    {(user as any)?.avatar_url ? (
+                      <img
+                        src={(user as any).avatar_url}
+                        alt={`${user.first_name} ${user.last_name}`}
+                        style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                      />
+                    ) : (
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
+                        {initials}
+                      </div>
+                    )}
                     <ChevronDown size={14} style={{ color: '#9E9B94', transform: userDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
                   </button>
                   {userDropOpen && (

@@ -1425,6 +1425,14 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [officeNotes, setOfficeNotes] = useState(job.office_notes || "");
   const [officeNotesSaving, setOfficeNotesSaving] = useState(false);
   const [officeNotesSaved, setOfficeNotesSaved] = useState(false);
+  // [cleaner-notes-fix 2026-06-16] (#15) job.notes is the note the CLEANER sees
+  // in the field app ("Today's Job Notes"). It used to render read-only here,
+  // editable only behind the modal's unobvious "Instructions" label. Make it
+  // inline-editable from the panel (office/owner/admin), mirroring office-notes
+  // auto-save. Saves via PUT { notes } — already accepted by the route.
+  const [cleanerNotes, setCleanerNotes] = useState(job.notes || "");
+  const [cleanerNotesSaving, setCleanerNotesSaving] = useState(false);
+  const [cleanerNotesSaved, setCleanerNotesSaved] = useState(false);
 
   // Rate mods state — per-job time and fee adjustments. Owner/admin/office
   // can manage. The backend recomputes billed_amount = base_fee + SUM(mods)
@@ -1530,6 +1538,27 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }, 2000);
     return () => clearTimeout(delay);
   }, [officeNotes, job.id, job.office_notes, token]);
+
+  // [cleaner-notes-fix 2026-06-16] (#15) Debounced auto-save for the
+  // cleaner-visible job note (job.notes). Same pattern as office notes.
+  useEffect(() => {
+    const delay = setTimeout(async () => {
+      if (cleanerNotes === (job.notes || "")) return; // no change
+      setCleanerNotesSaving(true);
+      setCleanerNotesSaved(false);
+      try {
+        await fetch(`${_API3}/api/jobs/${job.id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ notes: cleanerNotes || null }),
+        });
+        setCleanerNotesSaved(true);
+        setTimeout(() => setCleanerNotesSaved(false), 3000);
+      } catch {}
+      finally { setCleanerNotesSaving(false); }
+    }, 2000);
+    return () => clearTimeout(delay);
+  }, [cleanerNotes, job.id, job.notes, token]);
 
   async function saveOverride(techId: number) {
     setOverrideBusy(true);
@@ -2155,11 +2184,41 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
-          {job.notes && (
-            <PS label="Notes">
-              <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{job.notes}</p>
-              <TranslateNote text={job.notes} />
-            </PS>
+          {/* Cleaner Notes — the note the technician sees in the field app.
+              Inline-editable for office/owner/admin (#15); read-only otherwise. */}
+          {canEditOfficeNotes ? (
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Cleaner Notes (tech sees this)</span>
+                </div>
+                {cleanerNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
+                {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#16A34A", fontWeight: 600 }}>✓ Saved</span>}
+              </div>
+              <textarea
+                value={cleanerNotes}
+                onChange={e => { setCleanerNotes(e.target.value); setCleanerNotesSaved(false); }}
+                placeholder="Instructions the cleaner sees on this job…"
+                rows={4}
+                style={{
+                  width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
+                  border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px",
+                  fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6,
+                  outline: "none", background: "#FAFAF8",
+                }}
+                onFocus={e => (e.target.style.borderColor = "var(--brand)")}
+                onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
+              />
+              <p style={{ fontSize: 10, color: "#C0BDB8", marginTop: 4, fontFamily: FF }}>Auto-saves 2 s after you stop typing</p>
+              {cleanerNotes && <TranslateNote text={cleanerNotes} />}
+            </div>
+          ) : (
+            job.notes && (
+              <PS label="Cleaner Notes (tech sees this)">
+                <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{job.notes}</p>
+                <TranslateNote text={job.notes} />
+              </PS>
+            )
           )}
 
           {/* Office Notes — editable, office/owner/admin only */}

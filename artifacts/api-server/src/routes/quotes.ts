@@ -449,14 +449,25 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // choice on a lead-only quote creates a schedule (not a one-off) and the
     // booking confirmation has contact info. Find by email/phone, else create.
     let clientId: number | null = q.client_id || null;
-    if (!clientId && ((q as any).lead_email || (q as any).lead_phone)) {
+    // [convert-client-fix 2026-06-16] (#3) Previously a client was only
+    // materialized when the quote had an email OR phone. The office form does
+    // not require either — a new lead can convert with just a name and/or
+    // address. In that case clientId stayed null, the job was inserted with
+    // client_id=null and the address as raw text, and the customer's
+    // name/address/email were never saved as a client. Broaden the gate to any
+    // identifying field (name or address too); email/phone still drive dedupe,
+    // and a name-only lead falls through to a fresh insert.
+    const _hasIdentity = (q as any).lead_email || (q as any).lead_phone || (q as any).lead_name || (q as any).address;
+    if (!clientId && _hasIdentity) {
       const emailLc = (q as any).lead_email ? String((q as any).lead_email).toLowerCase().trim() : null;
       const phone10 = String((q as any).lead_phone || "").replace(/\D/g, "").slice(-10) || null;
-      const match = await db.execute(sql`
+      // Dedupe only when we have an email or phone to match on; a name-only
+      // lead has no reliable key, so it always inserts a fresh client.
+      const match = (emailLc || phone10) ? await db.execute(sql`
         SELECT id FROM clients WHERE company_id = ${companyId} AND (
           (${emailLc}::text IS NOT NULL AND lower(email) = ${emailLc}) OR
           (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${phone10})
-        ) ORDER BY id DESC LIMIT 1`);
+        ) ORDER BY id DESC LIMIT 1`) : { rows: [] as any[] };
       clientId = (match.rows[0] as any)?.id ?? null;
       if (!clientId) {
         const np = String((q as any).lead_name ?? "").trim().split(/\s+/).filter(Boolean);

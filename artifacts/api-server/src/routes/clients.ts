@@ -2234,9 +2234,25 @@ router.patch("/:clientId/jobs/:jobId/reschedule", requireAuth, async (req, res) 
       return res.status(400).json({ error: "Cannot reschedule a completed or invoiced job" });
     }
 
-    await db.execute(sql`
-      UPDATE jobs SET scheduled_date = ${new_date}::date WHERE id = ${jobId}
-    `);
+    // [reschedule-dedupe-fix 2026-06-16] (#6) Moving a recurring job onto a
+    // date that holds a CANCELLED occurrence of the same schedule used to throw
+    // a generic 500 ("Failed to reschedule job"). The real fix is the
+    // jobs_recurring_dedupe_idx rebuild (scripts/j6_reschedule_dedupe_fix.ts)
+    // which excludes cancelled rows from the unique slot. Until/if that index
+    // is in place, catch the unique-violation (SQLSTATE 23505) explicitly and
+    // return an actionable 409 instead of the opaque generic error.
+    try {
+      await db.execute(sql`
+        UPDATE jobs SET scheduled_date = ${new_date}::date WHERE id = ${jobId}
+      `);
+    } catch (updErr: any) {
+      if (String(updErr?.code) === "23505") {
+        return res.status(409).json({
+          error: "That date already has another occurrence of this recurring service. Cancel or move the existing one first.",
+        });
+      }
+      throw updErr;
+    }
 
     try {
       await db.execute(sql`

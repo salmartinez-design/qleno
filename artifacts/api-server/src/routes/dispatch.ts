@@ -2,13 +2,22 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 
 const router = Router();
 
-router.get("/", requireAuth, async (req, res) => {
+// [tech-boundary 2026-06-17] All /api/dispatch routes are office-tier
+// only — techs have no business reading the full company dispatch
+// payload (every other tech's name, every client, every job). Was a
+// real leak: dispatch.ts had ZERO requireRole calls before this PR
+// even though every other office route in the codebase gated. A tech
+// with the URL could hit GET /api/dispatch?date=... via devtools/curl
+// and pull the entire day's office data.
+const dispatchOfficeGate = requireRole("owner", "admin", "office", "super_admin");
+
+router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
@@ -774,11 +783,20 @@ router.get("/", requireAuth, async (req, res) => {
             return base + mods;
           }
           // Residential: unchanged. An explicit billed price (e.g. manual
-          // "Change price") wins; otherwise base_fee + add-ons + rate-mods.
+          // "Change price") wins; otherwise base_fee + rate-mods.
+          // [addon-doublecount-fix 2026-06-16] (#2/#14) base_fee is the all-in
+          // residential total — it ALREADY includes the add-on subtotals (the
+          // wizard/quote/edit-modal convention; jobs.ts:388, and
+          // recomputeJobBilledAmount residential = base + mods, no add-ons).
+          // job_add_ons rows are the itemized breakdown of money already inside
+          // base_fee, so re-adding `addOns` here double-counted every
+          // residential add-on job (e.g. converted job 6805: 744.80 base + 248.80
+          // add-ons shown as 993.60). Do NOT re-add add-ons; match the stored
+          // base_fee convention and the recompute helper.
           const billed = (j as any).billed_amount != null ? parseFloat(String((j as any).billed_amount)) : null;
           if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
-          return base + mods + addOns;
+          return base + mods;
         })(),
         duration_minutes: durationMinutes,
         notes: j.notes,
@@ -1006,7 +1024,7 @@ router.get("/", requireAuth, async (req, res) => {
 // day's full data on demand.
 //
 // Window defaults to current Sunday–Saturday when from/to omitted.
-router.get("/week-summary", requireAuth, async (req, res) => {
+router.get("/week-summary", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const branch_id = req.query.branch_id as string | undefined;
@@ -1110,7 +1128,7 @@ router.get("/week-summary", requireAuth, async (req, res) => {
 //       c_other:            { count, samples: [...] },
 //     },
 //   }
-router.get("/zone-coverage-audit", requireAuth, async (req, res) => {
+router.get("/zone-coverage-audit", requireAuth, dispatchOfficeGate, async (req, res) => {
   try {
     const companyId = (req as any).auth!.companyId;
     const today = new Date();
