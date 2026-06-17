@@ -353,6 +353,18 @@ export default function QuoteBuilderPage() {
     staleTime: 0,
   });
 
+  // Full assignable roster — the same endpoint the dispatch Add-Team-Member
+  // picker uses (technician + team_lead, active only). Used as the fallback
+  // for the "Assign Technician" picker when the matched zone has no employees
+  // mapped to it (common post-MaidCentral-migration). Without this fallback
+  // the office sees "No techs available" and can't assign anyone at quote
+  // time even though techs exist — Maribel's report 2026-06-17.
+  const { data: allTechs = [] } = useQuery<{ id: number; name: string }[]>({
+    queryKey: ["quote-all-techs"],
+    queryFn: () => apiFetch("/api/users/techs-with-status").then((r: any) => (Array.isArray(r?.data) ? r.data : [])),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const { data: existingQuote } = useQuery({
     queryKey: ["quote", id],
     queryFn: () => apiFetch(`/api/quotes/${id}`),
@@ -2502,21 +2514,37 @@ export default function QuoteBuilderPage() {
                           {selectedTechId === preferredTech.id && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>
                       )}
-                      {/* Zone techs */}
-                      {suggestedTechs.filter(t => t.id !== preferredTech?.id).map(tech => {
-                        const isSel = selectedTechId === tech.id;
+                      {/* Tech chips. Prefer the zone-matched techs; if the
+                          zone has none mapped, fall back to the full active
+                          roster so the office can always assign someone. */}
+                      {(() => {
+                        const usingFallback = suggestedTechs.length === 0;
+                        const pickList = usingFallback ? allTechs : suggestedTechs;
+                        const chips = pickList.filter(t => t.id !== preferredTech?.id);
                         return (
-                          <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
-                            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
-                          >
-                            <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
-                            {tech.name}
-                          </button>
+                          <>
+                            {chips.map(tech => {
+                              const isSel = selectedTechId === tech.id;
+                              return (
+                                <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
+                                >
+                                  <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
+                                  {tech.name}
+                                </button>
+                              );
+                            })}
+                            {usingFallback && chips.length > 0 && (
+                              <span style={{ width: "100%", fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
+                                No techs mapped to this zone — showing all technicians.
+                              </span>
+                            )}
+                            {!preferredTech && chips.length === 0 && (
+                              <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "4px 0" }}>No techs available — will be unassigned</span>
+                            )}
+                          </>
                         );
-                      })}
-                      {!preferredTech && suggestedTechs.length === 0 && (
-                        <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "4px 0" }}>No techs available — will be unassigned</span>
-                      )}
+                      })()}
                     </div>
                   </div>
                 </div>
