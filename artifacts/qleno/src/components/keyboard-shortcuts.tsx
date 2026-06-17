@@ -4,6 +4,13 @@ import { useLocation } from "wouter";
 interface Props {
   onOpenSearch: () => void;
   onNewJob?: () => void;
+  /**
+   * Power-user navigation shortcuts (New Quote, Dispatch, Payroll, …) are an
+   * office/owner affordance — every target is an office-only page. Techs get
+   * nothing useful from them, so the caller passes enabled=false for
+   * technician/team_lead and the listener is never armed.
+   */
+  enabled?: boolean;
 }
 
 const SHORTCUTS = [
@@ -51,10 +58,11 @@ function ShortcutRow({ k, label }: { k: string; label: string }) {
   );
 }
 
-export function useKeyboardShortcuts({ onOpenSearch, onNewJob }: Props) {
+export function useKeyboardShortcuts({ onOpenSearch, onNewJob, enabled = true }: Props) {
   const [, navigate] = useLocation();
 
   useEffect(() => {
+    if (!enabled) return;
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const tag = target.tagName;
@@ -78,5 +86,5 @@ export function useKeyboardShortcuts({ onOpenSearch, onNewJob }: Props) {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [onOpenSearch, onNewJob, navigate]);
+  }, [onOpenSearch, onNewJob, navigate, enabled]);
 }
