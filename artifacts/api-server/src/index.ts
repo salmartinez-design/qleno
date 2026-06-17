@@ -203,6 +203,12 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensurePayrollP0Setup — non-fatal:", err?.message ?? err);
   }
+  try {
+    const { ensurePayrollSnapshotSetup } = await import("./lib/payroll-snapshot.js");
+    await ensurePayrollSnapshotSetup();
+  } catch (err: any) {
+    console.error("[startup] ensurePayrollSnapshotSetup — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live
