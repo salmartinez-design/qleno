@@ -826,6 +826,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     // Payroll screen by construction. Pay flows: clock + pay-type here →
     // computePerTechCommissionRows → shown here AND applied at period-lock.
     const payByKey = new Map<string, number>();
+    // Declared in the outer scope (not inside the try) because payRowOf below
+    // reads them when building each row — a try-local const would be out of
+    // scope there (the "chargedCancelJobIds is not defined" 500).
+    const chargedCancelJobIds = new Set<number>();
+    const cancelPayByKey = new Map<string, number>();
+    const cancelActionByJob = new Map<number, string>();
     try {
       let comp: any = { res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32, commercial_hourly_rate: 20, commercial_comp_mode: "allowed_hours" };
       try {
@@ -856,9 +862,6 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       // the cancellation fee (an additional_pay 'cancellation_pay' row), NOT the
       // job's normal commission — exclude them from the commission calc so the
       // tech isn't double-paid (commission + cancellation fee).
-      const chargedCancelJobIds = new Set<number>();
-      const cancelPayByKey = new Map<string, number>();
-      const cancelActionByJob = new Map<number, string>();
       if (inList) {
         try {
           const cc = await db.execute(sql`
