@@ -17,6 +17,7 @@ const STATUS_ORDER: JobVisualStatus[] = [
   "en_route",
   "completed",
   "completed_unpaid",
+  "charged_cancel",
   "late_clockin",
   "no_show",
   "cancelled",
@@ -67,6 +68,11 @@ function ExampleTile({ status }: { status: JobVisualStatus }) {
       {v.showNoShowBadge && (
         <div style={{ position: "absolute", top: 3, right: 3, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "1px 4px", borderRadius: 3 }}>
           NO SHOW
+        </div>
+      )}
+      {v.showFeeBadge && (
+        <div style={{ position: "absolute", top: 3, right: 3, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B45309", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.05em" }}>
+          FEE
         </div>
       )}
       {/* [job-card-redesign] UNPAID badge mirrors the chip pill so the

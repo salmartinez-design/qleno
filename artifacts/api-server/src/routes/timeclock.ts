@@ -857,14 +857,34 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       // job's normal commission — exclude them from the commission calc so the
       // tech isn't double-paid (commission + cancellation fee).
       const chargedCancelJobIds = new Set<number>();
+      const cancelPayByKey = new Map<string, number>();
+      const cancelActionByJob = new Map<number, string>();
       if (inList) {
         try {
           const cc = await db.execute(sql`
-            SELECT DISTINCT job_id FROM cancellation_log
+            SELECT DISTINCT job_id, cancel_action FROM cancellation_log
              WHERE company_id = ${companyId} AND job_id IN (${inList})
                AND cancel_action IN ('cancel','lockout')`);
-          for (const r of cc.rows as any[]) chargedCancelJobIds.add(Number(r.job_id));
+          for (const r of cc.rows as any[]) {
+            chargedCancelJobIds.add(Number(r.job_id));
+            if (r.cancel_action) cancelActionByJob.set(Number(r.job_id), String(r.cancel_action));
+          }
         } catch { /* cancellation_log absent — no exclusion */ }
+        // The cancellation fee paid to the tech lives in additional_pay
+        // (type 'cancellation_pay'). Surface it per job:tech so the time
+        // clock shows the $X the tech is owed for the lockout/cancel
+        // instead of a blank "—" (Sal: "no indication of the cancel
+        // impacting Hilda's pay"). Keyed by the JOB's date via job_id, not
+        // additional_pay.created_at (which is when the office reclassified).
+        try {
+          const cp = await db.execute(sql`
+            SELECT job_id, user_id, COALESCE(SUM(amount), 0)::float AS amount
+              FROM additional_pay
+             WHERE company_id = ${companyId} AND job_id IN (${inList})
+               AND type = 'cancellation_pay' AND status <> 'voided'
+             GROUP BY job_id, user_id`);
+          for (const r of cp.rows as any[]) cancelPayByKey.set(`${r.job_id}:${r.user_id}`, Number(r.amount));
+        } catch { /* additional_pay absent */ }
       }
       const jobTechsForCalc: JobTechRow[] = techRows
         .filter((t: any) => !chargedCancelJobIds.has(Number(t.job_id)))
@@ -891,6 +911,10 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  flagged: boolean; minutes: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
+                 // pay_kind tells the UI whether `pay` is normal commission or
+                 // a cancellation/lockout fee (so it can label it and skip the
+                 // pay-type editor). cancel_action is 'cancel' | 'lockout' when set.
+                 pay_kind: "commission" | "cancellation"; cancel_action: string | null;
                  source: string | null;
                  // [gps-on-timeclock 2026-06-11] GPS captured at clock-in/out so
                  // the office can audit field punches right here. has_gps=false
@@ -935,6 +959,15 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         pay_deduction_flat: p?.pay_deduction_flat != null ? String(p.pay_deduction_flat) : null,
       };
     };
+    // Resolve a row's pay: charged-cancellation jobs are excluded from
+    // commission (above) and instead pay the cancellation fee, so surface that
+    // amount + flag it. Normal jobs use the computed commission.
+    const payRowOf = (jid: number, uid: number): { pay: number | null; pay_kind: "commission" | "cancellation"; cancel_action: string | null } => {
+      if (chargedCancelJobIds.has(jid)) {
+        return { pay: cancelPayByKey.get(`${jid}:${uid}`) ?? 0, pay_kind: "cancellation", cancel_action: cancelActionByJob.get(jid) ?? "cancel" };
+      }
+      return { pay: payByKey.get(`${jid}:${uid}`) ?? null, pay_kind: "commission", cancel_action: null };
+    };
     const emp = new Map<number, { user_id: number; name: string; rows: Row[] }>();
     const ensureEmp = (uid: number) => {
       if (!emp.has(uid)) emp.set(uid, { user_id: uid, name: nameByUser.get(uid) || "Tech", rows: [] });
@@ -956,7 +989,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           job_id: jid, client_name: j.client_name, service_type: j.service_type, scheduled_time: j.scheduled_time ?? null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
-          ...payOf(jid, t.user_id), pay: payByKey.get(`${jid}:${t.user_id}`) ?? null, source: e?.source ?? null,
+          ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
       }
@@ -969,7 +1002,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         job_id: Number(e.job_id), client_name: j?.client_name ?? "Client", service_type: j?.service_type ?? "",
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
-        ...payOf(Number(e.job_id), Number(e.user_id)), pay: payByKey.get(`${e.job_id}:${e.user_id}`) ?? null, source: e.source ?? null,
+        ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
     }
@@ -1005,6 +1038,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         FROM additional_pay
         WHERE company_id = ${companyId}
           AND status <> 'voided'
+          AND type <> 'cancellation_pay'
           AND created_at::date = ${date}::date
       `);
       additionalPayTotal = Math.round(Number((ap.rows[0] as any)?.total ?? 0) * 100) / 100;
