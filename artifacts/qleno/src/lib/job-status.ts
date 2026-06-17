@@ -68,6 +68,7 @@ export type JobVisualStatus =
   | "active"
   | "completed"
   | "completed_unpaid"
+  | "charged_cancel"
   | "en_route"
   | "late_clockin"
   | "no_show"
@@ -96,6 +97,12 @@ export interface JobStatusInput {
    *  (customer accountability). The button doesn't exist yet — until
    *  it ships this field stays null and no_show never fires. */
   no_show_marked_by_tech?: string | null;
+  /** [lockout-visibility 2026-06-17] 'cancel' | 'lockout' when this job,
+   *  though status='complete', is actually a charged cancellation/lockout
+   *  (fee billed, no real visit). Set from the dispatch payload's
+   *  cancel_action. Takes precedence over the plain "completed" visual so
+   *  the office can tell a fee charge apart from a finished clean. */
+  cancel_action?: string | null;
 }
 
 // [phes-lifecycle 2026-04-29] Phes-specific thresholds. Multi-tenant
@@ -156,6 +163,9 @@ function isUnpaidOnlineJob(job: JobStatusInput): boolean {
 export function getJobVisualStatus(job: JobStatusInput, now: Date = new Date()): JobVisualStatus {
   if (job.status === "cancelled") return "cancelled";
   if (job.status === "complete") {
+    // A charged Cancel/Lockout keeps status='complete' (so it counts as
+    // revenue) but it's a fee, not a finished clean — surface it distinctly.
+    if (job.cancel_action === "cancel" || job.cancel_action === "lockout") return "charged_cancel";
     return isUnpaidOnlineJob(job) ? "completed_unpaid" : "completed";
   }
 
@@ -228,6 +238,10 @@ export interface StatusVisual {
   showCheckmark: boolean;
   /** Whether to render a "NO SHOW" text badge. */
   showNoShowBadge: boolean;
+  /** [lockout-visibility] Whether to render a "LOCKOUT / FEE" text badge
+   *  (charged_cancel). The consumer picks the exact word from the job's
+   *  cancel_action; this flag is just the trigger. */
+  showFeeBadge?: boolean;
   /** Whether to apply strikethrough to the title text (cancelled). */
   strikethrough: boolean;
   /** Whether to desaturate the body via grayscale filter (cancelled). */
@@ -323,6 +337,21 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
     strikethrough: false,
     desaturate: false,
     borderOverride: "#BA7517",
+    showCarIcon: false,
+  },
+  charged_cancel: {
+    label: "Lockout / Cancel fee",
+    description: "Marked complete as a charged cancellation or lockout — a fee was billed, not a service visit.",
+    swatch: "#B45309",
+    stripe: null,
+    bodyOpacity: 1,
+    fillMuted: true,
+    showCheckmark: false,
+    showNoShowBadge: false,
+    showFeeBadge: true,
+    strikethrough: true,
+    desaturate: false,
+    borderOverride: "#B45309",
     showCarIcon: false,
   },
   late_clockin: {

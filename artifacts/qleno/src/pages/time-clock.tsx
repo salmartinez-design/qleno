@@ -86,7 +86,8 @@ type Row = {
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
-  pay?: number | null; source?: string | null;
+  pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
+  source?: string | null;
   gps_in_ft?: number | null; gps_out_ft?: number | null;
   gps_in_outside?: boolean | null; gps_out_outside?: boolean | null; has_gps?: boolean;
   gps_in_lat?: number | null; gps_in_lng?: number | null;
@@ -136,6 +137,24 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
       toastFn({ title: "Pay saved" });
     } catch (e: any) { toastFn({ title: e.message || "Pay save failed" }); }
     finally { setBusy(false); }
+  }
+
+  // Charged cancellation/lockout: the tech is paid the cancellation fee, not
+  // commission, so the pay-type editor doesn't apply. Show a clear static
+  // label instead of the (misleading) Fee Split / Allowed Hours dropdown.
+  if (row.pay_kind === "cancellation") {
+    const isLockout = row.cancel_action === "lockout";
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px 9px 14px", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, minWidth: 28 }}>PAY</span>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "#B45309", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 999, padding: "3px 10px" }}>
+          {isLockout ? "Lockout fee" : "Cancellation fee"}
+        </span>
+        <span style={{ fontSize: 11, color: "#9E9B94" }}>
+          Paid as a flat {isLockout ? "lockout" : "cancellation"} fee — no commission on this job.
+        </span>
+      </div>
+    );
   }
 
   return (
@@ -284,8 +303,10 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
       <div style={{ width: 56, textAlign: "right", fontSize: 12, fontWeight: 700, color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
         {liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}
       </div>
-      <div style={{ width: 70, textAlign: "right", fontSize: 13, fontWeight: 800, color: row.pay != null && row.pay > 0 ? "#0A7C66" : "#C4C0BB" }}
-        title="Commission for this timesheet (same engine as Payroll)">
+      <div style={{ width: 70, textAlign: "right", fontSize: 13, fontWeight: 800, color: row.pay_kind === "cancellation" ? "#B45309" : (row.pay != null && row.pay > 0 ? "#0A7C66" : "#C4C0BB") }}
+        title={row.pay_kind === "cancellation"
+          ? `${row.cancel_action === "lockout" ? "Lockout" : "Cancellation"} fee paid to this tech (not commission)`
+          : "Commission for this timesheet (same engine as Payroll)"}>
         {row.pay != null ? `$${row.pay.toFixed(2)}` : "—"}
       </div>
       <button onClick={save} disabled={busy || !dirty}

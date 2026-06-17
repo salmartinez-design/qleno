@@ -78,7 +78,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
-interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -2160,6 +2160,23 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             );
           })()}
 
+          {/* [lockout-visibility 2026-06-17] This completed job is actually a
+              charged cancellation/lockout — make that unmistakable in the
+              drawer (it was the surface Sal opened and saw "no indication"). */}
+          {(job.cancel_action === "cancel" || job.cancel_action === "lockout") && (
+            <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
+              <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />
+              <div>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>
+                  {job.cancel_action === "lockout" ? "Lockout — fee charged" : "Cancellation — fee charged"}
+                </p>
+                <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                  Billed as a {job.cancel_action === "lockout" ? "lockout" : "cancellation"} fee{job.billed_amount != null ? ` of $${Number(job.billed_amount).toFixed(2)}` : ""}, not a service visit. The assigned tech is paid the cancellation fee only (no commission on this job).
+                </p>
+              </div>
+            </div>
+          )}
+
           {job.property_access_notes && (
             <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
               <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
@@ -3655,6 +3672,11 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           NO SHOW
         </div>
       )}
+      {visual.showFeeBadge && (
+        <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B45309", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 2 }}>
+          {job.cancel_action === "lockout" ? "LOCKOUT" : "CANCEL FEE"}
+        </div>
+      )}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
@@ -4593,6 +4615,11 @@ function JobChip({
             NO SHOW
           </div>
         )}
+        {visual.showFeeBadge && (
+          <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B45309", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 3 }}>
+            {job.cancel_action === "lockout" ? "LOCKOUT" : "CANCEL FEE"}
+          </div>
+        )}
         <div style={{ paddingLeft: visual.stripe ? 8 : 0 }}>
           {body}
         </div>
@@ -4649,6 +4676,11 @@ function JobChip({
             <Check size={10} color="#FFFFFF" strokeWidth={3} />
           </div>
         )}
+        {visual.showFeeBadge && (
+          <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B45309", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+            {job.cancel_action === "lockout" ? "LOCKOUT" : "CANCEL FEE"}
+          </div>
+        )}
       </div>
     );
   }
@@ -4699,6 +4731,11 @@ function JobChip({
       {visual.showNoShowBadge && (
         <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
           NO SHOW
+        </div>
+      )}
+      {visual.showFeeBadge && (
+        <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B45309", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+          {job.cancel_action === "lockout" ? "LOCKOUT" : "CANCEL FEE"}
         </div>
       )}
       {hovered && !dnd.isDragging && <JobHoverCard job={job} assignedName={assignedName} />}

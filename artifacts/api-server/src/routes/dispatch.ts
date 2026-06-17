@@ -386,6 +386,23 @@ async function buildDispatchPayload(
     const userNameById = new Map<number, string>();
     for (const u of allCompanyUsers) userNameById.set(u.id, `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim());
 
+    // [lockout-visibility 2026-06-17] A charged Cancel/Lockout leaves the job
+    // status='complete' (so it counts as revenue) but it is NOT a real visit.
+    // Surface cancel_action per job so the chip + drawer can badge it as a
+    // fee charge instead of a normal completed clean (Sal: "no indication
+    // this job was saved as a lockout/cancel anywhere").
+    const cancelActionByJob = new Map<number, string>();
+    try {
+      const jobIds = (jobs as any[]).map((j: any) => j.id).filter((x: any) => x != null);
+      if (jobIds.length) {
+        const cc = await db.execute(sql`
+          SELECT DISTINCT job_id, cancel_action FROM cancellation_log
+           WHERE company_id = ${companyId} AND cancel_action IN ('cancel','lockout')
+             AND job_id IN (${sql.join(jobIds.map((n: number) => sql`${n}`), sql`, `)})`);
+        for (const r of cc.rows as any[]) cancelActionByJob.set(Number(r.job_id), String(r.cancel_action));
+      }
+    } catch { /* cancellation_log absent — no badge */ }
+
     // [gps-flag] Tenant toggle — when off, suppress the "GPS unavailable" flag.
     const gpsFlagRow = await db.execute(sql`SELECT flag_missing_gps FROM companies WHERE id = ${companyId} LIMIT 1`);
     const flagMissingGps = (gpsFlagRow.rows[0] as any)?.flag_missing_gps ?? true;
@@ -851,6 +868,9 @@ async function buildDispatchPayload(
         // [AF] Completion / lock state — drawer renders read-only UI when
         // locked_at is set.
         locked_at: j.locked_at ?? null,
+        // 'cancel' | 'lockout' when this completed job is actually a charged
+        // cancellation/lockout (fee billed, not a service visit); else null.
+        cancel_action: cancelActionByJob.get(Number(j.id)) ?? null,
         actual_end_time: j.actual_end_time ?? null,
         completed_by_user_id: j.completed_by_user_id ?? null,
         no_show_marked_by_tech: (j as any).no_show_marked_by_tech ?? null,

@@ -800,6 +800,59 @@ router.get("/discounts", requireAuth, ROLE, async (req, res) => {
   }
 });
 
+// ─── FEES COLLECTED (cancellation + lockout) ─────────────────────────────────
+// Every charged Cancel/Lockout in the window (from cancellation_log), so the
+// office can see how much was collected in fees — a labeled subset of revenue
+// (the fee already sits in jobs.billed_amount and counts in the Revenue total).
+router.get("/fees", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const now = new Date();
+    const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
+    const toStr   = (req.query.to   as string) || dateStr(now);
+    const rows = await db.execute(sql`
+      SELECT
+        cl.id, cl.cancel_action, cl.customer_charge_amount, cl.cancelled_at,
+        u.first_name AS by_first, u.last_name AS by_last,
+        c.first_name AS client_first, c.last_name AS client_last, c.company_name AS client_company,
+        j.id AS job_id, j.service_type, j.scheduled_date
+      FROM cancellation_log cl
+      JOIN jobs j ON j.id = cl.job_id
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN users u ON u.id = cl.cancelled_by
+      WHERE cl.company_id = ${companyId}
+        AND cl.cancel_action IN ('cancel','lockout')
+        AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
+        ${branchFilter(req, "j.branch_id")}
+      ORDER BY j.scheduled_date DESC LIMIT 1000
+    `);
+    const data = (rows.rows as any[]).map(r => ({
+      id: r.id, action: String(r.cancel_action),
+      amount: parseF(r.customer_charge_amount),
+      recorded_at: r.cancelled_at, job_date: r.scheduled_date,
+      recorded_by: r.by_first ? `${r.by_first} ${r.by_last}`.trim() : null,
+      client_name: r.client_first ? `${r.client_first} ${r.client_last}`.trim() : (r.client_company || null),
+      job_id: r.job_id, service_type: r.service_type,
+    }));
+    const lockoutTotal = data.filter(d => d.action === "lockout").reduce((s, r) => s + r.amount, 0);
+    const cancelTotal  = data.filter(d => d.action === "cancel").reduce((s, r) => s + r.amount, 0);
+    return res.json({
+      from: fromStr, to: toStr, data,
+      summary: {
+        total_fees: Math.round((lockoutTotal + cancelTotal) * 100) / 100,
+        lockout_fees: Math.round(lockoutTotal * 100) / 100,
+        cancel_fees: Math.round(cancelTotal * 100) / 100,
+        count: data.length,
+        lockout_count: data.filter(d => d.action === "lockout").length,
+        cancel_count: data.filter(d => d.action === "cancel").length,
+      },
+    });
+  } catch (err) {
+    console.error("Fees report error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── WEEK IN REVIEW ──────────────────────────────────────────────────────────
 router.get("/week-review", requireAuth, ROLE, async (req, res) => {
   try {
