@@ -71,6 +71,28 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// [commission-routing 2026-06-17] Commercial detection must match
+// commission-paytype.isCommercialJob — an account link, OR a commercial client
+// (client_type='commercial'), OR a commercial-keyword service type. This legacy
+// single-basis path previously keyed on account_id ALONE, so a commercial
+// CLIENT with no linked account (e.g. an LLC "Office Cleaning") fell to the
+// residential 35% pool ($160 × 0.35 = $56) instead of commercial hourly
+// (3h × $20 = $60). Keep this list in sync with commission-paytype.
+const COMMERCIAL_KEYWORDS = [
+  "commercial", "ppm", "common_area", "office", "janitor", "facility",
+  "post_construction", "turnover", "build_out", "buildout",
+];
+function isCommercialJobRow(
+  account_id: number | null,
+  service_type: string | null,
+  client_type: string | null,
+): boolean {
+  if (account_id != null) return true;
+  if ((client_type ?? "").toLowerCase() === "commercial") return true;
+  const s = (service_type ?? "").toLowerCase();
+  return COMMERCIAL_KEYWORDS.some((k) => s.includes(k));
+}
+
 /**
  * Compute one commission row per job. Jobs without an assigned tech are
  * skipped (commission needs a recipient; multi-tech splits live on
@@ -93,7 +115,7 @@ export function computeCommissionRows(input: {
   for (const j of input.jobs) {
     if (j.assigned_user_id == null) continue;
 
-    const isCommercial = j.account_id != null;
+    const isCommercial = isCommercialJobRow(j.account_id, j.service_type, j.client_type ?? null);
     const jobTotal = num(j.billed_amount) || num(j.base_fee);
     const allowedHrs = num(j.allowed_hours);
     const workedHrs = num(j.actual_hours);
