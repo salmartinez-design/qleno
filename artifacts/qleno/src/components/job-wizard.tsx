@@ -166,6 +166,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [clientResults, setClientResults] = useState<any[]>([]);
   const [selectedClient, setSelectedClient] = useState<any>(null);
   const [clientRecentJobs, setClientRecentJobs] = useState<any[]>([]);
+  // [rebook-fix 2026-06-16] (#8) Feedback after clicking a "re-book" row.
+  // Clicking used to silently set Step-2 state with no confirmation, and a
+  // legacy/MC-imported service_type that isn't in the active grid highlighted
+  // nothing — so the click read as a no-op. Surface a banner; warn when the
+  // past service type is no longer selectable so the operator re-picks one.
+  const [rebookNotice, setRebookNotice] = useState<{ kind: "ok" | "warn"; msg: string } | null>(null);
   const clientDebounce = useRef<ReturnType<typeof setTimeout>>();
 
   // Step 1 — New Customer Inline Form
@@ -453,16 +459,23 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
   // Re-book: pre-fill Step 2 details from a past job
   function rebookFromPastJob(pastJob: any) {
+    // Is the past job's service type still an active, selectable type? Legacy /
+    // MC-imported slugs aren't rendered in the grid (AI.4), so setting one would
+    // highlight nothing and confuse the operator.
+    const row = pastJob.service_type
+      ? apiServiceTypes.find(s => s.slug === pastJob.service_type)
+      : undefined;
+    const slugSelectable = !!(row && row.is_active);
     if (pastJob.service_type) {
-      setServiceType(pastJob.service_type);
       // Flip the Job Type toggle to match the past job's parent. Without this,
       // re-booking a commercial past job on a hybrid client left the grid on
       // Residential, so the picked service never showed — looked like the
       // button did nothing ("no pasa nada").
-      const row = apiServiceTypes.find(s => s.slug === pastJob.service_type);
       if (row?.parent_slug === "residential" || row?.parent_slug === "commercial") {
         setHybridParentOverride(row.parent_slug);
       }
+      // Only pre-select the type when it's actually selectable in the grid.
+      if (slugSelectable) setServiceType(pastJob.service_type);
     }
     const mins = pastJob.duration_minutes
       ?? (pastJob.allowed_hours ? Math.round(parseFloat(pastJob.allowed_hours) * 60) : null);
@@ -472,6 +485,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       if (!isNaN(n) && n > 0) { setPrice(n); setPriceOverridden(true); }
     }
     if (pastJob.frequency) setFrequency(pastJob.frequency);
+    setRebookNotice(
+      slugSelectable
+        ? { kind: "ok", msg: "Pre-filled from the past job — review the details below." }
+        : { kind: "warn", msg: "Pre-filled hours, price and frequency. The previous service type is no longer available — pick a current one below." }
+    );
   }
 
   // Load the most recent job at the selected commercial property. When the
@@ -1278,20 +1296,45 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               {preselectedClient && clientRecentJobs.length > 0 && (
                 <div>
                   <p style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Last 3 Jobs — click to re-book</p>
+                  {/* #8: confirmation/feedback after a re-book click. */}
+                  {rebookNotice && (
+                    <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.4, padding: "8px 10px", borderRadius: 8, marginBottom: 8,
+                      color: rebookNotice.kind === "warn" ? "#92400E" : "#166534",
+                      background: rebookNotice.kind === "warn" ? "#FEF3C7" : "#DCFCE7",
+                      border: `1px solid ${rebookNotice.kind === "warn" ? "#FDE68A" : "#BBF7D0"}` }}>
+                      {rebookNotice.msg}
+                    </div>
+                  )}
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {clientRecentJobs.map((j: any) => (
+                    {clientRecentJobs.map((j: any) => {
+                      // #8: surface the hours and cleaner from each past visit.
+                      const hrs = j.actual_hours != null && parseFloat(String(j.actual_hours)) > 0
+                        ? `${parseFloat(String(j.actual_hours)).toFixed(1)}h`
+                        : (j.allowed_hours != null && parseFloat(String(j.allowed_hours)) > 0
+                          ? `${parseFloat(String(j.allowed_hours)).toFixed(1)}h allowed`
+                          : null);
+                      const cleaner = j.assigned_user_name && String(j.assigned_user_name).trim()
+                        ? String(j.assigned_user_name).trim() : "Unassigned";
+                      return (
                       <button key={j.id} onClick={() => rebookFromPastJob(j)} type="button"
-                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 12px", background: "#F9F9F9", borderRadius: 8, border: "1px solid #E5E2DC", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}
+                        style={{ display: "flex", flexDirection: "column", gap: 3, padding: "9px 12px", background: "#F9F9F9", borderRadius: 8, border: "1px solid #E5E2DC", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}
                         onMouseEnter={e => (e.currentTarget.style.background = "#F0FDFB")}
                         onMouseLeave={e => (e.currentTarget.style.background = "#F9F9F9")}>
-                        <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>{String(j.service_type || "").replace(/_/g, " ")}</span>
-                        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                          <span style={{ fontSize: 11, color: "#9E9B94" }}>{String(j.scheduled_date || "")}</span>
-                          {j.base_fee != null && <span style={{ fontSize: 11, color: "#6B6860", fontWeight: 600 }}>${parseFloat(String(j.base_fee)).toFixed(0)}</span>}
-                          <span style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700 }}>Re-book ▸</span>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+                          <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>{String(j.service_type || "").replace(/_/g, " ")}</span>
+                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <span style={{ fontSize: 11, color: "#9E9B94" }}>{String(j.scheduled_date || "")}</span>
+                            {j.base_fee != null && <span style={{ fontSize: 11, color: "#6B6860", fontWeight: 600 }}>${parseFloat(String(j.base_fee)).toFixed(0)}</span>}
+                            <span style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700 }}>Re-book ▸</span>
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 11, color: "#9E9B94" }}>
+                          <span>{cleaner}</span>
+                          {hrs && <><span style={{ color: "#D8D4CC" }}>·</span><span>{hrs}</span></>}
                         </div>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
