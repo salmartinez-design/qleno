@@ -409,23 +409,36 @@ export async function runCalculate(params: {
          GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
       `);
       const bundles = (bundleResult as any).rows ?? [];
-      for (const bundle of bundles) {
-        const rawRequired: number[] = (bundle.required_ids ?? []).map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n));
-        const required: number[] = [...new Set(rawRequired)];
+      // [combo-discount-fix 2026-06-17] (#13 public twin) Previously EVERY
+      // matching bundle was applied and summed, so two bundles covering the same
+      // add-ons stacked — "Appliance Combo" (-$20) AND "Oven + Refrigerator
+      // Combo" (-$15), both = {Oven, Refrigerator}. Select a NON-OVERLAPPING set:
+      // most specific bundle first (largest required set), tie → larger discount,
+      // and never let two bundles claim the same add-on. Disjoint bundles still
+      // stack. Mirrors the office /pricing/calculate fix exactly. (Only the
+      // combo-discount logic changes — nothing else in the public quote tool.)
+      const candidates = bundles.map((bundle: any) => {
+        const required: number[] = [...new Set((bundle.required_ids ?? []).map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)))] as number[];
         const matched = required.filter(rid => validIds.includes(rid));
-        if (required.length > 0 && matched.length === required.length) {
-          const dv = parseFloat(String(bundle.discount_value));
-          let disc = 0;
-          if (bundle.discount_type === "flat_per_item") {
-            disc = dv * matched.length;
-          } else if (bundle.discount_type === "flat" || bundle.discount_type === "flat_total") {
-            disc = dv;
-          } else if (bundle.discount_type === "percentage") {
-            disc = (dv / 100) * base_price;
-          }
-          bundle_discount += disc;
-          bundle_breakdown.push({ name: bundle.name, discount: Math.round(disc * 100) / 100 });
+        if (required.length === 0 || matched.length !== required.length) return null;
+        const dv = parseFloat(String(bundle.discount_value));
+        let disc = 0;
+        if (bundle.discount_type === "flat_per_item") {
+          disc = dv * matched.length;
+        } else if (bundle.discount_type === "flat" || bundle.discount_type === "flat_total") {
+          disc = dv;
+        } else if (bundle.discount_type === "percentage") {
+          disc = (dv / 100) * base_price;
         }
+        return { name: String(bundle.name), required, disc };
+      }).filter(Boolean) as Array<{ name: string; required: number[]; disc: number }>;
+      candidates.sort((a, b) => (b.required.length - a.required.length) || (b.disc - a.disc));
+      const consumedAddons = new Set<number>();
+      for (const c of candidates) {
+        if (c.required.some(rid => consumedAddons.has(rid))) continue; // overlaps a higher-priority bundle
+        c.required.forEach(rid => consumedAddons.add(rid));
+        bundle_discount += c.disc;
+        bundle_breakdown.push({ name: c.name, discount: Math.round(c.disc * 100) / 100 });
       }
     }
   }
