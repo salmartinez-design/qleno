@@ -5759,8 +5759,13 @@ export default function JobsPage() {
   const showAttendanceButton = jobsPageUserRole !== "technician";
   const [jobDates, setJobDates] = useState<Set<string>>(new Set());
   const refreshRef = useRef(0);
-  const [zones, setZones] = useState<{ id: number; name: string; color: string }[]>([]);
+  const [zones, setZones] = useState<{ id: number; name: string; color: string; location?: string }[]>([]);
   const [selectedZoneFilter, setSelectedZoneFilter] = useState<number | null>(null);
+  // [branch-filter 2026-06-17] Scope the zone dropdown + board to a branch
+  // (Oak Lawn vs Schaumburg) via each zone's `location` tag from /api/zones.
+  const [selectedBranchFilter, setSelectedBranchFilter] = useState<"all" | "oak_lawn" | "schaumburg">("all");
+  const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
+  const branchDropdownRef = useRef<HTMLDivElement>(null);
   // [dispatch tech sort 2026-06-10] Toggle "By time" (current — techs with
   // the earliest first job rise) vs "Static" (alphabetical A→Z, MaidCentral
   // parity). Persisted per office so the choice survives reloads.
@@ -5974,6 +5979,18 @@ export default function JobsPage() {
     return () => document.removeEventListener("mousedown", handler);
   }, [zoneDropdownOpen]);
 
+  // Close branch dropdown on outside click
+  useEffect(() => {
+    if (!branchDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (branchDropdownRef.current && !branchDropdownRef.current.contains(e.target as Node)) {
+        setBranchDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [branchDropdownOpen]);
+
   // Now-line calculation
   const nowLine = (() => {
     const now = new Date();
@@ -6049,16 +6066,24 @@ export default function JobsPage() {
   function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
 
   // Zone + location filtered dispatch data
+  // Zone ids belonging to the selected branch (null = no branch filter).
+  const branchZoneIds = selectedBranchFilter === "all"
+    ? null
+    : new Set(zones.filter(z => z.location === selectedBranchFilter).map(z => z.id));
+  const passesBranch = (zoneId: number | null | undefined) =>
+    !branchZoneIds || (zoneId != null && branchZoneIds.has(zoneId));
   const filteredData = data ? {
     employees: data.employees.map(e => ({
       ...e,
       jobs: e.jobs.filter(j => {
         if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
+        if (!passesBranch(j.zone_id)) return false;
         return true;
       }),
     })),
     unassigned_jobs: data.unassigned_jobs.filter(j => {
       if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
+      if (!passesBranch(j.zone_id)) return false;
       return true;
     }),
   } : null;
@@ -6620,6 +6645,10 @@ export default function JobsPage() {
     <DashboardLayout fullBleed>
       <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
         <div style={{ display: "flex", height: "calc(100vh - 56px)", overflow: "hidden", fontFamily: FF, flexDirection: "column" }}>
+          {/* [legend-fix 2026-06-17] Desktop mount — the popover was only
+              rendered in the mobile return, so the desktop Legend button
+              toggled state with nothing to show. */}
+          <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={false} anchorRect={legendAnchor} />
 
           {/* TOP BAR — date nav + mini-cal popover + stats + zones + view toggle.
               New Job button removed — the global "New" in the header covers it. */}
@@ -6661,6 +6690,26 @@ export default function JobsPage() {
                 <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>
               ))}
 
+              {/* Branch filter — dropdown (Oak Lawn vs Schaumburg zones) */}
+              {zones.length > 0 && (
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <div style={{ width: 1, height: 18, backgroundColor: "#E5E2DC" }} />
+                  <div ref={branchDropdownRef} style={{ position: "relative" }}>
+                    <button onClick={() => setBranchDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: selectedBranchFilter !== "all" ? "var(--brand-dim)" : "#FAFAF9", color: selectedBranchFilter !== "all" ? "var(--brand)" : "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                      {selectedBranchFilter === "oak_lawn" ? "Oak Lawn" : selectedBranchFilter === "schaumburg" ? "Schaumburg" : "All Branches"}
+                      <ChevronDown size={11} />
+                    </button>
+                    {branchDropdownOpen && (
+                      <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 150, overflow: "hidden" }}>
+                        {([["all", "All Branches"], ["oak_lawn", "Oak Lawn"], ["schaumburg", "Schaumburg"]] as const).map(([val, label]) => (
+                          <button key={val} onClick={() => { setSelectedBranchFilter(val); setSelectedZoneFilter(null); setBranchDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedBranchFilter === val ? "var(--brand-dim)" : "transparent", color: selectedBranchFilter === val ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: selectedBranchFilter === val ? 700 : 600, cursor: "pointer", fontFamily: FF }}>{label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Zone filter — dropdown */}
               {zones.length > 0 && (
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -6678,7 +6727,7 @@ export default function JobsPage() {
                     {zoneDropdownOpen && (
                       <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 160, overflow: "hidden" }}>
                         <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
-                        {zones.map(z => (
+                        {zones.filter(z => selectedBranchFilter === "all" || z.location === selectedBranchFilter).map(z => (
                           <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                             <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
                             {z.name}
