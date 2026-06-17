@@ -36,12 +36,6 @@ import { eq, and, ne } from "drizzle-orm";
 import { getNextInvoiceNumber } from "./invoice-number.js";
 import { derivePaymentSource } from "./payment-source.js";
 
-// [cutover-guard 2026-06-17] Qleno go-live date. Jobs scheduled before this are
-// billed in MaidCentral; the completion engine never auto-invoices them. Single
-// hardcoded constant for Phes go-live; move to tenant_settings when multi-tenant
-// cutovers arrive (mirrors the LATE_THRESHOLD_MINUTES pattern in job-status.ts).
-const INVOICE_CUTOVER_DATE = "2026-07-01";
-
 export type EnsureInvoiceResult = {
   created: boolean;
   skipped: boolean;
@@ -87,20 +81,11 @@ export async function ensureInvoiceForCompletedJob(
         billed_hours: jobsTable.billed_hours,
         hourly_rate: jobsTable.hourly_rate,
         charge_succeeded_at: jobsTable.charge_succeeded_at,
-        scheduled_date: jobsTable.scheduled_date,
       })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
     if (!job) return NO_OP;
-
-    // [cutover-guard 2026-06-17] Pre-cutover jobs are billed in MaidCentral, NOT
-    // Qleno. Never auto-invoice a job scheduled before the Qleno go-live date —
-    // otherwise a stale June job closed out in Qleno after July 1 would double-bill
-    // a customer already invoiced in MC. Scoped to the completion engine only;
-    // the office can still manually invoice a pre-cutover job if it ever needs it.
-    const sched = job.scheduled_date ? String(job.scheduled_date).slice(0, 10) : null;
-    if (sched && sched < INVOICE_CUTOVER_DATE) return NO_OP;
 
     // Skip jobs already charged — money already moved, so an invoice would be a
     // duplicate AR artifact (spec §1 idempotency).
