@@ -9,12 +9,14 @@ import {
   addDays,
 } from "./recurring-cadences.js";
 
-// [scheduling-engine 2026-04-29] Rolling generation window — extended
-// from 60 to 90 days so dispatchers can see roughly a quarter ahead.
-// Nightly 2 AM cron re-runs with this horizon; idempotent dedupe in
-// generateJobsFromSchedule prevents duplicate inserts when the window
-// overlaps existing rows.
-export const DAYS_AHEAD = 90;
+// [scheduling-engine 2026-04-29] Rolling generation window.
+// [recurring-perpetual 2026-06-17] Extended 90 → 365 so a recurring schedule
+// always has ~1 year of visits on the books from "today" — set-it-and-forget-it,
+// the way HCP perpetuates. The nightly 2 AM cron re-runs with this horizon and
+// the idempotent dedupe in generateJobsFromSchedule only adds the new days that
+// rolled into range, so the year-ahead window slides forward daily and never
+// runs out (until the schedule's end_date or cancellation).
+export const DAYS_AHEAD = 365;
 
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
