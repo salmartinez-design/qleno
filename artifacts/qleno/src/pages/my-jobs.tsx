@@ -4,7 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { useEmployeeView } from "@/contexts/employee-view-context";
@@ -1658,6 +1658,36 @@ export default function MyJobsPage() {
                       <DistanceBadge jobLat={job.job_lat} jobLng={job.job_lng} empPos={empPos} />
                     </div>
                   ))}
+                </div>
+              )}
+              {/* [reopen-completed 2026-06-17] Completed jobs were dropped from
+                  the list entirely once clocked out, so the tech could never get
+                  back in to add before/after photos ("all the info disappears").
+                  Keep them as tappable rows → the detail page's photo upload.
+                  Tech name of past visits is hidden separately (no conflict). */}
+              {completedToday.length > 0 && (
+                <div style={{ marginTop: 20 }}>
+                  <p style={{ fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px 4px" }}>Completed Today</p>
+                  {completedToday.map(job => {
+                    const needsPhotos = (job.before_photo_count ?? 0) === 0 || (job.after_photo_count ?? 0) === 0;
+                    return (
+                      <div key={job.id} onClick={() => navigate(`/my-jobs/${job.id}?date=${selectedDate}`)}
+                        style={{ backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: `3px solid var(--brand, #2D9B83)`, borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                          <Check size={15} color="var(--brand, #2D9B83)" style={{ flexShrink: 0 }} />
+                          <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
+                          {(job.company_name || job.branch_name) && (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em", textTransform: "uppercase" }}>{job.company_name ?? job.branch_name}</span>
+                          )}
+                        </div>
+                        <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
+                        {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
+                        <p style={{ fontSize: 12, fontWeight: 700, color: needsPhotos ? "#B45309" : "#2D9B83", margin: "8px 0 0", display: "flex", alignItems: "center", gap: 5 }}>
+                          <Camera size={13} /> {needsPhotos ? "Tap to add before/after photos" : "Photos added — tap to review"}
+                        </p>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </>

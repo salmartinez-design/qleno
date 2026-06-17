@@ -844,11 +844,8 @@ router.get("/my-jobs/:id/history", requireAuth, async (req, res) => {
       SELECT j2.id, j2.scheduled_date, j2.service_type,
         (SELECT ROUND(GREATEST(EXTRACT(EPOCH FROM (MAX(tc.clock_out_at) - MIN(tc.clock_in_at))) / 3600.0, 0)::numeric, 1)
            FROM timeclock tc WHERE tc.job_id = j2.id AND tc.clock_out_at IS NOT NULL) AS hours,
-        COALESCE(
-          (SELECT string_agg(DISTINCT u.first_name, ', ')
-             FROM job_technicians jt JOIN users u ON u.id = jt.user_id WHERE jt.job_id = j2.id),
-          (SELECT u2.first_name FROM users u2 WHERE u2.id = j2.assigned_user_id)
-        ) AS techs,
+        -- [no-prev-tech 2026-06-17] WHO did the past visit is intentionally NOT
+        -- returned to the tech-facing detail — Sal: avoid tech-vs-tech conflict.
         (SELECT string_agg(tn.body, ' · ' ORDER BY tn.created_at)
            FROM technician_notes tn WHERE tn.job_id = j2.id) AS tech_notes
       FROM jobs j2
