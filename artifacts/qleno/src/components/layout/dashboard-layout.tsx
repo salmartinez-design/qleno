@@ -660,6 +660,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
 
   const isManager = user?.role === 'owner' || user?.role === 'office';
+  // [tech-experience 2026-06-17] Keyboard shortcuts + the shortcuts overlay /
+  // help button are office-tier only — every shortcut targets an office page
+  // (Quotes, Dispatch, Payroll, Employees…). Techs (technician/team_lead) see
+  // none of it: no listener, no "?" overlay, no help button, no ⇧/ hint.
+  const canUseShortcuts = !!user?.role && ['owner', 'admin', 'office', 'super_admin'].includes(user.role);
 
   const { data: notifData } = useQuery({
     // Per-user inbox for ALL roles (techs get job alerts too). token in the key
@@ -722,16 +727,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.key === '?') setShortcutsOpen(p => !p);
+      if (e.key === '?' && canUseShortcuts) setShortcutsOpen(p => !p);
       if (e.key === 'Escape') { setSearchOpen(false); setChatOpen(false); setShortcutsOpen(false); setMoreOpen(false); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [canUseShortcuts]);
 
   useKeyboardShortcuts({
     onOpenSearch: useCallback(() => setSearchOpen(true), []),
     onNewJob,
+    enabled: canUseShortcuts,
   });
 
   if (!token) return null;
@@ -755,7 +761,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", backgroundColor: '#F7F6F3', minHeight: '100dvh', color: '#1A1917', position: 'relative' }}>
         {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
-        {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+        {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
         <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
         <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} />
 
@@ -938,7 +944,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
       {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
       {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
-      {shortcutsOpen && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
+      {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
       <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
@@ -956,7 +962,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, cursor: 'pointer', color: '#9E9B94', fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
               <Search size={14} />
               <span>Search</span>
-              <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>
+              {canUseShortcuts && <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>}
             </button>
 
             <button onClick={() => setChatOpen(p => !p)} title="Team Chat"
@@ -1027,10 +1033,12 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               )}
             </div>
 
-            <button onClick={() => setShortcutsOpen(true)} title="Keyboard Shortcuts"
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}>
-              <CircleHelp size={18} />
-            </button>
+            {canUseShortcuts && (
+              <button onClick={() => setShortcutsOpen(true)} title="Keyboard Shortcuts"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}>
+                <CircleHelp size={18} />
+              </button>
+            )}
 
             {user && (
               <div ref={notifRef} style={{ position: 'relative' }}>
@@ -1123,9 +1131,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                     <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--brand)', backgroundColor: 'var(--brand-dim)', padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em' }}>
                       {user.role}
                     </span>
-                    <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
-                      {initials}
-                    </div>
+                    {(user as any)?.avatar_url ? (
+                      <img
+                        src={(user as any).avatar_url}
+                        alt={`${user.first_name} ${user.last_name}`}
+                        style={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                      />
+                    ) : (
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', backgroundColor: 'var(--brand-dim)', color: 'var(--brand)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600 }}>
+                        {initials}
+                      </div>
+                    )}
                     <ChevronDown size={14} style={{ color: '#9E9B94', transform: userDropOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
                   </button>
                   {userDropOpen && (

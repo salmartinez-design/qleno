@@ -99,16 +99,9 @@ const NAV_SECTIONS = [
     ],
   },
   {
-    label: "Learning",
-    items: [
-      // Cleancyclopedia + Training are reference / training surfaces —
-      // techs DO get these. No roles array → visible to everyone.
-      { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
-      { title: "Training",        url: "/training",        icon: GraduationCap },
-      { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
-    ],
-  },
-  {
+    // [tech-experience 2026-06-17] My Day sits ABOVE Learning — a tech's
+    // schedule + time-off are their primary surfaces; reference/training
+    // content is secondary.
     label: "My Day",
     items: [
       // Tech-facing sidebar entries. Office tiers don't need these (they
@@ -116,7 +109,17 @@ const NAV_SECTIONS = [
       // team_lead. Without these the tech sidebar was just Training and
       // Cleancyclopedia, with no quick path back to their schedule.
       { title: "My Jobs",   url: "/my-jobs",   icon: Briefcase,    roles: ["technician", "team_lead"] },
-      { title: "Leave",     url: "/leave",     icon: FileText,     roles: ["technician", "team_lead"] },
+      { title: "Time Off",  url: "/leave",     icon: FileText,     roles: ["technician", "team_lead"] },
+    ],
+  },
+  {
+    label: "Learning",
+    items: [
+      // Cleancyclopedia + Training are reference / training surfaces —
+      // techs DO get these. No roles array → visible to everyone.
+      { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
+      { title: "Training",        url: "/training",        icon: GraduationCap },
+      { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
     ],
   },
   {
