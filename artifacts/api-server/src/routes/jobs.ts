@@ -581,7 +581,13 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
     const reqDate = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
       ? req.query.date : today;
     let userId = req.auth!.userId;
-    if (req.auth!.role === "owner" && req.query.employee_id) {
+    // "View as employee" — owner AND office/admin can view a tech's day (the
+    // office team has owner-level tech-management powers, #542). Without office
+    // here, Maribel's "Viewing as Maryury" silently fell back to her own
+    // (empty) job list and showed "No jobs" (Maribel report 2026-06-17).
+    // Techs can never view as someone else.
+    const canViewAsOther = req.auth!.role === "owner" || req.auth!.role === "admin" || req.auth!.role === "office";
+    if (canViewAsOther && req.query.employee_id) {
       userId = parseInt(req.query.employee_id as string);
     }
 
