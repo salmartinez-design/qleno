@@ -4,6 +4,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays } from "lucide-react";
 import { PunchMapModal } from "@/components/punch-map-modal";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 // [time-clock-portal 2026-06-05] Office Time Clock portal. The office reconciles
 // Qleno's per-job clock times against MaidCentral so commission (proportional by
@@ -371,25 +372,8 @@ export default function TimeClockPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => setDate(d => addDays(d, -1))} aria-label="Previous day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
-            {/* Calendar jump — native date picker layered over the date label */}
-            <label style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 8, minWidth: 168, justifyContent: "center", border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "5px 12px", cursor: "pointer" }}>
-              <CalendarDays size={15} color="#6B7280" />
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", lineHeight: 1.15 }}>{isToday ? "Today" : date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</div>
-                <div style={{ fontSize: 11, color: "#9E9B94" }}>{date.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}</div>
-              </div>
-              <input type="date" value={dk}
-                // [calendar-jump 2026-06-12] Chrome only auto-opens the date
-                // picker from the control's indicator icon — invisible here at
-                // opacity 0, so clicking the box focused silently and the
-                // calendar never appeared (Sal: "the full calendar needs to
-                // come up to move quicker"). showPicker() opens the full
-                // month calendar on any click; older browsers fall through to
-                // native focus behavior.
-                onClick={e => { try { (e.currentTarget as any).showPicker?.(); } catch { /* pre-showPicker browser — native behavior */ } }}
-                onChange={e => { if (e.target.value) setDate(new Date(`${e.target.value}T00:00:00`)); }}
-                style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, cursor: "pointer" }} />
-            </label>
+            {/* Calendar jump — chevron CalendarPopover (no native up/down stepper) */}
+            <CalendarPopover value={dk} onChange={(v) => { if (v) setDate(new Date(`${v}T00:00:00`)); }} ariaLabel="Jump to date" />
             <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
             {/* Always render the Today button so its slot is reserved — when
                 isToday it's hidden but still occupies width, so the date box +
