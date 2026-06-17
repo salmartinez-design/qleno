@@ -931,6 +931,8 @@ function FeesSection({ fees }: { fees: FeeRule[] }) {
 interface CancellationPolicy {
   default_cancel_fee_pct: number;
   default_lockout_fee_pct: number;
+  default_cancel_fee_flat: number;
+  default_lockout_fee_flat: number;
   cancellation_tech_pay_mode: "flat" | "percent";
   cancellation_tech_pay_amount: number;
 }
@@ -1015,8 +1017,20 @@ function CancellationPolicySection() {
             />
             <span style={{ fontSize: 13, color: "#6B6860" }}>% of visit fee</span>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <span style={{ fontSize: 13, color: "#6B6860" }}>or $</span>
+            <input
+              style={{ ...inp, maxWidth: 100 }}
+              type="number"
+              min={0}
+              step={1}
+              value={form.default_cancel_fee_flat}
+              onChange={e => setForm(p => p && ({ ...p, default_cancel_fee_flat: Number(e.target.value) }))}
+            />
+            <span style={{ fontSize: 13, color: "#6B6860" }}>flat</span>
+          </div>
           <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 6 }}>
-            Charged when a customer cancels late. Phes default: 100%.
+            Charged when a customer cancels late. Phes default: 100%. Set a flat $ fee above 0 to charge that instead of the %.
           </div>
         </div>
 
@@ -1036,8 +1050,20 @@ function CancellationPolicySection() {
             />
             <span style={{ fontSize: 13, color: "#6B6860" }}>% of visit fee</span>
           </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+            <span style={{ fontSize: 13, color: "#6B6860" }}>or $</span>
+            <input
+              style={{ ...inp, maxWidth: 100 }}
+              type="number"
+              min={0}
+              step={1}
+              value={form.default_lockout_fee_flat}
+              onChange={e => setForm(p => p && ({ ...p, default_lockout_fee_flat: Number(e.target.value) }))}
+            />
+            <span style={{ fontSize: 13, color: "#6B6860" }}>flat</span>
+          </div>
           <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 6 }}>
-            Charged when the crew can't get in. Phes default: 100%.
+            Charged when the crew can't get in. Phes default: 100%. Set a flat $ fee above 0 to charge that instead of the %.
           </div>
         </div>
       </div>

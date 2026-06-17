@@ -329,6 +329,7 @@ router.get("/cancellation-policy", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const r = await db.execute(drSql`
       SELECT default_cancel_fee_pct, default_lockout_fee_pct,
+             default_cancel_fee_flat, default_lockout_fee_flat,
              cancellation_tech_pay_mode, cancellation_tech_pay_amount
         FROM companies
        WHERE id = ${companyId}
@@ -339,6 +340,8 @@ router.get("/cancellation-policy", requireAuth, async (req, res) => {
     return res.json({
       default_cancel_fee_pct: parseFloat(String(row.default_cancel_fee_pct ?? 100)),
       default_lockout_fee_pct: parseFloat(String(row.default_lockout_fee_pct ?? 100)),
+      default_cancel_fee_flat: parseFloat(String(row.default_cancel_fee_flat ?? 0)),
+      default_lockout_fee_flat: parseFloat(String(row.default_lockout_fee_flat ?? 0)),
       cancellation_tech_pay_mode: row.cancellation_tech_pay_mode ?? "flat",
       cancellation_tech_pay_amount: parseFloat(String(row.cancellation_tech_pay_amount ?? 60)),
     });
@@ -356,6 +359,8 @@ router.put("/cancellation-policy", requireAuth, async (req, res) => {
     const {
       default_cancel_fee_pct,
       default_lockout_fee_pct,
+      default_cancel_fee_flat,
+      default_lockout_fee_flat,
       cancellation_tech_pay_mode,
       cancellation_tech_pay_amount,
     } = req.body ?? {};
@@ -364,6 +369,11 @@ router.put("/cancellation-policy", requireAuth, async (req, res) => {
     // non-negative. Clamp rather than reject so the UI can't get stuck.
     const cancelPct = clampPct(default_cancel_fee_pct, 100);
     const lockoutPct = clampPct(default_lockout_fee_pct, 100);
+    // [cancel-fee-flat 2026-06-17] Flat $ fees (>= 0). When > 0 they override
+    // the percentage at charge time (resolveCancellationPolicy).
+    const nonNeg = (v: any) => (Number.isFinite(Number(v)) ? Math.max(0, Number(v)) : 0);
+    const cancelFlat = nonNeg(default_cancel_fee_flat);
+    const lockoutFlat = nonNeg(default_lockout_fee_flat);
     const mode = cancellation_tech_pay_mode === "percent" ? "percent" : "flat";
     const amount = Number.isFinite(Number(cancellation_tech_pay_amount))
       ? Math.max(0, Number(cancellation_tech_pay_amount))
@@ -373,6 +383,8 @@ router.put("/cancellation-policy", requireAuth, async (req, res) => {
       UPDATE companies
          SET default_cancel_fee_pct = ${cancelPct.toFixed(2)},
              default_lockout_fee_pct = ${lockoutPct.toFixed(2)},
+             default_cancel_fee_flat = ${cancelFlat.toFixed(2)},
+             default_lockout_fee_flat = ${lockoutFlat.toFixed(2)},
              cancellation_tech_pay_mode = ${mode},
              cancellation_tech_pay_amount = ${amount.toFixed(4)}
        WHERE id = ${companyId}
@@ -381,6 +393,8 @@ router.put("/cancellation-policy", requireAuth, async (req, res) => {
     return res.json({
       default_cancel_fee_pct: cancelPct,
       default_lockout_fee_pct: lockoutPct,
+      default_cancel_fee_flat: cancelFlat,
+      default_lockout_fee_flat: lockoutFlat,
       cancellation_tech_pay_mode: mode,
       cancellation_tech_pay_amount: amount,
     });

@@ -216,6 +216,7 @@ router.post("/action", requireAuth, async (req, res) => {
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
            c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
            co.default_cancel_fee_pct, co.default_lockout_fee_pct,
+           co.default_cancel_fee_flat, co.default_lockout_fee_flat,
            co.cancellation_tech_pay_mode, co.cancellation_tech_pay_amount
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
@@ -238,6 +239,8 @@ router.post("/action", requireAuth, async (req, res) => {
     jobAmount,
     companyDefaultCancelFeePct: parseFloat(String(row.default_cancel_fee_pct ?? 100)),
     companyDefaultLockoutFeePct: parseFloat(String(row.default_lockout_fee_pct ?? 100)),
+    companyDefaultCancelFeeFlat: parseFloat(String(row.default_cancel_fee_flat ?? 0)),
+    companyDefaultLockoutFeeFlat: parseFloat(String(row.default_lockout_fee_flat ?? 0)),
     clientCancelFeePct: row.client_cancel_pct != null ? parseFloat(String(row.client_cancel_pct)) : null,
     clientLockoutFeePct: row.client_lockout_pct != null ? parseFloat(String(row.client_lockout_pct)) : null,
   });
@@ -248,8 +251,9 @@ router.post("/action", requireAuth, async (req, res) => {
     ? Math.max(0, Number(body.charge_amount_override))
     : policy.charge_amount;
 
+  const feeBasis = policy.fee_flat_applied > 0 ? "flat" : `${policy.fee_pct_applied}%`;
   const actionNote = policy.charges_customer
-    ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${policy.fee_pct_applied}%)]`
+    ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${feeBasis})]`
     : isReschedule
       ? `[${action} to ${body.new_date}${body.new_time ? ` ${body.new_time}` : ""}]`
       : `[${action}]`;

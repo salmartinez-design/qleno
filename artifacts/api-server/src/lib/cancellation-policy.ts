@@ -42,6 +42,11 @@ export interface PolicyInput {
   /** Per-tenant defaults — always non-null in practice (DB defaults to 100). */
   companyDefaultCancelFeePct: number;
   companyDefaultLockoutFeePct: number;
+  /** Per-tenant FLAT fees ($). When > 0, the flat fee is charged INSTEAD of
+   *  the percentage for that action. Default 0 = bill the percentage. Lets a
+   *  tenant choose flat-rate vs % of job cost. */
+  companyDefaultCancelFeeFlat?: number;
+  companyDefaultLockoutFeeFlat?: number;
   /** Per-client overrides — NULL means "use the company default". */
   clientCancelFeePct: number | null;
   clientLockoutFeePct: number | null;
@@ -50,6 +55,8 @@ export interface PolicyInput {
 export interface PolicyResult {
   charge_amount: number;
   fee_pct_applied: number;
+  /** Dollars when a flat fee was applied (0 when the percentage was used). */
+  fee_flat_applied: number;
   charges_customer: boolean;
   affects_future_jobs: boolean;
   /** Status the job row should end up in after this action. */
@@ -68,6 +75,7 @@ export function resolveCancellationPolicy(input: PolicyInput): PolicyResult {
     return {
       charge_amount: 0,
       fee_pct_applied: 0,
+      fee_flat_applied: 0,
       charges_customer: false,
       affects_future_jobs: affectsFuture,
       next_job_status: "cancelled",
@@ -78,11 +86,22 @@ export function resolveCancellationPolicy(input: PolicyInput): PolicyResult {
     ? (input.clientLockoutFeePct ?? input.companyDefaultLockoutFeePct)
     : (input.clientCancelFeePct ?? input.companyDefaultCancelFeePct);
 
-  const charge_amount = round2(Math.max(0, input.jobAmount) * (pct / 100));
+  // [cancel-fee-flat 2026-06-17] A tenant can set a FLAT fee per action; when
+  // present (> 0) it's charged instead of the percentage. Tenants that bill a
+  // percentage of the job cost leave the flat at 0.
+  const flat = input.action === "lockout"
+    ? (input.companyDefaultLockoutFeeFlat ?? 0)
+    : (input.companyDefaultCancelFeeFlat ?? 0);
+  const usingFlat = flat > 0;
+
+  const charge_amount = usingFlat
+    ? round2(flat)
+    : round2(Math.max(0, input.jobAmount) * (pct / 100));
 
   return {
     charge_amount,
-    fee_pct_applied: pct,
+    fee_pct_applied: usingFlat ? 0 : pct,
+    fee_flat_applied: usingFlat ? round2(flat) : 0,
     charges_customer: charge_amount > 0,
     affects_future_jobs: affectsFuture,
     // Per Sal: charged cancellations stay as a 'complete' artifact so the
