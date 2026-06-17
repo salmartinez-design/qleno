@@ -2801,7 +2801,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
         {/* [AF] Action footer. When isLocked (status=complete/cancelled or
             locked_at set), Mark Complete is replaced with a muted "Completed
-            at ..." label and Reschedule / Cancel / Flag are disabled. */}
+            at ..." label and Reschedule / Cancel are disabled. */}
         <div style={{ padding: "12px 20px 20px", borderTop: "1px solid #EEECE7", display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
           {isLocked ? (
             <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -2831,12 +2831,6 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <button onClick={() => setStatus("in_progress")} disabled={busy}
               style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #FCD34D", borderRadius: 8, backgroundColor: "#FEF3C7", color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
               Start Job
-            </button>
-          )}
-          {!isLocked && job.status !== "flagged" && !confirmComplete && (
-            <button onClick={() => setStatus("flagged")} disabled={busy}
-              style={{ padding: "10px 12px", border: "1px solid #FCA5A5", borderRadius: 8, backgroundColor: "#FEE2E2", color: "#991B1B", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-              Flag
             </button>
           )}
           {/* Charge Client — owner/admin only, completed Stripe jobs not yet charged */}
