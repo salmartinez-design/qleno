@@ -334,6 +334,7 @@ router.post("/clock-in", requireAuth, async (req, res) => {
         company_id: req.auth!.companyId,
         branch_id: stampedBranchId,
         clock_in_at: clockInAt,
+        tz_normalized: true, // stored as Central wall-clock above — exclude from backfill
         clock_in_lat: empLat !== null ? String(empLat) : null,
         clock_in_lng: empLng !== null ? String(empLng) : null,
         clock_in_distance_ft: distanceFt !== null ? String(distanceFt) : null,
@@ -662,6 +663,7 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       job_id, user_id, company_id: companyId,
       branch_id: jobRow.branch_id ?? 1,
       clock_in_at: clockInAt,
+      tz_normalized: true, // office-typed = wall-clock; exclude from backfill
       override_approved: true,
       source: "punched",
     }).returning();
@@ -696,6 +698,88 @@ router.post("/office/clock-out", requireAuth, requireRole("owner", "admin", "off
     return res.json(updated);
   } catch (err) {
     console.error("POST /timeclock/office/clock-out error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Clock timezone backfill (one-time, owner-reviewed) ──────────────────────
+// [clock-tz-backfill 2026-06-17] Field-app punches recorded before the
+// wall-clock fix were stored as UTC instants (a 4:24 PM Central punch saved as
+// 21:24). These two endpoints let the owner PREVIEW and then APPLY a one-time
+// UTC→Central shift to those rows. Identified by: tz_normalized=false AND a
+// field GPS stamp (clock_in_lat) — office-typed rows (no GPS) are already
+// wall-clock and are left alone. Rows with a field clock-IN but an office
+// clock-OUT (clock_out_lat NULL) are flagged "mixed" and NOT auto-converted —
+// the owner fixes those by hand via the per-entry editor.
+const tzCandidateWhere = (companyId: number, from: string, to: string) => sql`
+  tc.company_id = ${companyId} AND tc.tz_normalized = false
+  AND tc.clock_in_lat IS NOT NULL
+  AND tc.clock_in_at::date BETWEEN ${from}::date AND ${to}::date`;
+
+router.get("/tz-audit", requireAuth, requireRole("owner"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const from = String(req.query.from || "").slice(0, 10);
+    const to = String(req.query.to || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: "from and to (YYYY-MM-DD) required" });
+    }
+    const rows = await db.execute(sql`
+      SELECT tc.id, tc.user_id,
+             TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')) AS tech,
+             to_char(tc.clock_in_at, 'YYYY-MM-DD HH24:MI') AS in_before,
+             to_char((tc.clock_in_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI') AS in_after,
+             to_char(tc.clock_out_at, 'YYYY-MM-DD HH24:MI') AS out_before,
+             to_char((tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago', 'YYYY-MM-DD HH24:MI') AS out_after,
+             (tc.clock_out_at IS NOT NULL AND tc.clock_out_lat IS NULL) AS mixed
+        FROM timeclock tc
+        LEFT JOIN users u ON u.id = tc.user_id
+       WHERE ${tzCandidateWhere(companyId, from, to)}
+       ORDER BY tc.clock_in_at DESC
+       LIMIT 1000
+    `);
+    const data = rows.rows as any[];
+    return res.json({
+      from, to,
+      convertible: data.filter(r => !r.mixed),
+      mixed: data.filter(r => r.mixed),
+      counts: { total: data.length, convertible: data.filter(r => !r.mixed).length, mixed: data.filter(r => r.mixed).length },
+    });
+  } catch (err) {
+    console.error("GET /timeclock/tz-audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/tz-backfill", requireAuth, requireRole("owner"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const from = String(req.body?.from || "").slice(0, 10);
+    const to = String(req.body?.to || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      return res.status(400).json({ error: "from and to (YYYY-MM-DD) required" });
+    }
+    // Convert only "clean" field punches (clock-out is itself a field punch or
+    // absent). Mixed rows are left for manual correction. Marker prevents any
+    // double-shift on re-run.
+    const result = await db.execute(sql`
+      UPDATE timeclock tc
+         SET clock_in_at  = (tc.clock_in_at  AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago',
+             clock_out_at = CASE WHEN tc.clock_out_at IS NOT NULL
+                                 THEN (tc.clock_out_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/Chicago'
+                                 ELSE NULL END,
+             tz_normalized = true
+       WHERE ${tzCandidateWhere(companyId, from, to)}
+         AND (tc.clock_out_at IS NULL OR tc.clock_out_lat IS NOT NULL)
+      RETURNING tc.id, tc.job_id
+    `);
+    const updated = result.rows as any[];
+    // Re-derive each affected job's actual hours off the corrected times.
+    const jobIds = [...new Set(updated.map(r => Number(r.job_id)))];
+    for (const jid of jobIds) { try { await recomputeJobActualHours(jid, companyId); } catch { /* non-fatal */ } }
+    return res.json({ ok: true, converted: updated.length, jobs_recomputed: jobIds.length });
+  } catch (err) {
+    console.error("POST /timeclock/tz-backfill error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

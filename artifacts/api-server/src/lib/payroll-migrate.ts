@@ -41,7 +41,12 @@ export async function ensurePayrollP0Setup(): Promise<void> {
     // convention above).
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_cancel_fee_flat numeric(10,2) NOT NULL DEFAULT 0`);
     await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_lockout_fee_flat numeric(10,2) NOT NULL DEFAULT 0`);
-    console.log("[payroll-P0] schema ready (payroll_hours_basis + payroll_hours_overrides + cancel/lockout flat fee)");
+    // [clock-tz-backfill 2026-06-17] Marks timeclock rows whose times are known
+    // to be in the correct wall-clock convention, so the one-time UTC→Central
+    // backfill never double-shifts a row. New rows are inserted with this true;
+    // pre-existing rows default false and become true once reviewed+applied.
+    await db.execute(sql`ALTER TABLE timeclock ADD COLUMN IF NOT EXISTS tz_normalized boolean NOT NULL DEFAULT false`);
+    console.log("[payroll-P0] schema ready (payroll_hours_basis + payroll_hours_overrides + cancel/lockout flat fee + tz_normalized)");
   } catch (err) {
     console.error("[payroll-P0] ensure setup error (non-fatal):", err);
   }

@@ -366,13 +366,108 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   );
 }
 
+// [clock-tz-backfill 2026-06-17] Owner tool: preview + apply the one-time
+// UTC→Central shift for field punches recorded before the wall-clock fix.
+// Preview is read-only; Apply only runs after the owner reviews the before→after.
+type TzRow = { id: number; tech: string; in_before: string; in_after: string; out_before: string | null; out_after: string | null; mixed: boolean };
+function ClockTzFixModal({ onClose, onApplied, toastFn }: { onClose: () => void; onApplied: () => void; toastFn: (t: { title: string }) => void }) {
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const [from, setFrom] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 60); return ymd(d); });
+  const [to, setTo] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 1); return ymd(d); });
+  const [preview, setPreview] = useState<{ convertible: TzRow[]; mixed: TzRow[]; counts: { total: number; convertible: number; mixed: number } } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function runPreview() {
+    setBusy(true); setPreview(null);
+    try {
+      const r = await api(`/api/timeclock/tz-audit?from=${from}&to=${to}`);
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Preview failed");
+      setPreview(d);
+    } catch (e: any) { toastFn({ title: e.message || "Preview failed" }); }
+    finally { setBusy(false); }
+  }
+  async function apply() {
+    if (!preview || preview.counts.convertible === 0) return;
+    setBusy(true);
+    try {
+      const r = await api(`/api/timeclock/tz-backfill`, { method: "POST", body: JSON.stringify({ from, to }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Apply failed");
+      toastFn({ title: `Fixed ${d.converted} clock entr${d.converted === 1 ? "y" : "ies"}` });
+      onApplied(); onClose();
+    } catch (e: any) { toastFn({ title: e.message || "Apply failed" }); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.5)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: FF }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 20, width: 640, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(10,14,26,0.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+          <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#0A0E1A" }}>Fix past clock times</h3>
+          <button onClick={onClose} aria-label="Close" style={{ background: "none", border: 0, fontSize: 22, color: "#9E9B94", cursor: "pointer", lineHeight: 1 }}>×</button>
+        </div>
+        <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "#6B6860", lineHeight: 1.5 }}>
+          Field punches recorded before the timezone fix were saved 5 hours ahead. Pick a date range, <b>Preview</b> the change, then <b>Apply</b>. Office-typed times are left alone. Entries with a field clock-in but an office clock-out are flagged for manual review.
+        </p>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 14, flexWrap: "wrap" }}>
+          <div><div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>From</div><CalendarPopover value={from} onChange={v => v && setFrom(v)} ariaLabel="From date" /></div>
+          <div><div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>To</div><CalendarPopover value={to} onChange={v => v && setTo(v)} ariaLabel="To date" /></div>
+          <button onClick={runPreview} disabled={busy} style={{ border: "1px solid #2D9B83", background: "#fff", color: "#2D9B83", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>{busy ? "…" : "Preview"}</button>
+        </div>
+
+        {preview && (
+          <>
+            <div style={{ fontSize: 13, color: "#1A1917", marginBottom: 10 }}>
+              <b>{preview.counts.convertible}</b> entr{preview.counts.convertible === 1 ? "y" : "ies"} will be corrected{preview.counts.mixed > 0 ? <> · <span style={{ color: "#B45309" }}>{preview.counts.mixed} need manual review</span></> : null}.
+            </div>
+            {preview.convertible.length > 0 && (
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead><tr style={{ background: "#FAFAF8", textAlign: "left", color: "#9E9B94" }}>
+                    <th style={{ padding: "6px 8px", fontWeight: 700 }}>Tech</th><th style={{ padding: "6px 8px", fontWeight: 700 }}>In</th><th style={{ padding: "6px 8px", fontWeight: 700 }}>Out</th>
+                  </tr></thead>
+                  <tbody>
+                    {preview.convertible.slice(0, 40).map(r => (
+                      <tr key={r.id} style={{ borderTop: "1px solid #F4F3F0" }}>
+                        <td style={{ padding: "6px 8px" }}>{r.tech}</td>
+                        <td style={{ padding: "6px 8px" }}><span style={{ color: "#B91C1C" }}>{r.in_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.in_after}</span></td>
+                        <td style={{ padding: "6px 8px" }}>{r.out_before ? <><span style={{ color: "#B91C1C" }}>{r.out_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.out_after}</span></> : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {preview.convertible.length > 40 && <div style={{ padding: "6px 8px", fontSize: 11, color: "#9E9B94" }}>…and {preview.convertible.length - 40} more</div>}
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button onClick={onClose} disabled={busy} style={{ border: "1px solid #E5E2DC", background: "#fff", color: "#6B6860", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={apply} disabled={busy || preview.counts.convertible === 0}
+                style={{ border: "none", background: preview.counts.convertible === 0 ? "#D4D1CB" : "#2D9B83", color: "#fff", borderRadius: 8, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: busy || preview.counts.convertible === 0 ? "default" : "pointer", fontFamily: FF }}>
+                {busy ? "Applying…" : `Apply to ${preview.counts.convertible}`}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function TimeClockPage() {
   const { toast } = useToast();
   const [date, setDate] = useState(new Date());
   const [data, setData] = useState<{ date: string; employees: Emp[]; revenue?: number; allowed_hours_total?: number; additional_pay_total?: number; diagnostics?: { jobCount?: number; techRows?: number; clockRows?: number; error?: string } } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [tzFixOpen, setTzFixOpen] = useState(false);
   const dk = dateKey(date);
   const isToday = dk === dateKey(new Date());
+  // Owner-only TZ backfill tool (decode role from the JWT, same pattern as
+  // elsewhere). Non-owners never see the trigger; the endpoint is owner-gated too.
+  const isOwner = (() => {
+    try { return JSON.parse(atob((getAuthHeaders().Authorization || "").replace("Bearer ", "").split(".")[1])).role === "owner"; }
+    catch { return false; }
+  })();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -430,8 +525,13 @@ export default function TimeClockPage() {
                 chevrons don't slide sideways switching today ↔ any other day. */}
             <button onClick={() => setDate(new Date())} aria-hidden={isToday} tabIndex={isToday ? -1 : 0}
               style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: isToday ? "default" : "pointer", color: "#1A1917", fontSize: 12, fontWeight: 700, fontFamily: FF, visibility: isToday ? "hidden" : "visible" }}>Today</button>
+            {isOwner && (
+              <button onClick={() => setTzFixOpen(true)} title="One-time fix for field punches recorded before the timezone fix"
+                style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 12px", cursor: "pointer", color: "#6B6860", fontSize: 12, fontWeight: 700, fontFamily: FF }}>Fix past clock times</button>
+            )}
           </div>
         </div>
+        {tzFixOpen && <ClockTzFixModal onClose={() => setTzFixOpen(false)} onApplied={load} toastFn={toast} />}
 
         {/* Day summary — CSS grid with fixed-size columns so every stat sits in
             an identical cell regardless of its value. A flex row with per-stat
