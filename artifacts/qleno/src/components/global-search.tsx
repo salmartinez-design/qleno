@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Search, User, Briefcase, FileText, X } from "lucide-react";
+import { Search, User, Briefcase, FileText, X, Mic } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -29,6 +29,33 @@ export function GlobalSearch({ onClose }: Props) {
   const [highlighted, setHighlighted] = useState(0);
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
+  const [listening, setListening] = useState(false);
+
+  // Voice search via the browser Web Speech API (no backend / API key needed).
+  // The mic dictates straight into the query box, which drives the existing
+  // debounced search. Hidden on browsers without speech recognition.
+  const voiceSupported = typeof window !== 'undefined' &&
+    !!((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+  const toggleVoice = useCallback(() => {
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    if (listening) { recognitionRef.current?.stop(); return; }
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.onresult = (e: any) => {
+      const transcript = Array.from(e.results).map((res: any) => res[0].transcript).join('');
+      setQuery(transcript);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  }, [listening]);
+  useEffect(() => () => { try { recognitionRef.current?.stop(); } catch { /* noop */ } }, []);
   const timerRef = useRef<any>(null);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
@@ -88,6 +115,12 @@ export function GlobalSearch({ onClose }: Props) {
             placeholder="Search clients, jobs, employees, invoices…"
             style={{ flex:1, border:'none', outline:'none', fontSize:15, color:'#1A1917', fontFamily:"'Plus Jakarta Sans', sans-serif", background:'transparent' }}/>
           {query && <button onClick={() => setQuery('')} style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:'#9E9B94' }}><X size={16}/></button>}
+          {voiceSupported && (
+            <button onClick={toggleVoice} title={listening ? 'Stop listening' : 'Voice search'}
+              style={{ background: listening ? 'var(--brand-dim)' : 'none', border:'none', cursor:'pointer', padding:4, borderRadius:6, color: listening ? 'var(--brand)' : '#9E9B94', display:'flex', alignItems:'center', flexShrink:0 }}>
+              <Mic size={16}/>
+            </button>
+          )}
           <kbd style={{ fontSize:11, color:'#9E9B94', border:'1px solid #E5E2DC', borderRadius:4, padding:'2px 6px' }}>ESC</kbd>
         </div>
 

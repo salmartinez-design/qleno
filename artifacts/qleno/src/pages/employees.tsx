@@ -21,17 +21,22 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
 };
 
 function ProductivityRing({ pct }: { pct: number }) {
-  const r = 16;
+  // [efficiency-ring 2026-06-17] Bumped 36→46px and darkened the label: a
+  // 3-digit value ("171%") couldn't fit the old circle and mint-on-white read
+  // poorly. The arc caps at a full circle for >100% so it doesn't overdraw.
+  const size = 46;
+  const c = size / 2;
+  const r = 19;
   const circ = 2 * Math.PI * r;
-  const dash = (pct / 100) * circ;
+  const dash = Math.min(pct / 100, 1) * circ;
   return (
-    <div style={{ position: 'relative', width: '36px', height: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <svg width="36" height="36" style={{ transform: 'rotate(-90deg)', position: 'absolute' }}>
-        <circle cx="18" cy="18" r={r} fill="none" stroke="#E5E2DC" strokeWidth={4} />
-        <circle cx="18" cy="18" r={r} fill="none" stroke="var(--brand)" strokeWidth={4}
+    <div style={{ position: 'relative', width: size, height: size, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', position: 'absolute' }}>
+        <circle cx={c} cy={c} r={r} fill="none" stroke="#E5E2DC" strokeWidth={4} />
+        <circle cx={c} cy={c} r={r} fill="none" stroke="var(--brand)" strokeWidth={4}
           strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
       </svg>
-      <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--brand)', position: 'relative', zIndex: 1 }}>{pct}%</span>
+      <span style={{ fontSize: '11px', fontWeight: 700, color: '#0F766E', position: 'relative', zIndex: 1, lineHeight: 1 }}>{pct}%</span>
     </div>
   );
 }
