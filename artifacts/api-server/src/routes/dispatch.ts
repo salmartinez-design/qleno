@@ -17,11 +17,15 @@ const router = Router();
 // and pull the entire day's office data.
 const dispatchOfficeGate = requireRole("owner", "admin", "office", "super_admin");
 
-router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
-  try {
-    const companyId = req.auth!.companyId;
-    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
-    const branch_id = req.query.branch_id as string | undefined;
+// [combined-board 2026-06-17] Dispatch payload builder, extracted from the
+// GET "/" handler so the cross-company /all-locations route can reuse it per
+// owned company. Single-company behavior is unchanged — the route below just
+// calls this and res.json()s the result.
+async function buildDispatchPayload(
+  companyId: number,
+  date: string,
+  branch_id: string | undefined,
+): Promise<{ employees: any[]; unassigned_jobs: any[] }> {
 
     // Only show field technicians on the dispatch board:
     // - role = technician or team_lead always included
@@ -331,7 +335,7 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
     }
 
     if (jobs.length === 0) {
-      return res.json({
+      return {
         employees: employees.map(e => ({
           ...e,
           name: `${e.first_name} ${e.last_name}`,
@@ -341,7 +345,7 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
-      });
+      };
     }
 
     const jobIds = jobs.map(j => j.id);
@@ -994,7 +998,7 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
       }
     }
 
-    return res.json({
+    return {
       employees: employees.map(e => ({
         id: e.id,
         name: `${e.first_name} ${e.last_name}`,
@@ -1006,10 +1010,52 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
         avatar_url: e.avatar_url ?? null,
       })),
       unassigned_jobs: unassigned,
-    });
+    };
+}
+
+router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const branch_id = req.query.branch_id as string | undefined;
+    return res.json(await buildDispatchPayload(companyId, date, branch_id));
   } catch (err) {
     console.error("Dispatch error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to load dispatch" });
+  }
+});
+
+// [combined-board 2026-06-17] Cross-company combined dispatch. Resolves the
+// companies this user OWNS (same gate as /api/rollup) and merges each one's
+// dispatch payload, tagging every employee + unassigned job with its company
+// so the board can group by location. No branch filter — combined shows all.
+router.get("/all-locations", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const userId = req.auth!.userId!;
+    const homeCompanyId = req.auth!.companyId!;
+    const date = (req.query.date as string) || new Date().toISOString().split("T")[0];
+    const ownedRows = (await db.execute(sql`
+      SELECT uc.company_id AS company_id, c.name AS name
+      FROM user_companies uc JOIN companies c ON c.id = uc.company_id
+      WHERE uc.user_id = ${userId} AND uc.role = 'owner'
+      ORDER BY c.name
+    `)).rows as { company_id: number; name: string }[];
+    let companies = ownedRows.map(r => ({ id: Number(r.company_id), name: r.name }));
+    if (companies.length === 0) {
+      const homeRow = (await db.execute(sql`SELECT name FROM companies WHERE id = ${homeCompanyId} LIMIT 1`)).rows[0] as any;
+      companies = [{ id: homeCompanyId, name: homeRow?.name ?? "Company" }];
+    }
+    const employees: any[] = [];
+    const unassigned_jobs: any[] = [];
+    for (const co of companies) {
+      const payload = await buildDispatchPayload(co.id, date, undefined);
+      for (const e of payload.employees) employees.push({ ...e, company_id: co.id, company_name: co.name });
+      for (const j of payload.unassigned_jobs) unassigned_jobs.push({ ...j, company_id: co.id, company_name: co.name });
+    }
+    return res.json({ employees, unassigned_jobs, companies });
+  } catch (err) {
+    console.error("Dispatch all-locations error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load combined dispatch" });
   }
 });
 
