@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DollarSign, Clock, TrendingUp } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -129,11 +130,9 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
         <button style={presetBtn(preset === "this")} onClick={() => applyPreset("this")}>This week</button>
         <button style={presetBtn(preset === "last")} onClick={() => applyPreset("last")}>Last week</button>
         <button style={presetBtn(preset === "month")} onClick={() => applyPreset("month")}>This month</button>
-        <input type="date" value={period.start} onChange={e => { setPreset("custom"); setPeriod(p => ({ ...p, start: e.target.value })); }}
-          style={{ padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit" }} />
+        <CalendarPopover value={period.start} ariaLabel="Period start" onChange={ymd => { setPreset("custom"); setPeriod(p => ({ ...p, start: ymd })); }} />
         <span style={{ color: "#9E9B94", fontSize: 12 }}>to</span>
-        <input type="date" value={period.end} onChange={e => { setPreset("custom"); setPeriod(p => ({ ...p, end: e.target.value })); }}
-          style={{ padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit" }} />
+        <CalendarPopover value={period.end} ariaLabel="Period end" onChange={ymd => { setPreset("custom"); setPeriod(p => ({ ...p, end: ymd })); }} />
       </div>
 
       {/* Summary */}

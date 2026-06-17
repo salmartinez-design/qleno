@@ -1812,6 +1812,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // audit. Other actions ignore these fields.
           new_date: (cancelAction === "move" || cancelAction === "bump") ? cancelNewDate : undefined,
           new_time: (cancelAction === "move" || cancelAction === "bump") && cancelNewTime ? cancelNewTime : undefined,
+          // [reclassify-lockout 2026-06-17] Job was already completed. The
+          // backend normally 409s on complete/cancelled jobs; this opt-in
+          // flag lets a charging action (cancel/lockout) supersede the prior
+          // completion. Only sent from the panel when the job is complete.
+          reclassify: isLocked && job.status === "complete" ? true : undefined,
         }),
       });
       if (!res.ok) {
@@ -2884,6 +2889,24 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Cancel Job
             </button>
           )}
+          {/* [reclassify-lockout 2026-06-17] A job that was marked Complete
+              normally can still turn out to have been a lockout / cancellation
+              (tech showed up, couldn't get in — office only learns later).
+              isLocked hides the full action picker, so completed jobs get a
+              dedicated "Mark as Lockout / Cancellation" entry that opens the
+              same modal in reclassify mode (charging actions only). The
+              backend reclassify path supersedes the prior completion: writes
+              the cancellation_log + cancellation_pay and the commission
+              engines (#549) then exclude the job from normal commission, so
+              the tech is paid the cancellation fee ONLY, never both. Hidden
+              once the job is already cancelled (free/voided — nothing to
+              reclassify) and for techs (office/owner/admin only). */}
+          {isLocked && job.status === "complete" && canManageCommission && (
+            <button onClick={() => setCancelOpen(true)} disabled={busy}
+              style={{ padding: "10px 12px", border: "1px solid #CBD5E1", borderRadius: 8, backgroundColor: "#F1F5F9", color: "#475569", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              Mark as Lockout / Cancellation
+            </button>
+          )}
         </div>
       </div>
 
@@ -3312,6 +3335,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           { key: "lockout",        label: "Lockout",        sub: "Couldn't get in (full fee)",   accent: "#475569", tint: "#F1F5F9", charges: true },
           { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#991B1B", tint: "#FEF2F2", charges: false, ends_service: true },
         ];
+        // [reclassify-lockout] When the job is already complete the operator
+        // is reclassifying a finished job as a lockout / cancellation — only
+        // the two charging actions make sense (move/bump/skip/cancel_service/
+        // modify all assume a still-live job). Filter the picker down to them.
+        const isReclassify = isLocked && job.status === "complete";
+        const visibleActions = isReclassify ? ACTIONS.filter(a => a.charges) : ACTIONS;
         // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons);
         // billed_amount is a cache that goes stale after price/fee edits. Fall
         // through with `||` so a literal 0 doesn't pin the fee preview to $0.
@@ -3336,6 +3365,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <p style={{ margin: "0 0 18px", fontSize: 13, color: "#6B6860" }}>
                 {job.display_name ?? job.client_name} · {new Date(job.scheduled_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </p>
+              {isReclassify && (
+                <div style={{ margin: "0 0 16px", padding: "10px 12px", borderRadius: 8, background: "#F1F5F9", border: "1px solid #CBD5E1", fontSize: 12, color: "#475569", lineHeight: 1.4 }}>
+                  This job is already marked complete. Recording a cancellation or lockout
+                  will supersede that — the tech is paid the cancellation fee only (their
+                  normal commission for this job is removed).
+                </div>
+              )}
 
               {/* STEP 1 — action picker. White cards with a slim left
                   stripe in the accent color. Hover swaps the background
@@ -3344,7 +3380,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   final-and-most-destructive option. */}
               {!selected && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                  {ACTIONS.map((a, idx) => {
+                  {visibleActions.map((a, idx) => {
                     const isFullRow = a.ends_service;
                     return (
                       <button key={a.key} onClick={() => {

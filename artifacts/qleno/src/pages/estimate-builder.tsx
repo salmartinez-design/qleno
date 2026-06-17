@@ -4,6 +4,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical } from "lucide-react";
 import { toast } from "sonner";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -285,7 +286,7 @@ export default function EstimateBuilderPage() {
 
         <Section title="Terms & internal notes">
           <Grid>
-            <Field label="Valid until"><input style={inp} type="date" value={validUntil} onChange={e => setValidUntil(e.target.value)} /></Field>
+            <Field label="Valid until"><CalendarPopover value={validUntil} ariaLabel="Valid until" onChange={setValidUntil} block /></Field>
             <div />
           </Grid>
           <Field label="Terms (shown to the client)"><textarea style={{ ...inp, minHeight: 56, resize: "vertical" }} value={terms} onChange={e => setTerms(e.target.value)} placeholder="50% on first service, net-15 thereafter. Estimate valid 30 days." /></Field>

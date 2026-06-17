@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ChevronLeft, Printer } from "lucide-react";
 import { Link } from "wouter";
 import { useBranch } from "@/contexts/branch-context";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 export const fmt$ = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n || 0);
 export const fmt$c = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
@@ -31,11 +32,9 @@ export function DateRange({ from, to, onChange, label = "Date Range" }: DateRang
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
       <span style={{ fontSize: 13, color: clr.secondary, fontWeight: 500 }}>{label}:</span>
-      <input type="date" value={from} onChange={e => onChange(e.target.value, to)}
-        style={{ fontSize: 13, padding: "5px 10px", border: `1px solid ${clr.border}`, borderRadius: 6, color: clr.text, backgroundColor: clr.card, fontFamily: "inherit" }} />
+      <CalendarPopover value={from} ariaLabel={`${label} from`} onChange={ymd => onChange(ymd, to)} />
       <span style={{ color: clr.muted, fontSize: 12 }}>to</span>
-      <input type="date" value={to} onChange={e => onChange(from, e.target.value)}
-        style={{ fontSize: 13, padding: "5px 10px", border: `1px solid ${clr.border}`, borderRadius: 6, color: clr.text, backgroundColor: clr.card, fontFamily: "inherit" }} />
+      <CalendarPopover value={to} ariaLabel={`${label} to`} onChange={ymd => onChange(from, ymd)} />
     </div>
   );
 }

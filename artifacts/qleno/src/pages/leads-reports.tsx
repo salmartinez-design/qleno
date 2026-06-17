@@ -3,6 +3,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { Link } from "wouter";
 import { ChevronLeft, Loader2, TrendingUp, Plus, Trash2, Settings2, Target } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -177,8 +178,8 @@ export default function LeadsReportsPage() {
             </select>
             {period === "custom" && (
               <>
-                <Input type="date" value={cFrom} onChange={e => setCFrom(e.target.value)} style={{ width: 150 }} />
-                <Input type="date" value={cTo} onChange={e => setCTo(e.target.value)} style={{ width: 150 }} />
+                <CalendarPopover value={cFrom} ariaLabel="Custom range from" onChange={setCFrom} />
+                <CalendarPopover value={cTo} ariaLabel="Custom range to" onChange={setCTo} />
               </>
             )}
             <Button variant="outline" onClick={() => setShowCustomize(s => !s)} style={{ gap: 6 }}>
@@ -292,9 +293,9 @@ export default function LeadsReportsPage() {
                   <div><label style={lbl}>Amount ($)</label>
                     <Input type="number" value={spendForm.amount} onChange={e => setSpendForm(f => ({ ...f, amount: e.target.value }))} placeholder="500" /></div>
                   <div><label style={lbl}>From</label>
-                    <Input type="date" value={spendForm.period_start} onChange={e => setSpendForm(f => ({ ...f, period_start: e.target.value }))} /></div>
+                    <CalendarPopover value={spendForm.period_start} ariaLabel="Spend period from" onChange={ymd => setSpendForm(f => ({ ...f, period_start: ymd }))} block /></div>
                   <div><label style={lbl}>To</label>
-                    <Input type="date" value={spendForm.period_end} onChange={e => setSpendForm(f => ({ ...f, period_end: e.target.value }))} /></div>
+                    <CalendarPopover value={spendForm.period_end} ariaLabel="Spend period to" onChange={ymd => setSpendForm(f => ({ ...f, period_end: ymd }))} block /></div>
                   <Button onClick={addSpend} style={{ background: "#1A1917", color: "#fff" }}>Save</Button>
                 </div>
               )}

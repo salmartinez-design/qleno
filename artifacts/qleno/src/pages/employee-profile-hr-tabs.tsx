@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, AlertTriangle, CheckCircle, Clock, X, Shield, Star } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -153,8 +154,7 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
-                <input type="date" value={form.log_date} onChange={e => setForm(p => ({ ...p, log_date: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+                <CalendarPopover value={form.log_date} ariaLabel="Date" onChange={ymd => setForm(p => ({ ...p, log_date: ymd }))} block />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, fontFamily: FF }}>Type</label>
@@ -296,8 +296,7 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
-                <input type="date" value={form.date_used} onChange={e => setForm(p => ({ ...p, date_used: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+                <CalendarPopover value={form.date_used} ariaLabel="Date" onChange={ymd => setForm(p => ({ ...p, date_used: ymd }))} block />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Hours Used</label>
@@ -458,8 +457,7 @@ export function DisciplineTab({ employeeId }: { employeeId: number }) {
               )}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Effective Date</label>
-                <input type="date" value={form.effective_date} onChange={e => setForm(p => ({ ...p, effective_date: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+                <CalendarPopover value={form.effective_date} ariaLabel="Effective Date" onChange={ymd => setForm(p => ({ ...p, effective_date: ymd }))} block />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Reason</label>
@@ -601,8 +599,7 @@ export function QualityTab({ employeeId }: { employeeId: number }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
-                <input type="date" value={form.complaint_date} onChange={e => setForm(p => ({ ...p, complaint_date: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
+                <CalendarPopover value={form.complaint_date} ariaLabel="Date" onChange={ymd => setForm(p => ({ ...p, complaint_date: ymd }))} block />
               </div>
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Description</label>

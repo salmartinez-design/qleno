@@ -4,6 +4,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Tag, Copy, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 interface Discount {
   id: number;
@@ -242,7 +243,7 @@ export default function DiscountsPage() {
               </div>
               <div>
                 <label style={LABEL}>Expiry Date (optional)</label>
-                <input style={INP} type="date" value={form.expires_at} onChange={e => setForm(f => ({ ...f, expires_at: e.target.value }))} />
+                <CalendarPopover value={form.expires_at} ariaLabel="Expiry date" onChange={ymd => setForm(f => ({ ...f, expires_at: ymd }))} block />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>

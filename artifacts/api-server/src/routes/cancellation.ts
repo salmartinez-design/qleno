@@ -168,6 +168,10 @@ router.post("/action", requireAuth, async (req, res) => {
     // missing); ignored for skip/cancel/lockout/cancel_service.
     new_date?: string; // 'YYYY-MM-DD'
     new_time?: string; // 'HH:MM' or 'HH:MM:SS'
+    // [reclassify-lockout 2026-06-17] Opt-in: allow a charging action
+    // (cancel/lockout) to supersede a job that was already marked complete.
+    // Without this flag the handler 409s on complete/cancelled jobs.
+    reclassify?: boolean;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -226,7 +230,17 @@ router.post("/action", requireAuth, async (req, res) => {
   `);
   const row = ctx.rows[0] as any;
   if (!row) return res.status(404).json({ error: "Not Found", message: "Job not found" });
-  if (row.status === "complete" || row.status === "cancelled") {
+
+  // [reclassify-lockout 2026-06-17] A completed job can be reclassified as a
+  // charged cancellation/lockout after the fact (office learns the tech was
+  // locked out, etc.). Allow it ONLY when: the caller opts in (reclassify),
+  // the action actually charges (cancel/lockout — reschedule/skip/service-end
+  // make no sense on a finished job), and the job is currently 'complete'
+  // (NOT 'cancelled' — a free/voided job has nothing to bill). Everything
+  // else keeps the original guard.
+  const isCharging = action === "cancel" || action === "lockout";
+  const isReclassify = body.reclassify === true && isCharging && row.status === "complete";
+  if ((row.status === "complete" || row.status === "cancelled") && !isReclassify) {
     return res.status(409).json({
       error: "Conflict",
       message: `Job already ${row.status}. Cancellation actions only apply to active jobs.`,
@@ -263,6 +277,26 @@ router.post("/action", requireAuth, async (req, res) => {
   let futureCancelled = 0;
   let techPayWritten: Array<{ user_id: number; amount: number }> = [];
   const logRow = await db.transaction(async (tx) => {
+    // [reclassify-lockout] Re-applying a cancellation to an already-completed
+    // job must be idempotent — otherwise repeated taps stack the customer
+    // charge log and double the tech's cancellation pay. Before writing the
+    // fresh rows, clear any prior charging-cancellation footprint for THIS
+    // job: pending cancellation_pay (unpaid, safe to delete) and prior
+    // charging cancellation_log rows. Only runs on the reclassify path; the
+    // normal first-time flow leaves these untouched.
+    if (isReclassify) {
+      await tx.execute(sql`
+        DELETE FROM additional_pay
+         WHERE job_id = ${body.job_id} AND company_id = ${companyId}
+           AND type = 'cancellation_pay' AND status = 'pending'
+      `);
+      await tx.execute(sql`
+        DELETE FROM cancellation_log
+         WHERE job_id = ${body.job_id} AND company_id = ${companyId}
+           AND cancel_action IN ('cancel','lockout')
+      `);
+    }
+
     // Update the job row itself. Three flavors:
     //   reschedule → keep status='scheduled', UPDATE scheduled_date (+ time)
     //   complete   → charged cancel/lockout, billed_amount = fee, locked_at = NOW()

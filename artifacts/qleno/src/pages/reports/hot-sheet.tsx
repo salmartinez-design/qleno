@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$c, fmtSvc, fmtH, clr, KpiCard, ReportHeader, DataTable, useReportData, StatusBadge, ScoreBadge } from "./_shared";
 import { MapPin, Star, AlertTriangle } from "lucide-react";
 import { formatAddress } from "@/lib/format-address";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 
@@ -54,8 +55,7 @@ export default function HotSheetPage() {
           filters={
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13, color: clr.secondary, fontWeight: 500 }}>Date:</span>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                style={{ fontSize: 13, padding: "5px 10px", border: `1px solid ${clr.border}`, borderRadius: 6, color: clr.text, backgroundColor: clr.card, fontFamily: "inherit" }} />
+              <CalendarPopover value={date} ariaLabel="Date" onChange={setDate} />
             </div>
           }
         />

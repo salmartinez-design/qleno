@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "#00C9A0";
@@ -189,20 +190,10 @@ export default function LeaveRequestPage() {
               />
             </FormField>
             <FormField label="Start date">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={inputStyle}
-              />
+              <CalendarPopover value={startDate} ariaLabel="Start date" onChange={setStartDate} block />
             </FormField>
             <FormField label="End date">
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={inputStyle}
-              />
+              <CalendarPopover value={endDate} ariaLabel="End date" onChange={setEndDate} block />
             </FormField>
             <div style={{ gridColumn: "1 / -1" }}>
               <FormField label="Note (optional)">

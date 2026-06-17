@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Plus, GripVertical, Trash2, Route, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -183,11 +184,11 @@ export default function RouteSequencesPage() {
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Date</label>
-                  <input
-                    type="date"
+                  <CalendarPopover
                     value={form.date}
-                    onChange={e => setForm(p => ({ ...p, date: e.target.value }))}
-                    style={{ width: "100%", height: 36, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, outline: "none", boxSizing: "border-box" as const }}
+                    ariaLabel="Date"
+                    onChange={ymd => setForm(p => ({ ...p, date: ymd }))}
+                    block
                   />
                 </div>
                 <div>
