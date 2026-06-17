@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
-import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull } from "drizzle-orm";
+import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { notifyUserAsync } from "../lib/push.js";
 import { logAudit, logClientActivity } from "../lib/audit.js";
@@ -638,7 +638,19 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
       .leftJoin(companiesTable, eq(jobsTable.company_id, companiesTable.id))
       .where(and(
         inArray(jobsTable.company_id, tenantIds),
-        eq(jobsTable.assigned_user_id, userId),
+        // [2026-06-17] Was eq(assigned_user_id, userId) only — missed
+        // helpers/teammates because the dispatch read path uses
+        // job_technicians as truth (the primary tech is one row there
+        // among possibly several). A tech added via Add Team Member as
+        // a non-primary helper would have nothing on jobs.assigned_user_id
+        // and the my-jobs query would return zero. Sal report 2026-06-17:
+        // Maryury "cannot see her assigned schedule" — she was added as
+        // a helper. Match the dispatch invariant: a tech sees a job if
+        // they are either the primary OR on the team.
+        or(
+          eq(jobsTable.assigned_user_id, userId),
+          sql`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})`,
+        ),
         eq(jobsTable.scheduled_date, reqDate),
       ))
       .orderBy(jobsTable.scheduled_time);
