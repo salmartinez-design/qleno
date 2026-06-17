@@ -66,7 +66,7 @@ const SCORE_BGS   = ['', '#FEE2E2', '#FEF3C7', '#DBEAFE', '#DCFCE7'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
-  'Information','Pay','Earnings','Tags & Skills','Attendance','Availability',
+  'Information','Pay','Earnings','Attendance','Availability',
   'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
@@ -866,25 +866,6 @@ export default function EmployeeProfilePage() {
                   <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Hire Date</span>
                   <span style={{ fontSize:12,fontWeight:600,color:'var(--brand)' }}>{user.hire_date ? new Date(user.hire_date + 'T00:00:00').toLocaleDateString() : '—'}</span>
                 </div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Skills</span>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'flex-end' }}>
-                    {(user.skills || []).slice(0,3).map((s: string) => (
-                      <span key={s} style={{ fontSize:10,background:'var(--brand-dim)',color:'var(--brand)',padding:'2px 6px',borderRadius:10,fontWeight:600 }}>{s}</span>
-                    ))}
-                    {(user.skills || []).length > 3 && <span style={{ fontSize:10,color:'#9E9B94' }}>+{user.skills.length-3}</span>}
-                    {!(user.skills || []).length && <span style={{ fontSize:11,color:'#9E9B94' }}>None</span>}
-                  </div>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', gap:8 }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Tags</span>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'flex-end' }}>
-                    {(user.tags || []).slice(0,3).map((t: string) => (
-                      <span key={t} style={{ fontSize:10,background:'#F3F4F6',color:'#374151',padding:'2px 6px',borderRadius:10,fontWeight:600,border:'1px solid #E5E7EB' }}>{t}</span>
-                    ))}
-                    {!(user.tags || []).length && <span style={{ fontSize:11,color:'#9E9B94' }}>None</span>}
-                  </div>
-                </div>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                   <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Score</span>
                   <div style={{ display:'flex',alignItems:'center',gap:6 }}>
@@ -1126,70 +1107,8 @@ export default function EmployeeProfilePage() {
             </div>
           )}
 
-          {/* ── TAGS & SKILLS TAB ── */}
-          {activeTab === 'Tags & Skills' && (
-            <div>
-              <SectionCard title="Skills">
-                <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12 }}>
-                  {(form.skills || []).map((s: string) => (
-                    <RemovableBadge key={s} label={s} onRemove={() => setField('skills',(form.skills||[]).filter((x:string)=>x!==s))}
-                      style={{ background:'var(--brand-dim)', color:'var(--brand)', border:'1px solid rgba(91,155,213,0.3)' }}/>
-                  ))}
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <select value={skillInput} onChange={e=>setSkillInput(e.target.value)}
-                    style={{ height:36,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',flex:1 }}>
-                    <option value="">Add a skill…</option>
-                    {SKILLS_OPTIONS.filter(s => !(form.skills||[]).includes(s)).map(s=>
-                      <option key={s} value={s}>{s}</option>
-                    )}
-                  </select>
-                  <button disabled={!skillInput}
-                    onClick={() => { if(skillInput){ setField('skills',[...(form.skills||[]),skillInput]); setSkillInput(''); }}}
-                    style={{ padding:'0 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                    <Plus size={14}/>
-                  </button>
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Tags">
-                <div style={{ display:'flex', flexWrap:'wrap', gap:8, marginBottom:12 }}>
-                  {(form.tags || []).map((t: string) => (
-                    <RemovableBadge key={t} label={t} onRemove={() => setField('tags',(form.tags||[]).filter((x:string)=>x!==t))}/>
-                  ))}
-                  {!(form.tags || []).length && <span style={{ fontSize:13,color:'#9E9B94' }}>No tags yet</span>}
-                </div>
-                <div style={{ marginBottom:8 }}>
-                  <p style={{ fontSize:11,fontWeight:600,color:'#9E9B94',margin:'0 0 6px 0',textTransform:'uppercase',letterSpacing:'0.05em' }}>Common Tags</p>
-                  <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
-                    {COMMON_TAGS.filter(t => !(form.tags||[]).includes(t)).map(t => (
-                      <button key={t} onClick={() => setField('tags',[...(form.tags||[]),t])}
-                        style={{ padding:'4px 10px',border:'1px dashed #D1D5DB',borderRadius:20,fontSize:12,color:'#6B7280',background:'none',cursor:'pointer',fontFamily:'inherit' }}>
-                        + {t}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ display:'flex', gap:8 }}>
-                  <input placeholder="Custom tag…" value={tagInput} onChange={e=>setTagInput(e.target.value)}
-                    onKeyDown={e=>{if(e.key==='Enter'&&tagInput.trim()){setField('tags',[...(form.tags||[]),tagInput.trim()]);setTagInput('');}}}
-                    style={{ height:36,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',flex:1 }}/>
-                  <button disabled={!tagInput.trim()}
-                    onClick={() => { if(tagInput.trim()){setField('tags',[...(form.tags||[]),tagInput.trim()]);setTagInput('');} }}
-                    style={{ padding:'0 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                    Add
-                  </button>
-                </div>
-              </SectionCard>
-
-              <div style={{ display:'flex', justifyContent:'flex-end' }}>
-                <button onClick={saveProfile} disabled={saving}
-                  style={{ display:'flex',alignItems:'center',gap:8,padding:'10px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                  <Save size={14}/>{saving ? 'Saving…' : 'Save Changes'}
-                </button>
-              </div>
-            </div>
-          )}
+          {/* [mc-cleanup 2026-06-17] Tags & Skills tab removed — leftover from
+              MaidCentral, not used by Phes. */}
 
           {/* ── ATTENDANCE TAB ── */}
           {activeTab === 'Attendance' && (

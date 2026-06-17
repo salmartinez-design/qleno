@@ -4952,6 +4952,7 @@ function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeig
 
 function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
+  const [, navigate] = useLocation();
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
   const totalMins = employee.jobs.reduce((s: number, j: DispatchJob) => s + j.duration_minutes, 0);
   // [BUG-3F2 / 2026-06-02] Badge revenue sums per-tech revenue_share
@@ -5010,7 +5011,13 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 4 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{employee.name}</span>
+            <span
+              onClick={(e) => { e.stopPropagation(); navigate(`/employees/${employee.id}`); }}
+              title={`Open ${employee.name}'s profile`}
+              style={{ overflow: "hidden", textOverflow: "ellipsis", cursor: "pointer" }}
+              onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
+            >{employee.name}</span>
             {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
           </div>
           <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.role}</div>
