@@ -3,6 +3,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, X, DollarSign, Check, AlertTriangle } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -361,7 +362,7 @@ export default function IncentivesPage() {
                 </div>
                 <div>
                   <label style={labelStyle}>Effective Date</label>
-                  <input type="date" value={form.effective_date} onChange={e => setForm(p => ({ ...p, effective_date: e.target.value }))} style={inputStyle} />
+                  <CalendarPopover value={form.effective_date} ariaLabel="Effective Date" onChange={ymd => setForm(p => ({ ...p, effective_date: ymd }))} block />
                 </div>
               </div>
             </div>
@@ -420,7 +421,7 @@ export default function IncentivesPage() {
                 </div>
                 <div>
                   <label style={labelStyle}>Earned Date</label>
-                  <input type="date" value={award.earned_date} onChange={e => setAward(p => ({ ...p, earned_date: e.target.value }))} style={inputStyle} />
+                  <CalendarPopover value={award.earned_date} ariaLabel="Earned Date" onChange={ymd => setAward(p => ({ ...p, earned_date: ymd }))} block />
                 </div>
               </div>
               <div>

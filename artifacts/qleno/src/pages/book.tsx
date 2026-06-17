@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 // ── API base (public, no auth) ───────────────────────────────────────────────
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1824,7 +1825,7 @@ export default function BookPage() {
                       {/* Estimated completion date */}
                       <div style={{ marginBottom: 14 }}>
                         <p style={{ ...s.label }}>Estimated Construction Completion Date *</p>
-                        <input type="date" value={pcCompletionDate} onChange={e => setPcCompletionDate(e.target.value)} style={{ ...s.input }} />
+                        <CalendarPopover value={pcCompletionDate} ariaLabel="Estimated construction completion date" onChange={setPcCompletionDate} block />
                       </div>
 
                       {/* Notes */}

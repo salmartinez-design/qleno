@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$, clr, ReportHeader, useReportData, DeltaBadge } from "./_shared";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 function thisMonday() {
   const d = new Date();
@@ -45,8 +46,7 @@ export default function WeekReviewPage() {
           filters={
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 13, color: clr.secondary, fontWeight: 500 }}>Week of:</span>
-              <input type="date" value={weekStart} onChange={e => setWeekStart(e.target.value)}
-                style={{ fontSize: 13, padding: "5px 10px", border: `1px solid ${clr.border}`, borderRadius: 6, color: clr.text, backgroundColor: clr.card, fontFamily: "inherit" }} />
+              <CalendarPopover value={weekStart} ariaLabel="Week of" onChange={setWeekStart} />
             </div>
           }
         />

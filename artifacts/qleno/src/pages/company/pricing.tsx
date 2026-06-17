@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import { Plus, Trash2, ChevronDown, ChevronRight, Save, ToggleLeft, ToggleRight, Edit2, X, Check, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -1378,11 +1379,11 @@ function BundlesSection() {
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>START DATE (optional)</div>
-                  <input style={inp} type="date" value={form.valid_from} onChange={e => setForm(p => ({ ...p, valid_from: e.target.value }))} />
+                  <CalendarPopover value={form.valid_from} ariaLabel="Start date" onChange={ymd => setForm(p => ({ ...p, valid_from: ymd }))} block />
                 </div>
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>END DATE (optional)</div>
-                  <input style={inp} type="date" value={form.valid_until} onChange={e => setForm(p => ({ ...p, valid_until: e.target.value }))} />
+                  <CalendarPopover value={form.valid_until} ariaLabel="End date" onChange={ymd => setForm(p => ({ ...p, valid_until: ymd }))} block />
                 </div>
               </div>
 

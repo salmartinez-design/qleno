@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { AvatarCropModal } from "@/components/avatar-crop-modal";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { CalendarPopover } from "@/components/calendar-popover";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
   Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
@@ -1008,7 +1009,7 @@ export default function EmployeeProfilePage() {
                 <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:'16px' }}>
                   <Field label="First Name"><Input value={form.first_name || ''} onChange={v => setField('first_name',v)}/></Field>
                   <Field label="Last Name"><Input value={form.last_name || ''} onChange={v => setField('last_name',v)}/></Field>
-                  <Field label="Date of Birth"><Input type="date" value={form.dob || ''} onChange={v => setField('dob',v)}/></Field>
+                  <Field label="Date of Birth"><CalendarPopover value={form.dob || ''} ariaLabel="Date of Birth" onChange={v => setField('dob',v)} block /></Field>
                   <Field label="Gender">
                     <Select value={form.gender||''} onChange={v=>setField('gender',v)} options={[
                       {value:'',label:'Select…'},{value:'male',label:'Male'},{value:'female',label:'Female'},{value:'non_binary',label:'Non-Binary'},{value:'prefer_not',label:'Prefer not to say'}
@@ -1025,8 +1026,8 @@ export default function EmployeeProfilePage() {
                   <Field label="Emergency Contact Phone"><Input value={form.emergency_contact_phone || ''} onChange={v => setField('emergency_contact_phone',v)}/></Field>
                   <Field label="Emergency Relationship"><Input value={form.emergency_contact_relation || ''} onChange={v => setField('emergency_contact_relation',v)}/></Field>
                   <Field label="SSN Last 4"><Input value={form.ssn_last4 || ''} onChange={v => setField('ssn_last4',v)} type="password"/></Field>
-                  <Field label="Hire Date"><Input type="date" value={form.hire_date || ''} onChange={v => setField('hire_date',v)}/></Field>
-                  <Field label="Termination Date"><Input type="date" value={form.termination_date || ''} onChange={v => setField('termination_date',v)}/></Field>
+                  <Field label="Hire Date"><CalendarPopover value={form.hire_date || ''} ariaLabel="Hire Date" onChange={v => setField('hire_date',v)} block /></Field>
+                  <Field label="Termination Date"><CalendarPopover value={form.termination_date || ''} ariaLabel="Termination Date" onChange={v => setField('termination_date',v)} block /></Field>
                 </div>
                 <div style={{ marginTop:16 }}>
                   <Field label="Internal Notes">
@@ -1900,7 +1901,7 @@ export default function EmployeeProfilePage() {
                   </select>
                 </Field>
                 <Field label="Date">
-                  <Input type="date" value={newPay.date} onChange={v=>setNewPay(p=>({...p,date:v}))}/>
+                  <CalendarPopover value={newPay.date} ariaLabel="Date" onChange={v=>setNewPay(p=>({...p,date:v}))} block />
                 </Field>
                 <Field label="Amount ($)">
                   <Input type="number" value={newPay.amount} onChange={v=>setNewPay(p=>({...p,amount:v}))} placeholder="0.00"/>

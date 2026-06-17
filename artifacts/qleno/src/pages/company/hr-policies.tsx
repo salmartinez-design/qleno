@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { ChevronDown, ChevronUp, AlertTriangle, Plus, Trash2, Save } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -212,14 +213,10 @@ function HolidayEditor({ holidays, onChange }: { holidays: Holiday[]; onChange: 
               border: "1px solid #E5E7EB", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
             }}
           />
-          <input
-            type="date"
+          <CalendarPopover
             value={h.date}
-            onChange={e => update(i, "date", e.target.value)}
-            style={{
-              padding: "7px 10px", fontSize: 12, fontFamily: FF,
-              border: "1px solid #E5E7EB", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
-            }}
+            ariaLabel="Holiday date"
+            onChange={ymd => update(i, "date", ymd)}
           />
           <button onClick={() => remove(i)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
             <Trash2 size={14} color="#EF4444" />

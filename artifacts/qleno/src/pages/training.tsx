@@ -52,6 +52,7 @@ import {
   type ModuleId,
 } from "@workspace/lms-curriculum";
 import { QlenoLogo } from "@/components/brand/QlenoLogo";
+import { CalendarPopover } from "@/components/calendar-popover";
 import {
   ChevronRight,
   ChevronLeft,
@@ -6994,21 +6995,25 @@ function Field({
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
       <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>{label}</span>
-      <input
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        style={{
-          padding: "8px 10px",
-          borderRadius: 6,
-          border: `1px solid ${LINE}`,
-          fontSize: 13,
-          fontFamily: FONT,
-          background: SURFACE,
-          color: INK,
-        }}
-      />
+      {type === "date" ? (
+        <CalendarPopover value={value} onChange={onChange} block />
+      ) : (
+        <input
+          type={type}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            padding: "8px 10px",
+            borderRadius: 6,
+            border: `1px solid ${LINE}`,
+            fontSize: 13,
+            fontFamily: FONT,
+            background: SURFACE,
+            color: INK,
+          }}
+        />
+      )}
     </label>
   );
 }

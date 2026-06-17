@@ -5,6 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -82,7 +83,7 @@ function MarkPaidModal({ invoice, onClose, onSuccess }: { invoice: any; onClose:
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Date</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={INPUT} />
+            <CalendarPopover value={date} ariaLabel="Date" onChange={setDate} block />
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Notes (optional)</label>

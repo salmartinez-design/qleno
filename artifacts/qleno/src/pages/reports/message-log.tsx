@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -89,10 +90,8 @@ export default function MessageLogPage() {
             <option value="quote_followup">Quote Follow-Up</option>
             <option value="post_job_retention">Post-Job Retention</option>
           </select>
-          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
-            style={{ border: "1px solid #E5E2DC", borderRadius: 6, padding: "7px 10px", fontSize: 13, color: "#1A1917" }} />
-          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
-            style={{ border: "1px solid #E5E2DC", borderRadius: 6, padding: "7px 10px", fontSize: 13, color: "#1A1917" }} />
+          <CalendarPopover value={fromDate} ariaLabel="From date" onChange={setFromDate} />
+          <CalendarPopover value={toDate} ariaLabel="To date" onChange={setToDate} />
           <button onClick={load}
             style={{ background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "7px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
             Apply

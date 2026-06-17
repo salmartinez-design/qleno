@@ -5,6 +5,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CalendarPopover } from "@/components/calendar-popover";
 import {
   UserPlus, Search, ChevronLeft, ChevronRight, X,
   Phone, Mail, MapPin, RefreshCw, Loader2,
@@ -1045,11 +1046,11 @@ export default function LeadsPage() {
             </div>
             <div>
               <label style={lbl}>Created From</label>
-              <Input type="date" value={fDateFrom} onChange={e => { setFDateFrom(e.target.value); setPage(1); }} />
+              <CalendarPopover value={fDateFrom} ariaLabel="Created from" onChange={ymd => { setFDateFrom(ymd); setPage(1); }} block />
             </div>
             <div>
               <label style={lbl}>Created To</label>
-              <Input type="date" value={fDateTo} onChange={e => { setFDateTo(e.target.value); setPage(1); }} />
+              <CalendarPopover value={fDateTo} ariaLabel="Created to" onChange={ymd => { setFDateTo(ymd); setPage(1); }} block />
             </div>
             {activeFilterCount > 0 && (
               <div style={{ display: "flex", alignItems: "flex-end" }}>

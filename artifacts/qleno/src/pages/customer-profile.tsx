@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
+import { CalendarPopover } from "@/components/calendar-popover";
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
@@ -767,7 +768,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
                   </div>
                 )}
               </div>
-              <div>{lbl("Client Since")}<input value={form.client_since} onChange={upd("client_since")} type="date" style={inp} /></div>
+              <div>{lbl("Client Since")}<CalendarPopover value={form.client_since} ariaLabel="Client Since" onChange={ymd => setForm(f => ({ ...f, client_since: ymd }))} block /></div>
               {/* #15: clients.notes is shown to the cleaner every visit ("Client
                   Notes — every visit" in the field app), not internal-only. */}
               <div>{lbl("Client Notes (cleaner sees)")}<textarea value={form.notes} onChange={upd("notes")} rows={3} style={{ ...inp, resize: "vertical" as const }} /></div>
@@ -2526,8 +2527,7 @@ function RecurringTab({ clientId }: { clientId: number }) {
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Start Date</label>
-                <input type="date" value={form.start_date} onChange={e => setForm(p => ({ ...p, start_date: e.target.value }))}
-                  style={{ width: "100%", height: 34, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, boxSizing: "border-box" as const }} />
+                <CalendarPopover value={form.start_date} ariaLabel="Start Date" onChange={ymd => setForm(p => ({ ...p, start_date: ymd }))} block />
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Base Fee ($)</label>
@@ -5174,12 +5174,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                     <>
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>New Date *</label>
-                        <input
-                          type="date"
-                          value={form.new_date}
-                          onChange={e => setForm(f => ({ ...f, new_date: e.target.value }))}
-                          style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const }}
-                        />
+                        <CalendarPopover value={form.new_date} ariaLabel="New date" onChange={ymd => setForm(f => ({ ...f, new_date: ymd }))} block />
                       </div>
                       <div style={{ marginBottom: 12 }}>
                         <label style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Reason *</label>
