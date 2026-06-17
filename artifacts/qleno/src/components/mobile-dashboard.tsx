@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import type { ReactNode, CSSProperties } from "react";
+import { useState, useEffect, useRef } from "react";
+import type { ReactNode, CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useLocation } from "wouter";
@@ -203,6 +203,89 @@ export default function MobileDashboard() {
     });
   }
 
+  // ── Press-and-hold drag-to-reorder (mobile) ──────────────────────────────
+  // Long-press a tile to pick it up, drag over another to reorder, release to
+  // save (same per-user card-prefs endpoint). The Customize sheet's up/down
+  // arrows remain as an alternative. A brief move before the hold fires reads
+  // as a scroll/tap and cancels the pick-up, so normal scrolling is unaffected.
+  const LONG_PRESS_MS = 320;
+  const MOVE_CANCEL_PX = 8;
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressStart = useRef<{ x: number; y: number } | null>(null);
+  const didDrag = useRef(false);
+  const tileEls = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  function cancelPress() {
+    if (pressTimer.current) { clearTimeout(pressTimer.current); pressTimer.current = null; }
+    pressStart.current = null;
+  }
+
+  function onTilePointerDown(e: ReactPointerEvent, k: string) {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    didDrag.current = false;
+    pressStart.current = { x: e.clientX, y: e.clientY };
+    cancelPress();
+    pressTimer.current = setTimeout(() => {
+      didDrag.current = true;
+      setDraggingKey(k);
+      try { (navigator as any).vibrate?.(12); } catch { /* no haptics — fine */ }
+    }, LONG_PRESS_MS);
+  }
+
+  // Move the dragged key to the slot of whichever VISIBLE tile the pointer is
+  // over. Rects are read live so this stays correct as the DOM reflows.
+  function reorderToward(dk: string, clientY: number) {
+    for (const k of visibleKeys) {
+      if (k === dk) continue;
+      const el = tileEls.current.get(k);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (clientY >= r.top && clientY <= r.bottom) {
+        setOrder(prev => {
+          const from = prev.indexOf(dk), toK = prev.indexOf(k);
+          if (from < 0 || toK < 0 || from === toK) return prev;
+          const next = [...prev];
+          next.splice(from, 1);
+          const insAt = next.indexOf(k);
+          next.splice(from < toK ? insAt + 1 : insAt, 0, dk);
+          return next;
+        });
+        break;
+      }
+    }
+  }
+
+  function onTilePointerMove(e: ReactPointerEvent) {
+    if (draggingKey) { reorderToward(draggingKey, e.clientY); return; }
+    if (pressStart.current) {
+      const dx = e.clientX - pressStart.current.x;
+      const dy = e.clientY - pressStart.current.y;
+      if (Math.hypot(dx, dy) > MOVE_CANCEL_PX) cancelPress(); // scroll/tap, not a hold
+    }
+  }
+
+  function onTilePointerUp() {
+    if (draggingKey) {
+      setDraggingKey(null);
+      savePrefs(); // reuse the existing per-user card-prefs PUT (persists current order)
+    }
+    cancelPress();
+  }
+
+  // While dragging, block page scroll so the finger moves the tile, not the page.
+  useEffect(() => {
+    if (!draggingKey) return;
+    const prevent = (ev: TouchEvent) => ev.preventDefault();
+    document.addEventListener("touchmove", prevent, { passive: false });
+    const prevUserSelect = document.body.style.userSelect;
+    document.body.style.userSelect = "none";
+    return () => {
+      document.removeEventListener("touchmove", prevent);
+      document.body.style.userSelect = prevUserSelect;
+    };
+  }, [draggingKey]);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, fontFamily: FF, paddingBottom: 24 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -215,6 +298,12 @@ export default function MobileDashboard() {
         </button>
       </div>
 
+      {!loading && data && visibleKeys.length > 1 && (
+        <div style={{ fontSize: 11, color: "#9E9B94", marginTop: -4 }}>
+          {draggingKey ? "Drop to place the card" : "Hold and drag a card to reorder"}
+        </div>
+      )}
+
       {loading && !data ? (
         <div style={{ ...CARD, padding: 24, textAlign: "center", color: MUTE, fontSize: 13 }}>Loading…</div>
       ) : visibleKeys.length === 0 ? (
@@ -225,14 +314,33 @@ export default function MobileDashboard() {
         visibleKeys.map(k => {
           const def = cardDef(k);
           if (!def || !data) return null;
+          const dragging = draggingKey === k;
           return (
             <div key={k}
-              onClick={CARD_HREF[k] ? () => setLocation(CARD_HREF[k]) : undefined}
-              style={{ ...CARD, padding: 16, position: "relative", cursor: CARD_HREF[k] ? "pointer" : "default" }}>
+              ref={el => { if (el) tileEls.current.set(k, el); else tileEls.current.delete(k); }}
+              onPointerDown={e => onTilePointerDown(e, k)}
+              onPointerMove={onTilePointerMove}
+              onPointerUp={onTilePointerUp}
+              onPointerCancel={onTilePointerUp}
+              onClick={() => {
+                // A long-press drag also ends in a click — suppress navigation then.
+                if (didDrag.current) { didDrag.current = false; return; }
+                if (CARD_HREF[k]) setLocation(CARD_HREF[k]);
+              }}
+              style={{
+                ...CARD, padding: 16, position: "relative",
+                cursor: CARD_HREF[k] ? "pointer" : "default",
+                touchAction: "pan-y", userSelect: "none",
+                transition: dragging ? "none" : "transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease",
+                transform: dragging ? "scale(1.03)" : "none",
+                boxShadow: dragging ? "0 8px 24px rgba(0,0,0,0.16)" : "none",
+                opacity: draggingKey && !dragging ? 0.85 : 1,
+                zIndex: dragging ? 5 : undefined,
+              }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em" }}>{def.label}</div>
               <div style={{ marginTop: 6 }}>{def.render(data)}</div>
               {def.sub && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>{def.sub}</div>}
-              {CARD_HREF[k] && <ChevronRight size={16} style={{ position: "absolute", top: 16, right: 14, color: "#C4C0B8" }} />}
+              {CARD_HREF[k] && !draggingKey && <ChevronRight size={16} style={{ position: "absolute", top: 16, right: 14, color: "#C4C0B8" }} />}
             </div>
           );
         })
