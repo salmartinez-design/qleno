@@ -185,6 +185,12 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
   const parsedOut = parseTimeInput(outVal);
   const inInvalid = inVal.trim() !== "" && parsedIn === null;
   const outInvalid = outVal.trim() !== "" && parsedOut === null;
+  // No saved punch AND nothing typed yet → the field is genuinely empty.
+  // Render it so it can never be mistaken for a real (or future-dated) time:
+  // dashed placeholder + dimmed styling. The realistic "9:16 AM"/"12:33 PM"
+  // placeholders previously read as filled-in data on un-punched rows.
+  const inEmpty = !row.entry_id && !inVal.trim();
+  const outEmpty = !row.entry_id && !outVal.trim();
   const storedIn = isoToHHMM(row.clock_in_at);
   const storedOut = isoToHHMM(row.clock_out_at);
   const dirty = !inInvalid && !outInvalid && ((parsedIn ?? "") !== storedIn || (parsedOut ?? "") !== storedOut);
@@ -237,6 +243,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.client_name}</div>
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
           {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedTime(row.scheduled_time)}` : ""}
+          {!row.entry_id && <span style={{ color: "#9E9B94", marginLeft: 6, fontWeight: 700 }}>· not clocked in</span>}
           {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
           {row.entry_id && (row.has_gps
@@ -263,15 +270,15 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700 }}>IN</span>
-        <input type="text" inputMode="text" placeholder="9:16 AM" aria-label="Clock in"
+        <input type="text" inputMode="text" placeholder="—:—" aria-label="Clock in"
           value={inVal} onChange={e => setInVal(e.target.value)}
           onBlur={() => { const p = parseTimeInput(inVal); if (p) setInVal(hh24ToDisplay(p)); }}
-          style={{ ...inputStyle, borderColor: inInvalid ? "#EF4444" : "#E5E2DC" }} />
+          style={{ ...inputStyle, borderColor: inInvalid ? "#EF4444" : inEmpty ? "#ECEAE5" : "#E5E2DC", background: inEmpty ? "#FAFAF8" : "#fff" }} />
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, marginLeft: 4 }}>OUT</span>
-        <input type="text" inputMode="text" placeholder="12:33 PM" aria-label="Clock out"
+        <input type="text" inputMode="text" placeholder="—:—" aria-label="Clock out"
           value={outVal} onChange={e => setOutVal(e.target.value)}
           onBlur={() => { const p = parseTimeInput(outVal); if (p) setOutVal(hh24ToDisplay(p)); }}
-          style={{ ...inputStyle, borderColor: outInvalid ? "#EF4444" : "#E5E2DC" }} />
+          style={{ ...inputStyle, borderColor: outInvalid ? "#EF4444" : outEmpty ? "#ECEAE5" : "#E5E2DC", background: outEmpty ? "#FAFAF8" : "#fff" }} />
       </div>
       <div style={{ width: 56, textAlign: "right", fontSize: 12, fontWeight: 700, color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
         {liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}
