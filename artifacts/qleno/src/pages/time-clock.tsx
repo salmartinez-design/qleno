@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, ChevronRight, Clock, Trash2, AlertTriangle, Check, CalendarDays } from "lucide-react";
 import { PunchMapModal } from "@/components/punch-map-modal";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { Link } from "wouter";
 
 // [time-clock-portal 2026-06-05] Office Time Clock portal. The office reconciles
 // Qleno's per-job clock times against MaidCentral so commission (proportional by
@@ -83,6 +84,7 @@ function fmtSchedTime(t: string | null) {
 
 type Row = {
   job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
+  address?: string | null; client_id?: number | null; account_id?: number | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
@@ -260,7 +262,19 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
     <div style={{ borderTop: "1px solid #F4F3F0" }}>
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px 4px 14px" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.client_name}</div>
+        {/* Client/account name links to the profile (residential → customer,
+            commercial → account), like MaidCentral. Falls back to plain text
+            when neither id is present. */}
+        <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {row.account_id ? (
+            <Link href={`/accounts/${row.account_id}`} onClick={e => e.stopPropagation()} style={{ color: "#1A1917", textDecoration: "none" }}><span style={{ borderBottom: "1px solid #D4D1CB" }}>{row.client_name}</span></Link>
+          ) : row.client_id ? (
+            <Link href={`/customers/${row.client_id}`} onClick={e => e.stopPropagation()} style={{ color: "#1A1917", textDecoration: "none" }}><span style={{ borderBottom: "1px solid #D4D1CB" }}>{row.client_name}</span></Link>
+          ) : row.client_name}
+        </div>
+        {row.address && (
+          <div style={{ fontSize: 11, color: "#9E9B94", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.address}</div>
+        )}
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
           {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedTime(row.scheduled_time)}` : ""}
           {!row.entry_id && <span style={{ color: "#9E9B94", marginLeft: 6, fontWeight: 700 }}>· not clocked in</span>}
@@ -286,6 +300,21 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
               })()
             : <span title="This punch carried no location — phone location was off/denied, or it was entered here as an office correction." style={{ marginLeft: 6, fontWeight: 700, color: "#9E9B94" }}>· no GPS</span>
           )}
+          {/* Clock-out location, mirroring the clock-in pill — the office needs
+              to see WHERE the tech punched out (on-site vs at home). Only when
+              the clock-out punch carried coordinates. */}
+          {row.entry_id && row.clock_out_at && row.gps_out_lat != null && row.gps_out_lng != null && (() => {
+            const lat = row.gps_out_lat!, lng = row.gps_out_lng!;
+            const label = `out ${row.gps_out_ft != null ? `${row.gps_out_ft} ft` : "GPS"}${row.gps_out_outside ? " (outside zone)" : ""}`;
+            const color = row.gps_out_outside ? "#B45309" : "#0A7C66";
+            const tip = `Clock-out location: ${lat.toFixed(5)}, ${lng.toFixed(5)}${row.gps_out_ft != null ? ` · ${row.gps_out_ft} ft from job` : " · job not geocoded, distance unavailable"}. Tap to see it on the map.`;
+            return (
+              <button type="button" title={tip} onClick={e => { e.stopPropagation(); setGpsOpen(true); }}
+                style={{ marginLeft: 6, fontWeight: 700, color, textDecoration: "underline", background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", fontSize: "inherit" }}>
+                · {label} ▸
+              </button>
+            );
+          })()}
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -444,7 +473,11 @@ export default function TimeClockPage() {
             return (
               <div key={emp.user_id} style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", background: "#FAFAF8", borderBottom: "1px solid #EEECE7" }}>
-                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{emp.name}</div>
+                  <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>
+                    <Link href={`/employees/${emp.user_id}`} style={{ color: "#1A1917", textDecoration: "none" }}>
+                      <span style={{ borderBottom: "1px solid #D4D1CB" }}>{emp.name}</span>
+                    </Link>
+                  </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: "#6B6860" }}>
                     {emp.day_start && <span>{fmtClock(emp.day_start)} – {emp.open ? "on clock" : fmtClock(emp.day_end)}</span>}
                     <span style={{ color: punched < emp.rows.length ? "#B45309" : "#16A34A", fontWeight: 700 }}>{punched}/{emp.rows.length} punched</span>
