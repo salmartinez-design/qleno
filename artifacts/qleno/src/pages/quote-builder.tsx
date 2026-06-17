@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
@@ -2016,10 +2017,9 @@ export default function QuoteBuilderPage() {
               {/* Date picker */}
               <div style={{ marginBottom: selectedDate && suggestedTechs.length > 0 ? 16 : 0 }}>
                 <Label className="text-xs">Preferred Date</Label>
-                <input type="date" value={selectedDate}
-                  onChange={e => { setSelectedDate(e.target.value); fetchTechAvailability(e.target.value); }}
-                  style={{ display: "block", width: "100%", marginTop: 4, height: 38, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, color: "#1A1917", fontFamily: FF, background: "#FFF", outline: "none", boxSizing: "border-box" }}
-                />
+                <div style={{ marginTop: 4 }}>
+                  <CalendarPopover value={selectedDate} onChange={(v) => { setSelectedDate(v); fetchTechAvailability(v); }} block ariaLabel="Preferred date" />
+                </div>
               </div>
 
               {/* Tech availability (Phase 2) */}
@@ -2471,9 +2471,9 @@ export default function QuoteBuilderPage() {
                 <div className="flex gap-3" style={{ marginBottom: 12 }}>
                   <div style={{ flex: 1 }}>
                     <Label className="text-xs">Scheduled Date</Label>
-                    <input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)}
-                      style={{ width: "100%", height: 36, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF", marginTop: 4 }}
-                    />
+                    <div style={{ marginTop: 4 }}>
+                      <CalendarPopover value={selectedDate} onChange={setSelectedDate} block ariaLabel="Scheduled date" />
+                    </div>
                   </div>
                   <div style={{ width: 140 }}>
                     <Label className="text-xs">Start Time</Label>

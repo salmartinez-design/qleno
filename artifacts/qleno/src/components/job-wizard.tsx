@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -1381,8 +1382,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
-                  <input type="date" value={scheduledDate} onChange={e => setScheduledDate(e.target.value)}
-                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                  <CalendarPopover value={scheduledDate} onChange={setScheduledDate} block ariaLabel="Service date" />
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
@@ -1745,8 +1745,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
-                  <input type="date" value={commercialScheduledDate} onChange={e => setCommercialScheduledDate(e.target.value)}
-                    style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
+                  <CalendarPopover value={commercialScheduledDate} onChange={setCommercialScheduledDate} block ariaLabel="Service date" />
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>

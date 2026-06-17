@@ -17,6 +17,7 @@
 // can cascade to recurring_schedules.commercial_hourly_rate and future jobs.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Loader2 } from "lucide-react";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -1631,8 +1632,7 @@ export default function EditJobModal({
             <div style={{ display: "grid", gridTemplateColumns: mobile ? "1fr" : "1fr 1fr", gap: 10 }}>
               <div>
                 <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Date</span>
-                <input type="date" value={scheduledDate}
-                  onChange={e => setScheduledDate(e.target.value)} style={INPUT} />
+                <CalendarPopover value={scheduledDate} onChange={setScheduledDate} block ariaLabel="Scheduled date" />
               </div>
               <div>
                 <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 4 }}>Start time</span>
