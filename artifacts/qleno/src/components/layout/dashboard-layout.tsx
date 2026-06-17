@@ -303,6 +303,7 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [location, navigate] = useLocation();
 
   // Derive current company from the JWT claim
   let currentCompanyId: number | null = null;
@@ -340,6 +341,11 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
       await switchCompany(companyId);
       // Invalidate all queries so data refreshes for the new company
       queryClient.invalidateQueries();
+      // Selecting a specific company from the All-Locations roll-up should drop
+      // you onto THAT company's view, not leave you on the cross-company page.
+      if (location === '/all-locations' || location.startsWith('/all-locations')) {
+        navigate('/dashboard');
+      }
     } catch (err: any) {
       console.error('Company switch failed:', err?.message);
     }

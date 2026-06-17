@@ -5772,7 +5772,10 @@ export default function JobsPage() {
   }, [techSortMode]);
   const [zoneDropdownOpen, setZoneDropdownOpen] = useState(false);
   const zoneDropdownRef = useRef<HTMLDivElement>(null);
-  const [selectedLocationFilter, setSelectedLocationFilter] = useState<"all" | "oak_lawn" | "schaumburg">("all");
+  // [combined-board 2026-06-17] The Oak Lawn/Schaumburg location tabs filtered
+  // by jobs.booking_location, which most jobs don't carry — so any tab but
+  // "All" hid every job ("jobs only under all"). Schaumburg is a separate
+  // company anyway, so location is the company switcher's job now. Tabs removed.
   const [calendarOpen, setCalendarOpen] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
 
@@ -6051,13 +6054,11 @@ export default function JobsPage() {
       ...e,
       jobs: e.jobs.filter(j => {
         if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
-        if (selectedLocationFilter !== "all" && j.booking_location !== selectedLocationFilter) return false;
         return true;
       }),
     })),
     unassigned_jobs: data.unassigned_jobs.filter(j => {
       if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
-      if (selectedLocationFilter !== "all" && j.booking_location !== selectedLocationFilter) return false;
       return true;
     }),
   } : null;
@@ -6334,19 +6335,8 @@ export default function JobsPage() {
             </div>
           )}
 
-          {/* Location + Zone filter — mobile */}
+          {/* Zone filter — mobile */}
           <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "6px 14px", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {/* Location segmented control */}
-            <div style={{ display: "flex", border: "1.5px solid #E5E2DC", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
-              {([["all", "All"], ["oak_lawn", "OL"], ["schaumburg", "SCH"]] as const).map(([val, label]) => (
-                <button key={val} onClick={() => setSelectedLocationFilter(val)} style={{
-                  padding: "4px 9px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
-                  backgroundColor: selectedLocationFilter === val ? (val === "schaumburg" ? "#2D6A4F" : val === "oak_lawn" ? "#5B9BD5" : "var(--brand)") : "#FAFAF9",
-                  color: selectedLocationFilter === val ? "#FFFFFF" : "#6B7280",
-                }}>{label}</button>
-              ))}
-            </div>
-
             {/* Zone dropdown */}
             {zones.length > 0 && (
               <div ref={zoneDropdownRef} style={{ position: "relative" }}>
@@ -6670,17 +6660,6 @@ export default function JobsPage() {
               ].map(s => (
                 <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>
               ))}
-
-              {/* Location filter — segmented */}
-              <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1.5px solid #E5E2DC", borderRadius: 7, overflow: "hidden", flexShrink: 0 }}>
-                {([["all", "All"] , ["oak_lawn", "Oak Lawn"], ["schaumburg", "Schaumburg"]] as const).map(([val, label]) => (
-                  <button key={val} onClick={() => setSelectedLocationFilter(val)} style={{
-                    padding: "4px 9px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
-                    backgroundColor: selectedLocationFilter === val ? (val === "schaumburg" ? "#2D6A4F" : val === "oak_lawn" ? "#5B9BD5" : "var(--brand)") : "#FAFAF9",
-                    color: selectedLocationFilter === val ? "#FFFFFF" : "#6B7280", transition: "all 0.15s",
-                  }}>{label}</button>
-                ))}
-              </div>
 
               {/* Zone filter — dropdown */}
               {zones.length > 0 && (
