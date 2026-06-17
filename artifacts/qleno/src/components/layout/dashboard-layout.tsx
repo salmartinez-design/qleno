@@ -324,6 +324,12 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
 
   if (!availableCompanies || availableCompanies.length < 2) return null;
 
+  // [company-order 2026-06-17] No backend sort, so the list came back in
+  // insertion order (Phes Schaumburg ahead of Phes). Sort alphabetically so the
+  // primary "Phes" (Oak Lawn — the most-active company) leads. localeCompare
+  // puts "Phes" before "Phes Schaumburg".
+  const sortedCompanies = [...availableCompanies].sort((a, b) => a.name.localeCompare(b.name));
+
   const currentCompany = availableCompanies.find(c => c.id === currentCompanyId);
   const label = currentCompany?.name ?? 'Switch Company';
 
@@ -376,7 +382,7 @@ function CompanySwitcher({ compact = false }: { compact?: boolean }) {
               Switch Company
             </p>
           </div>
-          {availableCompanies.map(c => {
+          {sortedCompanies.map(c => {
             const isActive = c.id === currentCompanyId;
             return (
               <button
