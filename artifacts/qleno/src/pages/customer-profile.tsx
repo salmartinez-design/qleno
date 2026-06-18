@@ -3114,8 +3114,14 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
   const isRecurring = jhStats?.is_recurring ?? (client.service_type === "recurring" || (client.frequency && client.frequency !== "on_demand"));
   const freqBadge = recurringSchedule?.frequency ? (FREQ_LABELS[recurringSchedule.frequency] || recurringSchedule.frequency) : (client.frequency ? (FREQ_LABELS[client.frequency] || freqLabel(client.frequency)) : null);
   const ltv = jhStats ? jhStats.total_revenue : (stats?.revenue_all_time || 0);
-  const lastCleaning = jhStats?.last_cleaning ?? stats?.last_cleaning;
-  const nextCleaning = jhStats?.next_cleaning ?? stats?.next_cleaning;
+  // [last-next-clamp 2026-06-18] A "next cleaning" can never be in the past and
+  // "last" never in the future — guard the display regardless of what the stats
+  // endpoints return (stale/odd rows otherwise produced "Next: yesterday").
+  const _todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const _rawLast = jhStats?.last_cleaning ?? stats?.last_cleaning;
+  const _rawNext = jhStats?.next_cleaning ?? stats?.next_cleaning;
+  const lastCleaning = _rawLast && String(_rawLast).slice(0, 10) <= _todayStr ? _rawLast : null;
+  const nextCleaning = _rawNext && String(_rawNext).slice(0, 10) >= _todayStr ? _rawNext : null;
   const initials = `${client.first_name?.[0] || ""}${client.last_name?.[0] || ""}`;
 
   return (
@@ -5445,8 +5451,13 @@ export default function CustomerProfilePage() {
 
   const jhStats = jhData?.stats || null;
   const ltv = jhStats?.total_revenue ?? profile.stats?.revenue_all_time ?? 0;
-  const lastCleaning = jhStats?.last_cleaning ?? profile.stats?.last_cleaning;
-  const nextCleaning = jhStats?.next_cleaning ?? profile.stats?.next_cleaning;
+  // [last-next-clamp 2026-06-18] Last ≤ today, Next ≥ today — never show a past
+  // "next" or a future "last" no matter what the stats endpoints return.
+  const _todayStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  const _rawLast = jhStats?.last_cleaning ?? profile.stats?.last_cleaning;
+  const _rawNext = jhStats?.next_cleaning ?? profile.stats?.next_cleaning;
+  const lastCleaning = _rawLast && String(_rawLast).slice(0, 10) <= _todayStr ? _rawLast : null;
+  const nextCleaning = _rawNext && String(_rawNext).slice(0, 10) >= _todayStr ? _rawNext : null;
   const initials = `${profile.first_name?.[0] || ""}${profile.last_name?.[0] || ""}`.toUpperCase();
   const isRecurring = jhStats?.is_recurring ?? (profile.service_type === "recurring" || (profile.frequency && profile.frequency !== "on_demand"));
   const freqBadge = recurringSchedule?.frequency

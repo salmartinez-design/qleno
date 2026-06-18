@@ -4218,6 +4218,14 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
       && Boolean((removingRow.rows[0] as any).is_primary);
 
     let newPrimary: number | null = null;
+    // [remove-mirror-fix 2026-06-18] Re-point assigned_user_id whenever the
+    // removed tech IS the job's current primary — keyed on assigned_user_id, NOT
+    // only the job_technicians.is_primary flag. A split-brain row (assigned to
+    // the tech but is_primary=false) otherwise left assigned_user_id pointing at
+    // the removed tech, so the dispatch board's assigned_user_id fallback kept
+    // the chip in their row even after a successful remove (Sal: "removed
+    // Alejandra, still in her bar").
+    const removingCurrentPrimary = wasRemovingPrimary || techId === Number(oldAssignedUserId);
 
     await db.transaction(async (tx) => {
       await tx.execute(sql`
@@ -4225,12 +4233,12 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
         WHERE job_id = ${jobId} AND user_id = ${techId} AND company_id = ${companyId}
       `);
 
-      if (wasRemovingPrimary) {
+      if (removingCurrentPrimary) {
         // Promote next remaining tech (oldest by row id). Could be no rows left.
         const remaining = await tx.execute(sql`
           SELECT user_id FROM job_technicians
           WHERE job_id = ${jobId}
-          ORDER BY id ASC LIMIT 1
+          ORDER BY is_primary DESC, id ASC LIMIT 1
         `);
         if (remaining.rows.length > 0) {
           newPrimary = Number((remaining.rows[0] as any).user_id);
@@ -4245,9 +4253,14 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
           WHERE id = ${jobId} AND company_id = ${companyId}
         `);
       }
+    });
 
-      // Audit row.
-      const userRows = await tx.execute(sql`
+    // [remove-resilience 2026-06-18] Audit + pay recompute AFTER commit, each
+    // non-fatal — same hardening as reassign-tech (#563). The removal + mirror
+    // are the load-bearing writes; an audit/pay hiccup must never roll them back
+    // (which would 500 and leave the chip stuck).
+    try {
+      const userRows = await db.execute(sql`
         SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
       `);
       const u = (userRows.rows[0] as any) ?? {};
@@ -4256,25 +4269,29 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
       const summary = {
         action: "tech_removed",
         removed_user_id: techId,
-        was_primary: wasRemovingPrimary,
+        was_primary: removingCurrentPrimary,
         new_primary_user_id: newPrimary,
-        mirrored_to_assigned_user_id: wasRemovingPrimary,
+        mirrored_to_assigned_user_id: removingCurrentPrimary,
         previous_assigned_user_id: oldAssignedUserId,
       };
-      await tx.execute(sql`
+      await db.execute(sql`
         INSERT INTO job_audit_log
           (job_id, company_id, user_id, user_name, user_email,
            field_name, old_value, new_value, cascade_scope, schedule_id)
         VALUES
           (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
            'tech_removed',
-           ${JSON.stringify({ removed_user_id: techId, was_primary: wasRemovingPrimary, assigned_user_id: oldAssignedUserId })}::jsonb,
+           ${JSON.stringify({ removed_user_id: techId, was_primary: removingCurrentPrimary, assigned_user_id: oldAssignedUserId })}::jsonb,
            ${JSON.stringify(summary)}::jsonb,
            'this_job', ${null})
       `);
-    });
+    } catch (auditErr) {
+      console.error("remove-technician audit log failed (non-fatal):", auditErr);
+    }
 
-    const result = await calculateTechPay(jobId, companyId);
+    let result: Awaited<ReturnType<typeof calculateTechPay>> = [];
+    try { result = await calculateTechPay(jobId, companyId); }
+    catch (payErr) { console.error("remove-technician pay recompute failed (non-fatal):", payErr); }
     return res.json({ data: result });
   } catch (err) {
     console.error("DELETE /jobs/:id/technicians/:techId error:", err);
