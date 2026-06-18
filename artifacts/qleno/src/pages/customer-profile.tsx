@@ -4840,7 +4840,7 @@ const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; la
   complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
   completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
   invoiced:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
-  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Void",  tooltip: "Void — Appointment cancelled" },
+  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancel", tooltip: "Cancelled — visit cancelled (no fee)" },
   bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Moved", tooltip: "Moved — Job rescheduled to another date" },
   skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skip",  tooltip: "Skip — Client skipped this visit" },
   lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lock",  tooltip: "Lock Out — Technician could not access the property" },
@@ -5070,7 +5070,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
   }
 
   const statusLegend = Object.entries(STATUS_CHIP).filter(([k]) =>
-    ["scheduled","complete","cancelled","bumped","skipped","lockout"].includes(k)
+    ["scheduled","complete","cancelled","cancelled_fee","bumped","skipped","lockout"].includes(k)
   );
 
   return (
@@ -5543,27 +5543,22 @@ export default function CustomerProfilePage() {
             <span>Next: <strong style={{ color: nextCleaning ? "var(--brand)" : "#9E9B94" }}>{nextCleaning ? fmtDate(nextCleaning) : "Not scheduled"}</strong></span>
           </div>
         </div>
-        <div style={{ background: "#0A0E1A", borderRadius: 10, padding: "7px 14px", textAlign: "center" as const, flexShrink: 0 }}>
-          <div style={{ fontSize: 19, fontWeight: 900, color: "#00C9A0", lineHeight: 1 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-          <div style={{ fontSize: 9, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 2 }}>Lifetime Value</div>
-          {/* [scheduling-engine 2026-04-29] Subtitle pins "since
-              when" — first-job date if available, else client
-              created_at. Removes the ambiguity of an unlabeled
-              dollar number that could be misread as YTD or this
-              month. */}
-          {(() => {
-            const since = jhStats?.first_cleaning ?? profile.created_at ?? null;
-            if (!since) return null;
-            return (
-              <div style={{ fontSize: 8, fontWeight: 600, color: "#6B7280", marginTop: 1 }}>
-                Since {fmtDate(since)}
-              </div>
-            );
-          })()}
+        {/* [ltv-restyle 2026-06-18] Was a dark navy box that clashed with the
+            light card UI. Now an on-brand light card: ink value, muted label,
+            mint YTD chip — matches the rest of the profile. */}
+        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "10px 16px", flexShrink: 0, display: "flex", alignItems: "center", gap: 16 }}>
+          <div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Lifetime Value</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#0A0E1A", lineHeight: 1.1, marginTop: 2 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+            {(() => {
+              const since = jhStats?.first_cleaning ?? profile.created_at ?? null;
+              return since ? <div style={{ fontSize: 10, fontWeight: 500, color: "#9E9B94", marginTop: 1 }}>Since {fmtDate(since)}</div> : null;
+            })()}
+          </div>
           {jhStats?.ytd_revenue != null && (
-            <div style={{ marginTop: 5, paddingTop: 5, borderTop: "1px solid rgba(255,255,255,0.12)" }}>
-              <div style={{ fontSize: 13, fontWeight: 800, color: "#86EFAC", lineHeight: 1 }}>${(jhStats.ytd_revenue as number).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-              <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 1 }}>{new Date().getFullYear()} YTD</div>
+            <div style={{ paddingLeft: 16, borderLeft: "1px solid #EEECE7" }}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>{new Date().getFullYear()} YTD</div>
+              <div style={{ fontSize: 17, fontWeight: 800, color: "var(--brand, #00A383)", lineHeight: 1.1, marginTop: 2 }}>${(jhStats.ytd_revenue as number).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
             </div>
           )}
         </div>

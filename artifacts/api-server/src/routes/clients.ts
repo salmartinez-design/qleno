@@ -276,9 +276,23 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       .filter(i => i.paid_at && new Date(i.paid_at) >= twelve_months_ago)
       .reduce((s, i) => s + parseFloat(i.total || "0"), 0);
     const completed_jobs = jobs.filter(j => j.status === "complete");
-    const last_cleaning = completed_jobs[0]?.scheduled_date || null;
-    const upcoming_jobs = jobs.filter(j => ["scheduled","in_progress"].includes(j.status || "") && j.scheduled_date && j.scheduled_date >= now.toISOString().split("T")[0]);
-    const next_cleaning = upcoming_jobs[0]?.scheduled_date || null;
+    // [last-next-fix 2026-06-18] Compute via direct SQL, not the 50-most-recent
+    // in-memory `jobs` slice — a client with hundreds of future jobs could push
+    // the real last-completed out of the window, and the old next picked the
+    // LATEST future job (desc order) instead of the soonest, even surfacing a
+    // stale past 'scheduled' job. Last = most recent completed on/before today;
+    // Next = soonest scheduled on/after today.
+    const lastNextRes = await db.execute(sql`
+      SELECT
+        (SELECT MAX(scheduled_date) FROM jobs
+           WHERE client_id = ${clientId} AND company_id = ${companyId}
+             AND status = 'complete' AND scheduled_date <= CURRENT_DATE) AS last_cleaning,
+        (SELECT MIN(scheduled_date) FROM jobs
+           WHERE client_id = ${clientId} AND company_id = ${companyId}
+             AND status::text IN ('scheduled','in_progress') AND scheduled_date >= CURRENT_DATE) AS next_cleaning
+    `);
+    const last_cleaning = (lastNextRes.rows[0] as any)?.last_cleaning ? String((lastNextRes.rows[0] as any).last_cleaning) : null;
+    const next_cleaning = (lastNextRes.rows[0] as any)?.next_cleaning ? String((lastNextRes.rows[0] as any).next_cleaning) : null;
     const avg_bill_completed = completed_jobs.length ? revenue_all_time / completed_jobs.length : 0;
     const avg_bill = invoices.length ? revenue_all_time / invoices.length : 0;
 
@@ -293,7 +307,7 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
 
     // ACTIVE if any job in the last 60 days; otherwise INACTIVE.
     const client_status: "active" | "inactive" =
-      last_cleaning_ms >= sixty_days_ago_ms || upcoming_jobs.length > 0 ? "active" : "inactive";
+      last_cleaning_ms >= sixty_days_ago_ms || next_cleaning != null ? "active" : "inactive";
 
     // RECURRING if the client has any active recurring_schedules row.
     // [hotfix 2026-04-29] Column is `is_active`, not `active`. The bad
@@ -1213,19 +1227,24 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       service_type: string | null; technician: string | null; notes: string | null;
     }>;
 
-    // Last cleaning from job_history
-    const last_cleaning: string | null = records.length > 0 ? records[0].job_date : null;
-
-    // Next cleaning from jobs table (nearest scheduled job in the future)
-    const nextJobRes = await db.execute(sql`
-      SELECT scheduled_date FROM jobs
+    // [last-next-fix 2026-06-18] Last = most recent COMPLETED job on/before
+    // today (records[0] could be a future or non-completed row → showed a
+    // nonsensical "Next before Last"); Next = soonest scheduled on/after today.
+    const lastJobRes = await db.execute(sql`
+      SELECT MAX(scheduled_date) AS d FROM jobs
       WHERE client_id = ${clientId} AND company_id = ${companyId}
-        AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
-      ORDER BY scheduled_date ASC LIMIT 1
+        AND status = 'complete' AND scheduled_date <= CURRENT_DATE
     `);
-    const next_cleaning: string | null = nextJobRes.rows.length > 0
-      ? String((nextJobRes.rows[0] as any).scheduled_date)
-      : null;
+    const last_cleaning: string | null = (lastJobRes.rows[0] as any)?.d
+      ? String((lastJobRes.rows[0] as any).d) : null;
+
+    const nextJobRes = await db.execute(sql`
+      SELECT MIN(scheduled_date) AS d FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId}
+        AND status::text IN ('scheduled','in_progress') AND scheduled_date >= CURRENT_DATE
+    `);
+    const next_cleaning: string | null = (nextJobRes.rows[0] as any)?.d
+      ? String((nextJobRes.rows[0] as any).d) : null;
 
     // Is this client on an active recurring schedule?
     const recurrRes = await db.execute(sql`
