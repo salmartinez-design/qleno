@@ -9,6 +9,7 @@ import { sendNotification } from "../services/notificationService.js";
 import { appBaseUrl } from "../lib/app-url.js";
 import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
 import { chargeInvoice } from "../lib/charge-invoice.js";
+import { buildJobLineItems } from "../lib/invoice-line-items.js";
 
 const router = Router();
 
@@ -336,27 +337,41 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id", requireAuth, async (req, res) => {
+router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
     const { status, line_items, tips } = req.body;
 
-    let subtotal: number | undefined;
-    let total: number | undefined;
-
-    if (line_items) {
-      subtotal = line_items.reduce((s: number, item: any) => s + (item.total || 0), 0);
-      total = subtotal + (tips || 0);
+    // Edit guard: a paid or void invoice is immutable. Editing happens on
+    // draft / sent / overdue (overdue is a display-derivation of sent). Paid →
+    // reverse via refund flow; void → already inert. Keeps the books honest.
+    const [current] = await db
+      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!current) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (current.status === "paid" || current.status === "void" || current.status === "superseded") {
+      return res.status(409).json({ error: "Conflict", message: `A ${current.status} invoice cannot be edited` });
     }
+
+    // Total ALWAYS = sum(line items) + tips, so it can never silently drift from
+    // the lines. Use the new lines if provided, else the stored subtotal; use
+    // the new tip if provided, else the stored tip.
+    const subtotal = line_items
+      ? Math.round(line_items.reduce((s: number, item: any) => s + (Number(item.total) || 0), 0) * 100) / 100
+      : parseFloat(current.subtotal || "0");
+    const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
+    const total = Math.round((subtotal + tipVal) * 100) / 100;
 
     const [updated] = await db
       .update(invoicesTable)
       .set({
         ...(status && { status }),
         ...(line_items && { line_items }),
-        ...(tips !== undefined && { tips: tips.toString() }),
-        ...(subtotal !== undefined && { subtotal: subtotal.toString() }),
-        ...(total !== undefined && { total: total.toString() }),
+        tips: tipVal.toFixed(2),
+        subtotal: subtotal.toFixed(2),
+        total: total.toFixed(2),
         ...(status === "sent" && { sent_at: new Date() }),
         ...(status === "paid" && { paid_at: new Date() }),
       })
@@ -365,7 +380,9 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     if (!updated) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    // QB sync on update (fire and forget)
+    logAudit(req, "UPDATE", "invoice", invoiceId, { status: current.status }, { line_items, tips: tipVal, total });
+
+    // QB re-push on edit (fire and forget, one-way; no-op when not connected).
     queueSync(() => syncInvoice(req.auth!.companyId, invoiceId));
     if (status === "paid") {
       queueSync(() => syncPayment(req.auth!.companyId, invoiceId));
@@ -628,6 +645,53 @@ router.post("/:id/void", requireAuth, requireRole("owner", "admin", "office"), a
   } catch (err) {
     console.error("Void invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to void invoice" });
+  }
+});
+
+// ── Recalc from job (Fix 2) ─────────────────────────────────────────────────
+// Rebuild an invoice's line items from its job's CURRENT locked pricing (scope +
+// ALL add-ons + ALL discounts) via the shared builder. This is how the office
+// pulls a post-completion dispatch change (e.g. an add-on added after the
+// per-visit invoice already went 'sent') onto the invoice — since sent invoices
+// are not auto-resynced. Preserves any manually-entered tip. Blocked on
+// paid/void/superseded. Re-pushes to QB.
+router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const [inv] = await db
+      .select({ id: invoicesTable.id, status: invoicesTable.status, job_id: invoicesTable.job_id, tips: invoicesTable.tips })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!inv) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (inv.status === "paid" || inv.status === "void" || inv.status === "superseded") {
+      return res.status(409).json({ error: "Conflict", message: `A ${inv.status} invoice cannot be recalculated` });
+    }
+    if (!inv.job_id) {
+      return res.status(400).json({ error: "Bad Request", message: "This invoice is not linked to a job — edit its line items directly" });
+    }
+
+    const built = await buildJobLineItems(req.auth!.companyId, inv.job_id);
+    if (!built) return res.status(404).json({ error: "Not Found", message: "Linked job not found" });
+
+    const tipVal = parseFloat(inv.tips || "0");
+    const total = Math.round((built.subtotal + tipVal) * 100) / 100;
+
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: total.toFixed(2) })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, null, { action: "recalc_from_job", job_id: inv.job_id, total });
+    queueSync(() => syncInvoice(req.auth!.companyId, invoiceId));
+
+    return res.json(formatInvoice({ ...updated, client_name: null }));
+  } catch (err) {
+    console.error("Recalc invoice error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to recalc invoice" });
   }
 });
 

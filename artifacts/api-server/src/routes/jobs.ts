@@ -11,15 +11,19 @@ import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { buildJobLineItems } from "../lib/invoice-line-items.js";
 
 const router = Router();
 
 // [invoice-sync 2026-06-11] Keep a job's existing DRAFT invoice in lockstep with
-// its price + applied discounts. Discounts render as their own negative line
-// items so the invoice total nets them out. NEVER touches a sent/paid invoice
+// its price + add-ons + applied discounts. NEVER touches a sent/paid invoice
 // (QB is write-only + sent invoices are immutable) and never creates one — only
 // syncs a draft that already exists. Fully non-fatal: an invoice hiccup must
 // never break the underlying job write.
+// [2026-06-17] Rebuilds via the shared buildJobLineItems (scope + ALL add-ons +
+// ALL discounts) — the prior version omitted add-ons and would DROP them from a
+// draft on re-sync. Same code the creation engine + office recalc use, so a job
+// edit in dispatch now reflects correctly on its draft invoice.
 async function syncJobInvoiceDraft(jobId: number, companyId: number): Promise<void> {
   try {
     const [existing] = await db
@@ -29,35 +33,11 @@ async function syncJobInvoiceDraft(jobId: number, companyId: number): Promise<vo
       .limit(1);
     if (!existing || existing.status !== "draft") return;
 
-    const [job] = await db
-      .select({
-        service_type: jobsTable.service_type, base_fee: jobsTable.base_fee,
-        billed_amount: jobsTable.billed_amount, hourly_rate: jobsTable.hourly_rate, billed_hours: jobsTable.billed_hours,
-      })
-      .from(jobsTable)
-      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
-      .limit(1);
-    if (!job) return;
-
-    const service = job.billed_amount ? parseFloat(String(job.billed_amount)) : parseFloat(String(job.base_fee ?? "0"));
-    const svcLabel = (job.service_type ?? "Cleaning Service").split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-    const qty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
-    const unitPrice = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : service;
-
-    const discounts = await db.select().from(jobDiscountsTable)
-      .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
-    const discountTotal = discounts.reduce((s, d) => s + parseFloat(String(d.amount)), 0);
-    const net = Math.max(0, Math.round((service - discountTotal) * 100) / 100);
-
-    const lineItems: any[] = [{ description: svcLabel, quantity: qty, unit_price: unitPrice, total: service }];
-    for (const d of discounts) {
-      const amt = parseFloat(String(d.amount));
-      const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
-      lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
-    }
+    const built = await buildJobLineItems(companyId, jobId);
+    if (!built) return;
 
     await db.update(invoicesTable)
-      .set({ line_items: lineItems, subtotal: net.toFixed(2), total: net.toFixed(2) })
+      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: built.subtotal.toFixed(2) })
       .where(eq(invoicesTable.id, existing.id));
 
     // Re-push to QuickBooks (no-op for non-connected tenants). Accounting, not

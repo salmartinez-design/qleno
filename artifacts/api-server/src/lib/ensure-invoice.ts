@@ -31,10 +31,11 @@
 // (per-visit 'sent'); batch 'pending' drafts do NOT push — only their
 // consolidated parent does (Scope 2/5).
 import { db } from "@workspace/db";
-import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable, jobDiscountsTable, jobAddOnsTable, addOnsTable } from "@workspace/db/schema";
+import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, ne } from "drizzle-orm";
 import { getNextInvoiceNumber } from "./invoice-number.js";
 import { derivePaymentSource } from "./payment-source.js";
+import { buildJobLineItems } from "./invoice-line-items.js";
 
 // [cutover-guard 2026-06-17] Qleno go-live date. Jobs scheduled before this are
 // billed in MaidCentral; the completion engine never auto-invoices them. Single
@@ -174,56 +175,12 @@ export async function ensureInvoiceForCompletedJob(
       termsDays === 15 ? "net_15" :
       termsDays === 7  ? "net_7"  : "due_on_receipt";
 
-    // ── Build line items from LOCKED job pricing ─────────────────────────────
-    // Scope line: hourly jobs bill billed_amount (qty=hours × hourly_rate);
-    // flat jobs bill base_fee.
-    const scopeAmount = job.billed_amount
-      ? parseFloat(String(job.billed_amount))
-      : parseFloat(String(job.base_fee ?? "0"));
-    const svcLabel = (job.service_type ?? "Cleaning Service")
-      .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-    const scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
-    const scopeUnit = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : scopeAmount;
-
-    const lineItems: any[] = [{ description: svcLabel, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount }];
-    let runningTotal = scopeAmount;
-
-    // Add-on / fee-rule lines (job_add_ons holds both add-ons and fees like
-    // parking). One line each, named from add_ons. Skipped for hourly jobs whose
-    // billed_amount already rolls everything into the metered total.
-    if (!job.billed_amount) {
-      const addons = await db
-        .select({
-          name: addOnsTable.name,
-          quantity: jobAddOnsTable.quantity,
-          unit_price: jobAddOnsTable.unit_price,
-          subtotal: jobAddOnsTable.subtotal,
-        })
-        .from(jobAddOnsTable)
-        .leftJoin(addOnsTable, eq(jobAddOnsTable.add_on_id, addOnsTable.id))
-        .where(eq(jobAddOnsTable.job_id, jobId));
-      for (const a of addons) {
-        const lineTotal = parseFloat(String(a.subtotal ?? "0"));
-        runningTotal += lineTotal;
-        lineItems.push({
-          description: a.name || "Add-on",
-          quantity: a.quantity ?? 1,
-          unit_price: parseFloat(String(a.unit_price ?? "0")),
-          total: lineTotal,
-        });
-      }
-    }
-
-    // Discount lines (negative) so the total nets out.
-    const jobDisc = await db.select().from(jobDiscountsTable)
-      .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
-    for (const d of jobDisc) {
-      const amt = parseFloat(String(d.amount));
-      runningTotal -= amt;
-      const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
-      lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
-    }
-    const netAmount = Math.max(0, Math.round(runningTotal * 100) / 100);
+    // Build line items from the job's LOCKED pricing via the shared builder
+    // (scope + ALL add-ons + ALL discounts) — same code the draft re-sync and
+    // the office recalc use, so they can never diverge.
+    const built = await buildJobLineItems(companyId, jobId);
+    const lineItems = built?.lineItems ?? [];
+    const netAmount = built?.subtotal ?? 0;
 
     const [newInv] = await db
       .insert(invoicesTable)
