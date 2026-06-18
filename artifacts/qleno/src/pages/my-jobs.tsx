@@ -852,26 +852,8 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
             Commercial
           </span>
         )}
-        {/* For cross-tenant techs the BUSINESS chip is the important one
-            (Phes vs PHES Schaumburg). Branch is intra-tenant and only
-            shows when there's no company chip to avoid double-tagging. */}
-        {job.company_name ? (
-          <span style={{
-            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
-            textTransform: "uppercase",
-          }}>
-            {job.company_name}
-          </span>
-        ) : job.branch_name ? (
-          <span style={{
-            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
-            textTransform: "uppercase",
-          }}>
-            {job.branch_name}
-          </span>
-        ) : null}
+        {/* [card-cleanup 2026-06-18] The company/branch chip ("PHES") was noise
+            on the tech card — they know where they work. Removed per Sal. */}
         {/* Zone chip — color dot + name so the tech knows which area they're
             headed to. A zoneless job is a data error (see zone-resolution rule). */}
         {job.zone_name && (
@@ -1644,13 +1626,6 @@ export default function MyJobsPage() {
                       style={{ opacity: 0.55, backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: `3px solid ${job.zone_color || "var(--brand)"}`, borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                         <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
-                        {(job.company_name || job.branch_name) && (
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-                            background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em",
-                            textTransform: "uppercase",
-                          }}>{job.company_name ?? job.branch_name}</span>
-                        )}
                       </div>
                       <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                       {job.scheduled_time && <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{formatTime(job.scheduled_time)}</p>}
@@ -1676,9 +1651,6 @@ export default function MyJobsPage() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
                           <Check size={15} color="var(--brand, #2D9B83)" style={{ flexShrink: 0 }} />
                           <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
-                          {(job.company_name || job.branch_name) && (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#F4F3F0", color: "#6B6860", letterSpacing: "0.02em", textTransform: "uppercase" }}>{job.company_name ?? job.branch_name}</span>
-                          )}
                         </div>
                         <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                         {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
