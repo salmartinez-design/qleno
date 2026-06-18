@@ -4842,17 +4842,17 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
 
 // ─── Job Calendar ──────────────────────────────────────────────────────────────
 const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; label: string; tooltip: string }> = {
-  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Book",  tooltip: "Booked — Service appointment scheduled" },
+  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Scheduled", tooltip: "Scheduled — service appointment booked" },
   complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
   completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
   invoiced:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
-  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancel", tooltip: "Cancelled — visit cancelled (no fee)" },
+  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancelled", tooltip: "Cancelled — visit cancelled (no fee)" },
   bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Moved", tooltip: "Moved — Job rescheduled to another date" },
-  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skip",  tooltip: "Skip — Client skipped this visit" },
-  lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lock",  tooltip: "Lock Out — Technician could not access the property" },
+  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skipped",  tooltip: "Skipped — Client skipped this visit" },
+  lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lockout",  tooltip: "Lockout — Technician could not access the property" },
   // Charged cancel/lockout (job.status stays 'complete' for revenue) — resolved
   // from cancel_action so the calendar reads the truth, not "Done".
-  cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cxl Fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
+  cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
 // A charged cancel/lockout is stored status='complete'; resolve it to the right
 // chip key off cancel_action so the day doesn't read "Done".

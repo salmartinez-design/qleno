@@ -11,16 +11,19 @@ import { JobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, mutedFill } fro
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// [legend-cohesion 2026-06-18] Only states that ACTUALLY render on the dispatch
+// board. Cancelled + charged-cancel/lockout jobs are excluded from the board
+// (they live on the client-profile calendar), so they're not in this legend —
+// the client calendar documents those, using the SAME words (Cancelled,
+// Lockout, Cancel fee) so the team learns one vocabulary, not two.
 const STATUS_ORDER: JobVisualStatus[] = [
   "scheduled",
   "active",
   "en_route",
   "completed",
   "completed_unpaid",
-  "charged_cancel",
   "late_clockin",
   "no_show",
-  "cancelled",
   "unassigned",
 ];
 
