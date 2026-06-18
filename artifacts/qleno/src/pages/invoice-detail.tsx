@@ -117,6 +117,11 @@ export default function InvoiceDetailPage() {
   const [sendingInvoice, setSendingInvoice] = useState(false);
   const [charging, setCharging] = useState(false);
   const [voiding, setVoiding] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editLines, setEditLines] = useState<any[]>([]);
+  const [editTip, setEditTip] = useState(0);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [recalcing, setRecalcing] = useState(false);
 
   const { data: invoice, isLoading } = useQuery({
     queryKey: ["invoice", invoiceId],
@@ -181,6 +186,60 @@ export default function InvoiceDetailPage() {
       toast({ title: e?.message || "Failed to void invoice", variant: "destructive" });
     }
     setVoiding(false);
+  }
+
+  // ── Edit invoice (line items / amounts / tip / discount) ──
+  function startEdit() {
+    const lines = Array.isArray(invoice?.line_items) ? invoice.line_items : [];
+    setEditLines(lines.map((l: any) => ({
+      description: l.description || "",
+      quantity: Number(l.quantity ?? 1),
+      unit_price: Number(l.unit_price ?? l.rate ?? 0),
+      total: Number(l.total ?? 0),
+    })));
+    setEditTip(Number(invoice?.tips || 0));
+    setEditing(true);
+  }
+  function setLine(i: number, patch: any) {
+    setEditLines(prev => prev.map((l, idx) => {
+      if (idx !== i) return l;
+      const next = { ...l, ...patch };
+      next.total = Math.round((Number(next.quantity) || 0) * (Number(next.unit_price) || 0) * 100) / 100;
+      return next;
+    }));
+  }
+  const editSubtotal = Math.round(editLines.reduce((s, l) => s + (Number(l.total) || 0), 0) * 100) / 100;
+  const editTotal = Math.round((editSubtotal + (Number(editTip) || 0)) * 100) / 100;
+
+  async function handleSaveEdit() {
+    setSavingEdit(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, {
+        method: "PUT",
+        body: JSON.stringify({ line_items: editLines, tips: Number(editTip) || 0 }),
+      });
+      toast({ title: "Invoice updated" });
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to save invoice", variant: "destructive" });
+    }
+    setSavingEdit(false);
+  }
+
+  async function handleRecalc() {
+    if (!window.confirm("Rebuild this invoice's line items from the job's current add-ons, discounts and price? This replaces the current lines (your tip is kept).")) return;
+    setRecalcing(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}/recalc`, { method: "POST" });
+      toast({ title: "Invoice recalculated from job" });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to recalc invoice", variant: "destructive" });
+    }
+    setRecalcing(false);
   }
 
   const CARD: React.CSSProperties = {
@@ -272,6 +331,18 @@ export default function InvoiceDetailPage() {
               {voiding ? "Voiding..." : "Void"}
             </button>
           )}
+          {!["paid", "void", "superseded"].includes(invoice.status) && !editing && (
+            <button onClick={startEdit}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              Edit
+            </button>
+          )}
+          {!["paid", "void", "superseded"].includes(invoice.status) && invoice.job_id && !editing && (
+            <button onClick={handleRecalc} disabled={recalcing}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {recalcing ? "Recalculating..." : "Recalc from Job"}
+            </button>
+          )}
         </div>
         {invoice.payment_failed && (effectiveStatus === "sent" || effectiveStatus === "overdue") && (
           <div style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", display: "flex", alignItems: "center", gap: 8 }}>
@@ -307,7 +378,50 @@ export default function InvoiceDetailPage() {
 
         <div style={CARD}>
           <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Line Items</h3>
-          {lineItems.length === 0 ? (
+
+          {editing ? (
+            <div>
+              {editLines.map((l, i) => (
+                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                  <input value={l.description} placeholder="Description"
+                    onChange={e => setLine(i, { description: e.target.value })}
+                    style={{ flex: 1, padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+                  <input type="number" step="0.01" value={l.quantity} title="Qty"
+                    onChange={e => setLine(i, { quantity: e.target.value })}
+                    style={{ width: 60, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+                  <input type="number" step="0.01" value={l.unit_price} title="Rate (negative = discount)"
+                    onChange={e => setLine(i, { unit_price: e.target.value })}
+                    style={{ width: 90, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+                  <span style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: l.total < 0 ? "#991B1B" : "#1A1917" }}>${Number(l.total || 0).toFixed(2)}</span>
+                  <button onClick={() => setEditLines(prev => prev.filter((_, idx) => idx !== i))}
+                    title="Remove line" style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 8, marginTop: 4, marginBottom: 14 }}>
+                <button onClick={() => setEditLines(prev => [...prev, { description: "", quantity: 1, unit_price: 0, total: 0 }])}
+                  style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add line</button>
+                <button onClick={() => setEditLines(prev => [...prev, { description: "Discount", quantity: 1, unit_price: 0, total: 0 }])}
+                  style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add discount</button>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                <span style={{ fontSize: 13, color: "#6B7280" }}>Tip</span>
+                <input type="number" step="0.01" value={editTip} onChange={e => setEditTip(Number(e.target.value) || 0)}
+                  style={{ width: 100, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 24, borderTop: "2px solid #EEECE7", paddingTop: 10, marginTop: 6 }}>
+                <span style={{ fontSize: 13, color: "#6B7280" }}>Subtotal ${editSubtotal.toFixed(2)}</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Total ${editTotal.toFixed(2)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                <button onClick={() => setEditing(false)}
+                  style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "transparent", color: "#6B7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                <button onClick={handleSaveEdit} disabled={savingEdit}
+                  style={{ padding: "9px 20px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                  {savingEdit ? "Saving..." : "Save changes"}
+                </button>
+              </div>
+            </div>
+          ) : lineItems.length === 0 ? (
             <p style={{ fontSize: 13, color: "#9E9B94", margin: 0 }}>No line items recorded.</p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -327,7 +441,7 @@ export default function InvoiceDetailPage() {
                       {(item.description || "").replace(/_/g, " ")}
                     </td>
                     <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>{item.quantity || 1}</td>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>${(item.rate || 0).toFixed(2)}</td>
+                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>${((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
                     <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(item.total || 0).toFixed(2)}</td>
                   </tr>
                 ))}
