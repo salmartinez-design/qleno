@@ -4844,7 +4844,17 @@ const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; la
   bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Moved", tooltip: "Moved — Job rescheduled to another date" },
   skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skip",  tooltip: "Skip — Client skipped this visit" },
   lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lock",  tooltip: "Lock Out — Technician could not access the property" },
+  // Charged cancel/lockout (job.status stays 'complete' for revenue) — resolved
+  // from cancel_action so the calendar reads the truth, not "Done".
+  cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cxl Fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
+// A charged cancel/lockout is stored status='complete'; resolve it to the right
+// chip key off cancel_action so the day doesn't read "Done".
+function chipKeyFor(j: any): string {
+  if (j?.cancel_action === "lockout") return "lockout";
+  if (j?.cancel_action === "cancel") return "cancelled_fee";
+  return String(j?.status);
+}
 const RESCHEDULE_REASONS = [
   "Client Request", "Tech Unavailable", "Weather", "Holiday / Observed Holiday",
   "Emergency", "Client Traveling", "Schedule Optimization", "Other",
@@ -5017,7 +5027,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
             textAlign: "right", marginBottom: 1, lineHeight: "16px",
           }}>{d}</div>
           {jobs.map(j => {
-            const chip = STATUS_CHIP[String(j.status)] || STATUS_CHIP.scheduled;
+            const chip = STATUS_CHIP[chipKeyFor(j)] || STATUS_CHIP.scheduled;
             const ro = isReadOnly(j);
             return (
               <div
@@ -5110,7 +5120,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           <div style={{ background: "#FFFFFF", borderRadius: 12, padding: 24, width: 420, maxWidth: "90vw", fontFamily: FF, boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}>
             {(() => {
               const j = modal.job;
-              const chip = STATUS_CHIP[String(j.status)] || STATUS_CHIP.scheduled;
+              const chip = STATUS_CHIP[chipKeyFor(j)] || STATUS_CHIP.scheduled;
               const ro = isReadOnly(j);
               const origDate = String(j.scheduled_date).split("T")[0];
               return (
@@ -5253,19 +5263,71 @@ function ActivityTab({ clientId }: { clientId: number }) {
     communication:   { label: "Message",        color: "#374151", bg: "#F3F4F6" },
   };
   const label = (f: string | null) => (f ? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "");
-  const fmtVal = (v: any) => (v == null ? "—" : typeof v === "object" ? JSON.stringify(v) : String(v));
+  // [audit-plain-english 2026-06-18] The activity feed read like code (raw JSON
+  // dumps, "[unknown — see X history]", field names). These helpers turn each
+  // entry into one plain sentence the office can read at a glance.
+  const isNum = (v: any) => v != null && v !== "" && Number.isFinite(Number(v));
+  const money = (v: any) => `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const truthy = (v: any) => v === true || v === "true";
+  const time12 = (t: any) => {
+    const m = String(t).match(/^(\d{1,2}):(\d{2})/);
+    if (!m) return String(t);
+    const h = parseInt(m[1], 10); const ap = h < 12 ? "AM" : "PM";
+    return `${((h + 11) % 12) + 1}:${m[2]} ${ap}`;
+  };
+  // A readable scalar; objects/arrays/empties we can't summarize → null (caller
+  // falls back to a generic phrase rather than printing JSON).
+  const valText = (v: any): string | null => {
+    if (v == null || v === "") return null;
+    if (typeof v === "object") return Array.isArray(v) ? (v.length ? null : null) : null;
+    if (typeof v === "boolean") return v ? "yes" : "no";
+    if (typeof v === "string" && /unknown — see/i.test(v)) return null;
+    return String(v);
+  };
+  const describeEdit = (e: any): string => {
+    const nv = e.new_value ?? {}, ov = e.old_value ?? {};
+    const f = e.field_name as string;
+    const n = (nv && typeof nv === "object" && "value" in nv) ? (nv as any).value : nv;
+    const o = (ov && typeof ov === "object" && "value" in ov) ? (ov as any).value : ov;
+    switch (f) {
+      case "cascade_summary": {
+        const upd = Number(nv?.future_jobs_updated ?? 0), ins = Number(nv?.future_jobs_inserted ?? 0), del = Number(nv?.future_jobs_deleted ?? 0);
+        const parts: string[] = [];
+        if (upd) parts.push(`${upd} future visit${upd === 1 ? "" : "s"} updated`);
+        if (ins) parts.push(`${ins} added`);
+        if (del) parts.push(`${del} removed`);
+        return parts.length ? `Recurring schedule changed — ${parts.join(", ")}` : "Recurring schedule changed";
+      }
+      case "base_fee":      return `Price changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
+      case "billed_amount": return `Billed amount changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
+      case "hourly_rate":   return `Hourly rate set to ${money(n)}/hr`;
+      case "allowed_hours": return `Allowed hours set to ${n}`;
+      case "scheduled_time": return `Start time changed to ${time12(n)}`;
+      case "scheduled_date": return `Date changed to ${n}`;
+      case "manual_rate_override": return `Manual price override turned ${truthy(n) ? "on" : "off"}`;
+      case "team_user_ids": return "Team reassigned";
+      case "add_ons":       return "Add-ons updated";
+      case "service_type":  return `Service changed to ${label(String(n))}`;
+      case "notes": case "office_notes": return "Notes updated";
+      default: {
+        const nt = valText(n), ot = valText(o);
+        if (nt) return `${label(f)} changed${ot ? ` from ${ot}` : ""} to ${nt}`;
+        return `${label(f)} updated`;
+      }
+    }
+  };
   const describe = (e: any): string => {
     const nv = e.new_value || {}, ov = e.old_value || {};
     switch (e.event_type) {
-      case "job_edit":        return `${label(e.field_name)}: ${fmtVal(ov?.value ?? ov)} → ${fmtVal(nv?.value ?? nv)}`;
-      case "job_rescheduled": return `${label(e.field_name)}${nv.reason ? ` · ${nv.reason}` : ""}`;
-      case "job_cancelled":   return `${label(e.field_name) || "Cancelled"}${nv.reason ? ` · ${nv.reason}` : ""}${nv.charge ? ` · charged $${Number(nv.charge).toFixed(2)}` : ""}`;
-      case "job_deleted":     return `Job #${ov.job_id ?? ""}${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
-      case "communication":   return `${nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || ""}${nv.summary ? ` · ${nv.summary}` : nv.subject ? ` · ${nv.subject}` : ""}`;
-      case "client_edit":     return `${label(e.field_name)}: ${fmtVal(ov)} → ${fmtVal(nv)}`;
-      case "job_created":     return `Job #${e.related_job_id ?? ""} created`;
+      case "job_edit":        return describeEdit(e);
+      case "job_rescheduled": return `Rescheduled${nv.reason ? ` — ${nv.reason}` : ""}`;
+      case "job_cancelled":   return `Cancelled${nv.reason ? ` — ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}`;
+      case "job_deleted":     return `Job deleted${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
+      case "communication":   return `${nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || "message"}${nv.summary ? ` — ${nv.summary}` : nv.subject ? ` — ${nv.subject}` : ""}`;
+      case "client_edit":     { const nt = valText(nv?.value ?? nv); return nt ? `${label(e.field_name)} changed to ${nt}` : `${label(e.field_name)} updated`; }
+      case "job_created":     return "Job created";
       case "client_created":  return "Client created";
-      default:                return label(e.field_name);
+      default:                return label(e.field_name) || "Updated";
     }
   };
   return (
