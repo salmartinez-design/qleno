@@ -245,6 +245,13 @@ async function buildDispatchPayload(
         eq(jobsTable.company_id, companyId),
         eq(jobsTable.scheduled_date, date),
         sql`${jobsTable.status} != 'cancelled'`,
+        // [cancel-off-board 2026-06-18] A charged Cancel/Lockout keeps
+        // status='complete' (so the fee counts as revenue + shows in the Fees
+        // report + client profile), but it is NOT work on the schedule — keep
+        // it OFF the dispatch board so a cancelled visit doesn't sit in a tech's
+        // lane (Sal: "it's still on the job board, I need it off"). The fee is
+        // still tracked everywhere else.
+        sql`NOT EXISTS (SELECT 1 FROM cancellation_log cl WHERE cl.job_id = ${jobsTable.id} AND cl.cancel_action IN ('cancel','lockout'))`,
         // [quote-convert-branch 2026-06-08] Untagged (NULL-branch) jobs must NOT
         // vanish under a location filter. Quote→job convert never set branch_id,
         // so converted jobs "didn't stick" on the board when the office viewed a

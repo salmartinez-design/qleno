@@ -2192,7 +2192,13 @@ router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
         j.billed_amount, j.estimated_hours, j.actual_hours,
         j.scheduled_time, j.address_street, j.address_city,
         u.first_name || ' ' || u.last_name AS technician_name,
-        u.id AS technician_id
+        u.id AS technician_id,
+        -- Charged cancel/lockout keeps status='complete' so the calendar must
+        -- not show it as "Done" — surface the action so the chip reads
+        -- "Cancelled (fee)" / "Lockout" instead.
+        (SELECT cl.cancel_action FROM cancellation_log cl
+          WHERE cl.job_id = j.id AND cl.cancel_action IN ('cancel','lockout')
+          ORDER BY cl.cancelled_at DESC LIMIT 1) AS cancel_action
       FROM jobs j
       LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.client_id = ${clientId}
