@@ -2054,6 +2054,12 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             const hasComm = techs.length > 0;
             const commTotal = techs.reduce((s, t) => s + (t.final_pay ?? 0), 0);
             const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : (job.estimated_hours ?? null);
+            // [allowed-split 2026-06-18] Allowed hours is a budget for the whole
+            // job; with N techs the wall-clock each tech needs is allowed ÷ N
+            // (two techs on a 6h job = 3h each). Surface the per-tech split so
+            // the office sees the labor drop when they add a tech.
+            const techCount = Math.max(1, techs.length || (job.assigned_user_id != null ? 1 : 1));
+            const perTechAllowed = allowed != null ? allowed / techCount : null;
             const Tile = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) => (
               <div style={{ flex: 1, minWidth: 0, background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 11px" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
@@ -2065,7 +2071,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                 <Tile label="Billed" value={fmtUSD(billed)} />
                 <Tile label="Commission" value={hasComm ? fmtUSD(commTotal) : "—"} color="#2D9B83" />
-                <Tile label="Hours" value={allowed != null ? `${allowed.toFixed(1)}h` : "—"} sub="allowed" />
+                <Tile label="Hours" value={allowed != null ? `${allowed.toFixed(1)}h` : "—"} sub={techCount > 1 && perTechAllowed != null ? `${perTechAllowed.toFixed(1)}h/tech · ${techCount} techs` : "allowed"} />
               </div>
             );
           })()}
@@ -2315,9 +2321,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             if (allowed == null && actual == null && !ce) return null;
             const variance = (allowed != null && actual != null) ? actual - allowed : null;
             const inDist = ce ? (ce.clock_in_distance_ft ?? ce.distance_from_job_ft) : null;
+            // Per-tech split: allowed ÷ #techs (two techs on a 6h job = 3h each).
+            const hrTechCount = Math.max(1, (job.technicians?.length ?? 0) || (job.assigned_user_id != null ? 1 : 1));
             return (
               <PS label="Hours & Time Clock">
-                {allowed != null && <KV label="Allowed" value={`${allowed.toFixed(1)}h`} />}
+                {allowed != null && <KV label="Allowed" value={hrTechCount > 1 ? `${allowed.toFixed(1)}h · ${(allowed / hrTechCount).toFixed(1)}h/tech` : `${allowed.toFixed(1)}h`} />}
                 {actual != null && <KV label="Actual" value={`${actual.toFixed(1)}h`} />}
                 {variance != null && (
                   <KV label="Variance"
