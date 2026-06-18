@@ -4443,9 +4443,17 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
         UPDATE jobs SET assigned_user_id = ${newTechId}
         WHERE id = ${jobId} AND company_id = ${companyId}
       `);
+    });
 
-      // Audit row.
-      const userRows = await tx.execute(sql`
+    // [reassign-resilience 2026-06-18] Audit + pay recompute run AFTER the
+    // commit, each non-fatal. Previously the audit-log INSERT lived INSIDE the
+    // transaction — if it threw (e.g. a missing column on the prod table) the
+    // whole reassignment rolled back, so the office saw a 500 ("it crashed")
+    // and the chip never moved even though the change should have stuck. The
+    // assignment + mirror are the load-bearing writes; audit/pay must never be
+    // able to fail them.
+    try {
+      const userRows = await db.execute(sql`
         SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
       `);
       const u = (userRows.rows[0] as any) ?? {};
@@ -4457,7 +4465,7 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
         previous_assigned_user_id: oldAssignedUserId,
         previous_techs: techsBefore.rows,
       };
-      await tx.execute(sql`
+      await db.execute(sql`
         INSERT INTO job_audit_log
           (job_id, company_id, user_id, user_name, user_email,
            field_name, old_value, new_value, cascade_scope, schedule_id)
@@ -4468,9 +4476,14 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
            ${JSON.stringify(summary)}::jsonb,
            'this_job', ${null})
       `);
-    });
+    } catch (auditErr) {
+      console.error("reassign-tech audit log failed (non-fatal):", auditErr);
+    }
 
-    const techPay = await calculateTechPay(jobId, companyId);
+    let techPay: Awaited<ReturnType<typeof calculateTechPay>> = [];
+    try { techPay = await calculateTechPay(jobId, companyId); }
+    catch (payErr) { console.error("reassign-tech pay recompute failed (non-fatal):", payErr); }
+
     return res.json({
       data: {
         assigned_user_id: newTechId,

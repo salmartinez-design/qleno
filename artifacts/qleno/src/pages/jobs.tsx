@@ -5830,6 +5830,19 @@ export default function JobsPage() {
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
   const [showWizard, setShowWizard] = useState(false);
   const [draggingJob, setDraggingJob] = useState<DispatchJob | null>(null);
+  // [panel-resync 2026-06-18] Keep the open drawer in sync with refreshed board
+  // data. After a reassign/edit, load() refetches `data` but selectedJob still
+  // held the pre-save snapshot (old tech), so the drawer showed no change even
+  // though it saved + the chip moved. Re-point selectedJob at the fresh row.
+  useEffect(() => {
+    if (!selectedJob || !data) return;
+    const all: DispatchJob[] = [
+      ...((data.employees ?? []).flatMap((e: any) => e.jobs ?? []) as DispatchJob[]),
+      ...(((data as any).unassigned_jobs ?? []) as DispatchJob[]),
+    ];
+    const fresh = all.find(j => j.id === selectedJob.id);
+    if (fresh) setSelectedJob(fresh);
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [desktopView, setDesktopView] = useState<"timeline" | "list">("timeline");
   // Cutover 3B — Attendance overlay drawer state. Drawer surfaces
   // dispatch-tier proposals (late / short / no_show / missing_clockout)
