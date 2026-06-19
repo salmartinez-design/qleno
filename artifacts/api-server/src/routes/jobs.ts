@@ -1629,13 +1629,17 @@ router.patch("/:id", requireAuth, async (req, res) => {
     // down (audit-trail preserved), so the heads-up was just friction.
 
     // ── In-progress guard: open timeclock blocks date/time/team edits ──────
+    // Only for jobs still in flight. A COMPLETED job must stay editable (the
+    // office reconciles tech assignments + times after the fact for payroll —
+    // CLAUDE.md), and such jobs can carry a dangling open clock entry that
+    // would otherwise wrongly block "add a tech to a completed job" (Sal).
     const tcRows = await db.execute(sql`
       SELECT user_id FROM timeclock
       WHERE job_id = ${jobId} AND clock_out_at IS NULL
       LIMIT 1
     `);
     const isClockedIn = tcRows.rows.length > 0;
-    if (isClockedIn) {
+    if (isClockedIn && !isCompleted) {
       const blockedFields: string[] = [];
       if (scheduled_date !== undefined && scheduled_date !== before.scheduled_date) blockedFields.push("scheduled_date");
       if (scheduled_time !== undefined && scheduled_time !== before.scheduled_time) blockedFields.push("scheduled_time");

@@ -2125,9 +2125,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </span>
                   ))}
                   {canManageCommission && (
-                    <button onClick={() => !isLocked && setAddTechOpen(true)}
-                      disabled={isLocked}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 999, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+                    <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
+                      disabled={job.status === "cancelled"}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 999, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
                       <Plus size={11} /> Add tech
                     </button>
                   )}
@@ -2467,9 +2467,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   return `${label} job · ${t === "hourly" ? "hourly pay per tech" : "commission % per tech"}`;
                 })()}
               </div>
-              <button onClick={() => !isLocked && setAddTechOpen(true)}
-                disabled={isLocked}
-                style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+              {/* [add-tech-on-complete 2026-06-18] Team is editable on completed
+                  jobs — the office reconciles who actually worked, for payroll
+                  (Sal: "job is complete but I can't add another tech"). Only a
+                  cancelled job blocks it. */}
+              <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
+                disabled={job.status === "cancelled"}
+                style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
                 <Plus size={12} /> Add tech
               </button>
             </PS>
