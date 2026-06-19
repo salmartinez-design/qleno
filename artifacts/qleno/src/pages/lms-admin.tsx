@@ -843,7 +843,7 @@ function RosterTable({
                   </div>
                 </Td>
                 <Td>
-                  <DaysBadge days={r.days_remaining} />
+                  <DaysBadge days={r.days_remaining} status={r.status} />
                 </Td>
                 <Td>
                   <span style={{ color: INK_MUTE, fontSize: 13 }}>
@@ -1679,7 +1679,7 @@ function RosterCards({
               ({r.passed_count}/{r.total_modules})
             </span>
             <span style={{ marginLeft: "auto" }}>
-              <DaysBadge days={r.days_remaining} />
+              <DaysBadge days={r.days_remaining} status={r.status} />
             </span>
           </div>
           <div style={{ fontSize: 12, color: INK_MUTE }}>
@@ -1888,7 +1888,33 @@ function StatusPill({ status }: { status: RosterRow["status"] }) {
   );
 }
 
-function DaysBadge({ days }: { days: number | null }) {
+function DaysBadge({ days, status }: { days: number | null; status?: "active" | "completed" | "expired" }) {
+  // [lms-admin 2026-06-18] Sal report: Jose / Francisco / Maribel show
+  // 100% (13/13) Completed but the days-remaining badge still rendered
+  // "9 days overdue" because the component never read status. Once a
+  // learner is completed the countdown is moot — short-circuit to a
+  // green Completed pill. Same EmojiPill chrome the other states use.
+  if (status === "completed") {
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6,
+          background: "#ECFDF5",
+          color: SUCCESS,
+          border: `1px solid #BBF7D0`,
+          padding: "3px 8px",
+          borderRadius: 999,
+          fontSize: 11,
+          fontWeight: 700,
+          whiteSpace: "nowrap",
+        }}
+      >
+        <CircleCheck size={11} /> Completed
+      </span>
+    );
+  }
   let tone = SUCCESS;
   let bg = "#ECFDF5";
   let Icon: typeof CircleCheck = CircleCheck;
