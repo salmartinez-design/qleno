@@ -400,4 +400,141 @@ a logged-in Chrome tab and I'll extract it.
 - Pay rates (canonical): `employee_pay_rates` in `lib/db/src/schema/pay.ts`
 - Tests: `artifacts/api-server/src/tests/cutover-3a-leave.test.ts`
 - Cron host: `artifacts/api-server/src/index.ts`
+
+---
+
+# Addendum (2026-06-19) — Hire dates received; migration + eligibility finalized
+
+Sal pulled the MaidCentral Employee List (hire dates). I cross-checked it against the live
+Qleno DB (read-only audit, `scripts/_timeoff_audit_readonly.mjs`, SELECT-only). Results below.
+
+## A. Live-data confirmations of the Phase 1 assessment
+
+- **3A balances are empty:** `employee_leave_balances` for co1 = **0 rows, 0 granted, 0
+  used.** Old `users.{pto,sick,leave}_balance_hours` = all `0.00`, `leave_balance_activated
+  = false` for everyone. The engine is inert, exactly as described. Nothing to "preserve" on
+  migration — we seed from scratch.
+- **PLAWA seed bug confirmed in prod:** `leave_types` id 9 `plawa` = `accrue_per_hours`,
+  rate `0.0250`, `carryover_allowed = true`. Must become `flat_grant` / rate 0 /
+  `carryover=false`.
+- **NEW: duplicate active sick bucket.** co1 has **both** `plawa` (id 9, wait 90) **and**
+  the generic `sick` (id 5, "Sick Time", flat_grant, wait 0, carryover false) **active**.
+  The generic `pto` (id 1) was deactivated during seeding but the generic `sick` was not.
+  Two sick-like buckets showing at once → Phase 2 must deactivate `sick` (id 5) for co1 so
+  PLAWA is the single sick bucket.
+- **`company_leave_policy` (co1):** `leave_program_enabled=true`,
+  `leave_reset_basis='work_anniversary'`, `balance_ceiling_hours=80`,
+  `eligibility_trigger_days=90`, **`payout_on_separation=false`**. The payout flag conflicts
+  with the LMS (PTO *is* paid out) — see Q9.
+
+## B. Roster reconciliation (MC → Qleno) — two data problems to fix first
+
+| MC id | Name | MC hire | Qleno user | Qleno hire | Status |
+|------|------|---------|-----------|-----------|--------|
+| 26443 | Norma Puga | 2023-05-11 | 32 | 2023-05-11 | ✅ match |
+| 26450 | Maribel Castillo (office) | 2023-02-21 | 35 | 2023-02-21 | ✅ match |
+| 26451 | Salvador Martinez (owner) | 2019-09-01 | 1 | **NULL** | ⚠️ Qleno hire_date missing (owner — likely excluded from accrual anyway, Q11) |
+| 26452 | Rosa Gallegos | 2020-04-01 | 36 | 2020-04-01 | ✅ match |
+| 28968 | Francisco Estevez (office) | 2024-06-03 | 37 | 2024-06-03 | ✅ match |
+| 29567 | Diana Vasquez | 2024-06-18 | 38 | 2024-06-18 | ✅ match |
+| 30618 | Alma Salinas | 2025-06-03 | 39 | 2025-06-03 | ✅ match |
+| 32094 | Guadalupe Mejia | 2025-06-11 | 40 | 2025-06-11 | ✅ match |
+| 42877 | Alejandra Cuervo | 2025-08-01 | 41 | **2023-05-11** | 🔴 **WRONG** — Qleno copied Norma's date; would falsely grant PTO. Fix to 2025-08-01 before migration. |
+| 47897 | Juliana Loredo | 2026-01-26 | 42 | 2026-01-26 | ✅ match |
+| 51027 | Jose Ardila | 2026-05-01 | 44 | 2026-05-01 | ✅ match |
+| 51901 | Hilda Gallegos | 2026-05-25 | 516 | 2026-05-25 | ✅ match |
+| 28511 | Generic Cleaner (TEST) | 2024-05-15 | — | — | exclude (test) |
+| — | **Maryury Colmenares** | **not in MC list** | 817 | 2026-06-16 | 🟡 In Qleno, hired 3 days ago, **absent from MC list**. Include in accrual? (Q12) |
+| — | Test Auditor (TEST) | — | 493 | NULL | exclude (test) |
+
+**Two blockers for the migration roster:** (1) fix Alejandra's hire_date (a spin-off task
+is already queued), (2) decide on Maryury. Both are pre-migration data fixes.
+
+## C. Per-employee eligibility (as of today, 2026-06-19; using MC hire dates)
+
+90-day sick gate = `hire + 90d ≤ today`. PTO gate = `hire + 1yr ≤ today`. PTO tier: year-1
+grant = 40h; after 2nd anniversary the ceiling top-up takes it to 80h.
+
+| Employee | Hire | Sick (PLAWA) eligible? | PTO eligible? | PTO grant tier |
+|----------|------|------------------------|---------------|----------------|
+| Rosa Gallegos | 2020-04-01 | ✅ | ✅ | 80 (2yr+) |
+| Maribel Castillo (office) | 2023-02-21 | ✅ | ✅ | 80 |
+| Norma Puga | 2023-05-11 | ✅ | ✅ | 80 |
+| Francisco Estevez (office) | 2024-06-03 | ✅ | ✅ | 80 (2nd anniv 2026-06-03, 16d ago) |
+| Diana Vasquez | 2024-06-18 | ✅ | ✅ | 80 (2nd anniv **2026-06-18, yesterday**) |
+| Alma Salinas | 2025-06-03 | ✅ | ✅ (1yr crossed 16d ago) | 40 (year 1) |
+| Guadalupe Mejia | 2025-06-11 | ✅ | ✅ (1yr crossed 8d ago) | 40 (year 1) |
+| Alejandra Cuervo | 2025-08-01 | ✅ (90d since 2025-10-30) | ❌ (1yr = 2026-08-01) | — |
+| Juliana Loredo | 2026-01-26 | ✅ (90d since 2026-04-26) | ❌ (1yr = 2027-01-26) | — |
+| Jose Ardila | 2026-05-01 | ❌ (90d = 2026-07-30) | ❌ | — |
+| Hilda Gallegos | 2026-05-25 | ❌ (90d = 2026-08-23) | ❌ | — |
+| Maryury Colmenares | 2026-06-16 | ❌ (90d = 2026-09-14) | ❌ | — |
+| Sal Martinez (owner) | 2019-09-01 | (excluded? Q11) | (excluded? Q11) | — |
+
+This matches Sal's stated implications exactly (Jose & Hilda not sick-eligible; Alejandra/
+Juliana/Jose/Hilda not PTO-eligible; Alma & Guadalupe just crossed PTO). **Diana crossing
+her 2-year anniversary yesterday and Francisco 16 days ago means their 40→80 top-up is
+right on the boundary — the exact day depends on the reset basis (Q1).**
+
+## D. The "used so far" balance — why I now recommend MaidCentral as the source
+
+Sal suggested deriving 2026 "used" from Qleno's `additional_pay`. **I checked the real rows
+— this is not reliable for hours:**
+
+- `additional_pay` stores **dollars**, not hours. Hours appear only sporadically in
+  free-text `notes` (e.g. *"Fever … 11am-6pm (7h)"*, *"Dentist … (6h)"*) and many entries
+  (esp. PTO/vacation) have **no** hours noted.
+- The implied rate is **inconsistent** ($100/5h = $20/h, but $144/8h = $18/h), and
+  **`employee_pay_rates` is empty** — there is no canonical rate to divide dollars by.
+- Only **two** employees have any 2026 time-off entries at all: Norma (user 32) and
+  Alejandra (user 41). Everyone else = $0 in `additional_pay` for 2026.
+- `holiday_pay` entries exist too, but **holiday is a separate benefit**, not one of the
+  three accrual buckets — don't fold it into PLAWA/PTO used-hours.
+
+**Recommendation:** use **MaidCentral's per-employee Time Off tab (hours)** as the
+authoritative "used" source. MC tracks used *in hours* natively; Qleno's dollar ledger
+can't be back-converted cleanly. The pull is small in practice (only Norma & Alejandra have
+2026 usage), but get all active employees for a clean reconciliation.
+
+**Critical dependency — the "used" window is undefined until Q1 is answered.** "Used so far
+this Benefit Year" means:
+- **Calendar-year reset:** used since 2026-01-01 (Norma's Jan–Mar PTO + Feb sick all count
+  against this year's 40/80).
+- **Work-anniversary reset:** used since each person's most recent anniversary (Norma's
+  benefit year started **2026-05-11**, so her Jan–Mar usage is in the *prior* year and does
+  **not** reduce her new grant — she'd start nearly full).
+
+These produce **very different** starting balances for Norma. So the migration's per-person
+`used_hours` cannot be finalized until Sal answers Q1.
+
+## E. Finalized migration procedure (HELD pending Q1 + dry-run sign-off)
+
+1. **Pre-fix data:** correct Alejandra's hire_date (→2025-08-01); decide Maryury (Q12); set
+   Sal's hire_date or exclude (Q11).
+2. **Fix the seed (Phase 2 code):** PLAWA → `flat_grant`/rate 0/`carryover=false`;
+   deactivate generic `sick` (id 5) for co1; set per-type `payout_on_separation` (PTO yes).
+3. **Grant:** the grant-on-eligibility job writes `granted_hours` per the §C table
+   (PLAWA 40 to all sick-eligible; PTO 40 or 80 to PTO-eligible; 0 for not-yet-eligible).
+   This is **engine-computed, not migrated** — MC "accrued/granted" is not imported.
+4. **Used:** set `used_hours` per employee/bucket from **MC used-hours within the current
+   Benefit Year** (window per Q1). Only Norma & Alejandra are non-zero in 2026.
+5. **Stamp** `last_reset_at` = current Benefit Year start so the next reset fires correctly.
+6. **Dry-run diff** (employee × bucket: granted / used / available) for Sal to eyeball
+   **before any write**; seed via `ON CONFLICT DO UPDATE`. Spot-check 3–5 in the UI after.
+
+## F. Updated / added questions for Sal
+
+- **Q1 (still the blocker)** — reset basis: calendar year vs. work anniversary. Now doubly
+  important: it sets both the reset date *and* the "used so far" window that determines every
+  starting balance (see §D).
+- **Q10 (resolved direction)** — "used" source: I recommend **MaidCentral Time Off tab
+  (hours)**, not Qleno `additional_pay` (can't yield reliable hours). Confirm, and Sal pulls
+  the per-employee used-hours (Employees → [employee] → Time Off / PTO tab, or a Time-Off
+  report) once Q1 fixes the window.
+- **Q11 (new)** — owner/office staff: do PLAWA/PTO accrual apply to Sal (owner) and the
+  office staff (Maribel, Francisco), or techs only? Sal's Qleno hire_date is NULL.
+- **Q12 (new)** — Maryury Colmenares (Qleno user 817, hired 2026-06-16) isn't in the MC
+  list. Include her in accrual (she's pre-90-day, so 0 today either way)?
+- **Q13 (new)** — duplicate sick bucket: OK to deactivate the generic `sick` (leave_types
+  id 5) for co1 so PLAWA is the only sick bucket?
 </content>
