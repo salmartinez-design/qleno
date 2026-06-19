@@ -14,6 +14,7 @@ import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
+import { startDiskUsageAlertCron } from "./lib/disk-usage-alert.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -356,6 +357,9 @@ async function startup() {
   }, 5000); // 5s delay to let migrations finish
   startNotificationCron();
   startFollowUpCron();
+  // [disk-alert 2026-06-19] Early-warning before the Postgres volume fills
+  // (the 365-day recurring backlog hit 98% with no prior warning).
+  startDiskUsageAlertCron();
 
   // [revenue-connect 2026-06-12] Hourly job_history re-sync — keeps the
   // revenue ledger current so yesterday's completions appear in the
