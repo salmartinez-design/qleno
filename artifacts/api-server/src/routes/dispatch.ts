@@ -1406,8 +1406,15 @@ router.get("/storage-audit", requireAuth, dispatchOfficeGate, async (req, res) =
       })),
     });
   } catch (err) {
+    const cause: any = (err as any)?.cause ?? err;
     console.error("Storage audit error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to run audit" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: err instanceof Error ? err.message : "Failed to run audit",
+      // [outage-diagnostic 2026-06-19] Surface the underlying Postgres error so
+      // a missing relation/column is visible without direct DB access.
+      pg: { message: cause?.message, code: cause?.code, detail: cause?.detail, table: cause?.table, column: cause?.column, routine: cause?.routine },
+    });
   }
 });
 
@@ -1444,8 +1451,14 @@ router.post("/prune-far-future", requireAuth, requireRole("owner", "super_admin"
 
     return res.json({ dry_run: false, deleted: ids.length, cutoff_days: cutoffDays });
   } catch (err) {
+    const cause: any = (err as any)?.cause ?? err;
     console.error("Prune far-future error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to prune" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: err instanceof Error ? err.message : "Failed to prune",
+      // [outage-diagnostic 2026-06-19] Surface the underlying Postgres error.
+      pg: { message: cause?.message, code: cause?.code, detail: cause?.detail, table: cause?.table, column: cause?.column, routine: cause?.routine },
+    });
   }
 });
 
