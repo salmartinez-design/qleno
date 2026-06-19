@@ -132,6 +132,55 @@ function startFollowUpCron() {
   console.log("[Qleno] Follow-up sequence cron started (every 30 min)");
 }
 
+// ── Boot-resilience timeout wrapper ───────────────────────────────────────────
+// 2026-06-19 (production-outage hardening): a degraded DB — slow, recovering,
+// or with a full volume — can make a query HANG indefinitely. A try/catch can
+// NOT rescue a hang (it never throws), so a single stuck schema statement
+// before app.listen() stalls boot and the platform returns 502. This wrapper
+// races a pre-listen startup task against a hard timeout. On timeout we LOG and
+// CONTINUE to listen rather than block: incomplete schema DDL is idempotent and
+// retried on the next cold start, and binding the port lets the app serve reads
+// while the DB recovers. The underlying promise keeps running detached, so we
+// attach a no-op .catch to it to keep a late rejection from surfacing as an
+// unhandledRejection and killing the process.
+const SCHEMA_TIMEOUT_MS = 15_000;   // bounded ensure*/DDL + quick checks
+const MIGRATION_TIMEOUT_MS = 45_000; // the larger mixed schema+seed migrations
+
+function withBootTimeout<T>(
+  label: string,
+  ms: number,
+  task: () => Promise<T>,
+): Promise<T | void> {
+  let promise: Promise<T>;
+  try {
+    promise = task();
+  } catch (err) {
+    // Synchronous throw before any await — surface to the caller's try/catch.
+    return Promise.reject(err);
+  }
+  // Detach: if we time out, we stop awaiting but the task keeps running.
+  // Swallow its eventual outcome so a late rejection can't crash the process.
+  promise.catch(() => {});
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.error(
+        `[startup] ${label} — exceeded ${ms}ms, continuing to listen (DDL is idempotent, retries next cold start)`,
+      );
+      resolve();
+    }, ms);
+  });
+
+  return Promise.race([
+    promise.then((v) => {
+      if (timer) clearTimeout(timer);
+      return v;
+    }),
+    timeout,
+  ]);
+}
+
 // ── Startup ──────────────────────────────────────────────────────────────────
 // 2026-05-17 (read/write divergence cleanup): migrations now run BEFORE
 // app.listen(). Previous order accepted traffic immediately and ran
@@ -146,73 +195,96 @@ function startFollowUpCron() {
 // boot — exactly matches the previous .catch() behaviour, just earlier
 // in the lifecycle. Crons + smoke tests still start inside the listen
 // callback (after listen), unchanged.
+//
+// 2026-06-19 (production-outage hardening): the schema/migration work that
+// MUST precede listen (so /quiz/submit and /handbook/sign never hit a missing
+// column) now runs through withBootTimeout() so a degraded/full DB cannot hang
+// boot forever — on timeout we log and listen anyway. Heavy NON-schema DATA
+// work that does NOT gate request correctness (job-history live-bridge sync,
+// onboarding-password bootstrap, LMS recompute backfills) moved AFTER listen,
+// fire-and-forget. The schema DDL that those data ops depend on
+// (ensureJobHistoryLiveBridgeSchema) STAYS before listen.
 async function startup() {
   try {
-    await seedIfNeeded();
+    await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {
     console.error("[startup] seedIfNeeded — non-fatal:", err?.message ?? err);
   }
   try {
-    await runPhesDataMigration();
+    await withBootTimeout("runPhesDataMigration", MIGRATION_TIMEOUT_MS, () => runPhesDataMigration());
   } catch (err: any) {
     console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
   }
   try {
-    await runUserCompaniesMigration();
+    await withBootTimeout("runUserCompaniesMigration", SCHEMA_TIMEOUT_MS, () => runUserCompaniesMigration());
   } catch (err: any) {
     console.error("[startup] runUserCompaniesMigration — non-fatal:", err?.message ?? err);
   }
   try {
-    await runCutoverDataMigration();
+    await withBootTimeout("runCutoverDataMigration", MIGRATION_TIMEOUT_MS, () => runCutoverDataMigration());
   } catch (err: any) {
     console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
   }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
-    const { ensureBookingConfirmationSetup } = await import("./lib/booking-confirmation.js");
-    await ensureBookingConfirmationSetup();
+    await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureBookingConfirmationSetup } = await import("./lib/booking-confirmation.js");
+      await ensureBookingConfirmationSetup();
+    });
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
   }
   // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
   try {
-    const { ensurePaymentSourceBackfill } = await import("./lib/payment-source-backfill.js");
-    await ensurePaymentSourceBackfill();
+    await withBootTimeout("ensurePaymentSourceBackfill", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensurePaymentSourceBackfill } = await import("./lib/payment-source-backfill.js");
+      await ensurePaymentSourceBackfill();
+    });
   } catch (err: any) {
     console.error("[startup] ensurePaymentSourceBackfill — non-fatal:", err?.message ?? err);
   }
   // [GAP3] office-reply columns on scorecard_entries
   try {
-    const { ensureScorecardReplyColumns } = await import("./lib/scorecard-engine.js");
-    await ensureScorecardReplyColumns();
+    await withBootTimeout("ensureScorecardReplyColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureScorecardReplyColumns } = await import("./lib/scorecard-engine.js");
+      await ensureScorecardReplyColumns();
+    });
   } catch (err: any) {
     console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
   }
   // [sms Pass3] short-link table + customer-facing SMS copy upgrade
   try {
-    const { ensureShortLinkTable } = await import("./lib/short-link.js");
-    await ensureShortLinkTable();
-    const { upgradeCustomerSmsCopy } = await import("./lib/sms-copy.js");
-    await upgradeCustomerSmsCopy();
+    await withBootTimeout("sms Pass3 setup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureShortLinkTable } = await import("./lib/short-link.js");
+      await ensureShortLinkTable();
+      const { upgradeCustomerSmsCopy } = await import("./lib/sms-copy.js");
+      await upgradeCustomerSmsCopy();
+    });
   } catch (err: any) {
     console.error("[startup] sms Pass3 setup — non-fatal:", err?.message ?? err);
   }
   // [multi-frequency] quotes.frequency_options snapshot column
   try {
-    const { ensureQuotePricingSetup } = await import("./lib/quote-pricing.js");
-    await ensureQuotePricingSetup();
+    await withBootTimeout("ensureQuotePricingSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureQuotePricingSetup } = await import("./lib/quote-pricing.js");
+      await ensureQuotePricingSetup();
+    });
   } catch (err: any) {
     console.error("[startup] ensureQuotePricingSetup — non-fatal:", err?.message ?? err);
   }
   try {
-    const { ensurePayrollP0Setup } = await import("./lib/payroll-migrate.js");
-    await ensurePayrollP0Setup();
+    await withBootTimeout("ensurePayrollP0Setup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensurePayrollP0Setup } = await import("./lib/payroll-migrate.js");
+      await ensurePayrollP0Setup();
+    });
   } catch (err: any) {
     console.error("[startup] ensurePayrollP0Setup — non-fatal:", err?.message ?? err);
   }
   try {
-    const { ensurePayrollSnapshotSetup } = await import("./lib/payroll-snapshot.js");
-    await ensurePayrollSnapshotSetup();
+    await withBootTimeout("ensurePayrollSnapshotSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensurePayrollSnapshotSetup } = await import("./lib/payroll-snapshot.js");
+      await ensurePayrollSnapshotSetup();
+    });
   } catch (err: any) {
     console.error("[startup] ensurePayrollSnapshotSetup — non-fatal:", err?.message ?? err);
   }
@@ -220,60 +292,15 @@ async function startup() {
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live
   // after the MC cutover instead of freezing at the last imported week.
+  // Only the SCHEMA is ensured here (the hourly sync + dashboard reads depend
+  // on it); the heavy data SYNC that walks completed jobs moved AFTER listen
+  // (see runPostListenDataTasks) so it can't stall boot on a degraded DB.
   try {
-    await ensureJobHistoryLiveBridgeSchema();
-    const r = await syncJobHistoryLiveBridge();
-    if (r.inserted || r.updated || r.removed) {
-      console.log(`[job-history-bridge] startup sync: +${r.inserted} ~${r.updated} -${r.removed}`);
-    }
+    await withBootTimeout("ensureJobHistoryLiveBridgeSchema", SCHEMA_TIMEOUT_MS, () =>
+      ensureJobHistoryLiveBridgeSchema(),
+    );
   } catch (err: any) {
-    console.error("[startup] job-history bridge — non-fatal:", err?.message ?? err);
-  }
-  // [onboarding-password 2026-06-16] Narrow login bootstrap for a stuck new
-  // hire during the comms-off cutover (temp-password email can't send while
-  // COMMS_ENABLED=false). Allowlist-scoped + never-logged-in guarded, so it
-  // can't clobber any active password. Self-limiting: once they log in,
-  // last_login_at is set and the UPDATE never matches them again.
-  try {
-    const n = await bootstrapOnboardingPasswords();
-    if (n > 0) {
-      console.log(`[onboarding-password] bootstrapped ${n} stuck onboarding login(s)`);
-    }
-  } catch (err: any) {
-    console.error("[startup] onboarding-password bootstrap — non-fatal:", err?.message ?? err);
-  }
-  // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
-  // is live AND enforced in production. Non-fatal: pay computation
-  // independently filters at the application layer, but the deploy log
-  // makes the DB-layer guarantee visible to anyone watching.
-  try {
-    await verifyClockIntegrityConstraint();
-  } catch (err: any) {
-    console.error("[startup] clock-integrity self-check — non-fatal:", err?.message ?? err);
-  }
-  try {
-    const r = await runLmsCompletionBackfill();
-    if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
-      console.log(
-        `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
-      );
-    }
-  } catch (err: any) {
-    console.error("[startup] runLmsCompletionBackfill — non-fatal:", err?.message ?? err);
-  }
-  try {
-    const r = await runLmsCertificateBackfill();
-    if (
-      r.certs_issued > 0 ||
-      r.tenant_mismatches_skipped > 0 ||
-      r.errors > 0
-    ) {
-      console.log(
-        `[lms-cert-backfill] scanned=${r.rows_scanned} issued=${r.certs_issued} tenant_skipped=${r.tenant_mismatches_skipped} errors=${r.errors}`,
-      );
-    }
-  } catch (err: any) {
-    console.error("[startup] runLmsCertificateBackfill — non-fatal:", err?.message ?? err);
+    console.error("[startup] ensureJobHistoryLiveBridgeSchema — non-fatal:", err?.message ?? err);
   }
 
   app.listen(port, "0.0.0.0", () => {
@@ -286,6 +313,13 @@ async function startup() {
     // backup state changes maybe twice a year.
     // Procedure + RPO/RTO targets: docs/disaster-recovery.md
     console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
+
+    // [boot-resilience 2026-06-19] Heavy NON-schema data work that does not
+    // gate request correctness runs here, AFTER the port is bound, so a slow
+    // or recovering DB delays these tasks instead of the whole boot (→ 502).
+    // Fire-and-forget: each task self-logs and is independently guarded.
+    void runPostListenDataTasks();
+
     const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
     // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
     // Railway restart cascades caused 5x concurrent engine runs on the
@@ -374,6 +408,71 @@ async function startup() {
     }, 3000);
   }
   });
+}
+
+// [boot-resilience 2026-06-19] Post-listen data tasks. These were previously
+// awaited BEFORE app.listen(); on a degraded/full DB any one of them could hang
+// and stall boot → 502. They do NOT gate request correctness (the schema they
+// touch is ensured before listen), so they now run after the port is bound.
+// Sequential (not Promise.all) so we don't slam a recovering DB with parallel
+// table scans. Each keeps its original per-task try/catch + non-fatal logging.
+async function runPostListenDataTasks() {
+  // [revenue-connect] job_history live bridge — mirrors completed jobs into the
+  // revenue ledger so dashboard forecast / business health stay live post-cutover.
+  try {
+    const r = await syncJobHistoryLiveBridge();
+    if (r.inserted || r.updated || r.removed) {
+      console.log(`[job-history-bridge] startup sync: +${r.inserted} ~${r.updated} -${r.removed}`);
+    }
+  } catch (err: any) {
+    console.error("[startup] job-history bridge — non-fatal:", err?.message ?? err);
+  }
+  // [onboarding-password 2026-06-16] Narrow login bootstrap for a stuck new
+  // hire during the comms-off cutover (temp-password email can't send while
+  // COMMS_ENABLED=false). Allowlist-scoped + never-logged-in guarded, so it
+  // can't clobber any active password. Self-limiting: once they log in,
+  // last_login_at is set and the UPDATE never matches them again.
+  try {
+    const n = await bootstrapOnboardingPasswords();
+    if (n > 0) {
+      console.log(`[onboarding-password] bootstrapped ${n} stuck onboarding login(s)`);
+    }
+  } catch (err: any) {
+    console.error("[startup] onboarding-password bootstrap — non-fatal:", err?.message ?? err);
+  }
+  // Cutover 1E — self-check that the 1C GPS-integrity CHECK constraint
+  // is live AND enforced in production. Non-fatal: pay computation
+  // independently filters at the application layer, but the deploy log
+  // makes the DB-layer guarantee visible to anyone watching.
+  try {
+    await verifyClockIntegrityConstraint();
+  } catch (err: any) {
+    console.error("[startup] clock-integrity self-check — non-fatal:", err?.message ?? err);
+  }
+  try {
+    const r = await runLmsCompletionBackfill();
+    if (r.enrollments_reverted > 0 || r.final_rows_revoked > 0) {
+      console.log(
+        `[lms-backfill] scanned=${r.enrollments_scanned} reverted=${r.enrollments_reverted} final_revoked=${r.final_rows_revoked}`,
+      );
+    }
+  } catch (err: any) {
+    console.error("[startup] runLmsCompletionBackfill — non-fatal:", err?.message ?? err);
+  }
+  try {
+    const r = await runLmsCertificateBackfill();
+    if (
+      r.certs_issued > 0 ||
+      r.tenant_mismatches_skipped > 0 ||
+      r.errors > 0
+    ) {
+      console.log(
+        `[lms-cert-backfill] scanned=${r.rows_scanned} issued=${r.certs_issued} tenant_skipped=${r.tenant_mismatches_skipped} errors=${r.errors}`,
+      );
+    }
+  } catch (err: any) {
+    console.error("[startup] runLmsCertificateBackfill — non-fatal:", err?.message ?? err);
+  }
 }
 
 // Kick off startup. Any unhandled rejection here is fatal — we never
