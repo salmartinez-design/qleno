@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Loader2 } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAuthStore } from "@/lib/auth";
+import { freqOptions } from "@/lib/frequency-labels";
 import { useToast } from "@/hooks/use-toast";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -173,13 +174,12 @@ function normalizeTimeStr(t: string | null | undefined): string {
   return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
-const FREQUENCIES_STANDARD: Array<{ value: string; label: string }> = [
-  { value: "on_demand", label: "One-time" },
-  { value: "weekly", label: "Weekly" },
-  { value: "biweekly", label: "Biweekly" },
-  { value: "every_3_weeks", label: "Every 3 weeks" },
-  { value: "monthly", label: "Every 4 weeks / Monthly" },
-];
+// Labels come from the canonical map (lib/frequency-labels) so this dropdown
+// stays in sync with dispatch, quotes, and the booking widget.
+const FREQUENCIES_STANDARD = freqOptions([
+  "on_demand", "weekly", "biweekly", "every_3_weeks", "monthly",
+]);
+// Commercial multi-day keeps its parenthetical hints (office-only context).
 const FREQUENCIES_COMMERCIAL_MULTI: Array<{ value: string; label: string }> = [
   { value: "daily",       label: "Daily (every day)" },
   { value: "weekdays",    label: "Weekdays (M–F)" },

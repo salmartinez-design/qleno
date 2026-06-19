@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { getAuthHeaders } from "@/lib/auth";
+import { frequencyLabel } from "@/lib/frequency-labels";
 import { formatAddress } from "@/lib/format-address";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { useBranch } from "@/contexts/branch-context";
@@ -72,15 +73,17 @@ const TIME_OPTIONS = [
 // future tenant needs a custom cadence the right move is to
 // extend the engine, not a DB table.
 type FreqApplies = "residential" | "commercial";
+// Labels via canonical map (lib/frequency-labels); weekdays keeps its (M–F)
+// hint since this dropdown is the commercial scheduling surface.
 const FREQ_OPTIONS: { value: string; label: string; applies_to: FreqApplies[] }[] = [
-  { value: "on_demand",      label: "One Time",         applies_to: ["residential", "commercial"] },
-  { value: "weekly",         label: "Weekly",           applies_to: ["residential", "commercial"] },
-  { value: "biweekly",       label: "Bi-weekly",        applies_to: ["residential", "commercial"] },
-  { value: "every_3_weeks",  label: "Every 3 weeks",    applies_to: ["residential", "commercial"] },
-  { value: "monthly",        label: "Every 4 weeks",    applies_to: ["residential", "commercial"] },
-  { value: "daily",          label: "Daily",            applies_to: ["commercial"] },
-  { value: "weekdays",       label: "Weekdays (M–F)",   applies_to: ["commercial"] },
-  { value: "custom_days",    label: "Custom days",      applies_to: ["commercial"] },
+  { value: "on_demand",      label: frequencyLabel("on_demand"),     applies_to: ["residential", "commercial"] },
+  { value: "weekly",         label: frequencyLabel("weekly"),        applies_to: ["residential", "commercial"] },
+  { value: "biweekly",       label: frequencyLabel("biweekly"),      applies_to: ["residential", "commercial"] },
+  { value: "every_3_weeks",  label: frequencyLabel("every_3_weeks"), applies_to: ["residential", "commercial"] },
+  { value: "monthly",        label: frequencyLabel("monthly"),       applies_to: ["residential", "commercial"] },
+  { value: "daily",          label: frequencyLabel("daily"),         applies_to: ["commercial"] },
+  { value: "weekdays",       label: "Weekdays (M–F)",                applies_to: ["commercial"] },
+  { value: "custom_days",    label: frequencyLabel("custom_days"),   applies_to: ["commercial"] },
 ];
 
 const STATUS_LABELS: Record<string, string> = {

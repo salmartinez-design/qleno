@@ -2,13 +2,14 @@ import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$c, fmtDate, clr, KpiCard, DateRange, ReportHeader, DataTable, useReportData } from "./_shared";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { frequencyLabel } from "@/lib/frequency-labels";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 
 function today() { return new Date().toISOString().split("T")[0]; }
 function daysAgo(n: number) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().split("T")[0]; }
 function pct(n: number, d: number) { return d === 0 ? "0%" : `${Math.round(n / d * 100)}%`; }
-function cadenceLabel(c: string) { return ({ weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" } as any)[c] ?? c ?? "—"; }
+function cadenceLabel(c: string) { return frequencyLabel(c) || c || "—"; }
 
 interface UpsellRow { id: number; date: string; client_name: string; cadence: string | null; upsell_accepted: boolean; upsell_declined: boolean; upsell_deferred: boolean; locked_rate: string | null; deep_clean_total: string; }
 interface UpsellData { kpi: { total_shown: number; total_accepted: number; total_declined: number; total_deferred: number }; trend: { week_label: string; shown: number; accepted: number }[]; rows: UpsellRow[]; lockHealth: { active_count: number; expiring_30: number; voided_month: number; voided_time_overrun: number; voided_service_gap: number; voided_manual: number; voided_expired: number }; }

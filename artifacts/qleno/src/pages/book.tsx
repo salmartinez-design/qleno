@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { frequencyLabel } from "@/lib/frequency-labels";
 
 // ── API base (public, no auth) ───────────────────────────────────────────────
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -991,10 +992,9 @@ export default function BookPage() {
     setUpsellTermsOpen(false); setUpsellCadenceError(false);
   }
 
-  // ── Frequency label helper ────────────────────────────────────────────────
+  // ── Frequency label helper (canonical — lib/frequency-labels) ──────────────
   function wLabel(f: string) {
-    const m: Record<string, string> = { onetime: "One-Time", weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" };
-    return m[f] || f;
+    return frequencyLabel(f) || f;
   }
 
   // ── Shared styles ─────────────────────────────────────────────────────────

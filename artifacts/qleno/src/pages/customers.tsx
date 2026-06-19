@@ -3,6 +3,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { frequencyLabel } from "@/lib/frequency-labels";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { useBranch } from "@/contexts/branch-context";
 import { toast } from "sonner";
@@ -26,8 +27,7 @@ function fmtDate(d?: string | null) {
 
 function freqLabel(f?: string | null) {
   if (!f) return null;
-  const m: Record<string, string> = { weekly: "Weekly", biweekly: "Bi-weekly", monthly: "Monthly", on_demand: "On Demand" };
-  return m[f] || f;
+  return frequencyLabel(f) || f;
 }
 
 function tierColor(tier: string) {

@@ -10,6 +10,7 @@ import { ChangePasswordModal } from "@/components/change-password-modal";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
+import { FREQUENCY_LABELS as CANONICAL_FREQUENCY_LABELS } from "@/lib/frequency-labels";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
@@ -174,13 +175,10 @@ function formatServiceType(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 }
 
-// Cadence labels, MaidCentral-style ("Every Two Weeks"), keyed by the
-// frequency enum. Unknown values title-case as a fallback.
-const FREQUENCY_LABELS: Record<string, string> = {
-  weekly: "Weekly", biweekly: "Every 2 Weeks", every_3_weeks: "Every 3 Weeks",
-  monthly: "Every 4 Weeks", semi_monthly: "Twice a Month", on_demand: "One-Time",
-  daily: "Daily", weekdays: "Weekdays", custom_days: "Custom Days",
-};
+// Cadence labels come from the canonical map (lib/frequency-labels) so the
+// tech view matches dispatch, quotes, and the booking widget. Unknown values
+// title-case as a fallback.
+const FREQUENCY_LABELS = CANONICAL_FREQUENCY_LABELS;
 export function frequencyLabel(f: string | null | undefined): string | null {
   if (!f) return null;
   return FREQUENCY_LABELS[f] ?? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());

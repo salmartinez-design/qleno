@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { frequencyLabel } from "./frequency-labels.js";
 
 // [multi-frequency Pass1] Single shared quote-pricing engine + frequency-options
 // builder. Mirrors the authenticated /api/pricing/calculate conventions (the
@@ -110,12 +111,13 @@ export async function computeQuotePricing(opts: {
   };
 }
 
-// The customer-facing tiers, in display order. Labels are generic/multi-tenant.
+// The customer-facing tiers, in display order. Labels via the canonical map
+// (lib/frequency-labels) so they match the quote builder + booking widget.
 const TIERS: Array<{ frequency: string; label: string; recurring: boolean }> = [
-  { frequency: "onetime",  label: "One-time",      recurring: false },
-  { frequency: "weekly",   label: "Weekly",        recurring: true },
-  { frequency: "biweekly", label: "Every 2 weeks", recurring: true },
-  { frequency: "monthly",  label: "Every 4 weeks", recurring: true },
+  { frequency: "onetime",  label: frequencyLabel("onetime"),  recurring: false },
+  { frequency: "weekly",   label: frequencyLabel("weekly"),   recurring: true },
+  { frequency: "biweekly", label: frequencyLabel("biweekly"), recurring: true },
+  { frequency: "monthly",  label: frequencyLabel("monthly"),  recurring: true },
 ];
 
 export type FrequencyOption = {
