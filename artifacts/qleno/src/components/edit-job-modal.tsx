@@ -760,6 +760,13 @@ export default function EditJobModal({
 
   // ── Recalc on input changes (debounced) ─────────────────────────────────
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // [edit-price-preserve 2026-06-19] Baseline captured on the first calc after
+  // load: the add-on total then + a signature of the service inputs. Lets us
+  // tell "only add-ons changed" (apply the add-on DELTA to the job's agreed
+  // total) from "service changed" (full engine recompute). Without this, adding
+  // an add-on recomputed the base to the scope default and a custom price went
+  // DOWN (Todd Tue: $220 + $50 fridge showed $245 instead of $270).
+  const priceBaselineRef = useRef<{ addonsTotal: number; sig: string } | null>(null);
   useEffect(() => {
     if (manualRate) return; // honor manual override; no recalc
     if (!clientLoaded) return;
@@ -832,8 +839,27 @@ export default function EditJobModal({
         });
         const d = await r.json();
         if (!r.ok) throw new Error(d.error || "Calc failed");
-        setCalcResult(d);
-        setBaseFee(Number(d.final_total ?? d.subtotal ?? 0));
+        // [edit-price-preserve 2026-06-19] Keep the job's agreed total sticky.
+        // Only apply the CHANGE in add-ons unless the operator actually changed
+        // the service (scope/sqft/frequency/hours/rate) — then take the engine's
+        // fresh number. This stops a custom base from being silently reset to
+        // the scope default when an add-on is added.
+        const addonsTotalNow = Number(d.addons_total ?? 0);
+        const sigNow = JSON.stringify([scopeId, allowedHours, frequency, propertySqft, clientHourlyRate]);
+        if (priceBaselineRef.current === null) {
+          priceBaselineRef.current = { addonsTotal: addonsTotalNow, sig: sigNow };
+        }
+        if (priceBaselineRef.current.sig === sigNow) {
+          // Service unchanged → agreed total + add-on delta.
+          const newTotal = Math.round((initialBaseFee + (addonsTotalNow - priceBaselineRef.current.addonsTotal)) * 100) / 100;
+          const shownBase = Math.round((newTotal - addonsTotalNow) * 100) / 100;
+          setCalcResult({ ...d, base_price: shownBase, subtotal: newTotal, final_total: newTotal });
+          setBaseFee(newTotal);
+        } else {
+          // Service genuinely changed → full engine recompute is correct.
+          setCalcResult(d);
+          setBaseFee(Number(d.final_total ?? d.subtotal ?? 0));
+        }
       } catch (err: any) {
         setCalcError(err.message || "Could not calculate price");
       } finally {
