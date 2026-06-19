@@ -1338,11 +1338,18 @@ router.get("/zone-coverage-audit", requireAuth, dispatchOfficeGate, async (req, 
 //   - no clock punches (timeclock / job_clock_events) and no invoice
 // Because deletion runs in a transaction, any unexpected FK child rolls the
 // whole thing back rather than leaving a half-deleted job.
+//
+// NOTE: cutoffDays MUST be cast `::int` in the SQL. Drizzle binds the JS
+// number as an untyped parameter ($1), so a bare `CURRENT_DATE + ${cutoffDays}`
+// makes Postgres throw `operator is not unique: date + unknown` (42725) — it
+// can't choose between date+int / date+interval for an unknown-typed operand.
+// The cast pins it to `date + int` → date. (This 500'd the live storage-audit
+// endpoint; the error is NOT an enum issue despite the surface symptom.)
 const prunableFarFutureWhere = (companyId: number, cutoffDays: number) => sql`
   j.company_id = ${companyId}
   AND j.status = 'scheduled'
   AND j.recurring_schedule_id IS NOT NULL
-  AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays})
+  AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays}::int)
   AND j.manual_rate_override = false
   AND j.charge_succeeded_at IS NULL
   AND j.charge_attempted_at IS NULL
@@ -1367,7 +1374,7 @@ router.get("/storage-audit", requireAuth, dispatchOfficeGate, async (req, res) =
         COUNT(*) FILTER (
           WHERE j.status = 'scheduled'
             AND j.recurring_schedule_id IS NOT NULL
-            AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays})
+            AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays}::int)
         ) AS far_future_recurring_total,
         COUNT(*) FILTER (WHERE (${prunableFarFutureWhere(companyId, cutoffDays)})) AS prunable
       FROM jobs j
@@ -1406,8 +1413,16 @@ router.get("/storage-audit", requireAuth, dispatchOfficeGate, async (req, res) =
       })),
     });
   } catch (err) {
+    const cause: any = (err as any)?.cause ?? err;
     console.error("Storage audit error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to run audit" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: err instanceof Error ? err.message : "Failed to run audit",
+      // [outage-diagnostic 2026-06-19] Surface the underlying Postgres error so
+      // a future failure (bad cast, missing relation/column) is visible without
+      // direct DB access.
+      pg: { message: cause?.message, code: cause?.code, detail: cause?.detail, table: cause?.table, column: cause?.column, routine: cause?.routine },
+    });
   }
 });
 
@@ -1444,8 +1459,14 @@ router.post("/prune-far-future", requireAuth, requireRole("owner", "super_admin"
 
     return res.json({ dry_run: false, deleted: ids.length, cutoff_days: cutoffDays });
   } catch (err) {
+    const cause: any = (err as any)?.cause ?? err;
     console.error("Prune far-future error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to prune" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: err instanceof Error ? err.message : "Failed to prune",
+      // [outage-diagnostic 2026-06-19] Surface the underlying Postgres error.
+      pg: { message: cause?.message, code: cause?.code, detail: cause?.detail, table: cause?.table, column: cause?.column, routine: cause?.routine },
+    });
   }
 });
 
