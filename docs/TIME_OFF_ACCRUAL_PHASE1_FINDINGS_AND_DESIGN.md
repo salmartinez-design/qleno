@@ -1,0 +1,403 @@
+# Time-Off Accrual — Phase 1 Findings & Design
+
+**Status:** Phase 1 (research + design). Read-only. **No engine built, no balances
+written, no prod writes.** Awaiting Sal's confirmation of the rules before Phase 2.
+
+**Scope:** Hours-based accrual + balances + annual reset + 90-day eligibility for
+**Sick (PLAWA)**, **PTO**, and **Unpaid Personal Leave**, integrated with payroll, then
+migrate every active employee's starting balances from MaidCentral.
+
+**Branch:** `feat/time-off-accrual-phase1-design` · draft PR.
+
+---
+
+## TL;DR — the one thing that changes everything
+
+**The leave engine already largely exists.** A prior workstream ("Cutover 3A") shipped a
+tenant-configurable leave system: schema, a pure-math accrual/reset engine, request
+lifecycle (with multi-bucket cascade), blackouts, and use-it-or-lose-it alerts. Phes's
+PLAWA / PTO / Unpaid / Unexcused buckets are **already seeded** in the DB.
+
+So this is **not** a green-field "build an accrual engine" job. The real Phase 2 work is
+narrower and more surgical:
+
+1. **Fix the seeded PLAWA config** — it currently contradicts the written policy (see
+   discrepancy #1 below). This is a correctness bug, not a style choice.
+2. **Wire the grant/accrual/reset to actually run** — the math exists but **nothing calls
+   it**. Balances are inert (everyone shows 0). There is no reset cron and no
+   grant-on-eligibility job.
+3. **Connect leave to payroll** — paid sick/PTO hours do **not** flow into pay today.
+   Office manually types dollar amounts as `additional_pay` lines.
+4. **Resolve the split-brain** — there are **two** parallel leave subsystems (the new 3A
+   tables and an older set of `users.*_balance_hours` columns). They disagree.
+5. **Migrate balances from MaidCentral** — a load path already exists; we need the data.
+
+And there is **one policy conflict that only Sal can resolve** (reset basis: calendar year
+vs. work anniversary). Everything downstream — reset dates, migration, the 90-day gate —
+depends on his answer. **Details and the full question list are at the bottom.**
+
+---
+
+## 1. Extracted policies (from the LMS)
+
+**Source:** `artifacts/qleno/src/lib/training/curriculum.ts` (the bilingual
+`phes-policies` LMS module). This is real, written, employee-facing policy — quoted
+verbatim below. Mirror/answer-key: `lib/training/src/answer-key.ts`.
+
+### The three-bucket model (curriculum.ts ~line 334, verbatim table)
+
+| # | Bucket | Hours | Eligible | Notice | Deniable? | Paid out at separation? |
+|---|--------|-------|----------|--------|-----------|-------------------------|
+| 1 | Any-Reason Leave (**PLAWA / sick**) | 40 / year | After **90 days** | Grace call only | No — protected | No |
+| 2 | **PTO** | 40 (yr 1) → 80 (yr 2+) | After **1 year** | 7 days advance | Yes — business needs | **Yes** |
+| 3 | **Unpaid Personal Leave** | 40 / yr (5 days) | **Day one** | 7 days advance | Yes — business needs | No |
+
+### Sick / PLAWA — verbatim
+
+> "40 paid hours per Benefit Year, **front-loaded** after 90 days of employment."
+> — curriculum.ts:356
+
+> "Because Phes **frontloads the full 40 PLAWA hours** at the start of each Benefit Year,
+> unused PLAWA hours from the prior Benefit Year **do not carry over**. Unused PLAWA hours
+> are **not paid out at separation**, consistent with the Illinois Paid Leave for All
+> Workers Act frontloading exception."
+> — curriculum.ts:366
+
+**This answers Sal's open questions directly:**
+- Granted upfront vs. accrued? → **Front-loaded (granted in full)**, not accrued.
+- Carryover vs. use-it-or-lose-it? → **No carryover** (reset to 40 each year). Matches
+  Sal's "resets" intuition.
+- Hours-based? → **Yes, 40 hours.**
+- Eligibility? → **After 90 days.**
+- Paid out at separation? → **No.**
+
+### The "Benefit Year" definition — verbatim (this is the conflict)
+
+> "Attendance tracking, **leave balances**, and disciplinary thresholds reset annually on
+> the employee's **Work Anniversary (hire date)**. This twelve-month period is your Benefit
+> Year. Different employees have different Benefit Year start dates because they were hired
+> on different dates."
+> — curriculum.ts:245
+
+⚠️ **The LMS says leave resets on each employee's work anniversary, not the calendar
+year.** Sal's instruction to me said sick "resets automatically **each calendar year**."
+These disagree. This is question #1 for Sal — see the bottom of the doc.
+
+### PTO — verbatim (from the agent crawl; consistent with the bucket table)
+
+> "40 hours after 1 year. Tops up to 80 hours at 2-year anniversary." … "Hard cap: 80
+> hours total. Unused PTO does NOT stack. We top up to the cap, we do not add on top." …
+> "PTO IS paid out at separation per the Illinois Wage Payment and Collection Act."
+
+The "top-up to 80, never 100" math is exactly what the existing reset engine implements
+(grant 40 + capped carryover, ceiling 80 — see §3).
+
+### Unpaid Personal Leave — verbatim
+
+> "40 hours / 5 days of unpaid time off, available day one." … "Does NOT carry over to the
+> next year. Not paid out at separation." … "Used for PLANNED absences only … Not for
+> same-day call-offs."
+
+### Cascade order (which bucket pays first) — verbatim
+
+> "Same-day call-off: PLAWA is the only bucket that applies. … Planned absence (with 7+
+> days advance notice): PLAWA → PTO → Unpaid Personal Leave → discipline scale."
+
+### Adjacent benefits the LMS also defines (not in this build's core 3, but related)
+
+- **Holiday top-up:** "8 hours of regular pay per Benefit Year," eligibility "after 90
+  days" (curriculum.ts:538, 547-548). Today this is the manual `holiday_pay` additional-pay
+  line.
+- **Birthday day off:** discretionary, after 90 days, forfeited if unused, never paid out
+  (curriculum.ts:563). Explicitly *not* vested wages.
+- **Protected absences** (jury duty, voting, workers' comp, VESSA, bereavement, lactation —
+  paid, etc.): never count as unexcused; out of scope for accrual but relevant to the
+  request/approval flow that already exists.
+
+### Policy gaps to confirm with Sal (not fully specified in the LMS)
+
+- **PTO accrual mechanism inside year 1.** LMS says "40 after 1 year." Is PTO granted as a
+  lump 40 at the 1-year mark (front-loaded, like PLAWA), or does it accrue over year 1 and
+  become *usable* at 1 year? The current seed treats it as a flat grant at the 1-year gate.
+- **PTO reset cadence** — anniversary (implied by "2-year anniversary" language) vs.
+  calendar. See conflict #1.
+- **Unpaid leave tracking unit** — "40 hours / 5 days." Track in hours (recommended,
+  matches everything else) — confirm.
+- **Mid-year hire proration** — does a partial first Benefit Year get a prorated PLAWA/PTO
+  grant, or the full 40? (IL PLAWA frontloading is typically full; confirm.)
+
+---
+
+## 2. Current employee status from MaidCentral (BLOCKED — need Sal to pull)
+
+I cannot reach `phes.maidcentral.com` (requires Sal's authenticated session). The crawl
+needs Sal to either pull the report or get me into a logged-in Chrome tab.
+
+**What I need, per active employee (Oak Lawn / co1 only — see scoping note):**
+
+| Field | Why |
+|-------|-----|
+| Full name + MC employee ID | Match to the Qleno `users` row |
+| **Hire date** | Drives the 90-day PLAWA gate, the 1-year PTO gate, and the anniversary reset |
+| Sick / PLAWA — accrued, used, **remaining** (2026) | Seed starting balance |
+| PTO / vacation — accrued, used, **remaining** (2026) | Seed starting balance |
+| Personal / unpaid — used (2026) | Seed starting balance |
+
+**Where to find it in MaidCentral (please confirm which screen actually has it):**
+- **Office → Employees → [employee] → Time Off / PTO tab** — per-employee accrued/used/
+  remaining is usually here.
+- Or a **Payroll / Time-Off Balance report** under Reports, if one exists, which would
+  export all employees at once (preferred — one CSV).
+
+**Action for Sal:** pull that report/screen (CSV export if possible, or screenshots of each
+employee's Time Off tab) and drop it here. If you'd rather, get me to a logged-in
+MaidCentral tab in Chrome and I'll drive the extraction myself. Until then, balances in
+§4's migration plan are a template, not real numbers.
+
+> **Scoping note (hard rule):** CLAUDE.md — "Schaumburg branch does NOT migrate from
+> MaidCentral." The Phes-specific leave buckets are seeded for **company_id = 1 (Oak Lawn)**
+> only. So this MaidCentral migration covers **Oak Lawn (co1) employees only**. Schaumburg
+> (co4) gets balances set natively, not imported from MC. Confirm co1 = the MaidCentral
+> tenant.
+
+---
+
+## 3. Qleno today — what actually exists (corrected assessment)
+
+The premise in the task ("sick_pay/holiday_pay/vacation_pay are manual additional_pay
+dollar entries — NO accrual/balance tracking") is **half right**: payroll *is* still
+manual dollars, but a full balance/accrual **engine already exists** — it's just not wired
+to run or to pay. Here's the real state.
+
+### 3a. The "Cutover 3A" leave system — BUILT (the good news)
+
+| Piece | File | State |
+|-------|------|-------|
+| Schema: `leave_types`, `employee_leave_balances`, `leave_requests`, `leave_blackouts`, `employee_availability` | `lib/db/src/schema/leave.ts` | ✅ Complete, multi-tenant |
+| Pure-math engine: `computeCurrentBalance`, `accrueFromWorkedHours`, **`applyReset`** (grant + capped carryover + ceiling + forfeiture), `isPastWaitingPeriod` (90-day gate) | `artifacts/api-server/src/lib/leave-balance.ts` | ✅ Complete + unit-tested (`tests/cutover-3a-leave.test.ts`) |
+| Routes: types CRUD, balances, requests, **cascade** (PTO→PLAWA→Unpaid), approve/deny/cancel, blackouts, alerts, unexcused ladder | `artifacts/api-server/src/routes/leave.ts` (1157 lines, mounted at `/api/leave`) | ✅ Built |
+| Per-tenant policy config | `company_leave_policy` table (`lib/db/src/schema/hr_policies.ts`), incl. `leave_reset_basis`, `balance_ceiling_hours` (80), carryover, payout, lead-days | ✅ Built |
+| Phes bucket seed | `cutover-data-migration.ts` (`seedLeaveTypes…`, `seedPhesLeavePolicy3A`) | ✅ Runs on cold start |
+
+`applyReset` already implements **exactly** Sal's PTO top-up story (grant 40 + carryover
+capped at ceiling 80, excess forfeited — the doc comment even works the "60 → 80, forfeit
+20" example).
+
+### 3b. Three things that make the engine **inert or wrong today** (the work)
+
+**(i) PLAWA is seeded against the written policy.** `cutover-data-migration.ts:450` seeds
+PLAWA as:
+
+```
+(1, 'plawa', 'PLAWA', true, 40, 'accrue_per_hours', 0.025, 90, carryover=true, exempt=true)
+```
+
+i.e. **accrue 1 hr per 40 worked, with carryover**. But the LMS (and Sal) say
+**front-loaded 40, no carryover**. Correct config is `accrual_mode='flat_grant'`,
+`accrual_rate=0`, `carryover_allowed=false`. **This is discrepancy #1 — a real bug.** The
+0.025 figure is the IL statutory *minimum* accrual, which Phes exceeds by frontloading; the
+seed encoded the floor instead of Phes's actual richer policy.
+
+**(ii) Nothing ever populates balances.** `applyReset` and `accrueFromWorkedHours` are
+called **only by the test file** — there is no reset cron and no grant-on-eligibility job.
+`buildBalancesForUser` (`routes/leave.ts:249`) reads `granted_hours` straight from the row,
+which defaults to `0` and is never written for flat-grant buckets. It also does **not**
+apply `accrueFromWorkedHours` for the accrue bucket. **Net: every employee's 3A balance
+shows 0 today.** The engine is built but parked.
+
+**(iii) Leave is disconnected from payroll.** `routes/payroll.ts:129-147` sums
+`sick_pay + holiday_pay + vacation_pay` purely from manual `additional_pay` dollar rows
+(`type` is free-text). Approved `leave_requests` hours are **never** converted to dollars.
+Payroll also *excludes* these types from the OT regular-rate (payroll.ts:336) — correct,
+but it confirms they're treated as opaque dollars, not hours×rate.
+
+### 3c. The split-brain — TWO leave subsystems that disagree
+
+| | **Old (users-column) system** | **New (3A) system** |
+|---|---|---|
+| Storage | `users.leave_balance_hours`, `users.pto_balance_hours`, `users.sick_balance_hours`, `users.benefit_year_start`, `users.leave_balance_activated` | `employee_leave_balances` (per user × leave_type) |
+| Route | `/api/hr-leave` (`routes/hr-leave.ts`) — `GET/PUT /balance`, `POST /use`, `POST /activate` | `/api/leave` (`routes/leave.ts`) |
+| Grant logic | `/activate` front-loads `leave_hours_granted` into `users.leave_balance_hours` at `eligibility_trigger_days` | `applyReset` / `accrueFromWorkedHours` (uncalled) |
+| `POST /use` | decrements **only** `leave_balance_hours` (the legacy single bucket) — **not** pto/sick | balance decremented on request approval |
+| UI | Employee Profile → Leave Balance / HR Attendance tab | Leave request / review pages |
+
+These overlap and contradict: `/hr-leave POST /use` decrements `leave_balance_hours` while
+PTO/sick are set absolutely via `PUT`; the 3A `employee_leave_balances` is a third copy.
+**Phase 2 must pick ONE canonical store** (recommendation below) and make the other a
+read-through or retire it. Shipping accrual on top of the split-brain would create exactly
+the kind of pay-affecting "which number is right?" bug this build is supposed to prevent.
+
+### 3d. Where it surfaces (UI)
+
+- **Employee profile:** `artifacts/qleno/src/pages/employee-profile.tsx` (tabs incl. "Leave
+  Balance", "HR Attendance", "Additional Pay", "Payroll History"); HR tab logic in
+  `employee-profile-hr-tabs.tsx` (reads `/api/hr-leave/balance`).
+- **Payroll:** `artifacts/qleno/src/pages/payroll.tsx` (groups `sick_pay/holiday_pay/
+  vacation_pay` under a "Time Off" header).
+- **Employee-facing leave:** `leave-request.tsx`, `leave-review.tsx`.
+
+---
+
+## 4. Proposed design (Phase 2)
+
+**Guiding principle:** don't rebuild — **converge on the 3A engine**, fix its seed, wire
+its automation, connect it to pay, and retire the duplicate. This matches the codebase's
+own stated intent (the `PUT /hr-leave/balance` comment already calls itself "the load path
+for the reconciliation import of MaidCentral PTO/sick balances").
+
+### 4.1 Canonical store
+
+Make **`employee_leave_balances` (3A) the single source of truth.** Treat
+`users.{pto,sick,leave}_balance_hours` as **deprecated**: either (a) drop them after
+migration, or (b) keep them as a denormalized read-mirror updated from 3A (like the
+assignment-mirror pattern in CLAUDE.md). Recommend (a) for cleanliness once the profile UI
+is repointed at `/api/leave/balances`.
+
+### 4.2 Corrected Phes `leave_types` (the seed fix)
+
+| slug | display | paid | cap | accrual_mode | rate | wait (days) | carryover | reset basis* | payout on sep |
+|------|---------|------|-----|--------------|------|-------------|-----------|--------------|---------------|
+| `plawa` | PLAWA (Sick) | yes | 40 | **flat_grant** | 0 | 90 | **false** | (see Q1) | no |
+| `pto_phes` | PTO | yes | 40 | flat_grant | 0 | 365 | true (ceiling 80) | anniversary | **yes** |
+| `unpaid_leave` | Unpaid Personal | no | 40 | flat_grant | 0 | 0 | false | (see Q1) | no |
+| `unexcused` | Unexcused | no | 40 | office_recorded | 0 | 0 | n/a | per Benefit Yr | no |
+
+\* `leave_types` has **no per-type reset-basis column today** — `company_leave_policy.
+leave_reset_basis` is company-wide (currently `work_anniversary`). If PLAWA must reset on a
+**different** cadence than PTO (e.g. calendar-year PLAWA + anniversary PTO), Phase 2 needs a
+new `reset_basis` column on `leave_types`. **This hinges on Sal's answer to Q1.** Also set
+`company_leave_policy.payout_on_separation` correctly per-type (PTO yes, others no) — today
+it's a single company flag, may need to move to the type.
+
+### 4.3 Grant + accrual + reset jobs (the automation that's missing)
+
+Three pieces, all building on the existing pure-math engine (no new math):
+
+1. **Grant-on-eligibility job** — daily. For each active employee × flat-grant bucket: if
+   `isPastWaitingPeriod(hire_date, waiting_period_days, today)` flips true and no grant has
+   landed for the current Benefit Year, write `granted_hours = annual_cap_hours` to
+   `employee_leave_balances`. (PLAWA at 90 days; PTO at 365 days.)
+2. **Annual reset job** — daily check, fires on each employee's reset boundary (calendar
+   1/1 or work anniversary per Q1). Calls the existing `applyReset(...)` and persists
+   `new_granted` + surfaces `forfeited_hours` to the office. Resets `used_hours` to 0,
+   stamps `last_reset_at`.
+3. **(Optional) accrue snapshot** — only needed if any bucket stays `accrue_per_hours`. Per
+   the policy, PLAWA should be flat_grant, so this may be unnecessary for Phes. Keep the
+   function for other tenants.
+
+Wire these into the existing CT-timezone cron scheduler in
+`artifacts/api-server/src/index.ts` (alongside `rate_lock_nightly`, `annual_cycle_auto_open`,
+etc.). **Idempotent, guarded by `last_reset_at` / a grant marker** so a double-fire can't
+double-grant.
+
+### 4.4 Payroll integration (paid sick/PTO → dollars)
+
+At the payroll assembly point (`routes/payroll.ts`, after `computePayLines`):
+
+- Pull **approved** `leave_requests` for **paid** buckets (`leave_types.is_paid = true`)
+  whose dates fall in the pay window.
+- Convert `hours × effective hourly rate` — rate from `employee_pay_rates` (the dated table
+  CLAUDE.md treats as canonical), **not** a hardcoded number, mirroring the
+  commission/mileage "never inline a rate" rule.
+- Emit as a derived pay line (or a typed `additional_pay` row written by the system, clearly
+  marked `source='leave_engine'` so it's distinguishable from manual office entries and
+  never double-counted).
+- **Keep these excluded from the OT regular-rate** (payroll.ts already does this for the
+  manual types — preserve it). Unpaid leave produces **no** pay line by definition.
+- **No money moves automatically without office review** — same philosophy as mileage/OT in
+  CLAUDE.md. Surface the computed paid-leave dollars at the payroll review gate; office
+  confirms. (Confirm with Sal — Q6.)
+
+### 4.5 Surfacing
+
+- **Employee profile** → repoint the Leave Balance tab at `/api/leave/balances` so it shows
+  all buckets (PLAWA / PTO / Unpaid) with granted / used / **available** + the 90-day/1-year
+  eligibility state and next reset date. Retire the old single-bucket readout.
+- **Payroll detail** → show paid-leave dollars as a derived, labeled line under the existing
+  "Time Off" group, with the hours and rate visible (not an opaque dollar amount).
+- **Office** → the existing use-it-or-lose-it alerts (`/api/leave/alerts/use-it-or-lose-it`)
+  already exist; surface them on the dashboard ahead of reset boundaries.
+
+### 4.6 Migration plan (MaidCentral → Qleno, co1 only)
+
+The load path **already exists**: `PUT /api/hr-leave/balance/:employee_id` is documented as
+"the load path for the reconciliation import of MaidCentral PTO/sick balances." For the 3A
+store we'll write `employee_leave_balances` directly instead.
+
+**Steps (Phase 2, after rules confirmed):**
+1. Sal pulls the MaidCentral per-employee Time-Off report (§2).
+2. **Reconcile names → Qleno `users.id`** for active co1 employees; confirm each
+   `users.hire_date` matches MC (hire date drives every gate — fix mismatches first).
+3. For each employee × bucket, seed `employee_leave_balances`:
+   - `granted_hours` = MC **accrued/granted** for the current Benefit Year
+   - `used_hours` = MC **used** for the current Benefit Year
+   - → `available = granted − used` reproduces MC's remaining.
+   - Set `last_reset_at` to the current Benefit Year start so the next reset fires correctly.
+4. **Dry-run first** (CLAUDE.md DB rule) — produce a diff report (employee, bucket, granted,
+   used, available) for Sal to eyeball **before** any write. Seed via `ON CONFLICT DO
+   UPDATE` (CLAUDE.md seed rule).
+5. Spot-check 3-5 employees against MC in the UI after load.
+
+**Edge cases to decide (in Q-list):** employees still inside 90 days (no PLAWA yet —
+seed 0?), employees between 1 and 2 years (PTO 40 vs 80), and anyone with a remaining
+balance above the ceiling.
+
+---
+
+## 5. Questions for Sal (must answer before Phase 2 build)
+
+**Q1 — Reset basis (BLOCKER, affects everything).** The LMS says leave resets on each
+employee's **work anniversary** (individualized Benefit Year); your instruction said
+**calendar year**. Which is correct — and is it the **same for all three** buckets, or does
+PLAWA reset on a different cadence than PTO? (If they differ, we add a per-type reset column.)
+
+**Q2 — PLAWA accrual method.** Confirm PLAWA is **front-loaded 40 hours at the 90-day mark,
+no carryover** (matches the LMS), so I can fix the seed that currently has it accruing
+0.025/hr with carryover. (I'm 95% sure from the LMS — just need your yes.)
+
+**Q3 — PTO in year 1.** Is PTO **granted as a lump 40 at the 1-year anniversary**, or does
+it **accrue over** year 1 and become usable at 1 year? And confirm the top-up to 80 at year
+2 with a hard ceiling of 80 (no stacking).
+
+**Q4 — Mid-year hire proration.** New hire partway through a Benefit Year — **full 40**
+PLAWA/PTO grant, or **prorated**?
+
+**Q5 — Unpaid personal leave.** Track in **hours (40)** like the others? Any balance to
+migrate, or just track usage going forward (it's unpaid, so it never hits pay)?
+
+**Q6 — Payroll auto-pay vs. review gate.** Should approved **paid** sick/PTO hours auto-
+convert to dollars on the payroll run, or surface at the **review gate** for office
+confirmation first (like mileage/OT)? Recommendation: review gate.
+
+**Q7 — Canonical store + cleanup.** OK to make 3A `employee_leave_balances` the single
+source of truth and **retire** the older `users.{pto,sick,leave}_balance_hours` columns +
+`/api/hr-leave` flow after migration? (Removes the split-brain.)
+
+**Q8 — Scope confirm.** MaidCentral migration is **Oak Lawn / co1 only** (Schaumburg/co4
+does not migrate from MC — hard rule). Confirm co1 is the MaidCentral tenant, and confirm
+the active-employee list.
+
+**Q9 — Separation payout.** Confirm payout-on-separation: **PTO yes**, PLAWA no, Unpaid no
+(per LMS). This affects whether the ceiling/forfeiture or a payout calc applies at offboard.
+
+**Q10 — MaidCentral report.** Which exact MC screen/report has per-employee accrued / used /
+remaining for sick + PTO + personal (and hire dates)? Pull it (CSV preferred) or get me into
+a logged-in Chrome tab and I'll extract it.
+
+---
+
+## Appendix — key file references
+
+- LMS policy: `artifacts/qleno/src/lib/training/curriculum.ts` (lines 245, 334, 356, 366,
+  538, 547-548)
+- Leave schema: `lib/db/src/schema/leave.ts`; policy schema:
+  `lib/db/src/schema/hr_policies.ts` (`company_leave_policy`, line 98)
+- Engine math: `artifacts/api-server/src/lib/leave-balance.ts`
+- Leave routes (3A): `artifacts/api-server/src/routes/leave.ts` (mounted `/api/leave`)
+- Old leave routes: `artifacts/api-server/src/routes/hr-leave.ts` (mounted `/api/hr-leave`)
+- Phes seed: `artifacts/api-server/src/cutover-data-migration.ts` (lines 405-512)
+- Payroll assembly: `artifacts/api-server/src/routes/payroll.ts` (lines 129-147, 336)
+- Pay rates (canonical): `employee_pay_rates` in `lib/db/src/schema/pay.ts`
+- Tests: `artifacts/api-server/src/tests/cutover-3a-leave.test.ts`
+- Cron host: `artifacts/api-server/src/index.ts`
+</content>
