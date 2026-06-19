@@ -11,12 +11,15 @@ import {
 
 // [scheduling-engine 2026-04-29] Rolling generation window.
 // [recurring-perpetual 2026-06-17] Extended 90 → 365 so a recurring schedule
-// always has ~1 year of visits on the books from "today" — set-it-and-forget-it,
-// the way HCP perpetuates. The nightly 2 AM cron re-runs with this horizon and
-// the idempotent dedupe in generateJobsFromSchedule only adds the new days that
-// rolled into range, so the year-ahead window slides forward daily and never
-// runs out (until the schedule's end_date or cancellation).
-export const DAYS_AHEAD = 365;
+// always has ~1 year of visits on the books from "today".
+// [recurring-horizon-trim 2026-06-19] Back to 90. The 365-day horizon
+// materialized ~260 weekday jobs PER recurring client at once (+ technician /
+// add-on rows + per-edit cascade audit rows), which filled the Postgres volume
+// to 98% in production. 90 days is still perpetual — the nightly 2 AM cron
+// slides the window forward daily and the idempotent dedupe only adds the new
+// days that rolled into range, so a schedule never runs out — but it keeps ~75%
+// fewer future rows on disk at any moment.
+export const DAYS_AHEAD = 90;
 
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
