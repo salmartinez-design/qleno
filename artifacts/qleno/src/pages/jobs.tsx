@@ -1909,6 +1909,33 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     } finally { setBusy(false); }
   }
 
+  async function undoCancellation() {
+    setBusy(true);
+    const API2 = import.meta.env.BASE_URL.replace(/\/$/, "");
+    try {
+      const res = await fetch(`${API2}/api/cancellations/undo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.message || "Undo failed");
+      }
+      const body = await res.json();
+      toast({
+        title: "Cancellation undone",
+        description: body.restored_status === "scheduled"
+          ? "Job restored to scheduled — fee and tech cancellation pay removed."
+          : "Fee removed — job marked a free skip (no charge).",
+      });
+      await onUpdate();
+      onClose();
+    } catch (e) {
+      toast({ title: (e as Error).message || "Error", variant: "destructive" });
+    } finally { setBusy(false); }
+  }
+
   const panelStyle: React.CSSProperties = mobile ? {
     position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 200,
     backgroundColor: "#FFFFFF", borderRadius: "20px 20px 0 0",
@@ -2196,6 +2223,15 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
                   Billed as a {job.cancel_action === "lockout" ? "lockout" : "cancellation"} fee{job.billed_amount != null ? ` of $${Number(job.billed_amount).toFixed(2)}` : ""}, not a service visit. The assigned tech is paid the cancellation fee only (no commission on this job).
                 </p>
+                <button
+                  onClick={() => {
+                    if (window.confirm("Undo this cancellation? This removes the fee and the tech's cancellation pay, and restores the job.")) undoCancellation();
+                  }}
+                  disabled={busy}
+                  style={{ marginTop: 9, height: 28, padding: "0 12px", border: "1px solid #B45309", background: "#fff", color: "#92400E", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: busy ? "default" : "pointer" }}
+                >
+                  Undo cancellation
+                </button>
               </div>
             </div>
           )}

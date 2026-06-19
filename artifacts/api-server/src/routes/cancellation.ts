@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import {
   resolveCancellationPolicy,
   CANCEL_ACTIONS,
@@ -442,6 +442,109 @@ router.post("/action", requireAuth, async (req, res) => {
     // the toast / log it for debugging.
     rescheduled_to: isReschedule ? { date: body.new_date, time: body.new_time ?? null } : undefined,
   });
+});
+
+/**
+ * POST /api/cancellations/undo — reverse a single-job cancellation.
+ *
+ * Body: { job_id }
+ *
+ * The exact inverse of the charging/free branches of /action:
+ *   - deletes the job's cancellation_log row(s) (cancel/lockout/skip),
+ *   - deletes the PENDING tech cancellation_pay for the job,
+ *   - restores the job: future-dated → 'scheduled' (the visit still happens,
+ *     billed_amount cleared so it bills normally); past-dated → 'cancelled'
+ *     at $0 (a free skip — no charge, no service), per the agreed behavior.
+ *
+ * Guardrails (return 409 instead of touching anything):
+ *   - nothing to undo (no charging/free cancellation row),
+ *   - it was a 'cancel_service' / affects_future_jobs (cascaded to other jobs
+ *     and paused the schedule — must be reversed deliberately, not here),
+ *   - the tech cancellation pay was already PAID (don't silently erase money
+ *     that went out — reverse the pay first).
+ * All in one transaction.
+ */
+router.post("/undo", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const jobId = Number(req.body?.job_id);
+    if (!jobId || !Number.isFinite(jobId)) {
+      return res.status(400).json({ error: "Bad Request", message: "job_id required" });
+    }
+
+    const ctx = await db.execute(sql`
+      SELECT j.id,
+             (j.scheduled_date < (now() AT TIME ZONE 'America/Chicago')::date) AS is_past
+        FROM jobs j
+       WHERE j.id = ${jobId} AND j.company_id = ${companyId}
+    `);
+    const job = ctx.rows[0] as any;
+    if (!job) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+
+    const logs = await db.execute(sql`
+      SELECT cancel_action, affects_future_jobs
+        FROM cancellation_log
+       WHERE job_id = ${jobId} AND company_id = ${companyId}
+         AND cancel_action IN ('cancel','lockout','skip','cancel_service')
+    `);
+    const logRows = logs.rows as any[];
+    if (logRows.length === 0) {
+      return res.status(409).json({ error: "Conflict", message: "No cancellation to undo on this job." });
+    }
+    if (logRows.some(r => r.cancel_action === "cancel_service" || r.affects_future_jobs === true)) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "This was a 'Cancel service' that ended future visits and paused the recurring schedule. Undo it manually so the schedule and future jobs are restored deliberately.",
+      });
+    }
+
+    const paid = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM additional_pay
+       WHERE job_id = ${jobId} AND company_id = ${companyId}
+         AND type = 'cancellation_pay' AND status <> 'pending'
+    `);
+    if (Number((paid.rows[0] as any).n) > 0) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "The cancellation fee was already paid to the tech. Reverse that pay first, then undo.",
+      });
+    }
+
+    const isPast = job.is_past === true;
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`
+        DELETE FROM additional_pay
+         WHERE job_id = ${jobId} AND company_id = ${companyId}
+           AND type = 'cancellation_pay' AND status = 'pending'
+      `);
+      await tx.execute(sql`
+        DELETE FROM cancellation_log
+         WHERE job_id = ${jobId} AND company_id = ${companyId}
+           AND cancel_action IN ('cancel','lockout','skip','cancel_service')
+      `);
+      const undoneNote = sql`COALESCE(notes,'') || (CASE WHEN notes IS NULL OR notes = '' THEN '' ELSE E'\n' END) || '[cancellation_undone]'`;
+      if (isPast) {
+        await tx.execute(sql`
+          UPDATE jobs
+             SET status = 'cancelled'::job_status, billed_amount = 0, locked_at = NULL,
+                 notes = ${undoneNote}
+           WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      } else {
+        await tx.execute(sql`
+          UPDATE jobs
+             SET status = 'scheduled'::job_status, billed_amount = NULL, locked_at = NULL,
+                 notes = ${undoneNote}
+           WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      }
+    });
+
+    return res.json({ ok: true, restored_status: isPast ? "cancelled" : "scheduled" });
+  } catch (err) {
+    console.error("[cancellations undo]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
 });
 
 export default router;
