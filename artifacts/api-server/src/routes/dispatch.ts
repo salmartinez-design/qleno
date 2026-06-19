@@ -5,6 +5,7 @@ import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
+import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
 
 const router = Router();
 
@@ -1309,6 +1310,142 @@ router.get("/zone-coverage-audit", requireAuth, dispatchOfficeGate, async (req, 
   } catch (err) {
     console.error("Zone coverage audit error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to run audit" });
+  }
+});
+
+// ─── Far-future recurring-job cleanup (storage reclamation) ──────────────────
+// [recurring-horizon-trim 2026-06-19] Companion to the 365→90 horizon cut in
+// recurring-jobs.ts. Trimming the horizon stops NEW far-future rows from being
+// generated, but the ~260-day backlog already materialized under the old 365
+// horizon stays on disk (it filled the Postgres volume to 98% in production).
+// These two endpoints let the owner reclaim that space safely:
+//   GET  /api/dispatch/storage-audit   — read-only; reports how many
+//        far-future recurring occurrences are prunable and which schedules
+//        they belong to. Safe to run anytime.
+//   POST /api/dispatch/prune-far-future — DRY-RUN by default; only deletes
+//        when the body carries { confirm: true }. Owner-only.
+//
+// Prunable = an UNTOUCHED, never-started future occurrence the nightly cron
+// will regenerate on its own once the rolling window reaches it again. The
+// predicate is deliberately conservative so a manually-edited or in-flight
+// visit is never removed:
+//   - status = 'scheduled' (never started / completed / cancelled)
+//   - recurring_schedule_id IS NOT NULL (engine-generated → self-heals)
+//   - scheduled_date beyond the live DAYS_AHEAD window
+//   - manual_rate_override = false (office never re-priced it)
+//   - no charge attempted/succeeded, no actual_hours, not locked, not
+//     completed, not flagged no-show
+//   - no clock punches (timeclock / job_clock_events) and no invoice
+// Because deletion runs in a transaction, any unexpected FK child rolls the
+// whole thing back rather than leaving a half-deleted job.
+const prunableFarFutureWhere = (companyId: number, cutoffDays: number) => sql`
+  j.company_id = ${companyId}
+  AND j.status = 'scheduled'
+  AND j.recurring_schedule_id IS NOT NULL
+  AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays})
+  AND j.manual_rate_override = false
+  AND j.charge_succeeded_at IS NULL
+  AND j.charge_attempted_at IS NULL
+  AND j.actual_hours IS NULL
+  AND j.locked_at IS NULL
+  AND j.completed_by_user_id IS NULL
+  AND j.no_show_marked_by_tech IS NULL
+  AND NOT EXISTS (SELECT 1 FROM timeclock tc WHERE tc.job_id = j.id)
+  AND NOT EXISTS (SELECT 1 FROM job_clock_events ce WHERE ce.job_id = j.id)
+  AND NOT EXISTS (SELECT 1 FROM invoices iv WHERE iv.job_id = j.id)
+`;
+
+router.get("/storage-audit", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const cutoffDays = DAYS_AHEAD;
+
+    // Total scheduled future rows vs. the prunable subset, plus a per-schedule
+    // breakdown so the owner can see exactly what would go.
+    const totals = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (
+          WHERE j.status = 'scheduled'
+            AND j.recurring_schedule_id IS NOT NULL
+            AND j.scheduled_date > (CURRENT_DATE + ${cutoffDays})
+        ) AS far_future_recurring_total,
+        COUNT(*) FILTER (WHERE (${prunableFarFutureWhere(companyId, cutoffDays)})) AS prunable
+      FROM jobs j
+      WHERE j.company_id = ${companyId}
+    `);
+
+    const bySchedule = await db.execute(sql`
+      SELECT
+        j.recurring_schedule_id AS schedule_id,
+        CASE WHEN j.account_id IS NOT NULL
+             THEN a.account_name
+             ELSE TRIM(concat(c.first_name, ' ', c.last_name)) END AS client_name,
+        COUNT(*)                  AS prunable_count,
+        MIN(j.scheduled_date)::text AS earliest,
+        MAX(j.scheduled_date)::text AS latest
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      WHERE ${prunableFarFutureWhere(companyId, cutoffDays)}
+      GROUP BY j.recurring_schedule_id, client_name
+      ORDER BY prunable_count DESC
+      LIMIT 100
+    `);
+
+    const t = (totals.rows[0] || {}) as any;
+    return res.json({
+      cutoff_days: cutoffDays,
+      far_future_recurring_total: Number(t.far_future_recurring_total ?? 0),
+      prunable: Number(t.prunable ?? 0),
+      by_schedule: (bySchedule.rows as any[]).map(r => ({
+        schedule_id: Number(r.schedule_id),
+        client_name: String(r.client_name ?? ""),
+        prunable_count: Number(r.prunable_count ?? 0),
+        earliest: String(r.earliest ?? ""),
+        latest: String(r.latest ?? ""),
+      })),
+    });
+  } catch (err) {
+    console.error("Storage audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to run audit" });
+  }
+});
+
+router.post("/prune-far-future", requireAuth, requireRole("owner", "super_admin"), async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const cutoffDays = DAYS_AHEAD;
+    const confirm = req.body?.confirm === true;
+
+    // Resolve the target ids once so the dry-run preview and the actual delete
+    // operate on the same set.
+    const targets = await db.execute(sql`
+      SELECT j.id FROM jobs j WHERE ${prunableFarFutureWhere(companyId, cutoffDays)}
+    `);
+    const ids = (targets.rows as any[]).map(r => Number(r.id));
+
+    if (!confirm) {
+      return res.json({ dry_run: true, would_delete: ids.length, cutoff_days: cutoffDays,
+        note: "No rows deleted. Re-POST with { \"confirm\": true } to apply." });
+    }
+    if (ids.length === 0) {
+      return res.json({ dry_run: false, deleted: 0, cutoff_days: cutoffDays });
+    }
+
+    // Delete non-cascading children first, then the jobs. job_technicians and
+    // job_audit_log cascade on delete; the rest do not, so they go explicitly.
+    // All in one transaction — an unexpected FK child rolls everything back.
+    await db.transaction(async (tx) => {
+      await tx.execute(sql`DELETE FROM job_add_ons     WHERE job_id = ANY(${ids})`);
+      await tx.execute(sql`DELETE FROM job_discounts   WHERE job_id = ANY(${ids})`);
+      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ANY(${ids})`);
+      await tx.execute(sql`DELETE FROM jobs j WHERE j.id = ANY(${ids}) AND j.company_id = ${companyId}`);
+    });
+
+    return res.json({ dry_run: false, deleted: ids.length, cutoff_days: cutoffDays });
+  } catch (err) {
+    console.error("Prune far-future error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err instanceof Error ? err.message : "Failed to prune" });
   }
 });
 
