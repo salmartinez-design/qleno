@@ -120,6 +120,7 @@ export interface TeamCandidate {
   name: string;
   role?: string;
   is_primary?: boolean;
+  is_trainee?: boolean;
 }
 
 interface PricingScope {
@@ -1678,7 +1679,6 @@ export default function EditJobModal({
               {employees.map(e => {
                 const idx = selectedTechIds.indexOf(e.id);
                 const selected = idx >= 0;
-                const isPrimary = idx === 0 && selectedTechIds.length > 0;
                 return (
                   <div key={e.id} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -1697,19 +1697,14 @@ export default function EditJobModal({
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <input type="checkbox" checked={selected} readOnly />
                       <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{e.name}</span>
-                      {isPrimary && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#15803D", backgroundColor: "#DCFCE7", padding: "2px 6px", borderRadius: 4 }}>Primary</span>
+                      {/* [no-primary 2026-06-19] Phes has no primary tech — just
+                          technician + trainee. Dropped the "Primary"/"Set as
+                          primary" ranking; assigned techs are equal. Trainees
+                          (first 3 weeks from hire) are flagged. */}
+                      {e.is_trainee && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#92400E", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", padding: "1px 6px", borderRadius: 4, textTransform: "uppercase" }}>Trainee</span>
                       )}
                     </div>
-                    {selected && !isPrimary && (
-                      <button onClick={ev => {
-                        ev.stopPropagation();
-                        setSelectedTechIds(prev => [e.id, ...prev.filter(id => id !== e.id)]);
-                      }} style={{
-                        fontSize: 11, color: "#1D4ED8", background: "none", border: "none",
-                        cursor: "pointer", fontFamily: FF, fontWeight: 600,
-                      }}>Set as primary</button>
-                    )}
                   </div>
                 );
               })}

@@ -21,6 +21,19 @@ const dispatchOfficeGate = requireRole("owner", "admin", "office", "super_admin"
 // GET "/" handler so the cross-company /all-locations route can reuse it per
 // owned company. Single-company behavior is unchanged — the route below just
 // calls this and res.json()s the result.
+// [trainee 2026-06-19] Trainee is DERIVED from hire_date — the first 3 weeks
+// on the job — not a stored status. Phes has no "primary" tech; everyone is a
+// technician, and a brand-new one is flagged "trainee" for 21 days so the
+// office sees it on the board.
+const TRAINEE_WINDOW_DAYS = 21;
+function isTraineeFromHire(hireDate: string | Date | null | undefined): boolean {
+  if (!hireDate) return false;
+  const h = new Date(`${String(hireDate).slice(0, 10)}T00:00:00`);
+  if (isNaN(h.getTime())) return false;
+  const days = (Date.now() - h.getTime()) / 86400000;
+  return days >= 0 && days <= TRAINEE_WINDOW_DAYS;
+}
+
 async function buildDispatchPayload(
   companyId: number,
   date: string,
@@ -37,6 +50,7 @@ async function buildDispatchPayload(
         last_name: usersTable.last_name,
         role: usersTable.role,
         tags: usersTable.tags,
+        hire_date: usersTable.hire_date,
         commission_rate: usersTable.commission_rate_override,
         // [2026-06-02] Surface avatar so the EmployeeRow can render the
         // tech's profile picture instead of initials. Frontend keeps the
@@ -346,6 +360,7 @@ async function buildDispatchPayload(
         employees: employees.map(e => ({
           ...e,
           name: `${e.first_name} ${e.last_name}`,
+          is_trainee: isTraineeFromHire(e.hire_date),
           jobs: [],
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
@@ -1030,6 +1045,7 @@ async function buildDispatchPayload(
         id: e.id,
         name: `${e.first_name} ${e.last_name}`,
         role: e.role,
+        is_trainee: isTraineeFromHire(e.hire_date),
         jobs: jobsByEmployee.get(e.id) || [],
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),
