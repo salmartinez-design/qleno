@@ -117,6 +117,8 @@ export default function InvoiceDetailPage() {
   const [sendingInvoice, setSendingInvoice] = useState(false);
   const [charging, setCharging] = useState(false);
   const [voiding, setVoiding] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState(false);
+  const [markingUnpaid, setMarkingUnpaid] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editLines, setEditLines] = useState<any[]>([]);
   const [editTip, setEditTip] = useState(0);
@@ -186,6 +188,36 @@ export default function InvoiceDetailPage() {
       toast({ title: e?.message || "Failed to void invoice", variant: "destructive" });
     }
     setVoiding(false);
+  }
+
+  // One-click "Mark Paid = now". Payment is collected externally (Square); this
+  // just records the manual mark and sets paid_at so the Paid(30d)/YTD KPIs fill.
+  async function handleMarkPaidNow() {
+    setMarkingPaid(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}/mark-paid`, { method: "POST", body: JSON.stringify({}) });
+      toast({ title: "Marked paid" });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to mark paid", variant: "destructive" });
+    }
+    setMarkingPaid(false);
+  }
+
+  // Undo a manual Mark Paid — reverts to outstanding and clears paid_at.
+  async function handleMarkUnpaid() {
+    if (!window.confirm("Mark this invoice unpaid? It returns to Outstanding and the recorded payment is removed.")) return;
+    setMarkingUnpaid(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}/mark-unpaid`, { method: "POST" });
+      toast({ title: "Marked unpaid" });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to mark unpaid", variant: "destructive" });
+    }
+    setMarkingUnpaid(false);
   }
 
   // ── Edit invoice (line items / amounts / tip / discount) ──
@@ -324,9 +356,13 @@ export default function InvoiceDetailPage() {
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 <CreditCard size={14} /> {charging ? "Charging..." : "Charge Now"}
               </button>
+              <button onClick={handleMarkPaidNow} disabled={markingPaid}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#16A34A", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                <DollarSign size={14} /> {markingPaid ? "Marking..." : "Mark Paid"}
+              </button>
               <button onClick={() => setShowMarkPaid(true)}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                <DollarSign size={14} /> Mark as Paid
+                Record payment…
               </button>
               {effectiveStatus === "overdue" && (
                 <button onClick={handleSendReminder} disabled={sendingReminder}
@@ -340,6 +376,12 @@ export default function InvoiceDetailPage() {
             <button onClick={handleVoid} disabled={voiding}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {voiding ? "Voiding..." : "Void"}
+            </button>
+          )}
+          {invoice.status === "paid" && (
+            <button onClick={handleMarkUnpaid} disabled={markingUnpaid}
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              {markingUnpaid ? "Updating..." : "Mark Unpaid"}
             </button>
           )}
           {!["paid", "void", "superseded"].includes(invoice.status) && !editing && (

@@ -196,7 +196,14 @@ export async function ensureInvoiceForCompletedJob(
         job_id: jobId,
         client_id: job.client_id ?? null,
         account_id: job.account_id ?? null,
-        // per_visit issues immediately (sent); batch stays a pending draft.
+        // [invoice-lifecycle 2026-06-21] per_visit completions are FINALIZED
+        // immediately as 'sent' = issued / awaiting payment, so the Invoices
+        // "Outstanding" KPI (status IN ('sent','overdue')) picks them up the
+        // moment a job is completed. NOTE: 'sent' here means FINALIZED, NOT
+        // "notification emailed" — this path never calls sendNotification, so
+        // finalizing a completed job never messages the customer (decoupled by
+        // design; the only customer send is the explicit POST /:id/send route).
+        // batch_invoice clients stay a pending draft for month-end consolidation.
         status: isBatch ? "draft" : "sent",
         batch_status: isBatch ? "pending" : null,
         sent_at: isBatch ? null : today,

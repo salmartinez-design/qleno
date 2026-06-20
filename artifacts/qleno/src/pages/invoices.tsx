@@ -486,6 +486,7 @@ export default function InvoicesPage() {
   const [readyExpanded, setReadyExpanded] = useState(true);
   const [failedExpanded, setFailedExpanded] = useState(true);
   const [chargingJobId, setChargingJobId] = useState<number | null>(null);
+  const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
 
   const { data: readyData, refetch: refetchReady } = useQuery({
     queryKey: ["ready-to-charge"],
@@ -519,6 +520,32 @@ export default function InvoicesPage() {
       toast({ title: "Charge failed", description: err.message, variant: "destructive" });
     } finally {
       setChargingJobId(null);
+    }
+  }
+
+  // [invoice-lifecycle 2026-06-21] One-click Mark Paid / Unmark from the list.
+  async function markInvoicePaid(invId: number) {
+    setPayingInvoiceId(invId);
+    try {
+      await apiFetch(`/api/invoices/${invId}/mark-paid`, { method: "POST", body: JSON.stringify({}) });
+      toast({ title: "Marked paid" });
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Failed to mark paid", description: err?.message || "", variant: "destructive" });
+    } finally {
+      setPayingInvoiceId(null);
+    }
+  }
+  async function markInvoiceUnpaid(invId: number) {
+    setPayingInvoiceId(invId);
+    try {
+      await apiFetch(`/api/invoices/${invId}/mark-unpaid`, { method: "POST" });
+      toast({ title: "Marked unpaid" });
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Failed to mark unpaid", description: err?.message || "", variant: "destructive" });
+    } finally {
+      setPayingInvoiceId(null);
     }
   }
 
@@ -821,7 +848,21 @@ export default function InvoicesPage() {
                           {effectiveStatus}
                         </span>
                       </td>
-                      <td style={{ padding: "13px 18px", textAlign: "right" }} onClick={e => e.stopPropagation()}>
+                      <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
+                        {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
+                          <button onClick={() => markInvoicePaid(inv.id)} disabled={payingInvoiceId === inv.id}
+                            title="Mark paid (today)"
+                            style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                            {payingInvoiceId === inv.id ? "…" : "Mark Paid"}
+                          </button>
+                        )}
+                        {inv.status === "paid" && (
+                          <button onClick={() => markInvoiceUnpaid(inv.id)} disabled={payingInvoiceId === inv.id}
+                            title="Mark unpaid"
+                            style={{ marginRight: 8, padding: "5px 10px", border: "1px solid #FDE68A", backgroundColor: "transparent", color: "#92400E", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                            {payingInvoiceId === inv.id ? "…" : "Unmark"}
+                          </button>
+                        )}
                         <button style={{ padding: 5, border: "none", backgroundColor: "transparent", color: "#9E9B94", cursor: "pointer", borderRadius: 4 }}>
                           <Download size={14} strokeWidth={1.5} />
                         </button>
