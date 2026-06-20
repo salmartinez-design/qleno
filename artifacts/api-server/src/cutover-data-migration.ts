@@ -671,11 +671,11 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
 
 /**
  * Cutover 3A — seed the Phes company_leave_policy with the
- * CALENDAR-YEAR reset + ceiling + lead-days. All buckets (PLAWA, PTO,
- * Unpaid) reset Jan 1 for every employee — confirmed by Sal 2026-06-20,
- * overriding the earlier work_anniversary assumption (the handbook's
- * individualized "Benefit Year" language does NOT govern leave resets).
- * Idempotent.
+ * WORK-ANNIVERSARY reset (per-employee benefit year) + ceiling +
+ * lead-days. Each employee's buckets (PLAWA, PTO, Unpaid) reset on their
+ * own hire anniversary — matches the handbook's individualized "Benefit
+ * Year" (confirmed by Sal 2026-06-20: NOT a Jan-1 calendar reset).
+ * Idempotent: COALESCE-preserves any tenant customization.
  */
 async function seedPhesLeavePolicy3A(): Promise<void> {
   await db.execute(
@@ -693,16 +693,12 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
         company_id, leave_reset_basis,
         use_it_or_lose_it_alert_lead_days, balance_ceiling_hours
       )
-      VALUES (1, 'calendar_year', 60, 80)
+      VALUES (1, 'work_anniversary', 60, 80)
       ON CONFLICT (company_id) DO UPDATE SET
+        leave_reset_basis = COALESCE(EXCLUDED.leave_reset_basis, company_leave_policy.leave_reset_basis),
         use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
         balance_ceiling_hours = COALESCE(EXCLUDED.balance_ceiling_hours, company_leave_policy.balance_ceiling_hours);
-      -- Force calendar-year reset for Phes regardless of any prior
-      -- work_anniversary value (Sal 2026-06-20). Not COALESCE-preserved.
-      UPDATE company_leave_policy
-      SET leave_reset_basis = 'calendar_year'
-      WHERE company_id = 1;
-      RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy (calendar-year reset)';
+      RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy (work-anniversary reset)';
     END
     $$;
   `),

@@ -64,11 +64,16 @@ import {
 import {
   checkRequestable,
   checkWaitingPeriod,
+  checkAdvanceNotice,
   checkBalance,
   detectBlackoutOverlap,
   type BucketForValidation,
   type BlackoutWindow,
 } from "../lib/leave-request-rules.js";
+import {
+  notifyLeaveSubmitted,
+  notifyLeaveDecision,
+} from "../lib/leave-notifications.js";
 import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { evaluateUseItOrLoseItAlert } from "../lib/leave-alerts.js";
 import {
@@ -470,6 +475,9 @@ router.post("/requests", async (req, res) => {
   if (!r1.ok) return res.status(409).json({ error: "Conflict", ...r1 });
   const r2 = checkWaitingPeriod(validation, hireDate, today);
   if (!r2.ok) return res.status(409).json({ error: "Conflict", ...r2 });
+  // 7-day advance notice for PTO + Unpaid (sick/PLAWA = short-notice, exempt).
+  const r2b = checkAdvanceNotice(validation, body.start_date, today);
+  if (!r2b.ok) return res.status(409).json({ error: "Conflict", ...r2b });
 
   const balanceRow = await ensureBalanceRow(companyId, userId, bucket.id);
   const balance = computeCurrentBalance({
@@ -534,10 +542,9 @@ router.post("/requests", async (req, res) => {
     })
     .returning();
 
-  // Best-effort office notification (COMMS_ENABLED gated). Never
-  // fail the request if comms fails — the ticket is the source of
-  // truth.
-  void notifyOfficeOfRequestSilent(inserted[0]!.id, companyId);
+  // Office/owner "ACTION REQUIRED" + employee "Pending"/"Emergency" (or
+  // "Denied" if auto-denied above). Best-effort, never fails the request.
+  void notifyLeaveSubmitted(inserted[0]!.id, companyId);
 
   return res.json({ data: inserted[0] });
 });
@@ -841,7 +848,8 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       updated_at: new Date(),
     })
     .where(eq(leaveRequestsTable.id, id));
-  void notifyEmployeeOfDecisionSilent(id, "approved");
+  // Employee Approved notification: in-app + push + email + SMS (MC-mirrored).
+  void notifyLeaveDecision(id, "approved");
   // [push 2026-06-03] Push the employee (fire-and-forget, gated by COMMS_ENABLED).
   {
     const when = reqRow.start_date
@@ -881,7 +889,8 @@ router.post("/requests/:id/deny", adminWriteGate, async (req, res) => {
       updated_at: new Date(),
     })
     .where(eq(leaveRequestsTable.id, id));
-  void notifyEmployeeOfDecisionSilent(id, "denied");
+  // Employee Denied notification: in-app + push + email + SMS (MC-mirrored).
+  void notifyLeaveDecision(id, "denied");
   return res.json({ data: { id, status: "denied" } });
 });
 
@@ -1117,38 +1126,10 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
 // Notification helpers — best-effort, COMMS_ENABLED-gated, never throw
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function notifyOfficeOfRequestSilent(
-  requestId: number,
-  companyId: number,
-): Promise<void> {
-  try {
-    if (process.env.COMMS_ENABLED !== "true") return;
-    // The ticket itself is in the DB; this is just the email ping.
-    // Office notification details (recipient list) live in the
-    // existing comms layer — wired by recipient role conventions.
-    // Implementing the actual send is out of scope here; we leave a
-    // structured log line the comms job can pick up.
-    console.log(
-      `[leave] new request #${requestId} (company ${companyId}) — comms enabled, office notify`,
-    );
-  } catch (err) {
-    console.warn("[leave] office notify failed (non-fatal):", err);
-  }
-}
-
-async function notifyEmployeeOfDecisionSilent(
-  requestId: number,
-  outcome: "approved" | "denied",
-): Promise<void> {
-  try {
-    if (process.env.COMMS_ENABLED !== "true") return;
-    console.log(
-      `[leave] request #${requestId} → ${outcome} — comms enabled, employee notify`,
-    );
-  } catch (err) {
-    console.warn("[leave] employee notify failed (non-fatal):", err);
-  }
-}
+// Leave request/decision notifications moved to lib/leave-notifications.ts
+// (notifyLeaveSubmitted / notifyLeaveDecision) — real in-app + push + email
+// + SMS mirroring MaidCentral's templates, replacing the prior console-log
+// stubs (notifyOfficeOfRequestSilent / notifyEmployeeOfDecisionSilent).
 
 // notifyOfficeOfDisciplineSilent moved to lib/unexcused-ladder-writer.ts
 // in cutover 3B and re-exported (imported above) so the new

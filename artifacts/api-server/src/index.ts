@@ -93,9 +93,10 @@ function startNotificationCron() {
       runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
     }
     // 2 AM CT → leave accrual: grant-on-eligibility (90-day sick / 1-year
-    // PTO gates) + calendar-year reset (Jan 1 re-front-load) for every
-    // leave-enabled tenant. Gated by LEAVE_ACCRUAL_ENABLED (default OFF) —
-    // no balance writes until Sal signs off and flips the Railway env var.
+    // PTO gates) + work-anniversary reset (re-front-load on each employee's
+    // benefit-year boundary) for every leave-enabled tenant. Gated by
+    // LEAVE_ACCRUAL_ENABLED (default OFF) — no balance writes until Sal
+    // signs off and flips the Railway env var.
     if (ctH === 2 && fired["leave_accrual"] !== `${ctDate}-2`) {
       fired["leave_accrual"] = `${ctDate}-2`;
       runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[cron] leave_accrual error:", e));

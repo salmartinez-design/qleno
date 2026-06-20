@@ -8,8 +8,10 @@ import {
   completedYearsOfService,
   entitlementHours,
   planLeaveGrant,
+  benefitYearStartDate,
   type GrantBucket,
 } from "../lib/leave-grant-reset.js";
+import { checkAdvanceNotice } from "../lib/leave-request-rules.js";
 
 const ASOF = "2026-06-20";
 const CEILING = 80;
@@ -116,24 +118,43 @@ describe("planLeaveGrant", () => {
     assert.equal(p.new_granted, 0);
   });
 
-  it("balance from last year + eligible → annual_reset (re-front-load, used 0)", () => {
+  it("last reset in PRIOR benefit year → annual_reset (re-front-load, used 0)", () => {
+    // Norma-like: hire 5/11, last reset on the 2025 anniversary. As of
+    // 2026-06-20 the benefit year started 2026-05-11, so the 2025 grant
+    // is stale → re-front-load.
     const p = planLeaveGrant(
       PLAWA,
-      { granted_hours: 40, used_hours: 32, last_reset_at: new Date("2025-01-01T12:00:00Z") },
-      "2024-01-01",
+      { granted_hours: 40, used_hours: 32, last_reset_at: new Date("2025-05-11T12:00:00Z") },
+      "2023-05-11",
       ASOF,
       CEILING,
     );
     assert.equal(p.action, "annual_reset");
     assert.equal(p.new_granted, 40);
-    assert.equal(p.new_used, 0); // prior-year usage wiped
+    assert.equal(p.new_used, 0); // prior-benefit-year usage wiped
   });
 
-  it("balance granted this year, entitlement unchanged → none (preserve used)", () => {
+  it("NO calendar reset: Jan-1 does NOT reset; before the anniversary it's still the prior benefit year", () => {
+    // Hire 5/11; as of 2026-04-01 (before the 2026 anniversary) the
+    // current benefit year started 2025-05-11. A reset stamped 2025-05-11
+    // is still current → none. (A Jan-1 calendar model would have reset.)
+    const p = planLeaveGrant(
+      PLAWA,
+      { granted_hours: 40, used_hours: 12, last_reset_at: new Date("2025-05-11T12:00:00Z") },
+      "2023-05-11",
+      "2026-04-01",
+      CEILING,
+    );
+    assert.equal(p.action, "none");
+    assert.equal(p.new_granted, 40);
+    assert.equal(p.new_used, 12); // preserved — same benefit year
+  });
+
+  it("balance granted THIS benefit year, entitlement unchanged → none (preserve used)", () => {
     const p = planLeaveGrant(
       PTO,
-      { granted_hours: 40, used_hours: 10, last_reset_at: new Date("2026-01-01T12:00:00Z") },
-      "2025-06-03",
+      { granted_hours: 40, used_hours: 10, last_reset_at: new Date("2026-06-10T12:00:00Z") },
+      "2025-06-03", // benefit year started 2026-06-03; reset 6/10 is current
       ASOF,
       CEILING,
     );
@@ -142,11 +163,13 @@ describe("planLeaveGrant", () => {
     assert.equal(p.new_used, 10);
   });
 
-  it("PTO crosses 2-year tier mid-year → tier_topup to 80, used preserved", () => {
+  it("PTO tier bump within the benefit year → tier_topup to 80, used preserved", () => {
+    // Anniversary 6/18 already reset granted to 40 (stale), but tenure is
+    // now 2yr so the tier is 80 → top the bank up without zeroing used.
     const p = planLeaveGrant(
       PTO,
-      { granted_hours: 40, used_hours: 10, last_reset_at: new Date("2026-01-01T12:00:00Z") },
-      "2024-06-18", // 2 years as of ASOF
+      { granted_hours: 40, used_hours: 10, last_reset_at: new Date("2026-06-19T12:00:00Z") },
+      "2024-06-18", // benefit year started 2026-06-18; 2 years tenure
       ASOF,
       CEILING,
     );
@@ -155,12 +178,12 @@ describe("planLeaveGrant", () => {
     assert.equal(p.new_used, 10); // NOT reset — only the bank tops up
   });
 
-  it("handbook example: PTO bank tops UP to tier, never stacks (no +on-top)", () => {
-    // Used 20 of 40 in year 1; at the year reset the bank is set to the
-    // year's entitlement, not 20 carried + a fresh grant.
+  it("handbook example: PTO bank tops UP to tier at the anniversary, never stacks", () => {
+    // Used 20 of 40; at the benefit-year (anniversary) reset the bank is
+    // set to the tenure entitlement, not 20 carried + a fresh grant.
     const p = planLeaveGrant(
       PTO,
-      { granted_hours: 40, used_hours: 20, last_reset_at: new Date("2025-06-30T12:00:00Z") },
+      { granted_hours: 40, used_hours: 20, last_reset_at: new Date("2025-06-18T12:00:00Z") },
       "2024-06-18",
       ASOF,
       CEILING,
@@ -169,5 +192,33 @@ describe("planLeaveGrant", () => {
     assert.equal(p.new_granted, 80); // tier at 2yr
     assert.equal(p.new_used, 0);
     // available = 80, NOT 20 + 80 = 100, NOT 20 + 40 = 60
+  });
+});
+
+describe("checkAdvanceNotice — 7-day for PTO/Unpaid, exempt for sick", () => {
+  const ptoB = { requestable: true, waiting_period_days: 365, accrual_mode: "flat_grant" as const, exempt_from_blackout: false, display_name: "PTO" };
+  const sickB = { requestable: true, waiting_period_days: 90, accrual_mode: "flat_grant" as const, exempt_from_blackout: true, display_name: "PLAWA" };
+  it("PTO start within 7 days → fail", () => {
+    const r = checkAdvanceNotice(ptoB, "2026-06-23", "2026-06-20");
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.equal(r.code, "insufficient_notice");
+  });
+  it("PTO start exactly 7 days out → ok", () => {
+    assert.equal(checkAdvanceNotice(ptoB, "2026-06-27", "2026-06-20").ok, true);
+  });
+  it("Sick (exempt) same-day → ok (emergency path)", () => {
+    assert.equal(checkAdvanceNotice(sickB, "2026-06-20", "2026-06-20").ok, true);
+  });
+});
+
+describe("benefitYearStartDate", () => {
+  it("most recent anniversary on/before asOf", () => {
+    assert.equal(benefitYearStartDate("2023-05-11", "2026-06-20").toISOString().slice(0, 10), "2026-05-11");
+  });
+  it("before this year's anniversary → last year's", () => {
+    assert.equal(benefitYearStartDate("2023-05-11", "2026-04-01").toISOString().slice(0, 10), "2025-05-11");
+  });
+  it("Aug hire mid-year → prior Aug", () => {
+    assert.equal(benefitYearStartDate("2025-08-01", "2026-06-20").toISOString().slice(0, 10), "2025-08-01");
   });
 });

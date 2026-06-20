@@ -72,6 +72,37 @@ export function checkWaitingPeriod(
   return { ok: true };
 }
 
+/** PTO + Unpaid Personal require 7 days' advance notice (per handbook).
+ *  Short-notice buckets — PLAWA/sick, identified by exempt_from_blackout
+ *  (the protected, grace-call bucket) — are exempt: same-day / emergency
+ *  requests are allowed. Keyed on exempt_from_blackout to avoid a new
+ *  column; PLAWA is the only exempt bucket and the only short-notice one. */
+export const ADVANCE_NOTICE_DAYS = 7;
+
+export function checkAdvanceNotice(
+  bucket: BucketForValidation,
+  startDate: string,
+  asOf: string,
+): RuleResult {
+  if (bucket.exempt_from_blackout) return { ok: true }; // sick/emergency path
+  const cutoff = addDaysISO(asOf, ADVANCE_NOTICE_DAYS);
+  if (startDate < cutoff) {
+    return {
+      ok: false,
+      code: "insufficient_notice",
+      message: `${bucket.display_name} requires ${ADVANCE_NOTICE_DAYS} days' advance notice. Earliest start date is ${cutoff}.`,
+    };
+  }
+  return { ok: true };
+}
+
+/** asOf (YYYY-MM-DD) + n days, as YYYY-MM-DD (UTC). */
+function addDaysISO(asOf: string, n: number): string {
+  const d = new Date(`${asOf}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 export function checkBalance(
   bucket: BucketForValidation,
   requestedHours: number,

@@ -542,12 +542,16 @@ These produce **very different** starting balances for Norma. So the migration's
 
 # Phase 2 — BUILD (2026-06-20)
 
-**Reset basis RESOLVED (Sal 2026-06-20): CALENDAR YEAR for all employees, all
-buckets — everyone resets Jan 1.** Q1 is closed. The handbook's individualized
-"Benefit Year" language does NOT govern leave resets; the seed now stores
-`leave_reset_basis = 'calendar_year'` for co1. Sick = 40 front-loaded after 90
-days, no carryover, not paid at separation; PTO = 40 after 1 year → 80 (hard
-cap) at 2 years; Unpaid = 40 from day one.
+> ⚠️ **SUPERSEDED — see "Phase 2b — Reset-basis correction" below.** My first
+> read of Sal's answer was calendar-year (Jan 1); Sal corrected it to
+> **WORK ANNIVERSARY** (per-employee benefit year). The code, tests, dry-run,
+> and seed have all been reworked accordingly. This section's calendar-year
+> framing and dry-run numbers are kept only as a record; the corrected
+> numbers are in Phase 2b.
+
+**Reset basis (initial read — later corrected): calendar year.** Sick = 40
+front-loaded after 90 days, no carryover, not paid at separation; PTO = 40 after
+1 year → 80 (hard cap) at 2 years; Unpaid = 40 from day one.
 
 **Status: code built, CI-green, balance writes + deploy HELD for sign-off.** The
 accrual cron is gated OFF by `LEAVE_ACCRUAL_ENABLED` (default false), so merging/
@@ -618,5 +622,101 @@ usage. Holiday_pay is reported but NOT deducted — separate benefit.)
 2. Deploy (seed fix lands: PLAWA corrected, dup sick off, calendar basis).
 3. Re-run the dry-run; Sal eyeballs.
 4. Flip `LEAVE_ACCRUAL_ENABLED=true` → the 2 AM cron grants balances; overlay the
-   2026 `used` (one-time migration write, `ON CONFLICT DO UPDATE`).
+   current-benefit-year `used` (one-time migration write, `ON CONFLICT DO UPDATE`).
 5. Spot-check 3–5 employees in the profile UI.
+
+---
+
+# Phase 2b — Reset-basis correction + request workflow (2026-06-20)
+
+## Reset basis CORRECTED → WORK ANNIVERSARY (per-employee benefit year)
+
+Sal corrected the basis: each employee's benefit year is anchored to their
+**hire date and resets on their work anniversary** — NOT a Jan-1 calendar reset.
+This matches the handbook and the already-seeded 3A `work_anniversary` policy, so
+**no handbook change is needed.** All buckets reset on the anniversary.
+
+Reworked accordingly (still HELD behind `LEAVE_ACCRUAL_ENABLED`):
+- **Seed** (`cutover-data-migration.ts`) reverted to `leave_reset_basis =
+  'work_anniversary'` (COALESCE-preserving). PLAWA flat-grant fix + dup-sick
+  deactivation stand.
+- **Engine** (`lib/leave-grant-reset.ts`): added `benefitYearStartDate` (most
+  recent hire anniversary ≤ today); `planLeaveGrant` now keys the reset off the
+  benefit year, not the calendar year (`last_reset_at < benefitYearStart` →
+  reset). 25 unit tests, incl. an explicit "no Jan-1 reset" case.
+- **Dry-run** (`scripts/_timeoff_migration_dryrun_readonly.mjs`): "used" now
+  counts `additional_pay` only within each employee's **current benefit year**
+  (since their anniversary), not the calendar year.
+
+### Corrected dry-run (co1, as of 2026-06-20, work-anniversary basis)
+
+The big change: usage **before** an employee's most recent anniversary is in
+their *prior* benefit year and is NOT deducted — so most employees start with
+**full** balances. Only Alejandra (anniversary 8/1, so her whole benefit year of
+usage counts) carries used hours.
+
+| Employee | Hire | Benefit yr start | PLAWA (g/u/rem) | PTO (g/u/rem) | Unpaid |
+|----------|------|------------------|-----------------|---------------|--------|
+| Rosa Gallegos | 2020-04-01 | 2026-04-01 | 40/0/40 | 80/0/80 | 40 |
+| Maribel Castillo (office) | 2023-02-21 | 2026-02-21 | 40/0/40 | 80/0/80 | 40 |
+| Norma Puga | 2023-05-11 | 2026-05-11 | 40/0/40 | 80/0/80 | 40 |
+| Francisco Estevez (office) | 2024-06-03 | 2026-06-03 | 40/0/40 | 80/0/80 | 40 |
+| Diana Vasquez | 2024-06-18 | 2026-06-18 | 40/0/40 | 80/0/80 | 40 |
+| Alma Salinas | 2025-06-03 | 2026-06-03 | 40/0/40 | 40/0/40 | 40 |
+| Guadalupe Mejia | 2025-06-11 | 2026-06-11 | 40/0/40 | 40/0/40 | 40 |
+| Alejandra Cuervo | 2025-08-01 | 2025-08-01 | 40/29/**11** | not eligible | 40 |
+| Juliana Loredo | 2026-01-26 | 2026-01-26 | 40/0/40 | not eligible | 40 |
+| Jose Ardila | 2026-05-01 | — | not eligible | not eligible | 40 |
+| Hilda Gallegos | 2026-05-25 | — | not eligible | not eligible | 40 |
+
+(Norma's Jan–Mar 2026 PTO/sick fall before her 5/11 anniversary → prior benefit
+year → not deducted. Contrast the superseded calendar-year table above.)
+
+## Request → approval → notification workflow (field app), mirroring MaidCentral
+
+### What the 3A lifecycle ALREADY provided
+
+| # | Step | Status before this build |
+|---|------|--------------------------|
+| 1 | Employee request from phone | ✅ `leave-request.tsx` at `/leave` (DashboardLayout = field app): per-bucket balances + submit form + my-requests list. Posts `POST /api/leave/requests`. |
+| 3 | Balance check + deduction | ✅ `checkBalance` on submit; `used_hours` increments on approve; restored on cancel. Balances visible to employee (`/balances/me`) + office (`/balances?userId=`). |
+| 5 | Approve / deny in app | ✅ `leave-review.tsx` + `POST /requests/:id/approve|deny` (office/owner gated). |
+| — | Blackout auto-deny + cascade | ✅ Already present (PLAWA exempt; non-exempt auto-denied; multi-bucket cascade endpoint). |
+
+### What was MISSING — and is now built in this PR
+
+| # | Step | Gap | Built |
+|---|------|-----|-------|
+| 2 | 7-day notice rules | ❌ none — only the 90-day *employment* gate existed | ✅ `checkAdvanceNotice` (PTO + Unpaid require start ≥ today+7d; PLAWA/sick exempt = emergency). Wired into `POST /requests`; field-app hint added. |
+| 4 | Office + owner on submit | ❌ stub (`console.log` only) | ✅ `notifyLeaveSubmitted` → `notifyOfficeUsers` (owner+admin+office): in-app + push + staff email, MC "ACTION REQUIRED: review & approve". |
+| 6 | Employee on decision | ❌ stub + push only | ✅ `notifyLeaveDecision` → employee in-app + push + **email + SMS** for Approved/Denied (MC subjects). |
+| 1+ | Employee on submit | ❌ no confirmation | ✅ employee "Pending" (email+SMS+in-app); short-notice/sick → "Emergency Request Received" variant. |
+
+New module: `lib/leave-notifications.ts`. MC templates mirrored (subjects close to
+MC's "Pending / Approved / Denied / Emergency"); Sal's superset = employee
+decisions on **SMS + email** (MC is email-only).
+
+**Channel gating:** in-app + push always fire (internal staff alerts, ungated).
+Employee **email + SMS are gated by `COMMS_ENABLED`** (SMS additionally by the
+per-tenant/branch gate via `resolveSender`) — honoring the hard rule that no
+SMS/email leaves the system until comms are enabled. So in prod today employees
+get in-app + push; email/SMS begin once `COMMS_ENABLED=true`. Office alerts use
+the existing (ungated) staff-alert email path.
+
+### Workflow items still open / flagged
+- **Cascade requests** (`POST /requests/cascade`, office-driven multi-bucket
+  fall-through) are NOT yet wired to the new notifier — the field app uses the
+  simple `POST /requests` path, which is. Follow-up if office uses cascade.
+- **Field-app nav**: ✅ confirmed — `/leave` is routed (`App.tsx`) and the sidebar
+  exposes a "Time Off" entry for `technician`/`team_lead` roles
+  (`app-sidebar.tsx`). Reachable on the phone today.
+- **Notification prefs**: `notifyUser` email/push for employee in-app types
+  depend on `TYPE_TO_CATEGORY` mapping; employee email/SMS here are sent directly
+  (MC-mirrored), not pref-gated, so they always send when `COMMS_ENABLED`.
+
+## Residual questions (unchanged + reconfirmed for the anniversary basis)
+The Phase 2 residual list still stands: PTO mid-year 2-year top-up timing (now at
+the **anniversary** reset, which is the natural boundary — confirm), mid-year
+proration, leave pay **rate source** (`employee_pay_rates` empty), auto-pay vs
+preview, and the pre-write data fixes (Alejandra hire_date, Maryury, owner/office
+scope). All HELD for Sal's sign-off before any balance write or deploy.

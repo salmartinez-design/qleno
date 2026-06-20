@@ -1,10 +1,11 @@
 /**
- * Daily leave-accrual cron — grant-on-eligibility + calendar-year reset.
+ * Daily leave-accrual cron — grant-on-eligibility + work-anniversary reset.
  *
  * Runs the unified reconcile (./leave-reconcile.ts) for every tenant with
- * the leave program enabled. One daily pass covers all three actions:
+ * the leave program enabled. One daily pass covers all three actions,
+ * keyed off each employee's hire-anniversary benefit year:
  *   - initial_grant : a new hire crosses the 90-day / 1-year gate
- *   - annual_reset  : first run on/after Jan 1 re-front-loads the year
+ *   - annual_reset  : first run of a new benefit year (work anniversary)
  *   - tier_topup    : PTO crosses its 2-year tenure tier
  *
  * GATED by LEAVE_ACCRUAL_ENABLED (default OFF) — mirrors the COMMS_ENABLED /

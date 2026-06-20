@@ -4,11 +4,13 @@
 //
 // Granted   = engine entitlement (mirrors lib/leave-grant-reset.ts):
 //             PLAWA 40 after 90d; PTO 40 after 1yr, 80 after 2yr; Unpaid 40 day-one.
-// Used 2026 = derived from Qleno additional_pay (Sal's chosen source):
+// Used      = derived from Qleno additional_pay (Sal's chosen source):
 //             sick_pay → PLAWA, vacation_pay → PTO. Hours parsed from the
 //             "(Xh)" note when present, else amount ÷ $20/h (the apparent
 //             standard day rate). holiday_pay is a SEPARATE benefit, not a
-//             bucket — reported, not deducted. Calendar-year window (2026).
+//             bucket — reported, not deducted. WINDOW = each employee's
+//             current BENEFIT YEAR (most recent hire anniversary → today),
+//             since the reset basis is work_anniversary (Sal 2026-06-20).
 // Remaining = max(0, granted - used).
 import pg from '/Users/salvadormartinez/qleno/node_modules/.pnpm/pg@8.20.0/node_modules/pg/lib/index.js';
 import { readFileSync } from 'node:fs';
@@ -49,6 +51,13 @@ function completedYears(hire, asOf) {
 const plawaGrant = hire => (daysBetween(hire, ASOF) >= 90 ? 40 : 0);
 const ptoGrant = hire => (daysBetween(hire, ASOF) >= 365 ? (completedYears(hire, ASOF) >= 2 ? CEILING : 40) : 0);
 const unpaidGrant = () => 40;
+// Most recent hire-anniversary on/before ASOF = start of current benefit year.
+function benefitYearStart(hire, asOf) {
+  const h = new Date(`${hire}T00:00:00Z`), a = new Date(`${asOf}T00:00:00Z`);
+  let anniv = new Date(Date.UTC(a.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()));
+  if (anniv > a) anniv = new Date(Date.UTC(a.getUTCFullYear() - 1, h.getUTCMonth(), h.getUTCDate()));
+  return anniv.toISOString().slice(0, 10);
+}
 
 // hours from an additional_pay row: "(Xh)" note first, else amount/$20
 function rowHours(amount, notes) {
@@ -60,13 +69,15 @@ function rowHours(amount, notes) {
 const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
 await client.connect();
 
-// 2026 time-off additional_pay for the roster
+// time-off additional_pay for the roster (wide window; filtered per
+// employee's benefit-year start below — work-anniversary reset basis)
 const uids = ROSTER.map(r => r.uid);
+const bysByUid = Object.fromEntries(ROSTER.map(r => [r.uid, benefitYearStart(r.hire, ASOF)]));
 const ap = await client.query(`
-  SELECT user_id, lower(type) AS type, amount, notes
+  SELECT user_id, lower(type) AS type, amount, notes, created_at::date AS created
   FROM additional_pay
   WHERE company_id = 1 AND COALESCE(status,'pending') <> 'voided'
-    AND created_at >= '2026-01-01' AND created_at < '2027-01-01'
+    AND created_at >= '2024-01-01'
     AND lower(type) IN ('sick_pay','vacation_pay','holiday_pay')
     AND user_id = ANY($1::int[])
   ORDER BY user_id, type`, [uids]);
@@ -75,17 +86,20 @@ const used = {}; // uid → { plawa, pto, holiday }
 for (const u of uids) used[u] = { plawa: 0, pto: 0, holiday: 0 };
 const derivation = [];
 for (const r of ap.rows) {
+  const createdStr = (r.created instanceof Date ? r.created.toISOString().slice(0, 10) : String(r.created).slice(0, 10));
+  const inBenefitYear = createdStr >= bysByUid[r.user_id];
   const { hrs, src } = rowHours(r.amount, r.notes);
   const bucket = r.type === 'sick_pay' ? 'plawa' : r.type === 'vacation_pay' ? 'pto' : 'holiday';
-  used[r.user_id][bucket] += hrs;
-  derivation.push({ uid: r.user_id, type: r.type, amount: r.amount, hrs, via: src, note: (r.notes || '').slice(0, 48) });
+  if (inBenefitYear) used[r.user_id][bucket] += hrs;
+  derivation.push({ uid: r.user_id, type: r.type, created: createdStr, in_BY: inBenefitYear ? 'yes' : 'PRIOR', amount: r.amount, hrs, via: src });
 }
 
-console.log(`\n=== TIME-OFF MIGRATION DRY-RUN (co1 / Oak Lawn) — as of ${ASOF}, calendar-year reset ===`);
-console.log('granted = engine entitlement; used = 2026 additional_pay (sick→PLAWA, vacation→PTO); remaining = max(0, granted-used)\n');
+console.log(`\n=== TIME-OFF MIGRATION DRY-RUN (co1 / Oak Lawn) — as of ${ASOF}, WORK-ANNIVERSARY reset ===`);
+console.log('granted = engine entitlement; used = current-benefit-year additional_pay (sick→PLAWA, vacation→PTO); remaining = max(0, granted-used)\n');
 
 const out = [];
 for (const e of ROSTER) {
+  const bys = benefitYearStart(e.hire, ASOF);
   const buckets = [
     { slug: 'PLAWA (sick)', granted: plawaGrant(e.hire), used: round(used[e.uid].plawa) },
     { slug: 'PTO', granted: ptoGrant(e.hire), used: round(used[e.uid].pto) },
@@ -98,6 +112,7 @@ for (const e of ROSTER) {
     out.push({
       employee: e.name + (e.office ? ' (office)' : ''),
       hire: e.hire,
+      benefit_yr: bys,
       bucket: b.slug,
       eligible: eligible ? 'yes' : 'NO',
       granted: b.granted,
@@ -118,6 +133,7 @@ console.log('• Sal Martinez (owner, uid 1) excluded (Q11: owner/office in scop
 console.log(`• Dollars→hours used $${LEAVE_RATE}/h where the note had no "(Xh)" — confirm the leave pay rate (Q: rate source).`);
 console.log('• holiday_pay reported in derivation but NOT a balance bucket (separate 8h benefit) — not deducted.');
 console.log('• Unpaid personal: granted 40 day-one, used 0 (no additional_pay maps to it; tracked going forward).');
+console.log('• WORK-ANNIVERSARY basis: "used" counts only additional_pay in the current benefit year (since benefit_yr). Entries before it (in_BY=PRIOR) are last year — NOT deducted. This is why Norma (anniv 5/11) shows ~0 used despite Jan–Mar PTO.');
 
 await client.end();
 function round(n) { return Math.round(n * 100) / 100; }
