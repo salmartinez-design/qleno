@@ -1365,7 +1365,7 @@ function BillingTab({ invoices }: { invoices: any[] }) {
               <tr><td colSpan={6} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No invoices yet</td></tr>
             ) : invoices.map(inv => (
               <tr key={inv.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
-                <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280" }}>{fmtDate(inv.created_at)}</td>
+                <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280" }}>{inv.service_date ? fmtDate(inv.service_date + "T12:00:00") : fmtDate(inv.created_at)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>INV-{String(inv.id).padStart(5, "0")}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: inv.paid_at ? "#9E9B94" : "#1A1917" }}>{inv.paid_at ? "$0.00" : fmtCurrency(inv.total)}</td>

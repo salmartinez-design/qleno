@@ -112,6 +112,13 @@ router.get("/", requireAuth, async (req, res) => {
         payment_terms: invoicesTable.payment_terms,
         billing_contact_name: invoicesTable.billing_contact_name,
         billing_contact_email: invoicesTable.billing_contact_email,
+        // [invoice-service-date 2026-06-20] Live service date = the linked job's
+        // scheduled_date, read at query time. The invoice has no service-date
+        // column (created_at/due_date are creation snapshots), and a reschedule
+        // moves jobs.scheduled_date WITHOUT touching the invoice — so a snapshot
+        // would go stale (office saw "the 17th" for a job moved to the 19th).
+        // Reading it live can never drift; null when the job is gone/unlinked.
+        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -359,6 +366,9 @@ router.get("/:id", requireAuth, async (req, res) => {
         payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
+        // [invoice-service-date 2026-06-20] Live service date from the linked job
+        // (see list select). Reschedule-proof; null when job gone/unlinked.
+        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))

@@ -423,6 +423,24 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       qb_customer_id: qbMap?.qb_customer_id ?? null,
     };
 
+    // [invoice-service-date 2026-06-20] Attach each invoice's LIVE service date
+    // (its linked job's scheduled_date) so the Billing tab shows the real service
+    // date instead of created_at — which is a creation snapshot that goes stale
+    // when a job is rescheduled. One batched lookup; null when job gone/unlinked.
+    const invJobIds = invoices.map((i: any) => i.job_id).filter((x: any) => x != null);
+    const invJobDates = new Map<number, string | null>();
+    if (invJobIds.length) {
+      const jrows = await db
+        .select({ id: jobsTable.id, scheduled_date: jobsTable.scheduled_date })
+        .from(jobsTable)
+        .where(inArray(jobsTable.id, invJobIds));
+      for (const j of jrows) invJobDates.set(j.id, (j.scheduled_date as any) ?? null);
+    }
+    const invoicesWithService = invoices.map((i: any) => ({
+      ...i,
+      service_date: i.job_id ? (invJobDates.get(i.job_id) ?? null) : null,
+    }));
+
     return res.json({
       ...client,
       ...(zoneData || {}),
@@ -431,7 +449,7 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       tech_preferences: preferences,
       notification_settings: notifications,
       scorecards,
-      invoices,
+      invoices: invoicesWithService,
       jobs: jobs.slice(0, 20),
       stats: {
         revenue_all_time,
