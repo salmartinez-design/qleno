@@ -10,6 +10,7 @@ import { appBaseUrl } from "../lib/app-url.js";
 import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
 import { chargeInvoice } from "../lib/charge-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 
 const router = Router();
 
@@ -52,6 +53,26 @@ router.get("/", requireAuth, async (req, res) => {
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
     if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
+
+    // [invoice-future-hide 2026-06-20] Maribel: "the invoice tab should only
+    // show invoices up to date, not in advance." Recurring/auto draft invoices
+    // tied to a not-yet-performed job are billing-in-advance noise that makes
+    // the dates look wrong. Hide DRAFT invoices whose linked job is scheduled
+    // after today from the default view. Only drafts with a future job date are
+    // hidden — sent/paid/overdue/void, manual drafts (no job_id), and drafts for
+    // today-or-earlier jobs all stay. Pass ?include_future=1 to show everything.
+    const includeFuture = String(req.query.include_future || "") === "1";
+    if (!includeFuture) {
+      conditions.push(sql`NOT (
+        ${invoicesTable.status} = 'draft'
+        AND ${invoicesTable.job_id} IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM jobs j
+          WHERE j.id = ${invoicesTable.job_id}
+            AND j.scheduled_date > ${today}
+        )
+      )`);
+    }
 
     // [invoice-search 2026-06-20] Server-side search so it works across ALL
     // invoices, not just the 50 the page loaded. Matches the invoice_number,
@@ -371,11 +392,21 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       return res.status(409).json({ error: "Conflict", message: `A ${current.status} invoice cannot be edited` });
     }
 
+    // [invoice-view-crash 2026-06-20] Normalize line_items numeric fields to
+    // real numbers before persisting. The edit UI's qty/rate inputs hand back
+    // raw e.target.value STRINGS; storing them as strings in the jsonb is what
+    // crashed the invoice View (the read render called .toFixed() on a string →
+    // TypeError → ErrorBoundary "Something went wrong"). Coercing here is the
+    // durable fix — it protects every reader of line_items (View, PDF, QB sync,
+    // recalc), not just the one render path. The total is still derived from the
+    // (now numeric) line totals, so it can never drift.
+    const normLineItems = normalizeInvoiceLineItems(line_items);
+
     // Total ALWAYS = sum(line items) + tips, so it can never silently drift from
     // the lines. Use the new lines if provided, else the stored subtotal; use
     // the new tip if provided, else the stored tip.
-    const subtotal = line_items
-      ? Math.round(line_items.reduce((s: number, item: any) => s + (Number(item.total) || 0), 0) * 100) / 100
+    const subtotal = normLineItems
+      ? Math.round(normLineItems.reduce((s: number, item: any) => s + (Number(item.total) || 0), 0) * 100) / 100
       : parseFloat(current.subtotal || "0");
     const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
     const total = Math.round((subtotal + tipVal) * 100) / 100;
@@ -384,7 +415,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       .update(invoicesTable)
       .set({
         ...(status && { status }),
-        ...(line_items && { line_items }),
+        ...(normLineItems && { line_items: normLineItems }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),
