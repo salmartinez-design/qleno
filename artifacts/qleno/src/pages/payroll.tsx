@@ -146,6 +146,97 @@ function PeriodPicker({ period, onPeriodChange }:
   );
 }
 
+// [one-engine 2026-06-19] Minimal per-tech / per-period entry for tips, OT,
+// bonus, and time-off pay, posting straight to the existing additional_pay
+// endpoint. Stamps created_at to the chosen date so the entry lands in the
+// right pay period (same mechanism employee-profile uses). Lets the office run
+// the whole weekly payroll from this one page instead of hopping to each
+// employee profile. Additive pay types only — deductions stay on the profile
+// where their negative-amount semantics are explicit.
+const ADD_PAY_TYPES = [
+  { v: 'tips', l: 'Tips' },
+  { v: 'overtime', l: 'Overtime' },
+  { v: 'bonus', l: 'Bonus' },
+  { v: 'sick_pay', l: 'Sick Pay' },
+  { v: 'holiday_pay', l: 'Holiday Pay' },
+  { v: 'vacation_pay', l: 'Vacation Pay' },
+  { v: 'mileage', l: 'Mileage' },
+  { v: 'compliment', l: 'Compliment' },
+];
+function AddPayModal({ employees, period, onClose, onSaved }:
+  { employees: any[]; period: { start: string; end: string }; onClose: () => void; onSaved: () => void }) {
+  const [userId, setUserId] = useState<string>('');
+  const [type, setType] = useState('tips');
+  const [amount, setAmount] = useState('');
+  const [date, setDate] = useState(period.end);
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const amt = parseFloat(amount);
+  const valid = userId !== '' && Number.isFinite(amt) && amt > 0 && !!date;
+  async function save() {
+    if (!valid) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/users/${userId}/additional-pay`, {
+        method: 'POST',
+        body: JSON.stringify({ amount: amt.toFixed(2), type, notes: notes || null, date }),
+      });
+      onSaved();
+    } catch (e: any) {
+      window.alert(`Could not add pay: ${e?.message || e}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+  const field: React.CSSProperties = { height: 38, padding: '0 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', width: '100%', fontFamily: 'inherit' };
+  const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,14,26,.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 420, maxWidth: '100%', boxShadow: '0 24px 70px rgba(10,14,26,.28)', overflow: 'hidden', fontFamily: 'inherit' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid #EEECE7' }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: '#1A1917' }}>Add pay adjustment</span>
+          <X size={18} style={{ color: '#9E9B94', cursor: 'pointer' }} onClick={onClose} />
+        </div>
+        <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={lbl}>Employee</label>
+            <select style={field} value={userId} onChange={e => setUserId(e.target.value)}>
+              <option value="">Select employee…</option>
+              {employees.map((e: any) => (
+                <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <div style={{ flex: 1 }}>
+              <label style={lbl}>Type</label>
+              <select style={field} value={type} onChange={e => setType(e.target.value)}>
+                {ADD_PAY_TYPES.map(t => <option key={t.v} value={t.v}>{t.l}</option>)}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={lbl}>Amount ($)</label>
+              <input style={field} type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
+            </div>
+          </div>
+          <div>
+            <label style={lbl}>Effective date <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>(determines pay period)</span></label>
+            <input style={field} type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label style={lbl}>Notes <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>(optional)</span></label>
+            <input style={field} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. customer tip, weekend OT" />
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '0 20px 20px' }}>
+          <button onClick={onClose} style={{ padding: '9px 16px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B7280', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : 'Add pay'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Tenant pay cadence from companies.pay_cadence. Defaults to 'weekly' while
 // loading / when unset (Phes pays weekly; bi-weekly tenants opt in via Settings).
 function useCadence(): string {
@@ -716,8 +807,59 @@ export default function PayrollPage() {
   const totalHours = billableEmployees.reduce((sum: number, e: any) => sum + (payMap[e.id]?.hours ?? 0), 0);
 
   const isOwnerAdmin = ['owner','admin'].includes(getTokenRole() || '');
+  // Publish, Export, and Add-pay are office-grade actions (owner/admin/office) —
+  // same gate as the POST /payroll/publish + /payroll/export routes. [one-engine]
+  const canManagePayroll = ['owner','admin','office'].includes(getTokenRole() || '');
   const [activeView, setActiveView] = useState<'overview' | 'weekly-detail'>('weekly-detail');
   const [expandedOverview, setExpandedOverview] = useState<number[]>([]);
+
+  // ── Publish / Export / Add-pay (run weekly payroll from the app) ────────────
+  const { data: pubStatus, refetch: refetchPub } = useQuery<any>({
+    queryKey: ['payroll-publish-status', payPeriod.start, payPeriod.end],
+    queryFn: () => apiFetch(`/payroll/publish-status?pay_period_start=${payPeriod.start}&pay_period_end=${payPeriod.end}`),
+    enabled: canManagePayroll && !!payPeriod.start && !!payPeriod.end,
+  });
+  const isPublished = !!pubStatus?.published;
+  const [publishing, setPublishing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showAddPay, setShowAddPay] = useState(false);
+
+  const money2s = (n: number) => Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  async function handlePublish() {
+    const verb = isPublished ? 'Re-publish' : 'Publish';
+    if (!window.confirm(`${verb} payroll for ${periodLabel}?\n\nThis snapshots each employee's pay as the locked record for this period. Re-publishing overwrites the existing snapshot with current numbers.`)) return;
+    setPublishing(true);
+    try {
+      const r = await apiFetch('/payroll/publish', { method: 'POST', body: JSON.stringify({ pay_period_start: payPeriod.start, pay_period_end: payPeriod.end }) });
+      await refetchPub();
+      window.alert(`Published ${r.published} employee${r.published === 1 ? '' : 's'} for ${periodLabel}.\nTotal gross: $${money2s(r.total_gross)}`);
+    } catch (e: any) {
+      window.alert(`Publish failed: ${e?.message || e}`);
+    } finally {
+      setPublishing(false);
+    }
+  }
+
+  async function handleExport() {
+    if (!isPublished && !window.confirm(`This period hasn't been published yet. Export live (unpublished) numbers?\n\nThey match the on-screen detail but aren't locked. Publish first if you want a fixed record.`)) return;
+    setExporting(true);
+    try {
+      const resp = await fetch(`${API}/api/payroll/export?pay_period_start=${payPeriod.start}&pay_period_end=${payPeriod.end}`, { headers: { ...getAuthHeaders() } });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pay-summary-${payPeriod.start}-${payPeriod.end}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      window.alert(`Export failed: ${e?.message || e}`);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   // Pay Templates removed per Sal (2026-06-08): additional pay is added directly
   // on the employee profile and cascades into the payroll summary by date.
@@ -744,10 +886,46 @@ export default function PayrollPage() {
               </button>
             ))}
           </div>
-          <div style={{ fontSize: 13, color: '#6B7280', fontWeight: 500, fontFamily: 'inherit' }}>
-            Pay period: <span style={{ color: '#1A1917', fontWeight: 700 }}>{periodLabel}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, color: '#6B7280', fontWeight: 500, fontFamily: 'inherit' }}>
+              Pay period: <span style={{ color: '#1A1917', fontWeight: 700 }}>{periodLabel}</span>
+            </div>
+            {canManagePayroll && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {pubStatus && (
+                  <span title={isPublished && pubStatus.published_at ? `Published ${new Date(pubStatus.published_at).toLocaleString()}` : 'Not yet published'}
+                    style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 999, color: isPublished ? '#00A383' : '#9E9B94', background: isPublished ? '#E9FBF5' : '#F4F3F0' }}>
+                    {isPublished ? 'Published' : 'Draft'}
+                  </span>
+                )}
+                <button onClick={() => setShowAddPay(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  <Plus size={14} strokeWidth={1.8} /> Add pay
+                </button>
+                <button onClick={handlePublish} disabled={publishing}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: publishing ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  {publishing ? 'Publishing…' : (isPublished ? 'Re-publish' : 'Publish')}
+                </button>
+                <button onClick={handleExport} disabled={exporting}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: 'none', borderRadius: 8, background: 'var(--brand)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: exporting ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  <Download size={14} strokeWidth={1.8} /> {exporting ? 'Exporting…' : 'Export'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
+        {showAddPay && (
+          <AddPayModal
+            employees={billableEmployees}
+            period={payPeriod}
+            onClose={() => setShowAddPay(false)}
+            onSaved={() => {
+              setShowAddPay(false);
+              qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+              qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+            }}
+          />
+        )}
 
         {activeView === 'weekly-detail' && <WeeklyDetailView period={payPeriod} onPeriodChange={onPeriodChange} />}
 
@@ -758,22 +936,16 @@ export default function PayrollPage() {
             <Calendar size={14} strokeWidth={1.5} />
             {periodLabel}
           </button>
+          {/* One source of truth: routes through the same /payroll/export
+              (published snapshot or live computePeriodPay) as the header
+              Export button, so the CSV can never diverge from the on-screen
+              numbers. [one-engine 2026-06-19] */}
           <button
-            onClick={() => {
-              const csv = ['Employee,Role,Hours,Effective $/hr,Gross Pay',
-                ...billableEmployees.map((e: any) => {
-                  const p = payMap[e.id] || { hours: 0, gross: 0 };
-                  const eff = p.hours > 0 ? (p.gross / p.hours).toFixed(2) : '0.00';
-                  return `${e.first_name} ${e.last_name},${e.role},${p.hours.toFixed(1)},$${eff},$${p.gross.toFixed(2)}`;
-                })
-              ].join('\n');
-              const blob = new Blob([csv], { type: 'text/csv' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a'); a.href = url; a.download = 'payroll.csv'; a.click();
-            }}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer', fontFamily:'inherit' }}>
+            onClick={handleExport}
+            disabled={exporting}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: exporting ? 'default' : 'pointer', fontFamily:'inherit' }}>
             <Download size={14} strokeWidth={1.5} />
-            Export CSV
+            {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
         </div>
 

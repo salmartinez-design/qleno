@@ -1348,6 +1348,58 @@ router.post("/publish", requireAuth, requireRole("owner", "admin", "office"), as
   }
 });
 
+// ── [Phase 2] PUBLISH STATUS — has this period been snapshotted? ──────────────
+// Office/admin/owner. Drives the payroll page's Publish button label + the
+// "exporting unpublished" warning. Company-wide (not per-tech). [one-engine 2026-06-19]
+router.get("/publish-status", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const { pay_period_start, pay_period_end } = req.query;
+    if (!pay_period_start || !pay_period_end) return res.status(400).json({ error: "pay_period_start and pay_period_end are required" });
+    const { ensurePayrollSnapshotSetup } = await import("../lib/payroll-snapshot.js");
+    await ensurePayrollSnapshotSetup();
+    const row = (await db.execute(sql`
+      SELECT COUNT(*)::int AS cnt, COALESCE(SUM(gross), 0) AS total_gross, MAX(published_at) AS published_at
+      FROM payroll_period_snapshots
+      WHERE company_id = ${companyId} AND pay_period_start = ${String(pay_period_start)} AND pay_period_end = ${String(pay_period_end)}`)).rows[0] as any;
+    const cnt = Number(row?.cnt || 0);
+    return res.json({
+      published: cnt > 0,
+      count: cnt,
+      total_gross: parseFloat(String(row?.total_gross || 0)),
+      published_at: row?.published_at ?? null,
+    });
+  } catch (err: any) {
+    console.error("GET /payroll/publish-status:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
+// ── [Phase 2] PAYROLL EXPORT — provider-neutral CSV for the payroll processor ─
+// Office/admin/owner only. ONE ENGINE: rows come from the published snapshot
+// when present, else a live computePeriodPay run (same engine as the on-screen
+// detail and the snapshot). Columns: identifier, name, period, regular hours,
+// OT hours, regular pay, OT pay, adjustments total, gross. [one-engine 2026-06-19]
+router.get("/export", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = (req as any).auth!.companyId;
+    const { pay_period_start, pay_period_end } = req.query;
+    if (!pay_period_start || !pay_period_end) return res.status(400).json({ error: "pay_period_start and pay_period_end are required" });
+    const start = String(pay_period_start), end = String(pay_period_end);
+    const { buildPeriodExportRows } = await import("../lib/payroll-snapshot.js");
+    const { buildPayExportCsv, buildPayExportFilename } = await import("../lib/pay-export.js");
+    const { source, rows } = await buildPeriodExportRows(companyId, start, end);
+    const csv = buildPayExportCsv({ period_start: start, period_end: end, rows });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${buildPayExportFilename(start, end)}"`);
+    res.setHeader("X-Export-Source", source); // "published" | "live" — UI can warn when exporting unpublished
+    return res.send(csv);
+  } catch (err: any) {
+    console.error("GET /payroll/export:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message });
+  }
+});
+
 // ── [Phase 2] PAY HISTORY — published snapshots for the employee-profile Pay
 // section. ACCESS SCOPING: a technician sees ONLY their own; office/admin/owner
 // may pass ?user_id= to view any tech. A tech who passes someone else's id is

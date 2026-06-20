@@ -2,6 +2,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { computePayLines, type PayrollJob, type ClockEntry, type TechCell, type CompanyPayConfig, type HoursBasis } from "./payroll-compute.js";
 import { parseResRatesRow } from "./commission-rates.js";
+import { snapshotToExportRow, type PayExportRow } from "./pay-export.js";
 
 /**
  * Phase 2 — PUBLISH PAYROLL: snapshot each tech's computed pay for a pay period
@@ -122,6 +123,25 @@ export async function computePeriodPay(companyId: number, start: string, end: st
     addlByUser.get(uid)![String(r.type)] = parseFloat(String(r.t || 0));
   }
 
+  // Fold pay_adjustments (the 2B applied-mileage promotion + any office
+  // adjustments) into the SAME per-(user,type) map. GET /payroll/detail counts
+  // these in its grand_total, so the snapshot must too — otherwise the published
+  // number under-reports applied mileage vs. the on-screen detail. Window +
+  // additive merge mirror the /detail route exactly. Raw SQL + try/catch so a
+  // tenant without the table degrades gracefully. [one-engine 2026-06-19]
+  try {
+    for (const r of (await db.execute(sql`
+      SELECT user_id, adjustment_type, COALESCE(SUM(amount), 0) AS t FROM pay_adjustments
+      WHERE company_id = ${companyId}
+        AND created_at >= ${start} AND created_at <= ${end + " 23:59:59"}
+      GROUP BY user_id, adjustment_type`)).rows as any[]) {
+      const uid = Number(r.user_id);
+      if (!addlByUser.has(uid)) addlByUser.set(uid, {});
+      const m = addlByUser.get(uid)!;
+      m[String(r.adjustment_type)] = (m[String(r.adjustment_type)] || 0) + parseFloat(String(r.t || 0));
+    }
+  } catch { /* pay_adjustments absent for this tenant — skip */ }
+
   const byUser = new Map<number, PeriodPay>();
   for (const l of lines) {
     if (!byUser.has(l.user_id)) byUser.set(l.user_id, { user_id: l.user_id, name: userMap.get(l.user_id) || "", gross: 0, base: 0, hours: 0, tips: 0, overtime: 0, bonus: 0, adjustments: 0, jobs: [], additional_pay: {} });
@@ -162,4 +182,58 @@ export async function publishPeriod(companyId: number, start: string, end: strin
         breakdown = EXCLUDED.breakdown, published_at = now(), published_by_user_id = EXCLUDED.published_by_user_id`);
   }
   return { published: pay.length, total_gross: r2(total) };
+}
+
+/**
+ * Build the export rows for a period, ONE ENGINE end to end.
+ *
+ * Prefers the PUBLISHED snapshot (payroll_period_snapshots) so the export
+ * matches exactly what the office locked in. When a period hasn't been
+ * published yet, falls back to a LIVE computePeriodPay run (the same engine the
+ * snapshot is built from and the same one GET /payroll/detail uses) so the
+ * download still works — the returned `source` says which path produced it.
+ */
+export async function buildPeriodExportRows(
+  companyId: number, start: string, end: string,
+): Promise<{ source: "published" | "live"; rows: PayExportRow[] }> {
+  await ensurePayrollSnapshotSetup();
+  const snap = (await db.execute(sql`
+    SELECT s.user_id, u.first_name, u.last_name,
+           s.base, s.hours, s.tips, s.overtime, s.bonus, s.adjustments, s.gross
+    FROM payroll_period_snapshots s
+    LEFT JOIN users u ON u.id = s.user_id
+    WHERE s.company_id = ${companyId} AND s.pay_period_start = ${start} AND s.pay_period_end = ${end}
+    ORDER BY u.first_name, u.last_name`)).rows as any[];
+  if (snap.length) {
+    return {
+      source: "published",
+      rows: snap.map(r => snapshotToExportRow({
+        user_id: Number(r.user_id), first_name: r.first_name ?? "", last_name: r.last_name ?? "",
+        base: parseFloat(String(r.base || 0)), hours: parseFloat(String(r.hours || 0)),
+        tips: parseFloat(String(r.tips || 0)), overtime: parseFloat(String(r.overtime || 0)),
+        bonus: parseFloat(String(r.bonus || 0)), adjustments: parseFloat(String(r.adjustments || 0)),
+        gross: parseFloat(String(r.gross || 0)),
+      })),
+    };
+  }
+  // Not published yet — compute live off the same engine.
+  const pay = await computePeriodPay(companyId, start, end);
+  const nameById = new Map<number, { first: string; last: string }>();
+  const ids = pay.map(p => p.user_id);
+  if (ids.length) {
+    for (const u of (await db.execute(sql`SELECT id, first_name, last_name FROM users WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(intList(ids))}]::int[])`)).rows as any[]) {
+      nameById.set(Number(u.id), { first: u.first_name ?? "", last: u.last_name ?? "" });
+    }
+  }
+  return {
+    source: "live",
+    rows: pay
+      .sort((a, b) => (nameById.get(a.user_id)?.first || "").localeCompare(nameById.get(b.user_id)?.first || ""))
+      .map(p => snapshotToExportRow({
+        user_id: p.user_id,
+        first_name: nameById.get(p.user_id)?.first ?? p.name.split(" ")[0] ?? "",
+        last_name: nameById.get(p.user_id)?.last ?? p.name.split(" ").slice(1).join(" ") ?? "",
+        base: p.base, hours: p.hours, tips: p.tips, overtime: p.overtime, bonus: p.bonus, adjustments: p.adjustments, gross: p.gross,
+      })),
+  };
 }

@@ -67,6 +67,40 @@ export function buildPayExportCsv(input: PayExportInput): string {
   return lines.join("\n") + "\n";
 }
 
+/**
+ * Shape a single period-pay record (the engine's money breakdown) into the
+ * provider-neutral export row. PURE + DB-free — the ONLY place the engine's
+ * base/tips/overtime/bonus/adjustments buckets map to the export's
+ * regular/OT/adjustments columns, so the export, the on-screen detail, and the
+ * published snapshot can never silently diverge. `gross_cents` is the literal
+ * sum of the three money columns.
+ *
+ * Mapping:
+ *   - regular_pay   = base (commission/hourly base pay from computePayLines)
+ *   - overtime_pay  = overtime additional_pay (this comp model carries OT as a
+ *                     dollar entry, not an hours decomposition, so
+ *                     overtime_hours is 0)
+ *   - adjustments   = tips + bonus + everything else (sick/holiday/mileage/etc.)
+ *   - gross         = base + tips + overtime + bonus + adjustments
+ */
+export function snapshotToExportRow(s: {
+  user_id: number; first_name: string; last_name: string;
+  base: number; hours: number; tips: number; overtime: number; bonus: number; adjustments: number; gross: number;
+}): PayExportRow {
+  const c = (n: number) => Math.round((Number(n) || 0) * 100);
+  return {
+    employee_identifier: String(s.user_id),
+    employee_first_name: s.first_name || "",
+    employee_last_name: s.last_name || "",
+    regular_hours: Number(s.hours) || 0,
+    overtime_hours: 0,
+    regular_pay_cents: c(s.base),
+    overtime_pay_cents: c(s.overtime),
+    adjustments_cents: c(s.tips) + c(s.bonus) + c(s.adjustments),
+    gross_cents: c(s.gross),
+  };
+}
+
 export function buildPayExportFilename(start: string, end: string): string {
   // Provider-neutral. No vendor string. Stable across tenants.
   return `pay-summary-${start}-${end}.csv`;
