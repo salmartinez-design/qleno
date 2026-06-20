@@ -208,6 +208,9 @@ export async function insertJobFromSchedule(
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
+      // [legacy-pricing-pin 2026-06-20] Carry the schedule's pin onto the job so
+      // a pinned agreed price stays sticky on future occurrences.
+      manual_rate_override: !!schedule.manual_rate_override,
       allowed_hours: schedule.duration_minutes
         ? String((schedule.duration_minutes / 60).toFixed(2))
         : null as any,
@@ -279,6 +282,14 @@ type ScheduleInput = {
   scheduled_time?: string | null;
   duration_minutes: number | null;
   base_fee: string | null;
+  // [legacy-pricing-pin 2026-06-20] When the schedule's agreed price is manually
+  // pinned (grandfathered / unreproducible by the current catalog — e.g. the
+  // MaidCentral import has no sqft, so the sqft-tier engine can't recompute it),
+  // propagate the lock onto every generated occurrence. Without this, generated
+  // jobs default manual_rate_override=false and a later recompute (add-on /
+  // discount edit, or a service-change recalc) can clobber the agreed base_fee.
+  // The locked base itself is already carried by base_fee above.
+  manual_rate_override?: boolean | null;
   notes: string | null;
   // [AI.6] Parking fee per-occurrence config. When enabled, generated jobs
   // for matching weekdays get a job_add_ons row stamped at insertion time.
@@ -374,6 +385,9 @@ export async function computeOccurrencesForSchedule(
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
       base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
+      // [legacy-pricing-pin 2026-06-20] Carry the schedule's pin onto the job so
+      // a pinned agreed price stays sticky on future occurrences.
+      manual_rate_override: !!schedule.manual_rate_override,
       allowed_hours: schedule.duration_minutes ? String((schedule.duration_minutes / 60).toFixed(2)) : null as any,
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
