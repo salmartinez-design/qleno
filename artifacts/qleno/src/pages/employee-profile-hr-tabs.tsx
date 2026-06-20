@@ -186,138 +186,90 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
   );
 }
 
+// [time-off-accrual 2026-06-20] Repointed to the 3A leave engine. Shows
+// per-bucket balances (PLAWA / PTO / Unpaid) — granted / used / available
+// + the 90-day / 1-year eligibility gate — from GET /api/leave/balances,
+// the single source of truth. Usage history still reads employee_leave_usage
+// (which the 3A approval flow populates). The legacy single-bucket readout
+// and the manual "Log Leave Usage" write (it decremented the deprecated
+// users.leave_balance_hours) are removed — leave usage now flows through the
+// leave-request → approval path. All buckets reset on the calendar year.
 export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
-  const role = getTokenRole();
-  const canLog = role === "owner" || role === "admin" || role === "office";
   const { toast } = useToast();
-  const [data, setData] = useState<any>(null);
+  const [buckets, setBuckets] = useState<any[] | null>(null);
+  const [usage, setUsage] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ date_used: new Date().toISOString().slice(0, 10), hours: "", notes: "" });
-  const [saving, setSaving] = useState(false);
 
-  function load() {
-    apiFetch(`/hr-leave/balance/${employeeId}`)
-      .then(setData)
-      .catch(() => toast({ title: "Failed to load leave balance", variant: "destructive" }))
-      .finally(() => setLoading(false));
-  }
-
-  useEffect(() => { load(); }, [employeeId]);
-
-  async function submit() {
-    setSaving(true);
-    try {
-      const result = await apiFetch("/hr-leave/use", { method: "POST", body: JSON.stringify({ employee_id: employeeId, ...form }) });
-      setData((d: any) => ({ ...d, leave_balance_hours: result.new_balance, usage: [result.usage, ...(d.usage || [])] }));
-      setShowModal(false);
-      toast({ title: "Leave usage recorded" });
-    } catch {
-      toast({ title: "Failed to log leave usage", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  }
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    Promise.all([
+      apiFetch(`/leave/balances?userId=${employeeId}`).then((r: any) => r?.data ?? []).catch(() => []),
+      apiFetch(`/hr-leave/balance/${employeeId}`).then((r: any) => r?.usage ?? []).catch(() => []),
+    ])
+      .then(([b, u]: any[]) => {
+        if (!active) return;
+        setBuckets(b);
+        setUsage(u);
+      })
+      .catch(() => toast({ title: "Failed to load leave balances", variant: "destructive" }))
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [employeeId]);
 
   if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9CA3AF", fontFamily: FF }}>Loading…</div>;
-  if (!data) return <EmptyState message="Could not load leave data" />;
-
-  const policy = data.policy;
-  const activated = data.leave_balance_activated;
+  if (!buckets) return <EmptyState message="Could not load leave data" />;
 
   return (
     <div>
-      {!policy?.leave_program_enabled && (
+      <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginBottom: 16 }}>
+        Balances reset each calendar year (Jan 1). Sick (PLAWA) front-loads 40 hrs after 90 days; PTO grants 40 hrs after 1 year, topping up to 80 hrs at 2 years.
+      </div>
+
+      {!buckets.length && (
         <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 8, padding: "16px 20px", marginBottom: 20, fontSize: 13, color: "#6B7280", fontFamily: FF }}>
-          No leave program is configured. Enable it in Company Settings under HR Policies.
+          No leave buckets configured. Set them up in Company Settings under HR Policies.
         </div>
       )}
 
-      {policy?.leave_program_enabled && (
-        <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
-            <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, marginBottom: 6 }}>Balance</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: activated ? "var(--brand)" : "#9CA3AF", fontFamily: FF }}>{parseFloat(data.leave_balance_hours || "0").toFixed(1)}</div>
-              <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>hours available</div>
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, marginBottom: 6 }}>Status</div>
-              <div style={{ fontSize: 13, fontWeight: 600, fontFamily: FF, color: activated ? "#166534" : "#92400E" }}>
-                {activated ? "Active" : "Not yet eligible"}
-              </div>
-              {!activated && data.activation_date && (
-                <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>
-                  Eligible from {fmtDate(data.activation_date)}
+      {!!buckets.length && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 24 }}>
+          {buckets.map((b: any) => {
+            const eligible = !!b.past_waiting_period;
+            const available = parseFloat(b.available ?? "0");
+            return (
+              <div key={b.leave_type_id} style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF }}>{b.display_name}</div>
+                  <span style={{ fontSize: 10, fontWeight: 600, fontFamily: FF, padding: "2px 7px", borderRadius: 999, color: eligible ? "#166534" : "#92400E", background: eligible ? "#DCFCE7" : "#FEF3C7" }}>
+                    {eligible ? "Eligible" : "Not yet eligible"}
+                  </span>
                 </div>
-              )}
-            </div>
-            <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
-              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, marginBottom: 6 }}>Program</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{policy.leave_program_name}</div>
-              <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                {policy.leave_grant_method === "front_loaded" ? `${policy.leave_hours_granted} hrs front-loaded` : "Accrual-based"}
-              </div>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>Usage History</h3>
-            {canLog && activated && (
-              <button onClick={() => setShowModal(true)} style={{
-                display: "flex", alignItems: "center", gap: 6, padding: "8px 16px",
-                background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8,
-                fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF,
-              }}>
-                <Plus size={14} /> Log Leave Usage
-              </button>
-            )}
-          </div>
-
-          {!(data.usage || []).length && <EmptyState message="No leave usage recorded yet" />}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {(data.usage || []).map((u: any) => (
-              <div key={u.id} style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{fmtDate(u.date_used)}</div>
-                  {u.notes && <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>{u.notes}</div>}
+                <div style={{ fontSize: 28, fontWeight: 700, color: eligible ? "var(--brand)" : "#9CA3AF", fontFamily: FF }}>{available.toFixed(1)}</div>
+                <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>hours available</div>
+                <div style={{ fontSize: 11, color: "#9CA3AF", fontFamily: FF, marginTop: 8 }}>
+                  {parseFloat(b.granted ?? "0").toFixed(1)} granted · {parseFloat(b.used ?? "0").toFixed(1)} used
+                  {!eligible && b.waiting_period_days > 0 && ` · eligible after ${b.waiting_period_days} days`}
                 </div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#991B1B", fontFamily: FF }}>−{parseFloat(u.hours).toFixed(1)} hrs</div>
               </div>
-            ))}
-          </div>
-        </>
-      )}
-
-      {showModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 400, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
-            <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Log Leave Usage</h3>
-            <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
-                <CalendarPopover value={form.date_used} ariaLabel="Date" onChange={ymd => setForm(p => ({ ...p, date_used: ymd }))} block />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Hours Used</label>
-                <input type="number" min={0.5} step={0.5} value={form.hours} onChange={e => setForm(p => ({ ...p, hours: e.target.value }))}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
-              </div>
-              <div>
-                <label style={{ fontSize: 12, fontWeight: 500, display: "block", marginBottom: 4, fontFamily: FF }}>Notes</label>
-                <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={2}
-                  style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button onClick={() => setShowModal(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, background: "#fff", cursor: "pointer", fontFamily: FF }}>Cancel</button>
-              <button onClick={submit} disabled={saving} style={{ padding: "8px 16px", background: "#0A0E1A", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, opacity: saving ? 0.6 : 1 }}>
-                {saving ? "Saving…" : "Log Usage"}
-              </button>
-            </div>
-          </div>
+            );
+          })}
         </div>
       )}
+
+      <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>Usage History</h3>
+      {!usage.length && <EmptyState message="No leave usage recorded yet" />}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {usage.map((u: any) => (
+          <div key={u.id} style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{fmtDate(u.date_used)}</div>
+              {u.notes && <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>{u.notes}</div>}
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#991B1B", fontFamily: FF }}>−{parseFloat(u.hours).toFixed(1)} hrs</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

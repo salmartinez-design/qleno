@@ -537,4 +537,86 @@ These produce **very different** starting balances for Norma. So the migration's
   list. Include her in accrual (she's pre-90-day, so 0 today either way)?
 - **Q13 (new)** — duplicate sick bucket: OK to deactivate the generic `sick` (leave_types
   id 5) for co1 so PLAWA is the only sick bucket?
-</content>
+
+---
+
+# Phase 2 — BUILD (2026-06-20)
+
+**Reset basis RESOLVED (Sal 2026-06-20): CALENDAR YEAR for all employees, all
+buckets — everyone resets Jan 1.** Q1 is closed. The handbook's individualized
+"Benefit Year" language does NOT govern leave resets; the seed now stores
+`leave_reset_basis = 'calendar_year'` for co1. Sick = 40 front-loaded after 90
+days, no carryover, not paid at separation; PTO = 40 after 1 year → 80 (hard
+cap) at 2 years; Unpaid = 40 from day one.
+
+**Status: code built, CI-green, balance writes + deploy HELD for sign-off.** The
+accrual cron is gated OFF by `LEAVE_ACCRUAL_ENABLED` (default false), so merging/
+deploying writes NO balances until Sal confirms the dry-run and flips the
+Railway env var.
+
+## What was built
+
+| Piece | File | Notes |
+|-------|------|-------|
+| PLAWA seed fix + dup-sick deactivation + calendar-year basis | `cutover-data-migration.ts` | PLAWA → `flat_grant`/0/no-carryover (corrective UPDATE fixes prod); generic `sick` (id 5) deactivated for co1; policy forced to `calendar_year` |
+| Pure grant/reset engine | `lib/leave-grant-reset.ts` | `entitlementHours`, `completedYearsOfService`, `planLeaveGrant` (initial_grant / annual_reset / tier_topup). PTO "top-up to tier" (40→80), NOT carryover math |
+| Unit tests | `tests/cutover-3b-leave-grant-reset.test.ts` | 21 tests, all green (incl. handbook "top to 80, never stack" case) |
+| DB reconcile wrapper | `lib/leave-reconcile.ts` | loops employees × flat-grant buckets; `dryRun` mode powers the migration diff |
+| Daily cron (gated) | `lib/leave-accrual-cron.ts` + `index.ts` (2 AM CT) | grant-on-eligibility + Jan-1 reset; `LEAVE_ACCRUAL_ENABLED` default OFF |
+| Payroll review-gate preview | `lib/leave-pay-preview.ts` + `GET /api/payroll/leave-pay-preview` | approved paid leave × resolved rate; read-only, NOT folded into gross (like mileage/OT) |
+| Employee-profile UI repoint | `employee-profile-hr-tabs.tsx` | per-bucket 3A balances + eligibility + calendar-reset note; legacy single-bucket readout + manual log-usage write removed |
+| Legacy deprecation | `routes/hr-leave.ts` | deprecation banner; column DROP deferred to a post-sign-off follow-up |
+
+CI: `typecheck:libs` clean; api-server esbuild bundle + frontend vite build pass;
+382/382 cutover tests pass.
+
+## Migration DRY-RUN (co1 / Oak Lawn, as of 2026-06-20)
+
+Read-only, no writes: `scripts/_timeoff_migration_dryrun_readonly.mjs`. Granted =
+engine entitlement; Used = derived from 2026 `additional_pay` (sick_pay→PLAWA,
+vacation_pay→PTO; hours parsed from "(Xh)" notes else ÷ $20/h); Remaining =
+max(0, granted − used). Unpaid = 40 day-one, used 0.
+
+| Employee | Hire | PLAWA grant/used/rem | PTO grant/used/rem | Unpaid |
+|----------|------|----------------------|--------------------|--------|
+| Rosa Gallegos | 2020-04-01 | 40 / 0 / 40 | 80 / 0 / 80 | 40 |
+| Maribel Castillo (office) | 2023-02-21 | 40 / 0 / 40 | 80 / 0 / 80 | 40 |
+| Norma Puga | 2023-05-11 | 40 / 8 / 32 | 80 / 34.5 / 45.5 | 40 |
+| Francisco Estevez (office) | 2024-06-03 | 40 / 0 / 40 | 80 / 0 / 80 | 40 |
+| Diana Vasquez | 2024-06-18 | 40 / 0 / 40 | 80 / 0 / 80 | 40 |
+| Alma Salinas | 2025-06-03 | 40 / 0 / 40 | 40 / 0 / 40 | 40 |
+| Guadalupe Mejia | 2025-06-11 | 40 / 0 / 40 | 40 / 0 / 40 | 40 |
+| Alejandra Cuervo | 2025-08-01 | 40 / 21 / 19 | — not eligible | 40 |
+| Juliana Loredo | 2026-01-26 | 40 / 0 / 40 | — not eligible | 40 |
+| Jose Ardila | 2026-05-01 | — not eligible | — not eligible | 40 |
+| Hilda Gallegos | 2026-05-25 | — not eligible | — not eligible | 40 |
+
+(Used derivation printed per-row by the script. Only Norma & Alejandra have 2026
+usage. Holiday_pay is reported but NOT deducted — separate benefit.)
+
+## Residual questions for Sal (sign-off gate — no writes until answered)
+
+1. **PTO year-1 grant + mid-year 2-year top-up timing.** The dry-run grants the
+   tenure tier as of today (40 < 2yr, 80 ≥ 2yr). The engine bumps the tier at the
+   next Jan-1 reset, NOT on the mid-year work anniversary. The handbook says "tops
+   up at 2-year anniversary" — confirm Jan-1 timing is acceptable, or we add a
+   mid-year anniversary top-up.
+2. **Mid-year-hire proration.** New hires get the FULL 40 at the gate (IL PLAWA
+   frontloading norm), not prorated. Confirm.
+3. **Leave pay rate source.** The payroll preview + the used-hours derivation use
+   `employee_pay_rates` → company `commercial_hourly_rate` → $20 fallback (rate
+   table is empty today). Confirm the rate Phes pays leave at, and whether to seed
+   `employee_pay_rates`.
+4. **Auto-pay vs preview.** Paid leave is surfaced as a review-gate preview, not
+   auto-added to gross. Confirm (recommended) or switch to auto-pay.
+5. **Pre-write data fixes:** Alejandra hire_date (→2025-08-01), Maryury inclusion
+   (Q12), owner/office scope (Q11).
+
+## Go-live sequence (after sign-off)
+
+1. Apply the Alejandra hire_date fix + Maryury/owner decisions.
+2. Deploy (seed fix lands: PLAWA corrected, dup sick off, calendar basis).
+3. Re-run the dry-run; Sal eyeballs.
+4. Flip `LEAVE_ACCRUAL_ENABLED=true` → the 2 AM cron grants balances; overlay the
+   2026 `used` (one-time migration write, `ON CONFLICT DO UPDATE`).
+5. Spot-check 3–5 employees in the profile UI.

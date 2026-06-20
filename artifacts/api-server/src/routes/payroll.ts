@@ -15,6 +15,7 @@ import {
   FEDERAL_DEFAULT_RULES,
   type OvertimeRules,
 } from "../lib/overtime.js";
+import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
 
 const router = Router();
 
@@ -165,6 +166,31 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
   } catch (err) {
     console.error("Payroll summary error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get payroll summary" });
+  }
+});
+
+// ── Paid-leave preview (review-gated) ──────────────────────────────────────────
+// [time-off-accrual 2026-06-20] Surfaces the dollar value of APPROVED paid
+// leave (PLAWA / PTO) for a pay window as hours × rate — a non-binding review
+// signal, NOT auto-pay. Same philosophy as the overtime/mileage banners: the
+// office sees the estimate and pays via the normal additional-pay flow. Does
+// not modify gross_pay. Office-only.
+router.get("/leave-pay-preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { from, to } = req.query;
+    if (!from || !to) {
+      return res.status(400).json({ error: "from and to (YYYY-MM-DD) required" });
+    }
+    const preview = await computeLeavePayPreview(
+      companyId,
+      String(from),
+      String(to),
+    );
+    return res.json(preview);
+  } catch (err) {
+    console.error("leave-pay-preview error:", err);
+    return res.status(500).json({ error: "Failed to compute leave pay preview" });
   }
 });
 

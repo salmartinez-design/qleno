@@ -14,6 +14,7 @@ import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
+import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -90,6 +91,14 @@ function startNotificationCron() {
     if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
       fired["rate_lock_nightly"] = `${ctDate}-1`;
       runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
+    }
+    // 2 AM CT → leave accrual: grant-on-eligibility (90-day sick / 1-year
+    // PTO gates) + calendar-year reset (Jan 1 re-front-load) for every
+    // leave-enabled tenant. Gated by LEAVE_ACCRUAL_ENABLED (default OFF) —
+    // no balance writes until Sal signs off and flips the Railway env var.
+    if (ctH === 2 && fired["leave_accrual"] !== `${ctDate}-2`) {
+      fired["leave_accrual"] = `${ctDate}-2`;
+      runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[cron] leave_accrual error:", e));
     }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing
