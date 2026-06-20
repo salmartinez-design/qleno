@@ -74,6 +74,7 @@ import {
   notifyLeaveSubmitted,
   notifyLeaveDecision,
 } from "../lib/leave-notifications.js";
+import { writeApprovedLeavePay } from "../lib/leave-pay.js";
 import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { evaluateUseItOrLoseItAlert } from "../lib/leave-alerts.js";
 import {
@@ -848,6 +849,13 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       updated_at: new Date(),
     })
     .where(eq(leaveRequestsTable.id, id));
+  // Auto-pay: approval is the gate — a paid bucket cascades into pay as a
+  // visible additional_pay line ($20/hr flat). Idempotent; unpaid = no-op.
+  try {
+    await writeApprovedLeavePay(companyId, id);
+  } catch (err) {
+    console.error("[leave] auto-pay on approval failed (non-fatal):", err);
+  }
   // Employee Approved notification: in-app + push + email + SMS (MC-mirrored).
   void notifyLeaveDecision(id, "approved");
   // [push 2026-06-03] Push the employee (fire-and-forget, gated by COMMS_ENABLED).

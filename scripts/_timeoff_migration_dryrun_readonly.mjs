@@ -38,6 +38,10 @@ const ROSTER = [
   { uid: 42, name: 'Juliana Loredo', hire: '2026-01-26' },
   { uid: 44, name: 'Jose Ardila', hire: '2026-05-01' },
   { uid: 516, name: 'Hilda Gallegos', hire: '2026-05-25' },
+  // Resolved (Sal 2026-06-20): include Maryury (real active co1 tech, just
+  // post-dated the MC list pull). Owner (Sal, uid 1) EXCLUDED from accrual;
+  // office staff (Maribel, Francisco) INCLUDED.
+  { uid: 817, name: 'Maryury Colmenares', hire: '2026-06-16' },
 ];
 
 const daysBetween = (a, b) => Math.floor((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000);
@@ -109,6 +113,8 @@ for (const e of ROSTER) {
     const eligible = b.granted > 0 || b.slug === 'Unpaid';
     const remaining = Math.max(0, round(b.granted - b.used));
     const over = b.used > b.granted ? '  ⚠ used>granted' : '';
+    // Leave pays $20/hr flat on approval (sick + PTO). Unpaid = $0.
+    const paid = b.slug === 'PLAWA (sick)' || b.slug === 'PTO';
     out.push({
       employee: e.name + (e.office ? ' (office)' : ''),
       hire: e.hire,
@@ -118,6 +124,7 @@ for (const e of ROSTER) {
       granted: b.granted,
       used: b.used,
       remaining: remaining + over,
+      'rem_$@20': paid ? `$${(remaining * LEAVE_RATE).toFixed(0)}` : '—',
     });
   }
 }
@@ -128,9 +135,8 @@ console.table(derivation);
 
 console.log('\n=== FLAGS ===');
 console.log('• Alejandra Cuervo (uid 41): dry-run uses MC hire 2025-08-01; Qleno DB still has 2023-05-11 (WRONG) — fix before write.');
-console.log('• Maryury Colmenares (uid 817, hired 2026-06-16): in Qleno, NOT in the MC list — excluded here pending Q12.');
-console.log('• Sal Martinez (owner, uid 1) excluded (Q11: owner/office in scope?). Maribel & Francisco are office — included, confirm Q11.');
-console.log(`• Dollars→hours used $${LEAVE_RATE}/h where the note had no "(Xh)" — confirm the leave pay rate (Q: rate source).`);
+console.log('• RESOLVED (Sal 2026-06-20): Maryury Colmenares (uid 817) INCLUDED; owner (Sal, uid 1) EXCLUDED from accrual; office staff (Maribel, Francisco) INCLUDED.');
+console.log(`• RESOLVED: leave pays a FLAT $${LEAVE_RATE}/hr (company floor) on approval. rem_$@20 = remaining hours × $${LEAVE_RATE} (sick + PTO; unpaid = $0). Dollars→hours of past usage also normalized at $${LEAVE_RATE}/h where note lacked "(Xh)".`);
 console.log('• holiday_pay reported in derivation but NOT a balance bucket (separate 8h benefit) — not deducted.');
 console.log('• Unpaid personal: granted 40 day-one, used 0 (no additional_pay maps to it; tracked going forward).');
 console.log('• WORK-ANNIVERSARY basis: "used" counts only additional_pay in the current benefit year (since benefit_yr). Entries before it (in_BY=PRIOR) are last year — NOT deducted. This is why Norma (anniv 5/11) shows ~0 used despite Jan–Mar PTO.');

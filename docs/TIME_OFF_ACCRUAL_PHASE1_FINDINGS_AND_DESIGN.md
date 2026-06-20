@@ -720,3 +720,72 @@ the **anniversary** reset, which is the natural boundary — confirm), mid-year
 proration, leave pay **rate source** (`employee_pay_rates` empty), auto-pay vs
 preview, and the pre-write data fixes (Alejandra hire_date, Maryury, owner/office
 scope). All HELD for Sal's sign-off before any balance write or deploy.
+
+---
+
+# Phase 2c — FINALIZED (Sal's answers, 2026-06-20)
+
+All residuals resolved. Build complete; still HELD (no balance writes, no deploy,
+no `COMMS_ENABLED`/`LEAVE_ACCRUAL_ENABLED` flip) until Sal confirms this dry-run.
+
+- **Leave pay rate = flat $20/hr** (company floor) for paid sick + PTO — NOT the
+  tech's commission/blended rate. `LEAVE_PAY_RATE = 20` in `lib/leave-pay.ts`.
+- **Auto-pay on approval.** Approval is the gate: approving a paid request writes
+  a visible, labeled `additional_pay` line (`sick_pay` → "Sick Pay", `pto` →
+  "PTO") = hours × $20, landing in the payroll period of the approval. No manual
+  pay step. Idempotent (guarded on a `leave_req#<id>` marker). Wired in the
+  approve route → `writeApprovedLeavePay`. Frontend payroll Time-Off group + the
+  legacy `/summary` gross both include `pto`.
+- **Both views in sync on approval.** Balance deduction (`used_hours`) + the paid
+  line are read from shared sources: office sees `/leave/balances?userId=` + the
+  payroll line; the employee sees `/leave/balances/me` (profile + field-app
+  "My Time Off") + the same `additional_pay` row in their payroll history. One
+  write, both views update.
+- **PTO 2-year top-up = at the anniversary reset** (confirmed). The engine
+  recomputes the tier (40 < 2yr, 80 ≥ 2yr) at each benefit-year boundary.
+- **Proration:** full front-load at the gate, no proration — sensible under the
+  work-anniversary model because each benefit year is a clean 12 months from
+  hire (a new hire's first PLAWA covers the rest of their first benefit year).
+- **Data fixes resolved:** Alejandra → MC hire 2025-08-01 (Qleno fix tracked
+  separately); **Maryury Colmenares (uid 817) INCLUDED**; **owner (Sal) EXCLUDED**
+  from accrual; **office staff (Maribel, Francisco) INCLUDED**.
+- **Preview repurposed:** `GET /api/payroll/leave-pay-preview` now forecasts
+  **PENDING** paid requests at $20/hr (approved leave already auto-pays — avoids
+  double-counting). Read-only.
+
+## FINAL migration dry-run (co1, as of 2026-06-20, work-anniversary, $20/hr)
+
+`scripts/_timeoff_migration_dryrun_readonly.mjs` (read-only). `rem_$@20` =
+remaining hours × $20 (sick + PTO; unpaid = $0) — what the bank is worth if used.
+
+| Employee | Benefit yr | PLAWA g/u/rem | PTO g/u/rem | Unpaid | PLAWA $ | PTO $ |
+|----------|-----------|---------------|-------------|--------|---------|-------|
+| Rosa Gallegos | 2026-04-01 | 40/0/40 | 80/0/80 | 40 | $800 | $1600 |
+| Maribel Castillo (office) | 2026-02-21 | 40/0/40 | 80/0/80 | 40 | $800 | $1600 |
+| Norma Puga | 2026-05-11 | 40/0/40 | 80/0/80 | 40 | $800 | $1600 |
+| Francisco Estevez (office) | 2026-06-03 | 40/0/40 | 80/0/80 | 40 | $800 | $1600 |
+| Diana Vasquez | 2026-06-18 | 40/0/40 | 80/0/80 | 40 | $800 | $1600 |
+| Alma Salinas | 2026-06-03 | 40/0/40 | 40/0/40 | 40 | $800 | $800 |
+| Guadalupe Mejia | 2026-06-11 | 40/0/40 | 40/0/40 | 40 | $800 | $800 |
+| Alejandra Cuervo | 2025-08-01 | 40/29/**11** | not elig. | 40 | $220 | — |
+| Juliana Loredo | 2026-01-26 | 40/0/40 | not elig. | 40 | $800 | — |
+| Jose Ardila | 2026-05-01 | not elig. | not elig. | 40 | — | — |
+| Hilda Gallegos | 2026-05-25 | not elig. | not elig. | 40 | — | — |
+| Maryury Colmenares | 2026-06-16 | not elig. | not elig. | 40 | — | — |
+
+(Owner Sal excluded. Most start full; only Alejandra carries used PLAWA — her
+benefit year began 2025-08-01 so her 2025-12→2026-06 sick usage = 29h counts.)
+
+## Go-live sequence (after Sal confirms this dry-run)
+
+1. Apply the Alejandra hire_date fix (uid 41 → 2025-08-01).
+2. Deploy — seed lands (PLAWA flat-grant, dup sick off, work_anniversary basis);
+   auto-pay-on-approval + notifications + 7-day-notice ship inert (gated).
+3. Re-run the dry-run against deployed state; Sal eyeballs.
+4. Flip `LEAVE_ACCRUAL_ENABLED=true` → the 2 AM cron grants/resets balances per
+   the table above (initial grants at each employee's gate; resets on anniversary).
+5. Flip `COMMS_ENABLED=true` when ready → employee email/SMS for pending/decision
+   begin (office in-app/email already work; in-app/push need no flip).
+6. From here, approving a request auto-pays at $20/hr as a payroll line; balances
+   + pay stay in sync across office and employee views.
+7. Spot-check 3–5 employees (profile + field-app "My Time Off" + payroll).

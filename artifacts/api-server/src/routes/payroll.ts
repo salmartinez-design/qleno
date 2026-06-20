@@ -130,8 +130,9 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       const sick_pay = additional.sick_pay || 0;
       const holiday_pay = additional.holiday_pay || 0;
       const vacation_pay = additional.vacation_pay || 0;
+      const pto = additional.pto || 0; // auto-paid PTO leave (type 'pto')
       const deductions = additional.amount_owed || 0;
-      const gross_pay = base_pay + tips + bonuses + sick_pay + holiday_pay + vacation_pay - deductions;
+      const gross_pay = base_pay + tips + bonuses + sick_pay + holiday_pay + vacation_pay + pto - deductions;
 
       return {
         user_id: emp.id,
@@ -146,6 +147,7 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
         sick_pay,
         holiday_pay,
         vacation_pay,
+        pto,
         deductions,
         gross_pay: Math.round(gross_pay * 100) / 100,
       };
