@@ -182,6 +182,13 @@ export async function ensureInvoiceForCompletedJob(
     const lineItems = built?.lineItems ?? [];
     const netAmount = built?.subtotal ?? 0;
 
+    // [invoice-zero-guard 2026-06-20] Never auto-create a $0 invoice. A cancelled/
+    // credited occurrence or a $0-priced job (e.g. a split-billed sibling) would
+    // otherwise spawn a $0 draft that clutters AR and confuses the office
+    // ("are we invoicing $0 jobs??"). The office can still invoice manually if a
+    // genuine $0 document is ever needed.
+    if (netAmount <= 0) return NO_OP;
+
     const [newInv] = await db
       .insert(invoicesTable)
       .values({

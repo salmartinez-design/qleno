@@ -37,7 +37,7 @@ function formatInvoice(inv: any) {
 
 router.get("/", requireAuth, async (req, res) => {
   try {
-    const { status, client_id, date_from, date_to, page = "1", limit = "50", branch_id } = req.query;
+    const { status, client_id, date_from, date_to, page = "1", limit = "50", branch_id, search } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
 
     const today = new Date().toISOString().split("T")[0];
@@ -52,6 +52,21 @@ router.get("/", requireAuth, async (req, res) => {
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
     if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
+
+    // [invoice-search 2026-06-20] Server-side search so it works across ALL
+    // invoices, not just the 50 the page loaded. Matches the invoice_number,
+    // the client name, AND the displayed "INV-00622" id form (the UI pads the
+    // numeric id, so "INV-00622" / "00622" / "622" all resolve to id 622).
+    if (search && String(search).trim()) {
+      const s = String(search).trim();
+      const like = `%${s}%`;
+      const digits = s.replace(/\D/g, "");
+      const idMatch = digits ? sql` OR ${invoicesTable.id} = ${parseInt(digits, 10)}` : sql``;
+      conditions.push(sql`(
+        ${invoicesTable.invoice_number} ILIKE ${like}
+        OR concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) ILIKE ${like}${idMatch}
+      )`);
+    }
 
     const invoices = await db
       .select({
@@ -87,6 +102,7 @@ router.get("/", requireAuth, async (req, res) => {
     const totalResult = await db
       .select({ count: count() })
       .from(invoicesTable)
+      .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
       .where(and(...conditions));
 
     const compCond = eq(invoicesTable.company_id, req.auth!.companyId);
