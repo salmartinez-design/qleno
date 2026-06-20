@@ -216,7 +216,11 @@ export function computePayLines(input: {
           clocked_hours: round2(c.clocked_hours), paid_hours: round2(paidHours), rate,
           pool_total: null, pool_share: null, hours_overridden: hasOv,
           amount: round2(paidHours * rate),
-          pay_basis_label: `$${rate.toFixed(2)}/hr × ${round2(paidHours)}h${hasOv ? " (override)" : ` (${config.hours_basis})`}`,
+          // [payroll-label 2026-06-20] Drop the internal hours-basis jargon
+          // ("(greater_of)" etc.) from the per-line label — it's noise to the
+          // office. A manual rate override still shows "(override)" since that
+          // flags a deliberate change worth seeing.
+          pay_basis_label: `$${rate.toFixed(2)}/hr × ${round2(paidHours)}h${hasOv ? " (override)" : ""}`,
         });
       } else {
         // residential commission tech: GREATER-OF(pool share, hourly floor).
