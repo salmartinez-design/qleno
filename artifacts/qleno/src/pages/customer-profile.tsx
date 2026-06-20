@@ -1344,6 +1344,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
 
 // ─── Billing Tab ──────────────────────────────────────────────────────────────
 function BillingTab({ invoices }: { invoices: any[] }) {
+  const [, navigate] = useLocation();
   const statusStyle: Record<string, React.CSSProperties> = {
     paid: { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
     overdue: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
@@ -1374,7 +1375,7 @@ function BillingTab({ invoices }: { invoices: any[] }) {
                   </span>
                 </td>
                 <td style={{ padding: "12px 16px" }}>
-                  <button style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>View</button>
+                  <button onClick={() => navigate(`/invoices/${inv.id}`)} style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>View</button>
                 </td>
               </tr>
             ))}

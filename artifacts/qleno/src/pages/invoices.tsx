@@ -523,12 +523,15 @@ export default function InvoicesPage() {
     const params = new URLSearchParams();
     if (activeTab !== "all") params.set("status", activeTab);
     if (activeBranchId !== "all") params.set("branch_id", String(activeBranchId));
+    // [invoice-search 2026-06-20] Send search to the server so it spans ALL
+    // invoices, not just the 50 rows the page loaded.
+    if (search.trim()) params.set("search", search.trim());
     const qs = params.toString();
     return `/api/invoices${qs ? `?${qs}` : ""}`;
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["invoices", activeTab, activeBranchId],
+    queryKey: ["invoices", activeTab, activeBranchId, search.trim()],
     queryFn: () => apiFetch(buildInvoicesUrl()),
   });
 
