@@ -53,6 +53,14 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   try {
     const payload = verifyToken(token);
     req.auth = payload;
+    // [accountant-readonly 2026-06-20] The 'accountant' role (external CPA) is
+    // VIEW-ONLY across the entire app: permit safe read methods, reject every
+    // mutation no matter which endpoint it targets. Enforced here at the single
+    // auth choke point so no write path can ever be missed.
+    if (payload.role === "accountant" && !["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+      res.status(403).json({ error: "Forbidden", message: "Accountant access is view-only" });
+      return;
+    }
     next();
   } catch {
     res.status(401).json({ error: "Unauthorized", message: "Invalid or expired token" });

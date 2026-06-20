@@ -706,6 +706,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     //
     // jobs.frequency — three new values for the multi-day case. Child jobs
     // mirror their parent recurring_schedules.frequency.
+    // [accountant-readonly 2026-06-20] External view-only role (CPA). Read-only
+    // is enforced globally in requireAuth; this just lets the role value exist.
+    { label: "user_role.accountant",
+      stmt: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'accountant'` },
     { label: "frequency.daily",
       stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'daily'` },
     { label: "frequency.weekdays",

@@ -5,7 +5,11 @@ import { companiesTable } from "./companies";
 import { branchesTable } from "./branches";
 
 export const userRoleEnum = pgEnum("user_role", [
-  "owner", "admin", "office", "technician", "team_lead", "super_admin"
+  "owner", "admin", "office", "technician", "team_lead", "super_admin",
+  // [accountant-readonly 2026-06-20] External view-only role (e.g. the company
+  // CPA). Read-everything, edit-nothing — enforced globally in requireAuth
+  // (every non-GET request from this role is rejected).
+  "accountant",
 ]);
 
 export const payTypeEnum = pgEnum("pay_type", [
