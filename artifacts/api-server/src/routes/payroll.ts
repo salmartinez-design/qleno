@@ -756,11 +756,21 @@ router.get("/detail", requireAuth, async (req, res) => {
     const clockedUserIds = [...new Set(clocks.map(c => c.user_id))];
     const cellByUser = new Map<number, TechCell>();
     const userMap = new Map<number, { first_name: string; last_name: string }>();
+    // [sandbox-exclude 2026-06-20] Test/sandbox fixtures (is_sandbox=true) must
+    // NEVER appear in payroll — the "Generic Cleaner" ghost computed $130 and
+    // landed in the published May 31 snapshot as a phantom 11th tech. Exclude
+    // them at the OUTPUT (drop their pay lines below), NOT by filtering clocks,
+    // so a real tech's commission-pool share can never shift. is_sandbox — NOT
+    // is_active — is the discriminator: real but deactivated techs (e.g. a
+    // terminated employee still owed for clocked work) are is_active=false yet
+    // is_sandbox=false and MUST still be paid.
+    const sandboxUserIds = new Set<number>();
     if (clockedUserIds.length) {
       const urows = await db.execute(sql`
-        SELECT id, first_name, last_name, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate
+        SELECT id, first_name, last_name, is_sandbox, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate
         FROM users WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(intList(clockedUserIds))}]::int[])`);
       for (const u of urows.rows as any[]) {
+        if (u.is_sandbox === true) { sandboxUserIds.add(Number(u.id)); continue; }
         userMap.set(Number(u.id), { first_name: u.first_name ?? "", last_name: u.last_name ?? "" });
         cellByUser.set(Number(u.id), {
           residential_pay_type: u.residential_pay_type === "hourly" ? "hourly" : "commission",
@@ -816,6 +826,7 @@ router.get("/detail", requireAuth, async (req, res) => {
     // group lines by tech (filterUserId applied here — techs see only their own)
     const linesByUser = new Map<number, typeof payLines>();
     for (const l of payLines) {
+      if (sandboxUserIds.has(l.user_id)) continue; // [sandbox-exclude] drop test fixtures
       if (filterUserId && l.user_id !== filterUserId) continue;
       if (!linesByUser.has(l.user_id)) linesByUser.set(l.user_id, []);
       linesByUser.get(l.user_id)!.push(l);

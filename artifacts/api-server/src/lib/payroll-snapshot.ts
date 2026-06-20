@@ -92,9 +92,16 @@ export async function computePeriodPay(companyId: number, start: string, end: st
   const clockedUserIds = [...new Set(clocks.map(c => c.user_id))];
   const cellByUser = new Map<number, TechCell>();
   const userMap = new Map<number, string>();
+  // [sandbox-exclude 2026-06-20] Test/sandbox fixtures (is_sandbox=true) never
+  // belong in a payroll run — must match GET /payroll/detail exactly. Excluded
+  // at the OUTPUT (folds below skip them) so real techs' pool shares don't move.
+  // is_sandbox, NOT is_active: a deactivated-but-real tech (is_active=false,
+  // is_sandbox=false) is still owed clocked pay and stays in.
+  const sandboxUserIds = new Set<number>();
   if (clockedUserIds.length) {
-    const us = (await db.execute(sql`SELECT id, first_name, last_name, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate FROM users WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(intList(clockedUserIds))}]::int[])`)).rows as any[];
+    const us = (await db.execute(sql`SELECT id, first_name, last_name, is_sandbox, residential_pay_type, residential_pay_rate, commercial_pay_type, commercial_pay_rate FROM users WHERE company_id = ${companyId} AND id = ANY(ARRAY[${sql.raw(intList(clockedUserIds))}]::int[])`)).rows as any[];
     for (const u of us) {
+      if (u.is_sandbox === true) { sandboxUserIds.add(Number(u.id)); continue; }
       userMap.set(Number(u.id), `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim());
       cellByUser.set(Number(u.id), {
         residential_pay_type: u.residential_pay_type === "hourly" ? "hourly" : "commission",
@@ -144,6 +151,7 @@ export async function computePeriodPay(companyId: number, start: string, end: st
 
   const byUser = new Map<number, PeriodPay>();
   for (const l of lines) {
+    if (sandboxUserIds.has(l.user_id)) continue; // [sandbox-exclude] drop test fixtures
     if (!byUser.has(l.user_id)) byUser.set(l.user_id, { user_id: l.user_id, name: userMap.get(l.user_id) || "", gross: 0, base: 0, hours: 0, tips: 0, overtime: 0, bonus: 0, adjustments: 0, jobs: [], additional_pay: {} });
     const p = byUser.get(l.user_id)!;
     p.base = r2(p.base + l.amount);
@@ -152,6 +160,7 @@ export async function computePeriodPay(companyId: number, start: string, end: st
   }
   // fold additional_pay
   for (const [uid, types] of addlByUser) {
+    if (sandboxUserIds.has(uid)) continue; // [sandbox-exclude] a test fixture earns no additional_pay either
     if (!byUser.has(uid)) byUser.set(uid, { user_id: uid, name: userMap.get(uid) || "", gross: 0, base: 0, hours: 0, tips: 0, overtime: 0, bonus: 0, adjustments: 0, jobs: [], additional_pay: {} });
     const p = byUser.get(uid)!;
     p.additional_pay = types;
