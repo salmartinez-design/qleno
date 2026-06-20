@@ -272,6 +272,13 @@ export default function EditJobModal({
   const [availableAddons, setAvailableAddons] = useState<PricingAddon[]>([]);
   const [addonsLoading, setAddonsLoading] = useState(false);
   const [selectedAddons, setSelectedAddons] = useState<Map<number, number>>(new Map());
+  // [baseline-race-fix 2026-06-19] True once the GET /:id preload has populated
+  // the job's existing add-ons. The #572 price-preserve recalc captures a
+  // baseline add-on total on its first run; if that first run fires BEFORE the
+  // add-ons load, the baseline is captured as 0 and the next recalc inflates the
+  // total by the full add-on amount (initialBaseFee + (fullAddons − 0)). Gating
+  // the recalc on this flag guarantees the baseline reflects the real add-ons.
+  const [addonsPreloaded, setAddonsPreloaded] = useState(false);
 
   // Per-addon unit-price override. When the operator types a number into the
   // inline `$___` input next to the addon row (currently rendered only for
@@ -566,6 +573,11 @@ export default function EditJobModal({
   // + parking_fee_*), and account_id.
   useEffect(() => {
     let cancelled = false;
+    // [baseline-race-fix 2026-06-19] Re-baseline on every (re)open: force the
+    // #572 recalc to recapture its add-on baseline AFTER this preload finishes,
+    // and block it until then via addonsPreloaded.
+    priceBaselineRef.current = null;
+    setAddonsPreloaded(false);
     (async () => {
       try {
         const r = await fetch(`${API}/api/jobs/${job.id}`, {
@@ -641,6 +653,12 @@ export default function EditJobModal({
       } catch {
         // Best-effort. If the preload fails the modal still opens with
         // baseline state; user can re-check parking explicitly.
+      } finally {
+        // [baseline-race-fix 2026-06-19] Unblock the recalc now that add-ons are
+        // loaded (or the fetch settled). Even on failure we release the gate so
+        // the modal stays usable — but on success this guarantees the #572
+        // baseline is captured AFTER the real add-on set is in place.
+        if (!cancelled) setAddonsPreloaded(true);
       }
     })();
     return () => { cancelled = true; };
@@ -771,6 +789,12 @@ export default function EditJobModal({
   useEffect(() => {
     if (manualRate) return; // honor manual override; no recalc
     if (!clientLoaded) return;
+    // [baseline-race-fix 2026-06-19] Do not run (and do not capture the #572
+    // baseline) until the existing add-ons have preloaded — otherwise the
+    // baseline add-on total can be captured as 0 and the next recalc
+    // double-counts the add-ons. Residential AND commercial both read the
+    // preloaded selectedAddons, so gate both.
+    if (!addonsPreloaded) return;
 
     // [AH] Commercial path — client-side math, no round-trip.
     // base_fee = hourly_rate × allowed_hours + sum(selected commercial addons)
@@ -868,7 +892,7 @@ export default function EditJobModal({
       }
     }, 250);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, isCommercial, hourlyRate, availableAddons, propertySqft, clientHourlyRate]);
+  }, [API, token, scopeId, allowedHours, frequency, selectedAddons, manualRate, clientLoaded, addonsPreloaded, isCommercial, hourlyRate, availableAddons, propertySqft, clientHourlyRate]);
 
   // ── Validation / dirty check ────────────────────────────────────────────
   const dirty = useMemo(() => {
