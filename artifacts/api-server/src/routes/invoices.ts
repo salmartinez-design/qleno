@@ -647,6 +647,60 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
   }
 });
 
+// ── Mark UNPAID (undo a manual Mark Paid) ───────────────────────────────────
+// Office-only. Reverts a manually-marked-paid invoice back to the finalized,
+// outstanding ('sent') state and clears paid_at so the KPIs move it back out of
+// Paid/YTD into Outstanding. Removes the manual payment record(s) created by
+// Mark Paid. Refuses to touch an invoice that carries a real processor payment
+// (Stripe/Square) — that must be reversed via a refund, not an unmark.
+router.post("/:id/mark-unpaid", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const [invoice] = await db
+      .select({
+        id: invoicesTable.id,
+        status: invoicesTable.status,
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        square_payment_id: invoicesTable.square_payment_id,
+      })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (invoice.status !== "paid") {
+      return res.status(409).json({ error: "Conflict", message: "Only a paid invoice can be marked unpaid" });
+    }
+    if (invoice.stripe_payment_intent_id || invoice.square_payment_id) {
+      return res.status(409).json({ error: "Conflict", message: "This invoice has a processor payment — issue a refund instead of marking it unpaid" });
+    }
+
+    // Back to finalized/outstanding so the Outstanding KPI picks it up again.
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ status: "sent", paid_at: null })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    // Drop the manual payment record(s) the Mark Paid action inserted. (Guarded
+    // above against processor payments, so these are office manual marks only.)
+    await db.delete(paymentsTable)
+      .where(and(eq(paymentsTable.invoice_id, invoiceId), eq(paymentsTable.company_id, req.auth!.companyId)));
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, { status: "paid" }, { status: "sent", unmarked_paid: true });
+
+    // Reflect the reversal in QuickBooks (one-way push; no-op when not connected).
+    queueSync(() => syncInvoice(req.auth!.companyId, invoiceId));
+
+    return res.json(formatInvoice({ ...updated, client_name: null }));
+  } catch (err) {
+    console.error("Mark unpaid error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to mark invoice unpaid" });
+  }
+});
+
 // ── Office-triggered charge (Scope 3) ──────────────────────────────────────
 // Routes by the invoice's effective payment_source. Office-only. Charges at most
 // once — NO auto-retry. stripe → off-session charge; square → Square (when
