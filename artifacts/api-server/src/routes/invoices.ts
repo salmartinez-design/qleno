@@ -54,6 +54,14 @@ router.get("/", requireAuth, async (req, res) => {
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
     if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
 
+    // [invoice-date-range 2026-06-21] Filter by the invoice's EFFECTIVE service
+    // date = the linked job's scheduled_date, falling back to created_at when the
+    // invoice has no job. Same date the list now displays, so the range filter
+    // matches what the office sees. Inclusive bounds (YYYY-MM-DD).
+    const effDate = sql`COALESCE((SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}), ${invoicesTable.created_at}::date)`;
+    if (date_from && String(date_from).trim()) conditions.push(sql`${effDate} >= ${String(date_from)}`);
+    if (date_to && String(date_to).trim()) conditions.push(sql`${effDate} <= ${String(date_to)}`);
+
     // [invoice-future-hide 2026-06-20] Maribel: "the invoice tab should only
     // show invoices up to date, not in advance." Recurring/auto draft invoices
     // tied to a not-yet-performed job are billing-in-advance noise that makes

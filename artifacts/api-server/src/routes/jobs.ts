@@ -5300,6 +5300,11 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     // Time mods extend the job's allowed hours (commercial commission + block).
     const newAllowedHours = mod_type === "time" ? await adjustAllowedHours(jobId, companyId, Number(minutes)) : null;
+    // [post-completion-adjust 2026-06-21] Push the new amount onto the job's
+    // DRAFT invoice if one exists (no-op for sent/paid — those stay immutable;
+    // the office uses "Recalc from Job" to pull an adjustment onto a sent
+    // invoice). Lets a parking/extra fee added to a finished job flow to billing.
+    syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod] invoice draft sync non-fatal:", e));
     logAudit(req, "CREATE", "job_rate_mod", jobId, null, { mod_type, minutes, amount: amt });
     return res.status(201).json({
       mod: insert.rows[0],

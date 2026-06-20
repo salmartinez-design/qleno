@@ -464,6 +464,9 @@ export default function InvoicesPage() {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<TabId>("all");
   const [search, setSearch] = useState("");
+  // [invoice-date-range 2026-06-21] Office date-range filter (by service date).
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [showBatch, setShowBatch] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
   const [showNewInvoice, setShowNewInvoice] = useState(false);
@@ -526,12 +529,14 @@ export default function InvoicesPage() {
     // [invoice-search 2026-06-20] Send search to the server so it spans ALL
     // invoices, not just the 50 rows the page loaded.
     if (search.trim()) params.set("search", search.trim());
+    if (dateFrom) params.set("date_from", dateFrom);
+    if (dateTo) params.set("date_to", dateTo);
     const qs = params.toString();
     return `/api/invoices${qs ? `?${qs}` : ""}`;
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["invoices", activeTab, activeBranchId, search.trim()],
+    queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo],
     queryFn: () => apiFetch(buildInvoicesUrl()),
   });
 
@@ -681,6 +686,16 @@ export default function InvoicesPage() {
                   <input placeholder="Search invoices..." value={search} onChange={e => setSearch(e.target.value)}
                     style={{ paddingLeft: 32, paddingRight: 10, height: 36, width: isMobile ? "100%" : 200, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
                 </div>
+                {/* [invoice-date-range 2026-06-21] Filter by service date. */}
+                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} aria-label="From date"
+                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                <span style={{ color: "#9E9B94", fontSize: 13 }}>–</span>
+                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} aria-label="To date"
+                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                {(dateFrom || dateTo) && (
+                  <button onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear dates"
+                    style={{ height: 36, padding: "0 10px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
+                )}
                 {canAdmin && (
                   <>
                     {!isMobile && <button onClick={() => setShowCloseDay(true)}
@@ -731,7 +746,9 @@ export default function InvoicesPage() {
                         </div>
                         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
                           {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
-                          {inv.due_date ? ` · Due ${new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                          {inv.service_date
+                            ? ` · ${new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
+                            : inv.created_at ? ` · ${new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
                         </div>
                       </div>
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -748,7 +765,7 @@ export default function InvoicesPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
-                  {["Invoice #", "Client", "PO #", "Terms", "Amount", "Due Date", "Days Overdue", "Status", ""].map(h => (
+                  {["Invoice #", "Client", "PO #", "Terms", "Amount", "Service Date", "Days Overdue", "Status", ""].map(h => (
                     <th key={h} style={{ ...TH, textAlign: h === "" ? "right" as const : "left" as const }}>{h}</th>
                   ))}
                 </tr>
@@ -788,7 +805,9 @@ export default function InvoicesPage() {
                       </td>
                       <td style={{ padding: "13px 18px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(inv.total || 0).toFixed(2)}</td>
                       <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                        {inv.due_date ? new Date(inv.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        {inv.service_date
+                          ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                          : inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
                       </td>
                       <td style={{ padding: "13px 18px" }}>
                         {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (

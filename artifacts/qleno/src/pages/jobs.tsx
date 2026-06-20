@@ -1636,6 +1636,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // completion isn't a 1-pixel miss.
   const [confirmComplete, setConfirmComplete] = useState(false);
   const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
+  // [post-completion-adjust 2026-06-21] The office must be able to add a flat
+  // fee (e.g. +$20 parking) AFTER a job is marked complete — that case is the
+  // norm, not the exception. So adjustments stay editable on COMPLETED jobs;
+  // only a hard lock (paid -> locked_at) or a cancelled job blocks them.
+  const adjUnlocked = !job.locked_at && job.status !== "cancelled";
   const completedAtLabel = (() => {
     const t = job.actual_end_time || job.locked_at;
     if (!t) return null;
@@ -2827,7 +2832,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             {m.reason}
                           </div>
                         </div>
-                        {!isLocked && (
+                        {adjUnlocked && (
                           <button onClick={() => deleteRateMod(m.id)}
                             style={{ marginLeft: 8, padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
                             title="Remove adjustment">
@@ -2840,9 +2845,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </div>
               )}
               {!modAddOpen ? (
-                <button onClick={() => !isLocked && setModAddOpen(true)}
-                  disabled={isLocked}
-                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: isLocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${isLocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+                <button onClick={() => adjUnlocked && setModAddOpen(true)}
+                  disabled={!adjUnlocked}
+                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${!adjUnlocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
                   <Plus size={12} /> Add Adjustment
                 </button>
               ) : (
