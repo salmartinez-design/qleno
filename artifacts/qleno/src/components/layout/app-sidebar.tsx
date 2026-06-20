@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, Layers,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -88,7 +88,6 @@ const NAV_SECTIONS = [
     label: "Money",
     items: [
       { title: "Invoices", url: "/invoices", icon: FileText, roles: ["owner", "admin", "office", "super_admin"] },
-      { title: "Batch Invoicing", url: "/admin/batch-invoicing", icon: Layers, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
   {
