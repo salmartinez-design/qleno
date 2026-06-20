@@ -63,7 +63,7 @@ const NAV_SECTIONS = [
       // Gantt as the default view. Active-highlight covers all 3 urls via
       // MULTI_URL_HIGHLIGHT below.
       { title: "Jobs",      url: "/dispatch",  icon: Briefcase, roles: ["owner", "admin", "office", "super_admin"] },
-      { title: "Customers", url: "/customers", icon: Users, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Customers", url: "/customers", icon: Users, roles: ["owner", "admin", "office", "super_admin", "accountant"] },
       { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office", "super_admin"] },
     ],
@@ -87,7 +87,7 @@ const NAV_SECTIONS = [
   {
     label: "Money",
     items: [
-      { title: "Invoices", url: "/invoices", icon: FileText, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Invoices", url: "/invoices", icon: FileText, roles: ["owner", "admin", "office", "super_admin", "accountant"] },
       { title: "Batch Invoicing", url: "/admin/batch-invoicing", icon: Layers, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },

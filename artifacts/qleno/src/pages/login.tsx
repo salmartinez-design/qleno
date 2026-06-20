@@ -52,6 +52,10 @@ export default function Login() {
             setLocation("/admin");
           } else if (res.user.role === 'technician' || res.user.role === 'team_lead') {
             setLocation("/my-jobs");
+          } else if (res.user.role === 'accountant') {
+            // [accountant-readonly 2026-06-20] CPA lands on Invoices (their main
+            // surface) — Customers + Invoices are the read-only v1 nav.
+            setLocation("/invoices");
           } else {
             setLocation("/dashboard");
           }
