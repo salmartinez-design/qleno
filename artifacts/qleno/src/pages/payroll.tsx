@@ -460,15 +460,16 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     const byDay: Record<string, any[]> = {};
                     for (const j of emp.jobs) { const k = String(j.date).slice(0, 10); (byDay[k] = byDay[k] || []).push(j); }
                     const days = Object.keys(byDay).sort();
-                    // [hierarchy-pass 2026-06-15] Eff is plain grey text for
-                    // every row — no pill, no green/amber/red band. 500% and "—"
-                    // read as ordinary values.
+                    // [payroll-scan 2026-06-20] Eff as a colored pill so the eye
+                    // scans the column: green = at/under budget (≥100%), amber =
+                    // over budget (<100%). "—" stays plain when not yet clocked.
                     const effPill = (job: any) => {
                       if (job.hrs_estimated || !(job.hrs_worked > 0) || !(job.hrs_scheduled > 0)) {
                         return <span style={{ color: '#9B9890' }} title={job.hrs_estimated ? 'Not clocked yet' : 'No hours'}>—</span>;
                       }
                       const e = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
-                      return <span style={{ fontSize: 12, fontWeight: 400, color: '#9B9890' }}>{e}%</span>;
+                      const good = e >= 100;
+                      return <span style={{ display: 'inline-block', minWidth: 46, textAlign: 'center', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: good ? '#E7F7F1' : '#FEF3C7', color: good ? '#0A7C66' : '#B45309' }} title="Allowed ÷ actual — under 100% ran over budget">{e}%</span>;
                     };
                     const laborOf = (billed: number, pay: number) => billed > 0 ? `${Math.round((pay / billed) * 100)}%` : '—';
                     return (
@@ -480,7 +481,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             <th style={{ ...th, textAlign: 'right' }}>Done / Allowed</th>
                             <th style={{ ...th, textAlign: 'center' }} title="Allowed hours ÷ actual hours — over 100% means under budget">Eff</th>
                             {hasQuality && <th style={{ ...th, textAlign: 'center' }}>Quality</th>}
-                            <th style={{ ...th, textAlign: 'right' }} title="Pay (and labor % = pay ÷ billed)">Pay · Labor%</th>
+                            <th style={{ ...th, textAlign: 'right' }} title="Pay (the small tag is labor % = pay ÷ billed)">Pay</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -489,21 +490,29 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             const dayPay = byDay[d].reduce((s, j) => s + Number(j.commission || 0), 0);
                             return (
                             <Fragment key={d}>
-                              {/* Day header — stronger 0.5px divider + breathing
-                                  room above; subtotal in quiet greys. */}
+                              {/* [payroll-scan 2026-06-20] Day band — a shaded
+                                  strip the eye lands on, with the day's billed,
+                                  pay, AND labor% (pay ÷ billed) so per-day margin
+                                  reads at the same place as the per-job tag. */}
                               <tr>
-                                <td colSpan={cols} style={{ padding: '18px 0 5px', borderTop: '0.5px solid #E5E2DC' }}>
-                                  <span style={{ fontSize: 10.5, fontWeight: 500, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{dayName(d)} · {mdy(d)}</span>
-                                  <span style={{ float: 'right', fontSize: 12, fontWeight: 400 }}><span style={{ color: '#9B9890' }}>{money(dayBilled)} billed · </span><span style={{ color: '#6B6860' }}>{money(dayPay)}</span></span>
+                                <td colSpan={cols} style={{ padding: '9px 14px', background: '#F4F2EE', borderTop: '1px solid #E5E2DC', borderBottom: '1px solid #E5E2DC' }}>
+                                  <span style={{ fontSize: 11, fontWeight: 800, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{dayName(d)} · {mdy(d)}</span>
+                                  <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
+                                    <span style={{ color: '#1A1917', fontWeight: 700 }}>{money(dayBilled)}</span> billed · <span style={{ color: '#00A383', fontWeight: 700 }}>{money(dayPay)}</span> pay
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }}>{laborOf(dayBilled, dayPay)} labor</span>
+                                  </span>
                                 </td>
                               </tr>
                               {byDay[d].map((job: any) => {
                                 const billed = Number(job.job_total || 0);
                                 return (
                                 <tr key={job.job_id}>
-                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', paddingTop: 7, paddingBottom: 7 }}>
-                                    <div style={{ fontSize: 14, fontWeight: 400, color: '#0A0E1A' }}>{job.client || '—'}</div>
-                                    <div style={{ fontSize: 12, color: '#9B9890' }} title="How this line's pay was computed">{fmtScope(job.scope)}{job.pay_basis ? ` · ${job.pay_basis}` : ''}</div>
+                                  <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', paddingTop: 9, paddingBottom: 9 }}>
+                                    <div style={{ fontSize: 14, fontWeight: 700, color: '#0A0E1A' }}>{job.client || '—'}</div>
+                                    <div style={{ fontSize: 12, color: '#9B9890' }} title="How this line's pay was computed">
+                                      {fmtScope(job.scope)}
+                                      {job.pay_basis ? <> · {String(job.pay_basis).split('(override)').map((part: string, i: number, arr: string[]) => <Fragment key={i}>{part}{i < arr.length - 1 && <span style={{ color: '#B45309', fontWeight: 600 }}>(override)</span>}</Fragment>)}</> : ''}
+                                    </div>
                                   </td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, color: '#0A0E1A', whiteSpace: 'nowrap' }}>{billed > 0 ? money(billed) : '—'}</td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, whiteSpace: 'nowrap' }}>
@@ -519,8 +528,8 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                     </td>
                                   )}
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                                    <span style={{ fontSize: 14, fontWeight: 400, color: '#00A383' }}>${job.commission.toFixed(2)}</span>
-                                    <span style={{ fontSize: 11, fontWeight: 400, color: '#9B9890', marginLeft: 6 }}>{laborOf(billed, Number(job.commission || 0))}</span>
+                                    <span style={{ fontSize: 15, fontWeight: 800, color: '#00A383' }}>${job.commission.toFixed(2)}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#9B9890', background: '#F4F2EE', borderRadius: 5, padding: '2px 6px', marginLeft: 8 }}>{laborOf(billed, Number(job.commission || 0))}</span>
                                   </td>
                                 </tr>
                                 );
