@@ -11,6 +11,14 @@ import { JobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, mutedFill } fro
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 
+// [legend-zone-clarity 2026-06-20] Real tiles are colored by the job's ZONE,
+// not its status — status shows through the stripe / badge / border / opacity
+// markings ON TOP of the zone color. The legend used each status's own swatch
+// as the tile fill, so it never matched the board ("legend not working"). Use a
+// single neutral zone stand-in here so the markings are what distinguish the
+// rows, and tell the reader the real fill is the zone.
+const ZONE_STANDIN = "#BCC7D6";
+
 // [legend-cohesion 2026-06-18] Only states that ACTUALLY render on the dispatch
 // board. Cancelled + charged-cancel/lockout jobs are excluded from the board
 // (they live on the client-profile calendar), so they're not in this legend —
@@ -36,7 +44,7 @@ function ExampleTile({ status }: { status: JobVisualStatus }) {
     <div style={{
       display: "flex", alignItems: "stretch", gap: 6, width: 96, height: 44,
       borderRadius: 6, padding: 4, position: "relative",
-      backgroundColor: v.fillMuted ? mutedFill(v.swatch) : v.swatch, opacity: v.bodyOpacity,
+      backgroundColor: v.fillMuted ? mutedFill(ZONE_STANDIN) : ZONE_STANDIN, opacity: v.bodyOpacity,
       filter: v.desaturate ? "grayscale(1)" : "none",
       border: v.borderOverride ? `1.5px solid ${v.borderOverride}` : "1px solid rgba(0,0,0,0.08)",
       flexShrink: 0,
@@ -160,6 +168,9 @@ export default function LegendPopover({ open, onClose, mobile, anchorRect }: {
               <X size={18} color="#6B6860" />
             </button>
           </div>
+          <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8, lineHeight: 1.45 }}>
+            Each tile's fill color is the job's <strong style={{ color: "#6B6860" }}>zone</strong> (see the Zones filter). The stripe, badge, border, and fading below show its <strong style={{ color: "#6B6860" }}>status</strong>.
+          </div>
           {rows}
         </div>
       </>
@@ -182,8 +193,8 @@ export default function LegendPopover({ open, onClose, mobile, anchorRect }: {
           <X size={14} color="#6B6860" />
         </button>
       </div>
-      <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6 }}>
-        How job tiles appear on the dispatch board.
+      <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, lineHeight: 1.45 }}>
+        Each tile's fill color is the job's <strong style={{ color: "#6B6860" }}>zone</strong> (see the Zones filter). The stripe, badge, border, and fading below show its <strong style={{ color: "#6B6860" }}>status</strong>.
       </div>
       {rows}
     </div>

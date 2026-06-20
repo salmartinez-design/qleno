@@ -5176,7 +5176,10 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
         </div>
       </div>
       <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
-        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }} />)}
+        {/* [grid-clarity 2026-06-20] Read time at a glance: solid darker line at
+            each hour, faint dotted line at the half-hour, and a subtle tint on
+            alternating hour bands so the eye groups each hour. */}
+        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, width: SLOT_W, pointerEvents: "none", backgroundColor: Math.floor(i / 2) % 2 === 1 ? "rgba(120,110,90,0.045)" : "transparent", borderRight: i % 2 === 1 ? "1px solid #CBC7BF" : "1px dotted #E9E7E2" }} />)}
         {/* Time-off band sits behind job chips (zIndex 0) */}
         {timeOffBg && (
           <div style={{ position: "absolute", left: getBandLeft(), width: getBandWidth(), top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />
@@ -5216,7 +5219,7 @@ function UnassignedGanttRow({ jobs, onChipClick, nowLine }: { jobs: DispatchJob[
         </div>
       </div>
       <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: "#FFFBEB88" }}>
-        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, borderRight: i % 2 === 1 ? "1px solid #FDE68A" : "1px solid #FEF3C7" }} />)}
+        {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, width: SLOT_W, pointerEvents: "none", backgroundColor: Math.floor(i / 2) % 2 === 1 ? "rgba(180,120,20,0.05)" : "transparent", borderRight: i % 2 === 1 ? "1px solid #F2CE73" : "1px dotted #FCEBB8" }} />)}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} isUnassigned top={topById.get(j.id) ?? 10} />)}
       </div>
@@ -6226,6 +6229,24 @@ export default function JobsPage() {
   }
   function chipLeft(job: DispatchJob) { return ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W; }
 
+  // [zone-branch-grouping 2026-06-20] Zone dropdown options scoped to the
+  // selected branch. With a branch chosen, only that branch's zones show. With
+  // "All Branches", zones are grouped under Oak Lawn / Schaumburg headers (and
+  // an "Other" group for any zone not yet mapped to a branch) so the two
+  // locations aren't mashed into one flat list.
+  const zoneGroups = (() => {
+    const visible = zones.filter(z => selectedBranchFilter === "all" || z.location === selectedBranchFilter);
+    if (selectedBranchFilter !== "all") return [{ label: null as string | null, zones: visible }];
+    const oak = visible.filter(z => z.location === "oak_lawn");
+    const sch = visible.filter(z => z.location === "schaumburg");
+    const other = visible.filter(z => z.location !== "oak_lawn" && z.location !== "schaumburg");
+    const groups: { label: string | null; zones: typeof zones }[] = [];
+    if (oak.length) groups.push({ label: "Oak Lawn", zones: oak });
+    if (sch.length) groups.push({ label: "Schaumburg", zones: sch });
+    if (other.length) groups.push({ label: groups.length ? "Other" : null, zones: other });
+    return groups;
+  })();
+
   // Zone + location filtered dispatch data
   // Zone ids belonging to the selected branch (null = no branch filter).
   const branchZoneIds = selectedBranchFilter === "all"
@@ -6538,11 +6559,16 @@ export default function JobsPage() {
                 {zoneDropdownOpen && (
                   <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 160, overflow: "hidden" }}>
                     <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
-                    {zones.map(z => (
-                      <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
-                        {z.name}
-                      </button>
+                    {zoneGroups.map((g, gi) => (
+                      <div key={gi}>
+                        {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#FAFAF9", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
+                        {g.zones.map(z => (
+                          <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
+                            {z.name}
+                          </button>
+                        ))}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -6888,11 +6914,16 @@ export default function JobsPage() {
                     {zoneDropdownOpen && (
                       <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 200, backgroundColor: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, boxShadow: "0 4px 16px rgba(0,0,0,0.10)", minWidth: 160, overflow: "hidden" }}>
                         <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
-                        {zones.filter(z => selectedBranchFilter === "all" || z.location === selectedBranchFilter).map(z => (
-                          <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                            <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
-                            {z.name}
-                          </button>
+                        {zoneGroups.map((g, gi) => (
+                          <div key={gi}>
+                            {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#FAFAF9", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
+                            {g.zones.map(z => (
+                              <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                                <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
+                                {z.name}
+                              </button>
+                            ))}
+                          </div>
                         ))}
                       </div>
                     )}
@@ -7042,8 +7073,8 @@ export default function JobsPage() {
                     <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94" }}>Technician</span>
                   </div>
                   {TIMES.map((t, i) => (
-                    <div key={i} style={{ width: SLOT_W, flexShrink: 0, padding: "8px 0 4px 6px", borderRight: i % 2 === 1 ? "1px solid #E5E2DC" : "1px solid #EEECE7" }}>
-                      {i % 2 === 0 && <span style={{ fontSize: 9, fontWeight: 600, color: "#9E9B94", whiteSpace: "nowrap" }}>{t}</span>}
+                    <div key={i} style={{ width: SLOT_W, flexShrink: 0, padding: "8px 0 4px 6px", backgroundColor: Math.floor(i / 2) % 2 === 1 ? "rgba(120,110,90,0.045)" : "transparent", borderRight: i % 2 === 1 ? "1px solid #CBC7BF" : "1px dotted #E9E7E2" }}>
+                      {i % 2 === 0 && <span style={{ fontSize: 10, fontWeight: 700, color: "#6B6860", whiteSpace: "nowrap" }}>{t}</span>}
                     </div>
                   ))}
                 </div>
