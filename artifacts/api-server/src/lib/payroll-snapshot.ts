@@ -179,6 +179,20 @@ export async function computePeriodPay(companyId: number, start: string, end: st
 export async function publishPeriod(companyId: number, start: string, end: string, byUserId: number): Promise<{ published: number; total_gross: number }> {
   await ensurePayrollSnapshotSetup();
   const pay = await computePeriodPay(companyId, start, end);
+  // [prune-stale 2026-06-20] Publish was upsert-only, so a tech who drops out of
+  // a period between publishes (a now-excluded sandbox fixture, or a tech who
+  // lost all their jobs) left an ORPHAN snapshot row behind — re-publishing the
+  // May 31 week recomputed 10 techs but the phantom "Generic Cleaner" row from a
+  // prior publish survived, so the locked snapshot still read 11. Delete any
+  // existing rows for this (company, period) that aren't in the freshly computed
+  // set BEFORE upserting, so the snapshot always reflects exactly the current
+  // computation.
+  const keepIds = pay.map(p => p.user_id);
+  if (keepIds.length) {
+    await db.execute(sql`DELETE FROM payroll_period_snapshots WHERE company_id = ${companyId} AND pay_period_start = ${start} AND pay_period_end = ${end} AND user_id <> ALL(ARRAY[${sql.raw(intList(keepIds))}]::int[])`);
+  } else {
+    await db.execute(sql`DELETE FROM payroll_period_snapshots WHERE company_id = ${companyId} AND pay_period_start = ${start} AND pay_period_end = ${end}`);
+  }
   let total = 0;
   for (const p of pay) {
     total += p.gross;
