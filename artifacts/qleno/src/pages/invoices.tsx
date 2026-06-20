@@ -536,6 +536,20 @@ export default function InvoicesPage() {
       setPayingInvoiceId(null);
     }
   }
+  async function chargeInvoiceRow(invId: number) {
+    setPayingInvoiceId(invId);
+    try {
+      const r = await apiFetch(`/api/invoices/${invId}/charge`, { method: "POST", body: JSON.stringify({}) });
+      if (r.outcome === "paid") toast({ title: `Charged $${(r.amount || 0).toFixed(2)}` });
+      else if (r.outcome === "needs_manual") toast({ title: r.message });
+      else toast({ title: r.message || "Charge failed", variant: "destructive" });
+      refetch();
+    } catch (err: any) {
+      toast({ title: "Charge failed", description: err?.message || "", variant: "destructive" });
+    } finally {
+      setPayingInvoiceId(null);
+    }
+  }
   async function markInvoiceUnpaid(invId: number) {
     setPayingInvoiceId(invId);
     try {
@@ -849,6 +863,13 @@ export default function InvoicesPage() {
                         </span>
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
+                        {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (
+                          <button onClick={() => chargeInvoiceRow(inv.id)} disabled={payingInvoiceId === inv.id}
+                            title={`Charge card on file${inv.card_last_four ? ` (•••• ${inv.card_last_four})` : ""}`}
+                            style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                            {payingInvoiceId === inv.id ? "…" : (inv.card_last_four ? `Charge •••• ${inv.card_last_four}` : "Charge")}
+                          </button>
+                        )}
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
                           <button onClick={() => markInvoicePaid(inv.id)} disabled={payingInvoiceId === inv.id}
                             title="Mark paid (today)"
