@@ -216,7 +216,18 @@ export default function InvoiceDetailPage() {
     try {
       await apiFetch(`/api/invoices/${invoiceId}`, {
         method: "PUT",
-        body: JSON.stringify({ line_items: editLines, tips: Number(editTip) || 0 }),
+        body: JSON.stringify({
+          // Coerce every numeric field to a Number — the qty/rate inputs hold
+          // raw e.target.value strings, and persisting them as strings is what
+          // crashed the View render (.toFixed on a string). Send numbers.
+          line_items: editLines.map((l: any) => ({
+            description: l.description || "",
+            quantity: Number(l.quantity) || 0,
+            unit_price: Number(l.unit_price) || 0,
+            total: Number(l.total) || 0,
+          })),
+          tips: Number(editTip) || 0,
+        }),
       });
       toast({ title: "Invoice updated" });
       setEditing(false);
@@ -356,6 +367,7 @@ export default function InvoiceDetailPage() {
             {[
               { label: "Invoice Number", value: invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}` },
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
+              { label: "Service Date", value: invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Created", value: invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Due Date", value: invoice.due_date ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Sent", value: invoice.sent_at ? new Date(invoice.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
@@ -440,9 +452,9 @@ export default function InvoiceDetailPage() {
                     <td style={{ padding: "10px 0", fontSize: 13, color: "#1A1917", textTransform: "capitalize" }}>
                       {(item.description || "").replace(/_/g, " ")}
                     </td>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>{item.quantity || 1}</td>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>${((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
-                    <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(item.total || 0).toFixed(2)}</td>
+                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>{Number(item.quantity ?? 1)}</td>
+                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>${Number((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
+                    <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${Number(item.total || 0).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
