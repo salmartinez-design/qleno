@@ -352,10 +352,13 @@ export default function InvoiceDetailPage() {
           )}
           {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
             <>
-              <button onClick={handleCharge} disabled={charging}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-                <CreditCard size={14} /> {charging ? "Charging..." : "Charge Now"}
-              </button>
+              {invoice.has_card_on_file && (
+                <button onClick={handleCharge} disabled={charging}
+                  title={`Charge the card captured at booking${invoice.card_last_four ? ` (•••• ${invoice.card_last_four})` : ""}`}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  <CreditCard size={14} /> {charging ? "Charging..." : `Charge Card on File${invoice.card_last_four ? ` •••• ${invoice.card_last_four}` : ""}`}
+                </button>
+              )}
               <button onClick={handleMarkPaidNow} disabled={markingPaid}
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#16A34A", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 <DollarSign size={14} /> {markingPaid ? "Marking..." : "Mark Paid"}

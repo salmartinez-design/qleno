@@ -127,6 +127,13 @@ router.get("/", requireAuth, async (req, res) => {
         // would go stale (office saw "the 17th" for a job moved to the 19th).
         // Reading it live can never drift; null when the job is gone/unlinked.
         service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        // [charge-card 2026-06-21] Card-on-file info so the list/detail can show
+        // a "Charge Card on File" action only when a reusable Stripe PaymentMethod
+        // exists for the client (captured at online booking via SetupIntent).
+        card_last_four: clientsTable.card_last_four,
+        card_brand: clientsTable.card_brand,
+        client_payment_source: clientsTable.payment_source,
+        has_card_on_file: sql<boolean>`(${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -377,6 +384,11 @@ router.get("/:id", requireAuth, async (req, res) => {
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
         service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        // [charge-card 2026-06-21] Card-on-file info (see list select).
+        card_last_four: clientsTable.card_last_four,
+        card_brand: clientsTable.card_brand,
+        client_payment_source: clientsTable.payment_source,
+        has_card_on_file: sql<boolean>`(${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
