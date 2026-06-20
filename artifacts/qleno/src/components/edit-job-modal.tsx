@@ -43,6 +43,12 @@ export interface EditableJob {
   duration_minutes: number;
   amount: number;
   base_fee?: number | string | null;
+  // [legacy-pricing-pin 2026-06-20] Stored pin flag. When true the agreed
+  // base_fee is grandfathered/manually locked; the modal opens with the manual
+  // override engaged so it does NOT recompute from the catalog, and round-trips
+  // the flag back on save (without this the modal sent false and silently
+  // unpinned the job). Operator can still "Reset to calculated" to opt in.
+  manual_rate_override?: boolean | null;
   notes: string | null;
   status: string;
   locked_at?: string | null;
@@ -307,7 +313,11 @@ export default function EditJobModal({
   const [clientHourlyRate, setClientHourlyRate] = useState<number | null>(null);
 
   const [baseFee, setBaseFee] = useState<number>(initialBaseFee);
-  const [manualRate, setManualRate] = useState(false);
+  // [legacy-pricing-pin 2026-06-20] Seed from the job's stored pin so an
+  // already-pinned (grandfathered) price is honored on open — recalc effect
+  // bails while this is true (see "honor manual override; no recalc"), and the
+  // save round-trips manual_rate_override=true instead of clobbering it to false.
+  const [manualRate, setManualRate] = useState<boolean>(!!job.manual_rate_override);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualValue, setManualValue] = useState<string>(String(initialBaseFee));
 
