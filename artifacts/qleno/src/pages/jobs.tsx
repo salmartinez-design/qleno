@@ -2098,7 +2098,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
                 <Tile label="Billed" value={fmtUSD(billed)} />
                 <Tile label="Commission" value={hasComm ? fmtUSD(commTotal) : "—"} color="#2D9B83" />
-                <Tile label="Hours" value={allowed != null ? `${allowed.toFixed(1)}h` : "—"} sub={techCount > 1 && perTechAllowed != null ? `${perTechAllowed.toFixed(1)}h/tech · ${techCount} techs` : "allowed"} />
+                {/* [rebook-preserve 2026-06-20] Lead with the time ON THE CLOCK
+                    (allowed ÷ techs) like MaidCentral, not the summed person-
+                    hours — otherwise a 2-tech job reads "5.0h" and looks like
+                    the crew wasn't counted. Total labor moves to the sub-line. */}
+                <Tile label="Hours"
+                  value={allowed != null ? `${(techCount > 1 && perTechAllowed != null ? perTechAllowed : allowed).toFixed(1)}h` : "—"}
+                  sub={techCount > 1 && perTechAllowed != null ? `on clock · ${allowed.toFixed(1)}h total · ${techCount} techs` : "allowed"} />
               </div>
             );
           })()}

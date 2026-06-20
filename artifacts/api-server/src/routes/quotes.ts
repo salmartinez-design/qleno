@@ -488,25 +488,84 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
 
     const isRecurring = jobFreq !== "on_demand";
     if (isRecurring && clientId) {
-      const [sched] = await db.insert(recurringSchedulesTable).values({
-        company_id: companyId,
-        customer_id: clientId,
-        frequency: jobFreq,
-        day_of_week: null, // cadence anchors on start_date's weekday when null
-        start_date: jobDate,
-        end_date: null,
-        assigned_employee_id: assigned_user_id ? parseInt(String(assigned_user_id)) : null,
-        service_type: serviceType,
-        scheduled_time: scheduled_time || null,
-        duration_minutes: chosenHours != null ? Math.round(chosenHours * 60) : null,
-        base_fee: recurringFee != null ? String(recurringFee) : null,
-        notes: q.internal_memo || null,
-      }).returning();
-
-      // [quote-convert-stickiness 2026-06-10] Persist the quote's add-ons onto
-      // the schedule template (so the edit-job cascade machinery sees them)…
+      // [rebook-preserve 2026-06-20] Re-booking an existing recurring client must
+      // NOT reset them to catalog pricing/timing or spawn a duplicate schedule.
+      // If this client already has an ACTIVE recurring schedule for the SAME
+      // service, reuse it: keep its agreed base_fee + visit length, and only
+      // layer on any NEWLY-sold add-ons (folded into the all-in residential
+      // base). A different service, or a brand-new client, still creates a
+      // fresh schedule at the quoted catalog price. Fixes: re-book dropping
+      // Todd's $220 to the $195 menu, re-book ignoring his real visit length,
+      // and re-book duplicating his recurring schedule.
       const schedAddons = quoteAddonsToJobAddOns(q.addons);
-      for (const a of schedAddons) {
+
+      const priorRows = await db.execute(sql`
+        SELECT id, base_fee, duration_minutes, scheduled_time, assigned_employee_id
+          FROM recurring_schedules
+         WHERE company_id = ${companyId} AND customer_id = ${clientId}
+           AND is_active = true AND service_type = ${serviceType}
+         ORDER BY id DESC LIMIT 1
+      `);
+      const prior = (priorRows.rows as any[])[0];
+      const reusedSchedule = !!prior;
+
+      // Which sold add-ons are genuinely new for this schedule? Idempotent —
+      // re-booking the same add-on twice can never double-charge.
+      let newAddons = schedAddons;
+      if (prior) {
+        const existingAddonRows = await db.execute(sql`
+          SELECT pricing_addon_id FROM recurring_schedule_add_ons WHERE recurring_schedule_id = ${prior.id}
+        `);
+        const have = new Set((existingAddonRows.rows as any[]).map(r => Number(r.pricing_addon_id)));
+        newAddons = schedAddons.filter(a => !have.has(Number(a.pricing_addon_id)));
+      }
+      const newAddonSubtotal = Math.round(newAddons.reduce((s, a) => s + (a.subtotal ?? 0), 0) * 100) / 100;
+
+      let sched: any;
+      let allInBase = 0;
+      if (prior) {
+        // Reuse the existing schedule. Agreed base + visit length stay exactly
+        // as-is; the only money change is folding any new add-ons into the
+        // all-in base going forward.
+        const agreedBase = prior.base_fee != null ? parseFloat(prior.base_fee) : (recurringFee ?? 0);
+        allInBase = Math.round((agreedBase + newAddonSubtotal) * 100) / 100;
+        await db.execute(sql`
+          UPDATE recurring_schedules
+             SET base_fee = ${String(allInBase)},
+                 scheduled_time = COALESCE(${scheduled_time || null}, scheduled_time),
+                 assigned_employee_id = COALESCE(${assigned_user_id ? parseInt(String(assigned_user_id)) : null}, assigned_employee_id)
+           WHERE id = ${prior.id} AND company_id = ${companyId}
+        `);
+        sched = {
+          id: Number(prior.id), company_id: companyId, customer_id: clientId,
+          frequency: jobFreq, day_of_week: null, start_date: jobDate, end_date: null,
+          assigned_employee_id: assigned_user_id ? parseInt(String(assigned_user_id)) : prior.assigned_employee_id,
+          service_type: serviceType,
+          scheduled_time: scheduled_time || prior.scheduled_time || null,
+          duration_minutes: prior.duration_minutes,
+          base_fee: String(allInBase),
+          notes: q.internal_memo || null,
+        };
+      } else {
+        [sched] = await db.insert(recurringSchedulesTable).values({
+          company_id: companyId,
+          customer_id: clientId,
+          frequency: jobFreq,
+          day_of_week: null, // cadence anchors on start_date's weekday when null
+          start_date: jobDate,
+          end_date: null,
+          assigned_employee_id: assigned_user_id ? parseInt(String(assigned_user_id)) : null,
+          service_type: serviceType,
+          scheduled_time: scheduled_time || null,
+          duration_minutes: chosenHours != null ? Math.round(chosenHours * 60) : null,
+          base_fee: recurringFee != null ? String(recurringFee) : null,
+          notes: q.internal_memo || null,
+        }).returning();
+      }
+
+      // [quote-convert-stickiness 2026-06-10] Persist the (new) add-ons onto the
+      // schedule template so the edit-job cascade machinery sees them.
+      for (const a of newAddons) {
         try {
           await db.execute(sql`
             INSERT INTO recurring_schedule_add_ons (recurring_schedule_id, pricing_addon_id, qty)
@@ -526,26 +585,46 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         console.warn("[quote convert] recurring generation failed:", genErr?.message ?? genErr);
       }
 
-      // …and onto every occurrence just generated (the engine only stamps the
-      // parking fee at generation time, not schedule add-ons).
-      if (schedAddons.length) {
+      if (reusedSchedule) {
+        // Reused schedule: move every UPCOMING visit to the agreed all-in price
+        // and give it the new add-on line items. Past/completed visits are left
+        // untouched. Setting base_fee = allInBase (not a += delta) is idempotent
+        // — newly generated visits already carry allInBase, existing ones get
+        // corrected up to it, and a repeat re-book is a no-op.
         try {
-          const genRows = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}`);
-          for (const row of (genRows as any).rows) {
-            await persistJobAddOns(db, Number(row.id), companyId, schedAddons);
+          const futureRows = await db.execute(sql`
+            SELECT id FROM jobs
+             WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+               AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE`);
+          for (const row of (futureRows.rows as any[])) {
+            if (newAddons.length) { try { await persistJobAddOns(db, Number(row.id), companyId, newAddons); } catch { /* idempotent */ } }
+            await db.execute(sql`UPDATE jobs SET base_fee = ${String(allInBase)} WHERE id = ${Number(row.id)} AND company_id = ${companyId}`);
           }
-        } catch (e) { console.warn("[quote convert] stamping add-ons on generated jobs failed:", e); }
-      }
+        } catch (e) { console.warn("[quote convert] reuse base/add-on stamp failed:", e); }
+      } else {
+        // New schedule: stamp add-ons on every generated occurrence (the engine
+        // only stamps the parking fee at generation time, not schedule add-ons).
+        if (schedAddons.length) {
+          try {
+            const genRows = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}`);
+            for (const row of (genRows as any).rows) {
+              await persistJobAddOns(db, Number(row.id), companyId, schedAddons);
+            }
+          } catch (e) { console.warn("[quote convert] stamping add-ons on generated jobs failed:", e); }
+        }
 
-      // [multi-frequency, decision d] First visit is priced at the one-time
-      // first-visit rate; recurring visits keep the schedule's recurring price.
-      if (firstVisitFee != null && firstVisitFee !== recurringFee) {
-        try {
-          await db.execute(sql`
-            UPDATE jobs SET base_fee = ${String(firstVisitFee)}
-            WHERE id = (SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
-                        ORDER BY scheduled_date ASC, id ASC LIMIT 1)`);
-        } catch (e) { console.warn("[quote convert] first-visit price stamp failed:", e); }
+        // [multi-frequency, decision d] First visit is priced at the one-time
+        // first-visit rate; recurring visits keep the schedule's recurring price.
+        // Only for a genuinely NEW schedule — a reused one keeps the client's
+        // agreed price on every visit.
+        if (firstVisitFee != null && firstVisitFee !== recurringFee) {
+          try {
+            await db.execute(sql`
+              UPDATE jobs SET base_fee = ${String(firstVisitFee)}
+              WHERE id = (SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+                          ORDER BY scheduled_date ASC, id ASC LIMIT 1)`);
+          } catch (e) { console.warn("[quote convert] first-visit price stamp failed:", e); }
+        }
       }
       logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", recurring_schedule_id: sched.id, jobs_generated: generated.created });
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
