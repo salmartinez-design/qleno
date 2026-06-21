@@ -115,6 +115,122 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await ensureAbandonedBookingFollowup();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] abandoned_booking follow-up seed failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Abandoned-booking follow-up drip — mirrors the quote_followup /
+ * post_job_retention sequences. Two parts, both idempotent:
+ *
+ *   1. Add follow_up_enrollments.abandoned_booking_id (FK → abandoned_bookings,
+ *      ON DELETE SET NULL) so an enrollment can hang off an abandoned booking
+ *      the same way others hang off quote_id / client_id / lead_id. SET NULL so
+ *      the /book/confirm cleanup DELETE of the abandoned row doesn't block.
+ *   2. Seed an 'abandoned_booking' sequence + its 5 steps for every company that
+ *      already has follow-up sequences but not this one yet. Runs for co1 + co4
+ *      identically (same content), matching how the other sequences are shaped.
+ *
+ * Step-1 timing (+20 min) is set by enrollForAbandonedBooking() at enroll time
+ * (delay_hours is integer-hours and can't express 20 min); steps 2–5 advance via
+ * delay_hours from the prior step (2h, 22h, 48h, 72h ≈ +2h, +1d, +3d, +6d from
+ * abandon). Seeded is_active=true to match the other sequences — note co4 has
+ * comms ON, so enrollments there will fire once deployed (gate via is_active if
+ * a hold is wanted).
+ */
+async function ensureAbandonedBookingFollowup(): Promise<void> {
+  // Part 1 — link column (no-op if follow_up_enrollments or abandoned_bookings
+  // isn't present yet; both are created earlier / by phes-data-migration).
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema='public' AND table_name='follow_up_enrollments'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: follow_up_enrollments not present, skipping abandoned_booking_id add';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='follow_up_enrollments'
+          AND column_name='abandoned_booking_id'
+      ) THEN
+        ALTER TABLE follow_up_enrollments
+          ADD COLUMN abandoned_booking_id integer
+            REFERENCES abandoned_bookings(id) ON DELETE SET NULL;
+      END IF;
+    END
+    $$;
+  `),
+  );
+
+  // Part 2 — seed the sequence + steps per company (idempotent: only companies
+  // that have follow-up sequences but lack an 'abandoned_booking' one).
+  const companies = await db.execute(
+    sql`
+      SELECT DISTINCT company_id FROM follow_up_sequences
+      WHERE company_id NOT IN (
+        SELECT company_id FROM follow_up_sequences WHERE sequence_type = 'abandoned_booking'
+      )
+    `,
+  );
+
+  const step2Email =
+    `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Still want that cleaning, {{first_name}}?</h2>` +
+    `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">You started booking with {{company_name}} but didn't quite finish. No worries — your details are saved and you can pick up right where you left off.</p>` +
+    `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish my booking</a></p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">Why customers choose us: every cleaner is vetted and background-checked, every clean is backed by our satisfaction guarantee (if we miss a spot, we come back and re-clean for free), and rescheduling is always easy.</p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:16px 0 0;">Questions? Call or text {{office_phone}} or just reply to this email.</p>` +
+    `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">The {{company_name}} Team</p>`;
+
+  const step4Email =
+    `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Here's 10% off to finish up, {{first_name}}</h2>` +
+    `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">We'd love to get your home on the schedule — so here's <strong>10% off your first clean</strong> when you complete your booking. Your saved details are ready to go.</p>` +
+    `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish my booking &amp; save 10%</a></p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">Offer applies to your first clean. Questions? Call or text {{office_phone}} or reply to this email.</p>` +
+    `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">The {{company_name}} Team</p>`;
+
+  const steps = [
+    { n: 1, h: 0, ch: "sms", subj: null,
+      body: "Hi {{first_name}}, looks like you started booking your {{company_name}} cleaning but didn't finish — want me to hold your spot? Pick up where you left off: {{resume_link}}" },
+    { n: 2, h: 2, ch: "email", subj: "Still want that cleaning, {{first_name}}?", body: step2Email },
+    { n: 3, h: 22, ch: "sms", subj: null,
+      body: "Hi {{first_name}}, your {{company_name}} booking is still saved and we have openings this week. Want me to get you on the schedule? {{resume_link}}" },
+    { n: 4, h: 48, ch: "email", subj: "Here's 10% to finish up", body: step4Email },
+    { n: 5, h: 72, ch: "sms", subj: null,
+      body: "Hi {{first_name}}, I'll close out your booking for now — reply anytime and we'll pick right back up. Thanks from the {{company_name}} team." },
+  ];
+
+  for (const row of companies.rows as any[]) {
+    const companyId = row.company_id;
+    const seq = await db.execute(
+      sql`
+        INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+        VALUES (${companyId}, 'abandoned_booking', 'Abandoned Booking Follow-Up', true)
+        RETURNING id
+      `,
+    );
+    const seqId = (seq.rows[0] as any).id;
+    for (const s of steps) {
+      await db.execute(
+        sql`
+          INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+          VALUES (${seqId}, ${s.n}, ${s.h}, ${s.ch}, ${s.subj}, ${s.body})
+        `,
+      );
+    }
+    console.log(
+      `[cutover-migration] seeded abandoned_booking sequence ${seqId} (5 steps) for company ${companyId}`,
+    );
+  }
 }
 
 /**

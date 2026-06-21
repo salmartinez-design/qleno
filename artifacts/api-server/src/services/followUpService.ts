@@ -268,6 +268,44 @@ export async function enrollForJobComplete(
   }
 }
 
+// ── Enroll for abandoned-booking follow-up ─────────────────────────────────────
+// Fired from POST /api/public/book/abandon-track after the abandoned_bookings
+// upsert. Step 1 fires +20 min (set explicitly here; delay_hours is integer
+// hours so it can't hold 20 min). Dedupes on the abandoned_booking row.
+export async function enrollForAbandonedBooking(
+  companyId: number,
+  abandonedBookingId: number,
+): Promise<void> {
+  try {
+    const seqRows = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = 'abandoned_booking' AND is_active = true
+      LIMIT 1
+    `);
+    if (!seqRows.rows.length) return;
+    const sequenceId = (seqRows.rows[0] as any).id;
+
+    // Deduplicate: one active enrollment per abandoned booking
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_enrollments
+      WHERE sequence_id = ${sequenceId} AND abandoned_booking_id = ${abandonedBookingId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) return;
+
+    await db.execute(sql`
+      INSERT INTO follow_up_enrollments
+        (company_id, sequence_id, abandoned_booking_id, current_step, next_fire_at)
+      VALUES
+        (${companyId}, ${sequenceId}, ${abandonedBookingId}, 1, NOW() + INTERVAL '20 minutes')
+    `);
+    console.log(`[follow-up] Enrolled abandoned_booking ${abandonedBookingId} in abandoned_booking sequence ${sequenceId}`);
+  } catch (err) {
+    console.error("[follow-up] enrollForAbandonedBooking error (non-fatal):", err);
+  }
+}
+
 // ── Stop enrollments for a client (rebooked / booked) ─────────────────────────
 export async function stopEnrollmentsForClient(
   clientId: number,
@@ -313,6 +351,32 @@ export async function stopEnrollmentsForQuote(
   }
 }
 
+// ── Stop abandoned-booking enrollments (the customer finished booking) ──────────
+// Keyed by email since /book/confirm knows the email, not the abandoned row id.
+// Run BEFORE the confirm-time DELETE of the abandoned_bookings row (the FK is
+// ON DELETE SET NULL, so a delete only nulls the link on an already-stopped row).
+export async function stopEnrollmentsForAbandonedBooking(
+  companyId: number,
+  email: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments fe
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      FROM abandoned_bookings ab
+      WHERE fe.abandoned_booking_id = ab.id
+        AND ab.company_id = ${companyId}
+        AND lower(ab.email) = lower(${email})
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped abandoned_booking enrollments for ${email} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEnrollmentsForAbandonedBooking error (non-fatal):", err);
+  }
+}
+
 // ── Process due enrollments (cron body) ───────────────────────────────────────
 export async function processDueEnrollments(): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
@@ -323,7 +387,7 @@ export async function processDueEnrollments(): Promise<void> {
     const due = await db.execute(sql`
       SELECT
         fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
-        fe.current_step,
+        fe.abandoned_booking_id, fe.current_step,
         fs.name AS sequence_name, fs.sequence_type
       FROM follow_up_enrollments fe
       JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -404,6 +468,17 @@ async function processEnrollment(enr: any): Promise<void> {
       recipientPhone = l.phone || null;
       zip = l.zip || null;
     }
+  } else if (enr.abandoned_booking_id) {
+    const abRows = await db.execute(sql`
+      SELECT first_name, email, phone, zip FROM abandoned_bookings WHERE id = ${enr.abandoned_booking_id} LIMIT 1
+    `);
+    if (abRows.rows.length) {
+      const a = abRows.rows[0] as any;
+      firstName = a.first_name || "";
+      recipientEmail = a.email || null;
+      recipientPhone = a.phone || null;
+      zip = a.zip || null;
+    }
   }
 
   // Per-branch routing — every comm goes through getBranchByZip (CLAUDE.md).
@@ -435,6 +510,15 @@ async function processEnrollment(enr: any): Promise<void> {
   // Quote-tied enrollments (the quote email/SMS) get the full quote merge set:
   // public estimate link, total, itemized line items, address, contact, brand.
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(enr.company_id, enr.quote_id));
+  // Abandoned-booking enrollments get {{resume_link}} (the company booking page)
+  // + {{office_phone}} (the steps reference both).
+  if (enr.abandoned_booking_id) {
+    const slugRows = await db.execute(sql`SELECT slug FROM companies WHERE id = ${enr.company_id} LIMIT 1`);
+    const slug = (slugRows.rows[0] as any)?.slug;
+    const base = appBaseUrl();
+    mergeVars.resume_link = slug ? `${base}/book/${slug}` : `${base}/book`;
+    mergeVars.office_phone = mergeVars.company_phone;
+  }
   const body    = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
