@@ -21,6 +21,7 @@ export * from "./audit_log";
 export * from "./articles";
 export * from "./discounts";
 export * from "./job_discounts";
+export * from "./auto_promos";
 export * from "./availability";
 export * from "./contact_tickets";
 export * from "./employee_notes";

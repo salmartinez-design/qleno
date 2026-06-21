@@ -225,6 +225,15 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
   }
+  // [auto-promos 2026-06-21] auto_promos table + seed 15% offers for co1/co4.
+  try {
+    await withBootTimeout("runAutoPromosMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runAutoPromosMigration } = await import("./lib/auto-promos.js");
+      await runAutoPromosMigration([1, 4]);
+    });
+  } catch (err: any) {
+    console.error("[startup] runAutoPromosMigration — non-fatal:", err?.message ?? err);
+  }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
     await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {

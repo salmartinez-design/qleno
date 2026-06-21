@@ -67,6 +67,18 @@ interface CalcResult {
   discount_amount: number;
   discount_valid?: boolean;
   final_total: number;
+  // [auto-promos 2026-06-21] Auto-applied promotions (e.g. 15% off any deep
+  // clean). final_total stays PRE-promo; final_total_after_auto_promo is the
+  // advertised price. auto_promos lists each applied offer for itemized display.
+  auto_promos?: Array<{ kind: string; label: string; pct: number; amount: number }>;
+  auto_promo_discount?: number;
+  final_total_after_auto_promo?: number;
+}
+
+// Effective customer-facing per-visit total after any auto-applied promotion.
+// Falls back to final_total when the API hasn't supplied the promo fields.
+function effectiveTotal(c: CalcResult): number {
+  return c.final_total_after_auto_promo != null ? c.final_total_after_auto_promo : c.final_total;
 }
 
 // ── Stepper counter component ────────────────────────────────────────────────
@@ -1285,6 +1297,9 @@ export default function BookPage() {
       {calcResult.discount_amount > 0 && (
         <Row label="Discount code applied" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
       )}
+      {(calcResult.auto_promos ?? []).filter(p => p.amount > 0).map((p, i) => (
+        <Row key={`promo-${i}`} label={p.label} value={`-$${p.amount.toFixed(2)}`} green />
+      ))}
       {calcResult.minimum_applied && (
         <p style={{ fontSize: 11, color: "#F59E0B", margin: "2px 0 0" }}>Minimum applied</p>
       )}
@@ -1326,7 +1341,7 @@ export default function BookPage() {
           )}
           <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 8, marginBottom: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
             <span style={{ fontSize: 13, color: "#6B6860" }}>First Visit Total</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${calcResult.final_total.toFixed(2)}</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${effectiveTotal(calcResult).toFixed(2)}</span>
           </div>
         </div>
       )}
@@ -1342,7 +1357,7 @@ export default function BookPage() {
           {sqft > 0 && <p style={{ margin: 0, fontSize: 11, color: "#6B6860" }}>{sqft.toLocaleString()} sqft</p>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-          <span style={{ fontSize: 17, fontWeight: 800, color: "#1A1917" }}>${calcResult.final_total.toFixed(2)}</span>
+          <span style={{ fontSize: 17, fontWeight: 800, color: "#1A1917" }}>${effectiveTotal(calcResult).toFixed(2)}</span>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6B6860" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
             style={{ transform: mobilePriceExpanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
             <polyline points="6 9 12 15 18 9" />
@@ -1413,7 +1428,7 @@ export default function BookPage() {
                 {calcResult.addon_breakdown.filter(a => a.amount !== 0).length > 0 && (
                   <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                     <span style={{ fontSize: 13, color: "#6B6860" }}>First Visit Total</span>
-                    <span style={{ fontSize: 18, fontWeight: 800, color: "#1A1917" }}>${calcResult.final_total.toFixed(2)}</span>
+                    <span style={{ fontSize: 18, fontWeight: 800, color: "#1A1917" }}>${effectiveTotal(calcResult).toFixed(2)}</span>
                   </div>
                 )}
                 <div style={{ marginTop: 10, padding: "10px 12px", background: `${brand}0D`, borderRadius: 8, border: `1px solid ${brand}25`, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -1439,7 +1454,7 @@ export default function BookPage() {
               calcResult.addon_breakdown.filter(a => a.amount !== 0).length > 0 ? (
                 <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 12, marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                   <span style={{ fontSize: 13, color: "#6B6860" }}>First Visit Total</span>
-                  <span style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>${calcResult.final_total.toFixed(2)}</span>
+                  <span style={{ fontSize: 24, fontWeight: 800, color: "#1A1917" }}>${effectiveTotal(calcResult).toFixed(2)}</span>
                 </div>
               ) : null
             )}
@@ -2848,7 +2863,7 @@ export default function BookPage() {
               {calcResult && selectedAddonIds.length > 0 && (
                 <div style={{ textAlign: "right", marginBottom: 12 }}>
                   <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                    Subtotal: ${calcResult.final_total.toFixed(2)}
+                    Subtotal: ${effectiveTotal(calcResult).toFixed(2)}
                   </span>
                 </div>
               )}
@@ -3107,7 +3122,7 @@ export default function BookPage() {
                   {address && <Row label="Address" value={address} />}
                   {calcResult && calcResult.base_hours > 0 && <Row label="Estimated Time" value={`${(calcResult.total_hours ?? calcResult.base_hours).toFixed(1)} hrs`} />}
                   {/* FIX 4: "Total" relabeled to "First Visit Total" */}
-                  {calcResult && <Row label="First Visit Total" value={`$${(calcResult.final_total * conditionMultiplier).toFixed(2)}`} bold />}
+                  {calcResult && <Row label="First Visit Total" value={`$${(effectiveTotal(calcResult) * conditionMultiplier).toFixed(2)}`} bold />}
                 </div>
               </div>
 

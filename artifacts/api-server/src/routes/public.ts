@@ -472,6 +472,26 @@ export async function runCalculate(params: {
     }
   }
 
+  // [auto-promos 2026-06-21] Auto-applied promotions honored at checkout. Only
+  // the deep-clean promo is determinable from a single quote (the 2nd-recurring
+  // promo is contextual to a schedule occurrence and lands at invoice build).
+  // Computed against the cleaning base price and REPORTED in a dedicated field —
+  // we deliberately do NOT mutate final_total, so a booked job's stored base_fee
+  // stays PRE-promo and the discount is applied exactly once, at invoice time,
+  // by the single chokepoint (see lib/auto-promos.ts ensureAutoPromosForJob).
+  // The booking widget displays final_total_after_auto_promo so the advertised
+  // price is honored at checkout. This keeps "stored price = pre-promo" an
+  // invariant — there is no path where the promo can double-apply.
+  const { computeCheckoutPromo } = await import("../lib/auto-promos.js");
+  const autoPromo = await computeCheckoutPromo({
+    companyId: company_id,
+    serviceType: scopeNameToServiceType(scope.name),
+    basePrice: base_price,
+  });
+  const final_total_after_auto_promo = autoPromo
+    ? Math.max(0, Math.round((final_total - autoPromo.amount) * 100) / 100)
+    : Math.round(final_total * 100) / 100;
+
   return {
     scope_id,
     scope_name: scope.name,
@@ -492,6 +512,14 @@ export async function runCalculate(params: {
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,
     final_total: Math.round(final_total * 100) / 100,
+    // [auto-promos] Auto-applied promotions (deep-clean at checkout). final_total
+    // stays PRE-promo (= the stored base); final_total_after_auto_promo is the
+    // advertised price the widget shows. Discount itemizes on the invoice.
+    auto_promos: autoPromo
+      ? [{ kind: autoPromo.kind, label: autoPromo.label, pct: autoPromo.pct, amount: autoPromo.amount }]
+      : [],
+    auto_promo_discount: autoPromo ? autoPromo.amount : 0,
+    final_total_after_auto_promo,
   };
 }
 
