@@ -107,6 +107,56 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await ensureAbandonedBookingsTable();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] abandoned_bookings table ensure failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Online-booking abandon capture — install the abandoned_bookings table
+ * that POST /api/public/book/abandon-track upserts into (and the cleanup
+ * DELETE in /book/confirm targets). The table was referenced in code but
+ * never created, so abandon-track was returning 500 and the confirm-time
+ * DELETE was silently swallowed by its surrounding try/catch. This fixes
+ * both co1 (Oak Lawn) and co4 (Schaumburg).
+ *
+ * Columns match exactly what the raw-SQL upsert reads/writes
+ * (company_id + email lookup key, contact fields, scope, step_abandoned).
+ * Idempotent: CREATE TABLE / INDEX IF NOT EXISTS — safe every cold start.
+ */
+async function ensureAbandonedBookingsTable(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      CREATE TABLE IF NOT EXISTS abandoned_bookings (
+        id              serial PRIMARY KEY,
+        company_id      integer NOT NULL REFERENCES companies(id),
+        first_name      text,
+        last_name       text,
+        email           text,
+        phone           text,
+        address         text,
+        zip             text,
+        scope           text,
+        step_abandoned  integer DEFAULT 2,
+        created_at      timestamptz NOT NULL DEFAULT now(),
+        updated_at      timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS abandoned_bookings_company_email_idx
+        ON abandoned_bookings (company_id, email);
+
+      RAISE NOTICE 'cutover-migration: ensured abandoned_bookings table + index';
+    END
+    $$;
+  `),
+  );
 }
 
 /**
