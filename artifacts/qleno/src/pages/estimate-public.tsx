@@ -105,6 +105,7 @@ export default function EstimatePublicPage() {
   const [loading, setLoading] = useState(true);
   const [showAccept, setShowAccept] = useState(false);
   const [acceptName, setAcceptName] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   // [multi-frequency] the customer's highlighted tier (defaults to their prior
@@ -127,6 +128,7 @@ export default function EstimatePublicPage() {
 
   async function accept() {
     if (!acceptName.trim()) { setActionMsg("Please enter your name."); return; }
+    if (!smsConsent) { setActionMsg("Please agree to the SMS consent to continue."); return; }
     setSubmitting(true);
     setActionMsg(null);
     try {
@@ -140,7 +142,7 @@ export default function EstimatePublicPage() {
       const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq }),
+        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq, sms_consent: smsConsent }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setActionMsg(body.message || "Could not accept — please contact us."); return; }
@@ -407,14 +409,23 @@ export default function EstimatePublicPage() {
               autoFocus
               style={{ width: "100%", padding: "11px 13px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 15, fontFamily: FF, boxSizing: "border-box", marginBottom: 10 }}
             />
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", margin: "0 0 12px" }}>
+              <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: MINT, width: 16, height: 16, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.55 }}>
+                By checking this box, you agree to receive transactional SMS messages from Phes regarding your appointment. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. You must be 18 or older to opt in. View our{" "}
+                <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Terms of Service</a>
+                {" "}and{" "}
+                <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Privacy Policy</a>.
+              </span>
+            </label>
             {actionMsg && <p style={{ fontSize: 12, color: "#991B1B", margin: "0 0 10px" }}>{actionMsg}</p>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setShowAccept(false); setActionMsg(null); }} disabled={submitting}
                 style={{ flex: 1, height: 44, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
-              <button onClick={accept} disabled={submitting}
-                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
+              <button onClick={accept} disabled={submitting || !smsConsent}
+                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: (submitting || !smsConsent) ? "not-allowed" : "pointer", fontFamily: FF, opacity: (submitting || !smsConsent) ? 0.6 : 1 }}>
                 {submitting ? "Confirming…" : "Confirm Accept"}
               </button>
             </div>
