@@ -566,12 +566,16 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
     const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
     if (clientEmail && process.env.RESEND_API_KEY) {
+      const { isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
       if (process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Invoice reminder email suppressed:", { to: clientEmail, invoiceId });
+      } else if (await isEmailOptedOut(req.auth!.companyId!, clientEmail)) {
+        console.log("[comms-opt-out] Invoice reminder email suppressed (opt-out):", { to: clientEmail, invoiceId });
       } else {
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
       const payLink = `${appBaseUrl()}/pay/${invoiceId}`;
+      const unsub = await buildEmailUnsubData(req.auth!.companyId!, clientEmail);
       await resend.emails.send({
         from: "notifications@phes.io",
         to: clientEmail,
@@ -579,7 +583,8 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
         html: `<p>Hi ${client?.first_name || "there"},</p>
                <p>This is a friendly reminder that invoice <strong>${invNum}</strong> for <strong>$${parseFloat(invoice.total || "0").toFixed(2)}</strong> is due.</p>
                <p><a href="${payLink}">Pay Now</a></p>
-               <p>Thank you,<br>Phes</p>`,
+               <p>Thank you,<br>Phes</p>${unsub?.footerHtml ?? ""}`,
+        ...(unsub?.headers ? { headers: unsub.headers } : {}),
       });
       }
     }

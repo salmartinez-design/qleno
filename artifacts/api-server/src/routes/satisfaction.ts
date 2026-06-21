@@ -78,12 +78,16 @@ router.post("/send", requireAuth, async (req, res) => {
       .select({ phone: clientsTable.phone, first_name: clientsTable.first_name })
       .from(clientsTable).where(eq(clientsTable.id, parseInt(customer_id))).limit(1);
 
+    // [comms-opt-out] Never survey a client who texted STOP.
+    const { isSmsOptedOut } = await import("../lib/opt-out.js");
+    const smsOptedOut = client?.phone ? await isSmsOptedOut(companyId, client.phone) : false;
     const gate =
       !company?.survey_enabled ? "survey_disabled"
       : !company?.twilio_enabled ? "twilio_disabled"
       : !(company.twilio_account_sid && company.twilio_auth_token && company.twilio_from_number) ? "twilio_unconfigured"
       : process.env.COMMS_ENABLED !== "true" ? "comms_disabled"
       : !client?.phone ? "no_phone"
+      : smsOptedOut ? "sms_opt_out"
       : null;
 
     if (gate) {

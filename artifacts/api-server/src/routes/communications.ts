@@ -91,6 +91,12 @@ router.post("/sms", requireAuth, async (req, res) => {
       return res.status(422).json({ error: "Client has no phone number on file" });
     }
 
+    // [comms-opt-out] Block messaging a client who texted STOP.
+    const { isSmsOptedOut } = await import("../lib/opt-out.js");
+    if (await isSmsOptedOut(companyId, client.phone)) {
+      return res.status(422).json({ error: "sms_opt_out", message: "This client has opted out of SMS (texted STOP). They must text START to resubscribe." });
+    }
+
     const companies = await db
       .select({ twilio_from_number: companiesTable.twilio_from_number })
       .from(companiesTable)
