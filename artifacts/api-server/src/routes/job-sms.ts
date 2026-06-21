@@ -4,6 +4,7 @@ import { jobsTable, clientsTable, usersTable, companiesTable, jobStatusLogsTable
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { sendNotification } from "../services/notificationService.js";
+import { isSmsOptedOut } from "../lib/opt-out.js";
 
 const router = Router();
 
@@ -109,6 +110,11 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
 
     if (!company.twilio_from_number) {
       return res.json({ success: true, sms_sent: false, reason: "No Twilio phone number configured", log_id: log.id });
+    }
+
+    // [comms-opt-out] Honor SMS STOP — never text a client who opted out.
+    if (await isSmsOptedOut(companyId, client.phone)) {
+      return res.json({ success: true, sms_sent: false, reason: "Client opted out of SMS", log_id: log.id });
     }
 
     const clientName = `${client.first_name}`;

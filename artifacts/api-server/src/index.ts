@@ -234,6 +234,16 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runAutoPromosMigration — non-fatal:", err?.message ?? err);
   }
+  // [comms-opt-out 2026-06-21] clients.sms_opt_out_at / email_opt_out_at /
+  // email_unsub_token columns + token backfill + unique index.
+  try {
+    await withBootTimeout("runCommsOptOutMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runCommsOptOutMigration } = await import("./lib/opt-out.js");
+      await runCommsOptOutMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
+  }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
     await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {

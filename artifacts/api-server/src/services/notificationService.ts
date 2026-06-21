@@ -4,6 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
+import { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData, buildUnsubDataFromToken } from "../lib/opt-out.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
@@ -138,6 +139,12 @@ export async function sendNotification(
         await logNotification(companyId, recipientEmail, channel, templateKey, "skipped", "RESEND_API_KEY not configured", fullVars);
         return;
       }
+      // [comms-opt-out] Honor email opt-out. Transactional sends (reset/invite,
+      // to users not clients) bypass — they must always reach the recipient.
+      if (!transactional && await isEmailOptedOut(companyId, recipientEmail)) {
+        await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "email_opt_out", fullVars);
+        return;
+      }
 
       const bodyHtml = tpl.body_html || tpl.body || "";
       const subject  = applyMerge(tpl.subject || "", fullVars);
@@ -154,9 +161,22 @@ export async function sendNotification(
       }
       // Opt-in dedicated renderer (confirmation email) replaces the shared chrome
       // for this send only; all other emails keep wrapEmailHtml unchanged.
-      const wrapped  = renderEmail
+      let wrapped  = renderEmail
         ? applyMerge(renderEmail(rawHtml, fullVars), fullVars)
         : applyMerge(wrapEmailHtml(rawHtml), fullVars);
+
+      // [comms-opt-out] Tokenized unsubscribe: append the footer link + set the
+      // List-Unsubscribe (+ one-click) headers for transactional-marketing
+      // sends. Skipped for true transactional sends (reset/invite) which aren't
+      // bulk mail and shouldn't carry an unsubscribe.
+      const emailHeaders: Record<string, string> = {};
+      if (!transactional) {
+        const unsub = await buildEmailUnsubData(companyId, recipientEmail);
+        if (unsub) {
+          Object.assign(emailHeaders, unsub.headers);
+          if (!wrapped.includes(unsub.unsubUrl)) wrapped = wrapped.replace(/<\/body>/i, `${unsub.footerHtml}</body>`);
+        }
+      }
 
       if (!transactional && process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });
@@ -170,6 +190,7 @@ export async function sendNotification(
         to:       recipientEmail,
         subject,
         html:     wrapped,
+        ...(Object.keys(emailHeaders).length ? { headers: emailHeaders } : {}),
       });
       // The Resend SDK returns { error } instead of throwing — surface it so a
       // rejected send isn't logged as success.
@@ -179,6 +200,11 @@ export async function sendNotification(
     } else if (channel === "sms") {
       if (!recipientPhone) {
         await logNotification(companyId, "no-phone", channel, templateKey, "skipped", "No recipient phone", fullVars);
+        return;
+      }
+      // [comms-opt-out] Honor SMS STOP. Transactional bypasses (to users).
+      if (!transactional && await isSmsOptedOut(companyId, recipientPhone)) {
+        await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", "sms_opt_out", fullVars);
         return;
       }
 
@@ -254,7 +280,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
         ? drizzleSql`
             SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
-                   c.first_name, c.last_name, c.email, c.phone, c.zip
+                   c.first_name, c.last_name, c.email, c.phone, c.zip,
+                   c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
              WHERE j.scheduled_date = ${targetStr}
@@ -264,7 +291,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
         : drizzleSql`
             SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
-                   c.first_name, c.last_name, c.email, c.phone, c.zip
+                   c.first_name, c.last_name, c.email, c.phone, c.zip,
+                   c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
              WHERE j.scheduled_date = ${targetStr}
@@ -297,8 +325,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       let emailSent = false;
       let smsSent = false;
 
-      // Email reminder
-      if (resendKey) {
+      // Email reminder — skip if the client opted out of email.
+      if (resendKey && job.email && !job.email_opt_out_at) {
         try {
           const { subject, html } = buildReminderEmail({
             firstName: job.first_name || "",
@@ -310,22 +338,33 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
             branchConfig,
             hoursAhead: hoursAhead as 72 | 24,
           });
+          // [comms-opt-out] List-Unsubscribe header + footer link.
+          let emailHtml = html;
+          const headers: Record<string, string> = {};
+          if (job.email_unsub_token) {
+            const u = buildUnsubDataFromToken(job.email_unsub_token);
+            Object.assign(headers, u.headers);
+            emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+          }
           const resend = new Resend(resendKey);
           await resend.emails.send({
             from: `Phes <${branchConfig.officeEmail}>`,
             replyTo: branchConfig.officeEmail,
             to: [job.email],
             subject,
-            html,
+            html: emailHtml,
+            ...(Object.keys(headers).length ? { headers } : {}),
           });
           emailSent = true;
         } catch (emailErr) {
           console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
         }
+      } else if (job.email_opt_out_at) {
+        console.log(`[reminder-${label}] email suppressed (opt-out) job=${job.id}`);
       }
 
-      // SMS reminder
-      if (accountSid && authToken && job.phone) {
+      // SMS reminder — skip if the client opted out of SMS.
+      if (accountSid && authToken && job.phone && !job.sms_opt_out_at) {
         try {
           const smsBody = hoursAhead === 72
             ? `Hi ${job.first_name || "there"}, this is Phes confirming your cleaning appointment on ${scheduledDate} with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Questions? Call us at ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`
@@ -346,6 +385,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
         } catch (smsErr) {
           console.error(`[reminder-${label}] SMS error for job ${job.id}:`, smsErr);
         }
+      } else if (job.sms_opt_out_at) {
+        console.log(`[reminder-${label}] SMS suppressed (opt-out) job=${job.id}`);
       }
 
       // Mark sent if at least one channel succeeded

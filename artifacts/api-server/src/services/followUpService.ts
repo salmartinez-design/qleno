@@ -89,6 +89,8 @@ async function sendEmailRaw(
   to: string, subject: string, body: string,
   fromAddress = "Phes Cleaning <noreply@phes.io>",
   brand?: EmailBrand,
+  // [comms-opt-out] Optional List-Unsubscribe headers + footer link.
+  unsub?: { headers: Record<string, string>; footerHtml: string },
 ): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
@@ -109,12 +111,14 @@ async function sendEmailRaw(
 </div>
 ${inner}
 <p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &mdash; ${brandPhone} &mdash; ${brandEmail}</p>
+${unsub?.footerHtml ?? ""}
 </div></div>`;
   const res: any = await resend.emails.send({
     from: fromAddress,
     to: [to],
     subject,
     html: bodyHtml,
+    ...(unsub?.headers && Object.keys(unsub.headers).length ? { headers: unsub.headers } : {}),
   });
   // The Resend SDK returns { data, error } and does NOT throw on API errors
   // (unverified domain, invalid key, etc.). Surface it so callers don't record
@@ -126,12 +130,12 @@ ${inner}
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand): Promise<void> {
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
     return;
   }
-  await sendEmailRaw(to, subject, body, fromAddress, brand);
+  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub);
 }
 
 // Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
@@ -531,9 +535,15 @@ async function processEnrollment(enr: any): Promise<void> {
   // Email rides Resend (not Twilio), so it only needs the master/company/branch
   // gates — not from_number/creds. SMS needs the full sender.reason check.
   const masterGate = process.env.COMMS_ENABLED === "true" && sender.company_comms_enabled && sender.enabled && sender.branch_comms_enabled;
+  // [comms-opt-out] Per-recipient opt-out gate (in addition to the comms gates).
+  const { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
   try {
     if (step.channel === "sms" && recipientPhone) {
-      if (sender.reason) {
+      if (await isSmsOptedOut(enr.company_id, recipientPhone)) {
+        sendStatus = "blocked";
+        sendError  = "sms_opt_out";
+        console.log(`[follow-up] SMS suppressed (sms_opt_out) enrollment ${enr.id}`);
+      } else if (sender.reason) {
         sendStatus = "blocked";
         sendError  = sender.reason;
         console.log(`[follow-up] SMS suppressed (${sender.reason}) enrollment ${enr.id}`);
@@ -541,12 +551,17 @@ async function processEnrollment(enr: any): Promise<void> {
         await sendSmsVia(sender, recipientPhone, body);
       }
     } else if (step.channel === "email" && recipientEmail) {
-      if (!masterGate) {
+      if (await isEmailOptedOut(enr.company_id, recipientEmail)) {
+        sendStatus = "blocked";
+        sendError  = "email_opt_out";
+        console.log(`[follow-up] email suppressed (email_opt_out) enrollment ${enr.id}`);
+      } else if (!masterGate) {
         sendStatus = "blocked";
         sendError  = sender.reason || "branch_comms_disabled";
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
-        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand);
+        const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
+        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand, unsub ?? undefined);
       }
     } else {
       sendStatus = "failed";

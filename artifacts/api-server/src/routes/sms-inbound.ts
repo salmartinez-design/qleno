@@ -245,8 +245,12 @@ router.post("/", async (req, res) => {
     const reviewBody = `Hi ${matchedClient.first_name}, thank you so much for your feedback! We'd love it if you took a moment to share your experience on Google — it means the world to our team: ${reviewLink}. Thank you — Phes`;
 
     if (rating === 4) {
-      // Send review SMS immediately
-      if (reviewLink && company.twilio_from_number && matchedClient.phone) {
+      // Send review SMS immediately — but honor a recorded SMS opt-out.
+      const { isSmsOptedOut } = await import("../lib/opt-out.js");
+      const optedOut = await isSmsOptedOut(company.id, matchedClient.phone);
+      if (optedOut) {
+        await logNotification(company.id, matchedClient.id, job.id, "review_request_skipped", "Client opted out of SMS. Review SMS not sent.");
+      } else if (reviewLink && company.twilio_from_number && matchedClient.phone) {
         await sendTwilioSms(normalizePhone(matchedClient.phone), company.twilio_from_number, reviewBody);
         await logMessage(company.id, matchedClient.id, job.id, "outbound", reviewBody, normalizePhone(matchedClient.phone), company.twilio_from_number);
       } else if (!reviewLink) {

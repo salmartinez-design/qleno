@@ -119,6 +119,19 @@ export const clientsTable = pgTable("clients", {
   // with a 0% no-fault clause).
   cancel_fee_pct: numeric("cancel_fee_pct", { precision: 5, scale: 2 }),
   lockout_fee_pct: numeric("lockout_fee_pct", { precision: 5, scale: 2 }),
+  // [comms-opt-out 2026-06-21] Compliance: per-client opt-out timestamps. NULL =
+  // opted in (the default). sms_opt_out_at is set by the Twilio inbound webhook
+  // on STOP/UNSUBSCRIBE/CANCEL/QUIT (cleared on START/UNSTOP); email_opt_out_at
+  // is set by the tokenized unsubscribe route / one-click List-Unsubscribe.
+  // EVERY automated send path checks the matching column before sending — SMS
+  // paths check sms_opt_out_at, email paths check email_opt_out_at. Storing the
+  // timestamp (not just a bool) keeps an audit of WHEN they opted out.
+  sms_opt_out_at: timestamp("sms_opt_out_at"),
+  email_opt_out_at: timestamp("email_opt_out_at"),
+  // Per-client, unguessable token for the email unsubscribe link + the
+  // List-Unsubscribe header. Backfilled for existing clients on cold start and
+  // generated for new clients; unique so a token resolves to exactly one client.
+  email_unsub_token: text("email_unsub_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
