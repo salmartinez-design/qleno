@@ -11,6 +11,7 @@ import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
+import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking } from "../services/followUpService.js";
 
 const router = Router();
 
@@ -872,7 +873,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${scopeLabel}, 'booking_widget', 'booked', ${jobId}, NOW(), NOW(), NOW()
         )
       `);
-      // Remove any abandoned booking for this email
+      // Booking finished — stop any abandoned-booking drip first (FK is
+      // ON DELETE SET NULL, so the delete below only nulls an already-stopped
+      // enrollment), then remove the abandoned booking for this email.
+      await stopEnrollmentsForAbandonedBooking(company_id, email, "booking_completed");
       await db.execute(drizzleSql`
         DELETE FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email}
       `);
@@ -1337,6 +1341,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
         drizzleSql`SELECT id FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email} LIMIT 1`
       );
       if (existing.rows.length > 0) {
+        const abId = (existing.rows[0] as any).id;
         await db.execute(drizzleSql`
           UPDATE abandoned_bookings SET
             first_name = COALESCE(${first_name || null}, first_name),
@@ -1349,14 +1354,19 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
+        // Idempotent enroll (no-ops if already enrolled or sequence inactive).
+        await enrollForAbandonedBooking(company_id, abId);
         return res.json({ ok: true, action: "updated" });
       }
     }
-    await db.execute(drizzleSql`
+    const inserted = await db.execute(drizzleSql`
       INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, created_at, updated_at)
       VALUES (${company_id}, ${first_name || null}, ${last_name || null}, ${email || null}, ${phone || null},
               ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned}, NOW(), NOW())
+      RETURNING id
     `);
+    const newAbId = (inserted.rows[0] as any)?.id;
+    if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
     return res.json({ ok: true, action: "created" });
   } catch (err: any) {
     console.error("POST /public/book/abandon-track:", err);
