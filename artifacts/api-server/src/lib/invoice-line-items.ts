@@ -16,14 +16,25 @@
 import { db } from "@workspace/db";
 import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
+import { ensureAutoPromosForJob } from "./auto-promos.js";
 
 export type InvoiceLineItem = { description: string; quantity: number; unit_price: number; total: number };
 
 export async function buildJobLineItems(
   companyId: number,
   jobId: number,
+  exec: any = db,
 ): Promise<{ lineItems: InvoiceLineItem[]; subtotal: number } | null> {
-  const [job] = await db
+  // [auto-promos 2026-06-21] Single chokepoint: ensure the job carries exactly
+  // the auto-promo it's entitled to (15% off 2nd recurring visit / any deep
+  // clean) as a job_discounts row BEFORE we read job_discounts below. This makes
+  // every invoice surface (completion, draft re-sync, office recalc) honor the
+  // advertised offers with no per-call-site wiring. Idempotent + self-healing.
+  // `exec` (pool by default) lets the verification harness run the whole flow in
+  // a rolled-back transaction.
+  await ensureAutoPromosForJob(companyId, jobId, exec);
+
+  const [job] = await exec
     .select({
       service_type: jobsTable.service_type,
       base_fee: jobsTable.base_fee,
@@ -50,7 +61,7 @@ export async function buildJobLineItems(
   let runningTotal = scopeAmount;
 
   if (!job.billed_amount) {
-    const addons = await db
+    const addons = await exec
       .select({
         name: addOnsTable.name,
         quantity: jobAddOnsTable.quantity,
@@ -72,12 +83,18 @@ export async function buildJobLineItems(
     }
   }
 
-  const jobDisc = await db.select().from(jobDiscountsTable)
+  const jobDisc = await exec.select().from(jobDiscountsTable)
     .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, companyId)));
   for (const d of jobDisc) {
     const amt = parseFloat(String(d.amount));
     runningTotal -= amt;
-    const label = `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
+    // Auto-promo rows (code AUTO_*) carry a human label in `reason` — show that
+    // alone so the invoice reads "Deep Clean Promo (15% off)", not the internal
+    // AUTO_ code. Other discounts keep the existing code/percent labeling.
+    const isAuto = typeof d.code === "string" && d.code.startsWith("AUTO_");
+    const label = isAuto && d.reason
+      ? String(d.reason)
+      : `Discount${d.code ? ` ${d.code}` : (d.type === "percent" ? ` ${parseFloat(String(d.value))}%` : "")}${d.reason && d.reason !== d.code ? ` — ${d.reason}` : ""}`;
     lineItems.push({ description: label, quantity: 1, unit_price: -amt, total: -amt });
   }
 
